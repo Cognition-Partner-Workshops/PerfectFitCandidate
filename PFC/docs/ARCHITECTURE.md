@@ -162,7 +162,7 @@ flowchart TB
 | Container | Technology | Responsibility | Lifecycle |
 |---|---|---|---|
 | SPA | TypeScript, React, CSS (built static files) | Dashboard, results grid, analytics, uploads, JD review, CV sync, email approval, OCC, settings | Served by FastAPI; runs in the user's browser |
-| API process | Embedded Python 3.12, FastAPI, Uvicorn (1 worker) | REST API, services, scoring, embeddings (ONNX Runtime in-process by default), job runner, COM worker | Started by `PFC.cmd`; one instance per user (lock file) |
+| API process | Embedded Python 3.13, FastAPI, Uvicorn (1 worker) | REST API, services, scoring, embeddings (ONNX Runtime in-process by default), job runner, COM worker | Started by `PFC.cmd`; one instance per user (lock file) |
 | Local LLM process | llama.cpp `llama-server.exe`, GGUF model | JD/CV extraction, email section drafting, chat (P2) | Started lazily by the API process; stopped on idle; restarted on crash |
 | Data store | SQLite file (WAL) with sqlite-vec and FTS5 | Business data, versions, results, audit log, vectors, keyword index | File in `data/db/` |
 | Outlook | Outlook desktop (user's profile) | Sending mail, calendar items | User-managed; driven via COM |

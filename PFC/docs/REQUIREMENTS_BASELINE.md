@@ -219,7 +219,7 @@ Weights come from the metadata sheet / docx and are held in an **admin-only, ver
 |---|---|---|---|
 | REQ-OUT-01 | Match results columns: Requisition, Start Date, Account, Role, Demand Grade, Role Location ("Unspecified" if none), Potential Person, Person Email (masked, **immediately after** Potential Person), Person Grade, Person Location, Match % (percentage + doughnut indicator), Match Band, Location Assessment, Matching Evidence, Gaps / Checks, Eligibility Evidence. | M | 1 |
 | REQ-OUT-02 | Values copied exactly from source (requisition ID, dates as genuine dates in a consistent format, account, role, grade, email). | M | 1 |
-| REQ-OUT-03 | Email masking default: mask 6 characters after the 2nd position (e.g. `alexander@…` → `al******er@…`); phone masked; authorised "Show details / Hide" with audit log. Masking is a presentation control, not encryption. | M | 1 |
+| REQ-OUT-03 | Email masking default: mask 6 characters after the 2nd position (e.g. CT sample `AlexBorder@capgemini.com` → `Al******er@capgemini.com`); phone masked; authorised "Show details / Hide" with audit log. Masking is a presentation control, not encryption. | M | 1 |
 | REQ-OUT-04 | Dashboard header summary: number of requisitions assessed; number of role-to-person combinations; number of roles with no suitable candidate; material data-quality limitations in DL/CT. | M | 1 |
 | REQ-OUT-05 | Demand analytics (Analyst B): e.g. top 5 skills in demand, top 3 accounts by JD count, open demands by BU / region, demand start-date pipeline. | M | 1 |
 | REQ-OUT-06 | Bench analytics (Analyst C): e.g. top 5 skills in pool, grade histogram, bench timeline bubble (bench start → end/today), bench aging, status distribution. | M | 1 |
@@ -346,6 +346,10 @@ Weights come from the metadata sheet / docx and are held in an **admin-only, ver
 | O-02 | Code Requisition format: sample IDs (e.g. `ABCD123`) don't follow `T1/T2XXXX`. | Validate as warning only. |
 | O-03 | Band gap between 60 % and 61 %. | Weak < 61 % (i.e. 60.x = Weak). |
 | O-04 | Exact skills sub-weighting (mandatory vs preferred vs semantic) within the 70 points. | Admin template default, tuned in Phase 1 UAT against KPI-01. |
-| O-05 | Final local LLM and embedding model choice. | Benchmarked in Phase 1 (see TDD / FEASIBILITY). |
+| O-05 | Final local LLM and embedding model choice. | Benchmarked in Phase 1 (see TDD / FEASIBILITY). Proposed candidates: Qwen3-4B-Instruct-2507 Q4_K_M (Apache-2.0) default, Qwen2.5-1.5B-Instruct (Apache-2.0) lite; Qwen2.5-3B excluded unless legal approves its non-commercial licence. |
 | O-06 | Corporate approval for CV processing, Outlook automation and external LLM use. | Confirm with IT/data-governance before Phase 1 pilot. |
 | O-07 | Number of candidates emailed per JD (docx says top 4, shortlist shows top 5). | Suggest top 4 pre-selected; analyst approves each. |
+| O-08 | How OCC changes (synonyms, scoring template, status list, resource-team list, user accounts, DL/CT approvals) reach each analyst's single-instance install before Phase 3 OneDrive metadata sync. | Suggest a signed OCC configuration export/import package (JSON) distributed via a shared/synced folder in Phase 1–2; replaced by metadata sync in Phase 3. |
+| O-09 | Which role leadership users receive. | Suggest Analyst role (read-only use of dashboard/reports); OCC remains Admin-only. |
+| O-10 | Bench Status values in the CT that are not on the OCC status list. | Suggest excluded from matching until OCC maps them; shown as a data-quality warning. |
+| O-11 | Whether "Roles with no suitable candidate" counts requisitions that only have Weak matches. | Suggest yes (no Strong/Potential/Avg. match), with Weak-only requisitions shown separately. |

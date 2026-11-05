@@ -302,7 +302,7 @@ Persona emphasis (all Analyst role): **A** lands on Dashboard but works mainly i
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ [PFC logo] PerfectFitCandidate  │ [/ Search requisitions, people, skills...  ] │ ↻ Sync ● │ [!]3 │ (PK) Praveen K ▾ │
+│ [PFC logo] PerfectFitCandidate  │ [/ Search requisitions, people, skills...  ] │ ↻ Sync ● │ [!]3 │ (OA) Olivia A. ▾ │
 │                                 │                                              │ status   │     │  Analyst        │
 ├──────────────────┬───────────────────────────────────────────────────────────────────────┤
 │ ▦ Dashboard      │ Dashboard                                   Filters ▾   [↓ PDF report] │
@@ -566,7 +566,7 @@ Button **"PDF report"** in the page header (REQ-OUT-09). Opens a small dialog: r
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ Demand List      Last upload: DL_Nov.xlsx · 04 Nov 2026 09:12 · by P. Kumar               │
+│ Demand List      Last upload: DL_Nov.xlsx · 04 Nov 2026 09:12 · by O. Admin               │
 │                                   [Auto-sync: Not configured]  [Analyze all new (9)]  [↑ Upload DL] │
 ├──────────────────────────────────────────────────────────────────────────────────────────┤
 │ [Search…]  [BU ▾] [Region ▾] [Account ▾] [Grade ▾] [JD status ▾] [Start date ⇔]   Columns ▾ │
@@ -672,7 +672,7 @@ Columns follow DL field order: Code Requisition, Position Start Date, Account Na
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ Bench List     Last upload: CT_Front_Sheet.xlsx · 04 Nov 2026 09:20 · by P. Kumar         │
+│ Bench List     Last upload: CT_Front_Sheet.xlsx · 04 Nov 2026 09:20 · by O. Admin         │
 │ Resume folder: C:\Users\…\OneDrive - Capgemini\Bench CVs  ● reachable                     │
 │                         [Auto-sync: Not configured]  [↻ Sync selected (0)]  [↑ Upload CT]  │
 │                                                         (disabled until ≥1 selected)      │
@@ -683,7 +683,7 @@ Columns follow DL field order: Code Requisition, Position Start Date, Account Na
 │☐ │ShortName │Name            │Email Address          │Grade│Location        │Bench Status          │Eligibility│Avail.  │Bench     │Group │Skills    │CV status │Action    │
 │  │          │                │                       │     │                │                      │          │Cap. ⓘ  │Start     │      │          │          │          │
 ├──┼──────────┼────────────────┼───────────────────────┼─────┼────────────────┼──────────────────────┼──────────┼────────┼──────────┼──────┼──────────┼──────────┼──────────┤
-│☐ │ALEXANDER │Alex Alexander  │Al******der@capgemini… │C1   │Edinburgh/Glasg.│Available             │✓ Eligible│Y       │12 Oct 26 │RG2   │SQL, BA…  │✓ Synced  │[↻ Sync]  │
+│☐ │ALEXANDER │Alex Alexander  │Al******er@capgemini… │C1   │Edinburgh/Glasg.│Available             │✓ Eligible│Y       │12 Oct 26 │RG2   │SQL, BA…  │✓ Synced  │[↻ Sync]  │
 │  │          │                │  ◉ Show               │     │                │                      │          │        │          │      │          │ 2 CVs    │          │
 │☐ │BSMITH    │Bea Smith       │Be******th@capgemini.… │C2   │London          │CV with client -      │⚠ Eligible│N       │01 Sep 26 │RG1   │PM, Agile │✕ Not     │[↻ Sync]  │
 │  │          │                │  ◉ Show               │     │                │ Demand Proposed      │ caveat   │        │          │      │          │  found   │          │
@@ -719,7 +719,7 @@ Exclusion reasons (shown as text after the badge, multiple allowed, and in a too
 
 ### 10.4 Masked email with Show/Hide
 
-Email displayed masked by default: first 2 characters, then 6 masked characters, then the remainder (e.g. `Al******der@capgemini.com`) (REQ-OUT-03). The eye toggle **Show** reveals the full address for that row until **Hide** or page navigation; each Show writes an audit entry (user, candidate, timestamp) (REQ-AUTH-05). Copying the email copies the exact source value (REQ-IN-14). Phone numbers, where extracted from CVs, follow the same pattern on the Candidate Profile.
+Email displayed masked by default: first 2 characters, then 6 masked characters, then the remainder (e.g. `Al******er@capgemini.com`) (REQ-OUT-03). The eye toggle **Show** reveals the full address for that row until **Hide** or page navigation; each Show writes an audit entry (user, candidate, timestamp) (REQ-AUTH-05). Copying the email copies the exact source value (REQ-IN-14). Phone numbers, where extracted from CVs, follow the same pattern on the Candidate Profile.
 
 ### 10.5 States
 
@@ -778,7 +778,7 @@ Users may hide columns for their view; they may not reorder the 16 data columns 
 │☐ │ # │Requis.│Start Date│Account │Role  │D.Gr│Role Loc│Potential │Person Email  │P. │Person  │Match │Band     │Loc.     │Matching │Gaps /   │Elig.    │ ⋯   │
 │  │   │       │          │        │      │    │        │Person    │              │Gr.│Location│%     │         │Assess.  │Evidence │Checks   │Evidence │     │
 ├──┼───┼───────┼──────────┼────────┼──────┼────┼────────┼──────────┼──────────────┼───┼────────┼──────┼─────────┼─────────┼─────────┼─────────┼─────────┼─────┤
-│☑ │#1 │T1A123 │15 Dec 26 │Acme Bk │TC14_…│D1  │London  │A. Alex.  │Al******der@… │D1 │London  │◕ 93 %│✓ Strong │Aligned  │BA, SQL… │None     │Blank BED│ ⋯   │
+│☑ │#1 │T1A123 │15 Dec 26 │Acme Bk │TC14_…│D1  │London  │A. Alex.  │Al******er@… │D1 │London  │◕ 93 %│✓ Strong │Aligned  │BA, SQL… │None     │Blank BED│ ⋯   │
 │  │⚑ │       │          │        │      │    │        │          │ ◉            │   │        │      │         │         │ ▸ more  │         │ ▸ more  │     │
 │☑ │#2 │T1A123 │15 Dec 26 │Acme Bk │TC14_…│D1  │London  │B. Smith  │Be******th@…  │C2 │Glasgow │◔ 84 %│Potential│Pot. trav│PM, Agile│±1 grade;│⚠ CV with│ ⋯   │
 │  │   │       │          │        │      │    │        │          │ ◉            │±1 │        │      │         │         │         │ ▸ more  │ client  │     │
@@ -829,12 +829,12 @@ Users may hide columns for their view; they may not reorder the 16 data columns 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
 │ ‹ Back   (AA) Alex Alexander · ALEXANDER                         [↻ Sync CV] [✉ Draft email] │
-│          Al******der@capgemini.com ◉ Show · Phone +44 ******89 ◉ · C1 · Edinburgh/Glasgow │
+│          Al******er@capgemini.com ◉ Show · Phone +44 ******89 ◉ · C1 · Edinburgh/Glasgow │
 │          ✓ Eligible · Available · RG2 (Owner: J. Doe) · Internal (P2)                     │
 ├─ Overview │ CV versions (2) │ Skills & evidence │ Matches & score history │ Activity ──────┤
 │ ┌───────────── CT data (as uploaded) ─────────────┐ ┌──────── Eligibility ───────────────┐ │
 │ │ ShortName        ALEXANDER                      │ │ ✓ Status Available (priority 1)    │ │
-│ │ Email Address    Al******der@capgemini.com      │ │ ✓ Group RG2 (not "Not on Bench")   │ │
+│ │ Email Address    Al******er@capgemini.com      │ │ ✓ Group RG2 (not "Not on Bench")   │ │
 │ │ Grade            C1                             │ │ ✓ Bench End Date blank             │ │
 │ │ Location         Edinburgh/Glasgow              │ │ ✓ Grade recorded                   │ │
 │ │ Bench Status     Available                      │ │ ✓ Skills sufficient                │ │
@@ -919,7 +919,7 @@ Raised when CV extraction or identity resolution finds a missing name or email, 
 │ [Draft][Approved][Sent][Failed]│ T1A123 · TC14_Data Business Analyst · Acme Bank         │
 │ [Search…]                     │ Candidate: Alex Alexander · ◕ 93 % Strong   Status: Draft │
 │ ▾ T1A123 · Acme Bank  ⏱ 6 h left│─────────────────────────────────────────────────────────│
-│   ☑ #1 A. Alexander 93 % Draft│ To   Al******der@capgemini.com ◉                         │
+│   ☑ #1 A. Alexander 93 % Draft│ To   Al******er@capgemini.com ◉                         │
 │   ☑ #2 B. Smith    84 % Draft │ CC   Resource team (3) ▾  bench.team@…, …   [Edit list ›] │
 │   ☑ #3 C. Patel    81 % Draft │ Subject [ Opportunity: TC14 Data Business Analyst (T1A123) ]│
 │   ☑ #4 D. Okafor   78 % Draft │ Attach  JD_T1A123.pdf (generated)                       │
@@ -1065,7 +1065,7 @@ States: path test failure (inline error "Folder not found or not accessible"), s
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ ◈ OCC — Object Control Center                                          Admin: P. Kumar   │
+│ ◈ OCC — Object Control Center                                          Admin: O. Admin   │
 ├──────────────────────┬───────────────────────────────────────────────────────────────────┤
 │ OVERVIEW             │ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌────────────┐ │
 │ PEOPLE & ACCESS      │ │ Approval     │ │ Users        │ │ Scoring      │ │ Audit (24h)│ │
@@ -1113,7 +1113,7 @@ Table: Name, corporate email, role (Admin/Analyst), persona tag (A/B/C, informat
 ```text
 ┌ Users & passwords ─────────────────────────────────────────────────── [+ Add user] ┐
 │ Name          Email                       Role     Persona Status   Last sign-in   │
-│ Praveen K.    pr******ar@capgemini.com    Admin    —       Active   04 Nov 09:01  ⋯ │
+│ Olivia Admin  Ol******in@capgemini.com    Admin    —       Active   04 Nov 09:01  ⋯ │
 │ Bea Smith     be******th@capgemini.com    Analyst  A       Locked   03 Nov 17:22 ⋯ │
 │                                                   [Unlock] [Reset password] [Disable]│
 └────────────────────────────────────────────────────────────────────────────────────┘
@@ -1133,7 +1133,7 @@ Uploaded changes apply immediately for matching (REQ-ING-03); the queue lets the
 ├──┬──────┬──────────────┬──────────┬────────────────────┬───────────┬─────────────────┤
 │☐ │Source│Key           │Change    │Uploaded by / at    │Fields     │                 │
 ├──┼──────┼──────────────┼──────────┼────────────────────┼───────────┼─────────────────┤
-│☐ │CT    │BSMITH + Be***│Updated   │P. Kumar 04 Nov 9:20│Status,    │[Review ›]       │
+│☐ │CT    │BSMITH + Be***│Updated   │O. Admin 04 Nov 9:20│Status,    │[Review ›]       │
 │☐ │DL    │T1C789        │New       │A. Rao 04 Nov 9:12  │—          │[Review ›]       │
 ├──┴──────┴──────────────┴──────────┴────────────────────┴───────────┴─────────────────┤
 │ Review: CT · BSMITH                                                                   │
