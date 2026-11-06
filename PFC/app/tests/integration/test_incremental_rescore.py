@@ -5,7 +5,7 @@ import random
 import sqlite3
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import pytest
 from docx import Document
@@ -231,7 +231,7 @@ def test_incremental_equals_full(
     calls = []
     original = engine.score_basis
 
-    def counted(demand, resource, *args, **kwargs):
+    def counted(demand: Any, resource: Any, *args: Any, **kwargs: Any) -> Any:
         calls.append((demand.code_requisition, resource.resource_id))
         return original(demand, resource, *args, **kwargs)
 
@@ -322,7 +322,7 @@ def test_incremental_persistence_rolls_back(
     with database(settings) as db:
         before = persisted(db, base)
 
-    def interrupt(*args, **kwargs):
+    def interrupt(*args: Any, **kwargs: Any) -> NoReturn:
         raise error("stop after carry-forward")
 
     monkeypatch.setattr(runs, "rerank", interrupt)
