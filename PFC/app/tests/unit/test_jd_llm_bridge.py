@@ -119,6 +119,42 @@ def test_grounded_evidence_wins_over_first_occurrence() -> None:
     assert result["preferred_skills"][0]["classification_reason"] == "classification_adjusted"
 
 
+@pytest.mark.parametrize("evidence", [None, "SQL is definitely essential"])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "SQL is required. Advanced SQL tuning would be a plus.",
+        "SQL would be a plus. Advanced SQL tuning is required.",
+        "SQL supports reporting. Preferred skills:\nSQL",
+        "Required skills:\nSQL\nPreferred skills:\nSQL",
+    ],
+)
+def test_repeated_skill_conflict_or_unclassified_occurrence_is_unchanged(
+    text: str, evidence: str | None
+) -> None:
+    item = {"text": "SQL", "evidence": evidence}
+    value = {"mandatory_skills": [item], "preferred_skills": [item]}
+    assert _ground_skills(text, value) is value
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "SQL is required. SQL is essential.",
+        "Required skills:\nSQL\nAdvanced SQL tuning",
+        "SQL is required. PostgreSQL would be a plus.",
+    ],
+)
+def test_all_whole_word_occurrences_agree(text: str) -> None:
+    item = {"text": "SQL"}
+    value = {"mandatory_skills": [item], "preferred_skills": [item]}
+    result = _ground_skills(text, value)
+    assert result["mandatory_skills"] == [
+        {**item, "classification_reason": "classification_adjusted"}
+    ]
+    assert result["preferred_skills"] == []
+
+
 def test_mixed_clause_split_and_single_item_preservation() -> None:
     sql, redis = {"text": "SQL"}, {"text": "Redis"}
     value = {"mandatory_skills": [sql, redis], "preferred_skills": [redis]}

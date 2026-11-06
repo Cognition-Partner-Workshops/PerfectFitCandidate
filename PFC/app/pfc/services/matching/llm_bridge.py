@@ -80,20 +80,7 @@ def _ground_skills(text: str, value: dict[str, Any]) -> dict[str, Any]:
         clauses.append((offset + start, offset + len(line)))
         offset += len(line) + 1
 
-    def destination(item: dict[str, Any]) -> str | None:
-        evidence = _normalised(item.get("evidence") or "")
-        position = jd.find(evidence) if evidence else -1
-        if position >= 0:
-            context = evidence
-        else:
-            skill = _normalised(item["text"])
-            if not skill:
-                return None
-            occurrence = re.search(r"(?<!\w)" + re.escape(skill) + r"(?!\w)", jd)
-            if occurrence is None:
-                return None
-            position = occurrence.start()
-            context = next((jd[a:b] for a, b in clauses if a <= position < b), "")
+    def classify(context: str, position: int) -> str | None:
         if _has_negated_cue(context):
             return None
         found = [field for field, pattern in _CUES.items() if pattern.search(context)]
@@ -103,6 +90,23 @@ def _ground_skills(text: str, value: dict[str, Any]) -> dict[str, Any]:
                 return None
             found = [field for field, pattern in _CUES.items() if pattern.search(heading)]
         return found[0] if len(found) == 1 else None
+
+    def destination(item: dict[str, Any]) -> str | None:
+        evidence = _normalised(item.get("evidence") or "")
+        position = jd.find(evidence) if evidence else -1
+        if position >= 0:
+            return classify(evidence, position)
+        skill = _normalised(item["text"])
+        if not skill:
+            return None
+        targets = {
+            classify(
+                next((jd[a:b] for a, b in clauses if a <= occurrence.start() < b), ""),
+                occurrence.start(),
+            )
+            for occurrence in re.finditer(r"(?<!\w)" + re.escape(skill) + r"(?!\w)", jd)
+        }
+        return next(iter(targets)) if len(targets) == 1 else None
 
     decisions: dict[str, set[str | None]] = {}
     for field in _CUES:
