@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from pfc.api.routers.auth import router as auth_router
 from pfc.api.routers.health import router as health_router
@@ -16,7 +18,7 @@ from pfc.jobs.router import router as jobs_router
 from pfc.jobs.runner import JobRunner
 from pfc.security.middleware import install_middleware
 from pfc.security.passwords import hasher
-from pfc.security.problems import install_handlers
+from pfc.security.problems import Problem, install_handlers
 from pfc.security.setup import code_path, generate_setup_code
 
 
@@ -50,4 +52,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(jobs_router, prefix="/api/v1")
+    frontend = settings.frontend_dir.resolve()
+    if (frontend / "index.html").is_file():
+        if (frontend / "assets").is_dir():
+            app.mount("/assets", StaticFiles(directory=frontend / "assets"), name="assets")
+
+        @app.get("/{path:path}", include_in_schema=False)
+        def spa(path: str) -> FileResponse:
+            if path == "api" or path.startswith("api/"):
+                raise Problem(404, "HTTP_404", "Not Found")
+            candidate = (frontend / path).resolve()
+            if candidate.is_relative_to(frontend) and candidate.is_file():
+                return FileResponse(candidate)
+            return FileResponse(frontend / "index.html")
+
     return app
