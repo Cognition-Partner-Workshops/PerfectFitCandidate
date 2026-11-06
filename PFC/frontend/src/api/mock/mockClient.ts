@@ -90,7 +90,7 @@ interface MockAuditEntry {
 }
 
 interface MockState {
-  /** Reasons data changed since the mock run; cleared when a JD is confirmed (which re-runs matching). */
+  /** Reasons data changed since the mock run finished. The mock never completes a new run, so they are only cleared on reset. */
   dataChanges?: string[]
   users: MockUser[]
   sessionUserId: number | null
@@ -559,7 +559,7 @@ export class MockApiClient implements ApiClient {
     const d = this.state.demands.find((x) => x.demandId === demandId)
     if (!d) fail(404, 'Demand not found', 'NOT_FOUND')
     d.jdStatus = 'Scored'
-    this.state.dataChanges = []
+    this.noteDataChange('JD confirmed')
     this.audit(`JD requirements confirmed for ${d.codeRequisition}; scoring queued`)
     return this.done(undefined)
   }

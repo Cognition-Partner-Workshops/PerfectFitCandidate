@@ -32,11 +32,11 @@ describe('Data changed since this run banner', () => {
     expect(screen.queryByText('Data changed since this run')).toBeNull()
   })
 
-  it('mock flags DL/CT commits and CV syncs, and a confirmed JD re-run clears them', async () => {
+  it('mock flags DL/CT commits, CV syncs and JD confirmations against the completed run', async () => {
     await mock.commitIngestion(1)
     await mock.syncCvs([(await mock.listResources())[0].resourceId])
     expect((await mock.listMatchRuns())[0]).toMatchObject({ dataChangedSinceRun: true, dataChangedReasons: ['DL/CT committed', 'CV synced'] })
     await mock.confirmRequirements((await mock.listDemands())[0].demandId)
-    expect((await mock.listMatchRuns())[0]).toMatchObject({ dataChangedSinceRun: false, dataChangedReasons: [] })
+    expect((await mock.listMatchRuns())[0]).toMatchObject({ dataChangedSinceRun: true, dataChangedReasons: ['DL/CT committed', 'CV synced', 'JD confirmed'] })
   })
 })
