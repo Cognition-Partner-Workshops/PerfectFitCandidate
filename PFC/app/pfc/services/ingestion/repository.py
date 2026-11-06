@@ -90,7 +90,12 @@ def parse(db: sqlite3.Connection, path: Path, kind: Literal["DL", "CT"]) -> Prev
 
 
 def save_review(
-    db: sqlite3.Connection, settings: Settings, run_id: int, preview: Preview
+    db: sqlite3.Connection,
+    settings: Settings,
+    run_id: int,
+    preview: Preview,
+    *,
+    write_snapshot: bool = True,
 ) -> ReviewSnapshot:
     diff = preview.diff(existing_hashes(db, preview.kind))
     counts = RunCounts(
@@ -102,7 +107,8 @@ def save_review(
         rows_incomplete=len(diff.incomplete),
     )
     snapshot = ReviewSnapshot(diff=diff, counts=counts)
-    snapshot_path(settings, run_id).write_text(snapshot.model_dump_json(), encoding="utf-8")
+    if write_snapshot:
+        snapshot_path(settings, run_id).write_text(snapshot.model_dump_json(), encoding="utf-8")
     db.execute(
         "UPDATE ingestion_runs SET sheet_name=?, header_row=?, rows_read=?, rows_new=?, "
         "rows_updated=?, rows_unchanged=?, rows_rejected=? WHERE ingestion_run_id=?",

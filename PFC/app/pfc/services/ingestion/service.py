@@ -98,7 +98,7 @@ def commit(settings: Settings, run_id: int, user_id: int, now: str) -> Ingestion
             preview = repo.parse(db, path, run["kind"])
         except (ValueError, BadZipFile, InvalidFileException) as exc:
             raise Problem(422, "INVALID_WORKBOOK", "Stored workbook could not be parsed") from exc
-        snapshot = repo.save_review(db, settings, run_id, preview)
+        snapshot = repo.save_review(db, settings, run_id, preview, write_snapshot=False)
         apply_preview(db, preview, run_id, now)
         db.execute(
             "UPDATE ingestion_runs SET status='committed', committed_at=? WHERE ingestion_run_id=?",
@@ -113,6 +113,8 @@ def commit(settings: Settings, run_id: int, user_id: int, now: str) -> Ingestion
             entity_id=str(run_id),
             details={"run_id": run_id, **snapshot.counts.model_dump()},
         )
+    repo.snapshot_path(settings, run_id).write_text(snapshot.model_dump_json(), encoding="utf-8")
+    with database(settings) as db:
         return repo.run_response(db, settings, run_id)
 
 

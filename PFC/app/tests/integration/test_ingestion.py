@@ -1098,3 +1098,45 @@ def test_req_in_24_identical_copy_keeps_original_cv_provenance(
         assert history[0]["source_path"] == "Alex original.docx"
         assert history[0]["file_name"] == "Alex original.docx"
         assert history[0]["file_mtime"] == before["file_mtime"]
+
+
+def test_req_ing_03_failed_commit_preserves_original_preview_sidecar(client: TestClient) -> None:
+    pending = upload(
+        client,
+        "ct",
+        [
+            {},
+            {"ShortName": "Taylor", "Email Address": "taylor@example.com"},
+        ],
+    )
+    run_id = pending["ingestion_run_id"]
+    sidecar = client.app.state.settings.data_dir / "uploads" / f"{run_id}.json"
+    original = sidecar.read_bytes()
+    commit(client, upload(client, "ct", [{}]))
+    with database(client.app.state.settings) as db:
+        for candidate_id in (10, 11):
+            db.execute(
+                "INSERT INTO candidates(candidate_id,internal_ref,identity_status,"
+                "created_at,updated_at) "
+                "VALUES (?,?,'ambiguous','2026-01-01','2026-01-01')",
+                (candidate_id, f"PFC-C-{candidate_id:06d}"),
+            )
+            db.execute(
+                "INSERT INTO candidate_emails(candidate_id,email,email_key,source) "
+                "VALUES (?,'taylor@example.com','taylor@example.com','CT')",
+                (candidate_id,),
+            )
+    response = client.post(f"/api/v1/ingestion-runs/{run_id}/commit")
+    assert response.status_code == 409
+    assert response.json()["code"] == "AMBIGUOUS_IDENTITY"
+    assert sidecar.read_bytes() == original
+    assert client.get(f"/api/v1/ingestion-runs/{run_id}").json() == pending
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT count(*) FROM resources").fetchone()[0] == 1
+        assert (
+            db.execute(
+                "SELECT rows_new FROM ingestion_runs WHERE ingestion_run_id=?", (run_id,)
+            ).fetchone()[0]
+            == 2
+        )
+        assert verify_chain(db)
