@@ -46,6 +46,6 @@ class VectorStore(Protocol):
 
 @dataclass(frozen=True)
 class MatchingPorts:
-    embedder: Embedder | None
+    embedder: Embedder | None = None
     llm: LlmProvider | None = None
     vector_store: VectorStore | None = None

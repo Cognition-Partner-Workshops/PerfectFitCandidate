@@ -59,7 +59,8 @@ def list_runs(db: sqlite3.Connection, *, limit: int = 50, offset: int = 0) -> li
     return [
         dict(row)
         for row in db.execute(
-            "SELECT * FROM match_runs ORDER BY run_id DESC LIMIT ? OFFSET ?",
+            "SELECT r.*,t.version AS template_version FROM match_runs r "
+            "JOIN scoring_templates t USING(template_id) ORDER BY run_id DESC LIMIT ? OFFSET ?",
             (limit, offset),
         )
     ]
@@ -67,24 +68,31 @@ def list_runs(db: sqlite3.Connection, *, limit: int = 50, offset: int = 0) -> li
 
 def get_run(db: sqlite3.Connection, run_id: int) -> dict[str, Any] | None:
     reconcile_runs(db, run_id)
-    row = db.execute("SELECT * FROM match_runs WHERE run_id=?", (run_id,)).fetchone()
+    row = db.execute(
+        "SELECT r.*,t.version AS template_version FROM match_runs r "
+        "JOIN scoring_templates t USING(template_id) WHERE run_id=?",
+        (run_id,),
+    ).fetchone()
     return dict(row) if row else None
 
 
 def _paging(limit: int, offset: int) -> None:
-    if not 1 <= limit <= 1000 or offset < 0:
-        raise ValueError("limit must be 1..1000 and offset nonnegative")
+    if not 1 <= limit <= 5000 or offset < 0:
+        raise ValueError("limit must be 1..5000 and offset nonnegative")
 
 
 def _rows(db: sqlite3.Connection, run_id: int) -> list[dict[str, Any]]:
     rows = db.execute(
         "SELECT m.*,d.code_requisition AS requisition,d.position_start_date AS start_date,"
-        "d.account_name AS account,d.demand_request_name AS role,"
+        "d.account_name AS account,d.demand_request_name AS role,d.bu,"
         "d.code_local_grade AS demand_grade,"
         "COALESCE(NULLIF(d.region,''),'Unspecified') AS role_location,"
         "r.short_name AS potential_person,r.email_address AS person_email,r.grade AS person_grade,"
-        "r.location AS person_location,r.bench_status AS status,b.inputs_json AS scored_inputs "
+        "r.location AS person_location,r.bench_status AS status,b.inputs_json AS scored_inputs,"
+        "COALESCE(c.classification_override,c.classification,'Unknown') AS candidate_type,"
+        "COALESCE(c.identity_status!='complete',0) AS incomplete_identity "
         "FROM match_results m JOIN demands d USING(demand_id) JOIN resources r USING(resource_id) "
+        "LEFT JOIN candidates c ON c.candidate_id=m.candidate_id "
         "LEFT JOIN score_breakdowns b ON b.result_id=m.result_id AND b.component='skills' "
         "WHERE m.run_id=? ORDER BY m.demand_id,m.rank,m.result_id",
         (run_id,),

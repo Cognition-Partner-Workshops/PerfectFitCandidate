@@ -108,7 +108,8 @@ def get_requirements(db: sqlite3.Connection, demand_id: int) -> dict[str, Any] |
     version = _current(db, demand_id)
     row = db.execute(
         "SELECT * FROM jd_requirements WHERE demand_version_id=? "
-        "AND status IN ('draft','confirmed') ORDER BY revision DESC LIMIT 1",
+        "AND status IN ('draft','confirmed') "
+        "ORDER BY CASE status WHEN 'draft' THEN 0 ELSE 1 END,revision DESC LIMIT 1",
         (version["demand_version_id"],),
     ).fetchone()
     if row is None:
@@ -216,6 +217,24 @@ def analyze_jd(
             demand_id=demand_id,
             extracted_by=extracted_by,
         )
+    result = get_requirements(db, demand_id)
+    assert result is not None
+    return result
+
+
+def save_draft(
+    db: sqlite3.Connection,
+    demand_id: int,
+    edited_requirements: dict[str, Any],
+    user_id: int,
+    now: datetime,
+) -> dict[str, Any]:
+    data = Requirements.model_validate(edited_requirements)
+    config = load_domain_config()
+    with atomic(db):
+        version = _current(db, demand_id)
+        req_id = _write(db, version["demand_version_id"], data, "manual", now, config)
+        audit(db, "jd.edit", "jd_requirements", req_id, user_id, now, demand_id=demand_id)
     result = get_requirements(db, demand_id)
     assert result is not None
     return result

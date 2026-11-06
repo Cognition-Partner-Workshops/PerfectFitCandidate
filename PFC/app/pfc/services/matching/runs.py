@@ -298,6 +298,7 @@ def _persist(
                         "requisition": demand.code_requisition,
                         "start_date": meta["position_start_date"],
                         "account": meta["account_name"],
+                        "bu": meta["bu"],
                         "role": meta["demand_request_name"],
                         "demand_grade": demand.grade,
                         "role_location": meta["region"] or "Unspecified",

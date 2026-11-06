@@ -1,7 +1,7 @@
 """Matching service API; adapters and HTTP are supplied by callers."""
 
 from .ports import ChunkOwner, Embedder, LlmProvider, MatchingPorts, VectorStore
-from .requirements import analyze_jd, confirm_requirements, get_requirements
+from .requirements import analyze_jd, confirm_requirements, get_requirements, save_draft
 from .results import (
     ResultFilters,
     add_override,
@@ -24,6 +24,7 @@ __all__ = [
     "analyze_jd",
     "confirm_requirements",
     "get_requirements",
+    "save_draft",
     "ResultFilters",
     "add_override",
     "revoke_override",
