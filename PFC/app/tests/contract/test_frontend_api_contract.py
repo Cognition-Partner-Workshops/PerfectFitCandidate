@@ -48,16 +48,9 @@ PENDING: dict[Route, str] = {
     ("GET", "/api/v1/analytics/match"): "W2-5 analytics/export",
     ("GET", "/api/v1/analytics/summary"): "W2-5 analytics/export",
     ("GET", "/api/v1/candidates/{}"): "W2-1 ingestion",
-    ("GET", "/api/v1/demands/{}/requirements"): "W2-1 ingestion",
-    ("GET", "/api/v1/match-runs"): "W2-2 matching #10",
-    ("GET", "/api/v1/match-runs/{}/results"): "W2-2 matching #10",
     ("GET", "/api/v1/occ/approvals"): "W2-1 ingestion: OCC approvals",
-    ("POST", "/api/v1/demands/analyze"): "W2-1 ingestion",
-    ("POST", "/api/v1/demands/{}/requirements/confirm"): "W2-1 ingestion",
-    ("POST", "/api/v1/match-results/{}/overrides"): "W2-2 matching #10",
     ("POST", "/api/v1/pii/unmask"): "W2-2 matching #10",
     ("PUT", "/api/v1/candidates/{}/identity"): "W2-1 ingestion",
-    ("PUT", "/api/v1/demands/{}/requirements"): "W2-1 ingestion",
     ("PUT", "/api/v1/occ/bench-statuses"): (
         "MISMATCH: merged OCC router only updates /occ/bench-statuses/{code}"
     ),
