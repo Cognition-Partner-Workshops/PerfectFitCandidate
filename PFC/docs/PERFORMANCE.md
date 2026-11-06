@@ -216,3 +216,45 @@ verifying the two local artifacts against `packaging/MODELS.lock`:
 python scripts/validate_embedding_model.py \
   --model-dir /home/ubuntu/pfc-models/nomic-embed-text-v1.5/
 ```
+
+## Incremental re-scoring — REQ-MAT-07 (Linux VM)
+
+Measured on the implementation worktree based on `0a27b6f`, using
+`tests/perf/test_incremental_perf.py`: 500 demands × 500 resources, seed 19401.
+A full baseline is followed by edits to 25 demands and 25 resources: **5% of
+each population, and 5% of the 1,000 input rows**. The dirty Cartesian union is
+9.75% of the possible pairs before eligibility filtering. Demand start dates
+and resource locations change; the incremental and exhaustive comparison runs
+both see exactly the same changed data.
+
+| Operation | Wall time |
+|---|---:|
+| Initial full baseline | 25.313 s |
+| Incremental, 5% dirty inputs | **8.464 s** |
+| Full, same changed inputs | **23.800 s** |
+| Full / incremental speedup | **2.812×** |
+
+This is a 64.4% wall-time reduction. The test compares all persisted result
+columns except generated IDs, plus the per-demand/run summary. The seeded
+integration acceptance tests additionally compare all CV scores, breakdowns,
+exclusions and evidence, including duplicate-candidate and shortlist changes.
+
+The production domain scorer and SQLite persistence run with deterministic fake
+embedding/vector-store ports. Vectors are primed before the baseline; neither
+timed comparison makes an embedding call. Timing includes request dispatch,
+input loading/fingerprinting, scoring or SQL copy-forward, merged selection,
+and persistence. Incremental runs still re-rank every persisted pair; only dirty
+pairs are re-scored. This is a warm-vector matching benchmark, not a measurement
+of extraction, model inference, target-laptop performance or UI latency.
+
+Environment: Linux 6.8.0-1060-aws x86_64, Intel Xeon Processor, 8 logical CPUs,
+31.3 GiB RAM, Python 3.12.16. The entire perf selection passed: **4 tests in
+89.19 s**. The unchanged 500×500 full benchmark scored 60,455 eligible pairs in
+24.096 s; analytics medians were summary 0.079 s, demand 0.055 s, bench 0.076 s
+and match 0.686 s. Existing 180 s matching / 2 s analytics guards are unchanged;
+the incremental test also requires it to beat the same-data full run.
+
+Reproduce from `PFC/app` with the backend environment loaded:
+```sh
+pytest -m perf -s tests/perf
+```
