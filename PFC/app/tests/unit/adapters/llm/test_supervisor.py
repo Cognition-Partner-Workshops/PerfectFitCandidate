@@ -27,6 +27,11 @@ record.with_suffix(".key").write_text(os.environ.get("LLAMA_API_KEY", ""))
 record.with_suffix(".env.json").write_text(json.dumps({
     name: os.environ.get(name) for name in ("LLAMA_API_KEY", "LLAMA_ARG_API_KEY")
 }))
+lines = record.with_suffix(".lines.json")
+if lines.exists():
+    for index, line in enumerate(json.loads(lines.read_text())):
+        print(line.replace("__CHILD_KEY__", os.environ["LLAMA_API_KEY"]),
+              file=sys.stdout if index % 2 else sys.stderr, flush=True)
 if "ignore" in record.name:
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
 temporary = record.with_suffix(".tmp")
@@ -169,6 +174,55 @@ def test_api_key_passed_only_in_environment(settings: Settings, tmp_path: Path) 
             assert service.check().status == "ok"
         finally:
             await service.stop()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("mode", ["logging", "exit"])
+def test_native_lines_are_filtered_before_child_log_write(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    fixture = Path(__file__).parents[3] / "fixtures" / "llama_b8936_windows.json"
+    cases = json.loads(fixture.read_text(encoding="utf-8"))["cases"]
+    lines = [line for group in cases.values() for line in group]
+    lines += [
+        "main: model loading error: __CHILD_KEY__",
+        "main: model loading error: PARENT_KEY_ONE PARENT_KEY_TWO Bearer UNKNOWN_BEARER",
+        "main: prompt: PRIVATE_PROMPT",
+        "main: completion: PRIVATE_COMPLETION",
+        "main: request body: PRIVATE_BODY",
+        r"main: loading model 'D:\CustomProfile\private-user\models\one.gguf'",
+    ]
+    (tmp_path / f"{mode}.lines.json").write_text(json.dumps(lines))
+    monkeypatch.setenv("LLAMA_API_KEY", "PARENT_KEY_ONE")
+    monkeypatch.setenv("LLAMA_ARG_API_KEY", "PARENT_KEY_TWO")
+    monkeypatch.setenv("USERPROFILE", r"D:\CustomProfile\private-user")
+
+    async def scenario() -> None:
+        service = supervisor(settings, tmp_path, mode)
+        await service.start("one", settings.models_dir / "one.gguf")
+        capture = service._log_capture
+        await service.stop()
+        assert service._log_capture is None
+        if capture is not None:
+            assert capture.thread is not None and not capture.thread.is_alive()
+        output = (settings.data_dir / "logs" / "llm.log").read_text(encoding="utf-8")
+        assert "main: model loaded" in output and "couldn't bind HTTP server socket" in output
+        assert "failed to open GGUF file" in output and "<profile>" in output
+        key = (tmp_path / f"{mode}.key").read_text()
+        for sensitive in (
+            key,
+            "PARENT_KEY_ONE",
+            "PARENT_KEY_TWO",
+            "UNKNOWN_BEARER",
+            "PRIVATE_PROMPT",
+            "PRIVATE_COMPLETION",
+            "PRIVATE_BODY",
+            "fixture-user",
+            "private-user",
+            "capture-key-suffix",
+        ):
+            assert sensitive not in output
 
     asyncio.run(scenario())
 
