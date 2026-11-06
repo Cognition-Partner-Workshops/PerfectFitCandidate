@@ -18,7 +18,13 @@ from pfc.services.packages.common import PackageServiceError
 from pfc.services.packages.export import ExportResult, export_settings
 from pfc.services.packages.importer import SettingsImporter
 from pfc.services.packages.keys import SigningKeys, load_trusted_keys
-from pfc.services.packages.payloads import TABLES, encode_snapshot, snapshot
+from pfc.services.packages.payloads import (
+    TABLES,
+    decode_snapshot,
+    encode_snapshot,
+    replace_snapshot,
+    snapshot,
+)
 
 from .conftest import NOW, initialize, trust
 
@@ -288,6 +294,26 @@ def test_export_monotonic_active_version_and_concurrent_calls(
     assert versions == [2, 3]
     with database(source) as db:
         assert db.execute("SELECT count(*) FROM audit_log").fetchone()[0] == 3
+
+
+@pytest.mark.parametrize("existing", [True, False])
+def test_rollback_accounts_preserve_credentials_and_honor_activation(
+    pair: tuple[Settings, Settings], existing: bool
+) -> None:
+    source, target = pair
+    package = exported(source).path.read_bytes()
+    data = decode_snapshot(verify_export(source, target, package).settings_payloads)
+    data["analysts"][0]["is_active"] = 0
+    with database(target) as db:
+        if not existing:
+            db.execute("DELETE FROM users WHERE email='analyst@example.com'")
+        replace_snapshot(db, data, actor_id=1, now=NOW, preserve_credentials=True)
+        user = db.execute("SELECT * FROM users WHERE email='analyst@example.com'").fetchone()
+        assert user["is_active"] == 0
+        assert user["must_change_password"] == (0 if existing else 1)
+        assert user["password_hash"] == (
+            "local-analyst-hash" if existing else data["analysts"][0]["password_hash"]
+        )
 
 
 def test_referenced_absent_rows_are_retained(pair: tuple[Settings, Settings]) -> None:

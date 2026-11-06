@@ -423,9 +423,10 @@ def replace_snapshot(
         db.execute(
             "INSERT INTO users(email, display_name, persona, role_id, password_hash, "
             "must_change_password, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, "
-            "1, 1, ?, ?) ON CONFLICT(email) DO UPDATE SET display_name=excluded.display_name, "
+            "1, ?, ?, ?) ON CONFLICT(email) DO UPDATE SET display_name=excluded.display_name, "
             "persona=excluded.persona, role_id=excluded.role_id, "
-            "password_hash=excluded.password_hash, must_change_password=1, is_active=1, "
+            "password_hash=excluded.password_hash, must_change_password=1, "
+            "is_active=excluded.is_active, "
             "failed_attempts=0, locked_until=NULL, updated_at=excluded.updated_at",
             (
                 row["email"],
@@ -433,6 +434,7 @@ def replace_snapshot(
                 row["persona"],
                 role_id,
                 row["password_hash"],
+                row.get("is_active", 1),
                 now,
                 now,
             ),

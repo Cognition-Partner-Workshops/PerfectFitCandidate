@@ -293,6 +293,7 @@ def test_rollback_does_not_restore_used_otp(apps: tuple[TestClient, TestClient])
         == 200
     )
     for old in (otp, first["one_time_passwords"][0]["otp"]):
+        target.cookies.clear()
         response = target.post(
             f"{PREFIX}/auth/login",
             json={"role": "Analyst", "email": "worker@example.com", "password": old},
