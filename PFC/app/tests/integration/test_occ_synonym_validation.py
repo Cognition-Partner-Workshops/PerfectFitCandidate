@@ -3,7 +3,7 @@ import logging
 import pytest
 from test_matching_api import Api, problem
 from test_matching_api import api as api
-from test_matching_service import seed_demand, seed_resource
+from test_matching_service import NOW, seed_demand, seed_resource
 from test_occ_domain_config import edit, run
 
 from pfc.db.connection import database
@@ -111,6 +111,37 @@ def test_builder_skips_invalid_stored_row(
     run_id = run(api)
     assert api[0].get(f"/api/v1/analytics/match?runId={run_id}").status_code == 200
     assert api[0].post("/api/v1/demands/1/analyze", headers=api[1]).status_code == 200
+
+
+@pytest.mark.parametrize("alias_first", [True, False])
+def test_canonical_identity_survives_earlier_conflicting_alias(
+    api: Api, caplog: pytest.LogCaptureFixture, alias_first: bool
+) -> None:
+    rows = [
+        ("Python", "SQL", "sql"),
+        ("SQL", "Structured Query Language", "structured query language"),
+    ]
+    with database(api[0].app.state.settings) as db:
+        db.execute("DELETE FROM skill_synonyms")
+        for canonical, term, norm in rows if alias_first else reversed(rows):
+            db.execute(
+                "INSERT INTO skill_synonyms(skill_id,term,term_norm,relation,credit,status,"
+                "updated_at) SELECT skill_id,?,?,'equivalent',1,'approved',? FROM skills "
+                "WHERE name=?",
+                (term, norm, NOW.isoformat(), canonical),
+            )
+        invalid_id = db.execute(
+            "SELECT synonym_id FROM skill_synonyms WHERE term='SQL'"
+        ).fetchone()[0]
+        changes = db.total_changes
+        with caplog.at_level(logging.WARNING):
+            synonyms = occ_domain_config(db).synonyms
+        assert db.total_changes == changes
+        assert synonyms.resolve("SQL") == "SQL"
+        assert synonyms.resolve("Structured Query Language") == "SQL"
+        assert synonyms.resolve("Python") == "Python"
+        assert not any(row.canonical == "Python" and row.term == "SQL" for row in synonyms.rows)
+        assert f"Skipping invalid stored synonym row {invalid_id}" in caplog.text
 
 
 def test_valid_synonyms_work_with_empty_or_invalid_store(api: Api) -> None:

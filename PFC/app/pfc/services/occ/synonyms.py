@@ -2,7 +2,7 @@ import logging
 import sqlite3
 from typing import Any
 
-from pfc.domain.normalise import SynonymTable
+from pfc.domain.normalise import SynonymRow, SynonymTable, normalise_term
 from pfc.security.problems import Problem
 from pfc.services.occ.common import audit_write, get_row, now
 from pfc.services.occ.seed import normalize_term
@@ -22,13 +22,34 @@ def valid_synonym_table(db: sqlite3.Connection, exclude: int | None = None) -> S
     try:
         return SynonymTable(rows)
     except ValueError:
-        table = SynonymTable([])
+        canonical_names = {
+            normalise_term(row["canonical"]): row["canonical"]
+            for row in rows
+            if row["status"] == "approved" and normalise_term(row["canonical"])
+        }
+        exact = {key: key for key in canonical_names}
+        accepted = []
         for row in rows:
             try:
-                table = SynonymTable([*table.rows, row])
+                parsed = SynonymTable([row]).rows[0]
+                if parsed.status == "approved" and parsed.relation != "related":
+                    term = normalise_term(parsed.term)
+                    canonical = normalise_term(parsed.canonical)
+                    if term in exact and exact[term] != canonical:
+                        raise ValueError("Ambiguous equivalent synonym")
+                    exact[term] = canonical
+                accepted.append(parsed)
             except ValueError:
                 logger.warning("Skipping invalid stored synonym row %s", row["synonym_id"])
-        return table
+        represented = {
+            normalise_term(row.canonical) for row in accepted if row.status == "approved"
+        }
+        accepted.extend(
+            SynonymRow(name, name)
+            for key, name in sorted(canonical_names.items())
+            if key not in represented
+        )
+        return SynonymTable(accepted)
 
 
 def _validate(db: sqlite3.Connection, data: dict[str, Any], target: int | None) -> None:

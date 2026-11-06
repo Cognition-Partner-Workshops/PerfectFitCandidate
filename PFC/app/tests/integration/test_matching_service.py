@@ -98,6 +98,7 @@ def settings(tmp_path: Path) -> Settings:
     migrate(result)
     with database(result) as db:
         seed_reference_data(db)
+        db.execute("DELETE FROM email_templates")
         db.execute(
             "INSERT INTO users"
             "(user_id,email,display_name,role_id,password_hash,created_at,updated_at)"
