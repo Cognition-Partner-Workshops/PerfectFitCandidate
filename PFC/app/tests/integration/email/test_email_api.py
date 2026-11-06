@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -10,6 +11,7 @@ from typing import cast
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from httpx import Response
 
 from pfc.adapters.email.transports import (
     DeliveryResult,
@@ -209,7 +211,7 @@ def seed_matches(
     return run_id, result_ids
 
 
-def create_drafts(client: TestClient, csrf: str, run_id: int):
+def create_drafts(client: TestClient, csrf: str, run_id: int) -> Response:
     return client.post(
         "/api/v1/emails/drafts",
         headers={"X-CSRF-Token": csrf},
@@ -298,7 +300,7 @@ def test_concurrent_send_state_blocks_edit_and_approval(
     original_get = service._get_draft_row
     transitioned = False
 
-    def transition_before_update(db, message_id):
+    def transition_before_update(db: sqlite3.Connection, message_id: int) -> sqlite3.Row | None:
         nonlocal transitioned
         row = original_get(db, message_id)
         if not transitioned:
