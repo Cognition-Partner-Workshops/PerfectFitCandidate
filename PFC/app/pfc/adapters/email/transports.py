@@ -143,11 +143,12 @@ class OutlookComTransport:
             return True
         return False
 
-    def _mail(self, message: EmailMessage) -> Any:
+    def _mail(self, message: EmailMessage, *, regenerate: bool = False) -> Any:
         mail = self._find(message.idempotency_key, (16,))
-        if mail is not None:
+        if mail is not None and not regenerate:
             return mail
-        mail = self._application().CreateItem(0)
+        if mail is None:
+            mail = self._application().CreateItem(0)
         mail.To = message.to
         mail.CC = message.cc
         mail.Subject = message.subject
@@ -166,7 +167,7 @@ class OutlookComTransport:
         def action() -> DeliveryResult:
             if self._already_sent(message.idempotency_key):
                 return DeliveryResult(message.idempotency_key, "sent")
-            mail = self._mail(message)
+            mail = self._mail(message, regenerate=True)
             if display:
                 mail.Display()
             return DeliveryResult(message.idempotency_key, "displayed" if display else "draft")

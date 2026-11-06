@@ -180,6 +180,57 @@ def test_send_preserves_analyst_draft_edits(message: transports.EmailMessage) ->
         transport.close()
 
 
+@pytest.mark.parametrize("attachments", [("/replacement.docx", "/new.txt"), ()])
+def test_regeneration_updates_unsent_draft_only(
+    message: transports.EmailMessage, attachments: tuple[str, ...]
+) -> None:
+    """Regeneration replaces Draft content, but Sent is terminal (REQ-EML-02/06, TDD §10.4)."""
+    app = Application()
+    transport = transports.OutlookComTransport(com_factory=lambda: app)
+    regenerated = replace(
+        message,
+        to="regenerated@example.test",
+        cc="regenerated-team@example.test",
+        subject="Regenerated subject",
+        html_body="<p>Regenerated body</p>",
+        attachments=attachments,
+    )
+    try:
+        transport.create_draft(message)
+        mail = app.created[0]
+        assert transport.create_draft(regenerated, display=True).status == "displayed"
+        assert (mail.To, mail.CC, mail.Subject, mail.HTMLBody) == (
+            regenerated.to,
+            regenerated.cc,
+            regenerated.subject,
+            regenerated.html_body,
+        )
+        assert mail.paths == list(attachments)
+        assert mail.key == message.idempotency_key
+        assert len(app.created) == 1
+        assert mail.saved == 2
+        assert mail.sent == 0
+        transport.send(replace(regenerated, approved=True))
+        assert transport.create_draft(message).status == "sent"
+    finally:
+        transport.close()
+
+    restarted = transports.OutlookComTransport(com_factory=lambda: app)
+    try:
+        assert restarted.create_draft(message, display=True).status == "sent"
+        assert (mail.To, mail.CC, mail.Subject, mail.HTMLBody) == (
+            regenerated.to,
+            regenerated.cc,
+            regenerated.subject,
+            regenerated.html_body,
+        )
+        assert mail.paths == list(attachments)
+        assert mail.saved == 2
+        assert len(app.created) == mail.sent == mail.displayed == 1
+    finally:
+        restarted.close()
+
+
 def test_uncertain_failure_requires_reconciliation(message: transports.EmailMessage) -> None:
     app = Application()
     app.fail = True
