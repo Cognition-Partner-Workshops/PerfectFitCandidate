@@ -104,7 +104,7 @@ export function DashboardPage() {
         {s?.run && (
           <span className="meta">
             Run: {formatDateTime(s.run.finishedAt)} · Template v{s.run.templateVersion}
-            {runMode(s.run) && ` · Mode: ${runMode(s.run)}`}
+            {shownRun.data && runMode(shownRun.data) && ` · Mode: ${runMode(shownRun.data)}`}
           </span>
         )}
       </div>

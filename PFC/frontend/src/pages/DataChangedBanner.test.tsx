@@ -52,6 +52,17 @@ describe('Data changed since this run banner', () => {
     expect(await screen.findByText(/Mode: full \(config_changed\)/, {}, { timeout: 5000 })).toBeTruthy()
   })
 
+  it('Dashboard shows the mode of the run it loads by id and refreshes the summary after a re-run', async () => {
+    const run = { ...(await stale()), mode: 'full' as const, modeReason: 'scope_not_full' }
+    vi.spyOn(mock, 'getMatchRun').mockResolvedValue(run)
+    const summary = vi.spyOn(mock, 'analyticsSummary')
+    renderApp('/')
+    expect(await screen.findByText(/Mode: full \(scope_not_full\)/, {}, { timeout: 5000 })).toBeTruthy()
+    const calls = summary.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: 'Re-run changed only' }))
+    await waitFor(() => expect(summary.mock.calls.length).toBeGreaterThan(calls), { timeout: 5000 })
+  })
+
   it('Dashboard looks up the summary run by id, not in the capped run list', async () => {
     const run = await stale()
     vi.spyOn(mock, 'listMatchRuns').mockResolvedValue([])
