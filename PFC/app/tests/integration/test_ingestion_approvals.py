@@ -446,6 +446,94 @@ def test_req_in_23_select_ct_record_confirms_verbatim_email(client):
         assert verify_chain(db)
 
 
+@pytest.mark.parametrize("email", [None, " New.Identity@Example.com "])
+def test_req_in_23_manual_identity_success_and_private_audit(client, email):
+    ingest(client, "ct", [{"Email Address": None}])
+    login(client, "Analyst")
+    response = client.put(
+        "/api/v1/candidates/1/identity",
+        json={
+            "action": "manual_entry",
+            "name": "  Morgan Synthetic  ",
+            **({"email": email} if email else {}),
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["identityStatus"] == "complete"
+    assert response.json()["resource"]["name"] == "Morgan Synthetic"
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT display_name FROM candidates").fetchone()[0] == "Morgan Synthetic"
+        saved = db.execute("SELECT * FROM candidate_emails").fetchone()
+        if email:
+            assert (saved["email"], saved["email_key"], saved["source"], saved["confirmed"]) == (
+                email,
+                email.strip().lower(),
+                "manual",
+                1,
+            )
+        else:
+            assert saved is None
+        audit = db.execute(
+            "SELECT details_json FROM audit_log WHERE action='IDENTITY_RESOLVE'"
+        ).fetchone()[0]
+        assert "Morgan" not in audit and "Synthetic" not in audit
+        assert "New.Identity@Example.com" not in audit and "new.identity@example.com" not in audit
+        assert json.loads(audit)["name_masked"] == "***"
+        assert verify_chain(db)
+
+
+@pytest.mark.parametrize("confirmed", [0, 1])
+def test_req_in_23_manual_identity_cannot_override_any_ct_email(client, confirmed):
+    ingest(client, "ct", [{}])
+    with database(client.app.state.settings) as db:
+        db.execute("UPDATE candidate_emails SET confirmed=?", (confirmed,))
+    response = client.put(
+        "/api/v1/candidates/1/identity",
+        json={"action": "manual_entry", "name": "Morgan Synthetic", "email": "new@example.com"},
+    )
+    assert response.status_code == 409, response.text
+    assert response.headers["content-type"].startswith("application/problem+json")
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT display_name FROM candidates").fetchone()[0] != "Morgan Synthetic"
+        assert db.execute("SELECT source FROM candidate_emails").fetchone()[0] == "CT"
+        assert not db.execute("SELECT 1 FROM audit_log WHERE action='IDENTITY_RESOLVE'").fetchone()
+
+
+def test_req_in_23_manual_identity_conflict_validation_and_access(client):
+    ingest(client, "ct", [{"Email Address": None}, {}])
+    with database(client.app.state.settings) as db:
+        db.execute("UPDATE candidate_emails SET confirmed=1")
+    response = client.put(
+        "/api/v1/candidates/1/identity",
+        json={"action": "manual_entry", "name": "Morgan Synthetic", "email": " aLEX@example.COM "},
+    )
+    assert response.status_code == 409, response.text
+    assert response.headers["content-type"].startswith("application/problem+json")
+    for fields in [
+        {},
+        {"name": "   "},
+        {"name": "X" * 201},
+        {"name": "Valid", "email": "bad"},
+        {"name": "Valid", "email": "a b@example.com"},
+        {"name": "Valid", "resourceId": 2},
+    ]:
+        assert (
+            client.put(
+                "/api/v1/candidates/1/identity", json={"action": "manual_entry", **fields}
+            ).status_code
+            == 422
+        )
+    body = {"action": "manual_entry", "name": "Morgan Synthetic"}
+    login(client, "Analyst")
+    csrf = client.headers.pop("X-CSRF-Token")
+    assert client.put("/api/v1/candidates/1/identity", json=body).status_code == 403
+    client.headers["X-CSRF-Token"] = csrf
+    client.cookies.clear()
+    assert client.put("/api/v1/candidates/1/identity", json=body).status_code == 401
+    with database(client.app.state.settings) as db:
+        assert not db.execute("SELECT 1 FROM audit_log WHERE action='IDENTITY_RESOLVE'").fetchone()
+
+
 def test_req_in_25_identity_validation_conflicts_and_csrf(client):
     ingest(
         client,
