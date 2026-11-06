@@ -297,7 +297,14 @@ export class HttpApiClient implements ApiClient {
       update: (s) => this.request('PUT', `/occ/bench-statuses/${encodeURIComponent(s.code)}`, fromBenchStatus(s)),
       remove: (s) => this.request('DELETE', `/occ/bench-statuses/${encodeURIComponent(s.code)}`),
     })
-    return this.listBenchStatuses()
+    const statuses = await this.listBenchStatuses()
+    // status_map rows carry their own priority/exclusion copied from the target status, which matching uses.
+    for (const row of await this.request<StatusMapRow[]>('GET', '/occ/status-map')) {
+      const body = fromStatusMapEntry(toStatusMapEntry(row), statuses)
+      if (body.canonical_code && (body.priority !== row.priority || body.is_excluded !== !!row.is_excluded))
+        await this.request('PUT', `/occ/status-map/${encodeURIComponent(row.source_value)}`, body)
+    }
+    return statuses
   }
   /** The backend has no unmapped-value list yet, so `unmapped` is empty over HTTP. */
   getStatusMap: ApiClient['getStatusMap'] = async () => ({
