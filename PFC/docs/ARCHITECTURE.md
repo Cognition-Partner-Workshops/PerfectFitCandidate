@@ -430,7 +430,7 @@ sequenceDiagram
     P1-->>GW: Timeout or compatible API versions exhausted
     GW->>LOC: Request (unmasked, local)
     LOC-->>GW: Result
-    GW-->>SVC: Result, served_by local; no external-provider chain
+    GW-->>SVC: Result, served_by local, no external-provider chain
 ```
 
 ## 10. Quality attributes

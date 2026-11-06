@@ -487,7 +487,7 @@ sequenceDiagram
     Analyst->>Settings: Confirm import
     Settings->>Apply: Apply all package changes atomically
     Apply->>Apply: Audit import and retain previous version
-    Settings-->>Analyst: Imported; rollback available
+    Settings-->>Analyst: Imported, rollback available
 ```
 
 The channel is not trusted in place of signature validation. Invalid or incompatible packages fail without partial application and show a clear error. A signed model add-on is imported through the same flow and triggers re-embedding with model version recorded per vector.
