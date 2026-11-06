@@ -107,6 +107,13 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
             </pre>
           </div>
           <div className="span-6 stack">
+            {value.extractionMethod === 'rule_based_fallback' && (
+              <Banner tone="warning">
+                <strong>Extracted by rules, not the local AI model</strong> (reason: {value.fallbackReason ?? 'reason_not_recorded'}). Check every
+                requirement carefully before Confirm &amp; Start.
+              </Banner>
+            )}
+            {value.extractionMethod === 'llm' && <span className="small muted">Extracted by local AI model</span>}
             <SkillChips label="Mandatory skills" skills={value.mandatorySkills} onChange={(s) => setEdit({ ...value, mandatorySkills: s })} />
             <SkillChips label="Preferred skills" skills={value.preferredSkills} onChange={(s) => setEdit({ ...value, preferredSkills: s })} />
             <label className="field">
@@ -121,11 +128,14 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
               <input type="checkbox" checked={value.mandatoryOnsite} onChange={(e) => setEdit({ ...value, mandatoryOnsite: e.target.checked })} /> Mandatory onsite
             </label>
             {value.synonymsApplied.length > 0 && <span className="small muted">Synonyms applied: {value.synonymsApplied.join(', ')}</span>}
-            {value.warnings.map((w) => (
-              <Banner key={w} tone="warning">
-                {w}
-              </Banner>
-            ))}
+            {/* The backend repeats the fallback as a warning; the banner above already shows it. */}
+            {value.warnings
+              .filter((w) => !(value.extractionMethod === 'rule_based_fallback' && w.startsWith('Rule-based fallback:')))
+              .map((w) => (
+                <Banner key={w} tone="warning">
+                  {w}
+                </Banner>
+              ))}
           </div>
         </div>
       )}
