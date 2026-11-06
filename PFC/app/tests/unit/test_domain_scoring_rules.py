@@ -104,8 +104,8 @@ def test_req_elig_06_input_contract(resource, demand):
         ("Selected", None, 0, 0, True),
         ("Unknown", None, 0, 0, True),
         ("CV with Client - Sold - Pending Allocation", None, 0, 0, True),
-        ("new source status", 2, 0, 0, False),
-        (None, 2, 0, 0, False),
+        ("new source status", 2, 0, 4, False),
+        (None, 2, 0, 4, False),
     ],
 )
 def test_req_elig_02_07_every_status(
@@ -137,6 +137,69 @@ def test_req_elig_02_07_every_status(
     if status == "Expected on Bench Soon":
         assert "availability from Bench Start Date" in row.gaps_checks
     assert "subject to review" in row.best.eligibility_evidence
+
+
+@pytest.mark.parametrize("mode", ["binary", "tiered"])
+@pytest.mark.parametrize("raw", [None, "", "unmapped status value"])
+def test_req_elig_07_unmapped_scoring_modes(config, resource, demand, mode, raw):
+    template = config.template.model_copy(update={"status_score_mode": mode})
+    unmapped = run(config, replace(resource, bench_status=raw), demand, template=template)
+    upskilling = run(
+        config,
+        replace(resource, bench_status="Overall upskilling (New bench)"),
+        demand,
+        template=template,
+    )
+    row = unmapped.demands[0].rows[0]
+    points = row.best.components["status"].points
+    assert points == (
+        upskilling.demands[0].rows[0].best.components["status"].points if mode == "tiered" else 0
+    )
+    assert "Unmapped status" in row.best.gaps
+    assert row.status_priority == template.unmapped_status_priority
+
+
+def test_req_elig_07_unmapped_tiered_uses_edited_mapping_and_points(config, resource, demand):
+    statuses = config.bench_statuses
+    mapping = dict(statuses.status_map)
+    mapping["overall upskilling new bench"] = "EXPECTED"
+    cfg = config.model_copy(
+        update={"bench_statuses": type(statuses)(statuses=statuses.statuses, status_map=mapping)}
+    )
+    points = dict(config.template.status_tiered_points)
+    points[4] = 1.75
+    template = config.template.model_copy(
+        update={
+            "status_score_mode": "tiered",
+            "status_tiered_points": points,
+        }
+    )
+    unknown = pair(cfg, replace(resource, bench_status="unmapped"), demand, template=template)
+    known = pair(
+        cfg,
+        replace(resource, bench_status="Overall upskilling (New bench)"),
+        demand,
+        template=template,
+    )
+    assert unknown.components["status"].points == known.components["status"].points == 1.75
+    assert dict(unknown.components["status"].inputs)["score_priority"] == "4"
+    assert "Unmapped status" in unknown.gaps
+
+
+def test_req_elig_07_unmapped_tiered_without_upskilling_mapping(config, resource, demand):
+    statuses = config.bench_statuses
+    mapping = dict(statuses.status_map)
+    mapping.pop("overall upskilling new bench")
+    cfg = config.model_copy(
+        update={"bench_statuses": type(statuses)(statuses=statuses.statuses, status_map=mapping)}
+    )
+    template = config.template.model_copy(update={"status_score_mode": "tiered"})
+    best = pair(cfg, replace(resource, bench_status="unmapped"), demand, template=template)
+    assert (
+        best.components["status"].points
+        == template.status_tiered_points[template.unmapped_status_priority]
+    )
+    assert "Unmapped status" in best.gaps
 
 
 @pytest.mark.parametrize("switches", list(product([False, True], repeat=5)))

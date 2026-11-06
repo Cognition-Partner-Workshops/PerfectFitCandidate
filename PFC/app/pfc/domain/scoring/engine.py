@@ -198,7 +198,12 @@ def score_basis(
     template: ScoringTemplate | None = None,
     has_cv: bool = False,
 ) -> BasisResult:
-    """REQ-IN-24/REQ-SCR-04: score an eligible pair's single basis independently."""
+    """REQ-IN-24/REQ-SCR-04: score an eligible pair's single basis independently.
+
+    REQ-ELIG-07: unmapped status scores zero in binary mode; tiered mode uses
+    the configured Overall upskilling priority, falling back to the unmapped
+    priority if that mapping is unavailable. Both modes retain the warning.
+    """
     t = template or config.template
     distance = config.grades.distance(resource.grade or "", demand.grade or "")
     status = config.bench_statuses.resolve(resource.bench_status or "")
@@ -256,12 +261,15 @@ def score_basis(
         4,
     )
     status_points = 0.0
-    if status:
-        status_points = (
-            (t.weights.status if status.code == "AVAILABLE" else 0)
-            if (t.status_score_mode == "binary")
-            else t.status_tiered_points.get(priority, 0)
-        )
+    score_priority = priority
+    if t.status_score_mode == "tiered":
+        if not status:
+            upskilling = config.bench_statuses.resolve("Overall upskilling (New bench)")
+            if upskilling and upskilling.priority is not None:
+                score_priority = upskilling.priority
+        status_points = t.status_tiered_points.get(score_priority, 0)
+    elif status and status.code == "AVAILABLE":
+        status_points = t.weights.status
     components = {
         "skills": Component(
             skills,
@@ -295,7 +303,11 @@ def score_basis(
         "status": Component(
             status_points,
             t.weights.status,
-            (("priority", str(priority)), ("source", resource.bench_status or "")),
+            (
+                ("priority", str(priority)),
+                ("score_priority", str(score_priority)),
+                ("source", resource.bench_status or ""),
+            ),
         ),
     }
     total = sum((Decimal(str(component.points)) for component in components.values()), Decimal(0))

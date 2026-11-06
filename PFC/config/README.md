@@ -13,3 +13,8 @@ Set `PFC_CONFIG_DIR` to load an edited copy instead of these shipped defaults.
 
 For related synonyms, CSV `credit` is informational for OCC; scoring uses the
 template's `skills.related_synonym_credit` (TDD §7.3, REQ-MAT-05).
+
+Unmapped statuses retain their warning and `unmapped_status_priority` for ranking.
+Their binary score is zero; their tiered score follows the mapped priority of
+`Overall upskilling (New bench)` and the configured tiered points (REQ-ELIG-07).
+If that mapping has no priority, the tiered score uses `unmapped_status_priority`.
