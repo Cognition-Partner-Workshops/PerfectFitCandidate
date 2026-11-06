@@ -92,6 +92,7 @@ class CandidateActivity(CamelModel):
 
 class CandidateDetail(CamelModel):
     candidate_id: int
+    classification: CandidateClassification
     internal_ref: str
     resource: CandidateResource
     phone_masked: str | None
