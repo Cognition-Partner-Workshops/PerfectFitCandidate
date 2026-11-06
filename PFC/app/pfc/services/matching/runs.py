@@ -123,7 +123,7 @@ def _inputs(
             RequirementItem(
                 str(item["item_id"]),
                 item["text"],
-                "preferred" if item["kind"] == "preferred_skill" else "mandatory",
+                "preferred" if item["kind"] in {"preferred_skill", "domain"} else "mandatory",
                 item["canonical"] or config.synonyms.resolve(item["text"]),
             )
             for item in items

@@ -29,6 +29,7 @@ from pfc.services.matching import (
     revoke_override,
     start_run,
 )
+from pfc.services.matching.runs import _inputs
 
 NOW = datetime(2026, 11, 6, tzinfo=UTC)
 STAMP = NOW.isoformat()
@@ -309,6 +310,32 @@ def test_req_mat_02_empty_and_invalid_requirements(settings):
             confirm_requirements(db, demand_id, {"mandatory_skills": [{"text": " "}]}, 1, NOW)
         with pytest.raises(ValueError, match="current JD"):
             analyze_jd(db, 999, MatchingPorts(None), 1, NOW)
+
+
+def test_req_mat_01_item_kinds_follow_tdd_7_3(settings: Settings) -> None:
+    with database(settings) as db:
+        demand_id = seed_demand(db, confirmed=False)
+        confirm_requirements(
+            db,
+            demand_id,
+            {
+                "mandatory_skills": [{"text": "SQL"}],
+                "preferred_skills": [{"text": "Python"}],
+                "experience": [{"text": "delivery experience"}],
+                "qualifications": [{"text": "degree"}],
+                "domain": [{"text": "insurance"}],
+            },
+            1,
+            NOW,
+        )
+        demands, *_ = _inputs(db, "full", (), load_domain_config())
+    assert {item.text: item.kind for item in demands[0].requirements} == {
+        "SQL": "mandatory",
+        "Python": "preferred",
+        "delivery experience": "mandatory",
+        "degree": "mandatory",
+        "insurance": "preferred",
+    }
 
 
 def test_req_mat_03_run_persistence_uniqueness_cv_exclusions(settings, runner):
