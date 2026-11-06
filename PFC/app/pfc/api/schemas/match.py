@@ -87,6 +87,9 @@ class JdRequirements(WireModel):
                 ]
                 for item in targets or experience[:1]:
                     item["years"] = years
+                for item in experience:
+                    if item.get("years") is not None and item["years"] > years:
+                        item["years"] = years
         return {
             "mandatory_skills": [{"text": term} for term in self.mandatory_skills],
             "preferred_skills": [{"text": term} for term in self.preferred_skills],

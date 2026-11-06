@@ -535,6 +535,15 @@ def test_experience_metadata_and_targeted_year_edits(api: Api) -> None:
     expected = [dict(item) for item in before]
     expected[1]["years"] = 7
     assert items(changed.json()) == expected
+    assert client.get(url).json()["experienceYears"] == 7
+    lowered = client.put(url, headers=headers, json={**original, "experienceYears": 1})
+    assert lowered.status_code == 200
+    expected = [dict(item) for item in before]
+    expected[0]["years"] = 1
+    expected[1]["years"] = 1
+    assert items(lowered.json()) == expected
+    assert lowered.json()["experienceYears"] == 1
+    assert client.get(url).json()["experienceYears"] == 1
     changed = client.put(
         url,
         headers=headers,
