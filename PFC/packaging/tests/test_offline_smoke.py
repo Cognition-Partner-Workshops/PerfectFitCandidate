@@ -37,18 +37,22 @@ def assert_health_ok() -> Callable[[Any], None]:
         {"status": "ok", "details": {"dataVolumeEncryption": "Off"}, "future": True},
     ],
 )
-def test_health_accepts_additive_fields(assert_health_ok, payload) -> None:
+def test_health_accepts_additive_fields(
+    assert_health_ok: Callable[[Any], None], payload: dict[str, Any]
+) -> None:
     assert_health_ok(SimpleNamespace(status_code=200, json=lambda: payload))
 
 
 @pytest.mark.parametrize(
     "payload", [{}, {"details": {}}, {"status": "degraded"}, {"status": None}, None, []]
 )
-def test_health_requires_ok_status(assert_health_ok, payload) -> None:
+def test_health_requires_ok_status(
+    assert_health_ok: Callable[[Any], None], payload: dict[str, Any] | list[Any] | None
+) -> None:
     with pytest.raises(AssertionError):
         assert_health_ok(SimpleNamespace(status_code=200, json=lambda: payload))
 
 
-def test_health_requires_http_200(assert_health_ok) -> None:
+def test_health_requires_http_200(assert_health_ok: Callable[[Any], None]) -> None:
     with pytest.raises(AssertionError):
         assert_health_ok(SimpleNamespace(status_code=503, json=lambda: {"status": "ok"}))
