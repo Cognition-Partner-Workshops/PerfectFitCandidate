@@ -104,13 +104,15 @@ def _current(db: sqlite3.Connection, demand_id: int) -> sqlite3.Row:
     return row
 
 
-def get_requirements(db: sqlite3.Connection, demand_id: int) -> dict[str, Any] | None:
+def get_requirements(
+    db: sqlite3.Connection, demand_id: int, *, jd_req_id: int | None = None
+) -> dict[str, Any] | None:
     version = _current(db, demand_id)
     row = db.execute(
         "SELECT * FROM jd_requirements WHERE demand_version_id=? "
-        "AND status IN ('draft','confirmed') "
+        "AND ((? IS NULL AND status IN ('draft','confirmed')) OR jd_req_id=?) "
         "ORDER BY CASE status WHEN 'draft' THEN 0 ELSE 1 END,revision DESC LIMIT 1",
-        (version["demand_version_id"],),
+        (version["demand_version_id"], jd_req_id, jd_req_id),
     ).fetchone()
     if row is None:
         return None

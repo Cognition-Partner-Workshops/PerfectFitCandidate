@@ -42,6 +42,7 @@ class JdRequirements(WireModel):
     mandatory_skills: list[str] = Field(default_factory=list)
     preferred_skills: list[str] = Field(default_factory=list)
     experience_years: float | None = Field(default=None, ge=0)
+    experience: list[str] | None = None
     qualifications: str = ""
     domain: str = ""
     location: str = ""
@@ -60,18 +61,21 @@ class JdRequirements(WireModel):
             raise ValueError("Skill text must not be blank")
         return self
 
-    def extraction(self) -> dict[str, Any]:
+    def extraction(self, previous_experience: list[dict[str, Any]]) -> dict[str, Any]:
+        experience = (
+            [{"text": text} for text in self.experience]
+            if self.experience is not None
+            else [dict(item) for item in previous_experience]
+        )
+        if self.experience_years is not None:
+            if not experience and self.experience is None:
+                experience = [{"text": f"{self.experience_years:g} years experience"}]
+            for item in experience:
+                item["years"] = self.experience_years
         return {
             "mandatory_skills": [{"text": term} for term in self.mandatory_skills],
             "preferred_skills": [{"text": term} for term in self.preferred_skills],
-            "experience": []
-            if self.experience_years is None
-            else [
-                {
-                    "text": f"{self.experience_years:g} years experience",
-                    "years": self.experience_years,
-                }
-            ],
+            "experience": experience,
             "qualifications": [
                 {"text": value.strip()} for value in self.qualifications.split(";") if value.strip()
             ],
@@ -95,6 +99,7 @@ def requirements_view(demand_id: int, row: dict[str, Any]) -> JdRequirements:
         mandatory_skills=[item["text"] for item in data.get("mandatory_skills", [])],
         preferred_skills=[item["text"] for item in data.get("preferred_skills", [])],
         experience_years=max(years) if years else None,
+        experience=[item["text"] for item in data.get("experience", [])],
         qualifications="; ".join(item["text"] for item in data.get("qualifications", [])),
         domain="; ".join(item["text"] for item in data.get("domain", [])),
         location=data.get("location") or "",

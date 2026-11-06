@@ -390,6 +390,87 @@ def test_results_default_page_and_candidate_defaults(api: Api) -> None:
     assert limit["default"] == 1000 and limit["maximum"] == 5000
 
 
+def test_experience_survives_flat_requirement_edits(api: Api) -> None:
+    client, headers = api
+    with database(client.app.state.settings) as db:
+        demand_id = seed_demand(db, confirmed=False)
+        confirm_requirements(
+            db,
+            demand_id,
+            {
+                "experience": [
+                    {"text": "Experience managing teams"},
+                    {"text": "Industry experience", "years": 3},
+                ],
+            },
+            1,
+            NOW,
+        )
+    url = f"/api/v1/demands/{demand_id}/requirements"
+    original = client.get(url).json()
+    assert original["experience"] == ["Experience managing teams", "Industry experience"]
+    # A legacy client does not send the extra field or numeric years.
+    legacy = {key: value for key, value in original.items() if key != "experience"}
+    legacy["experienceYears"] = None
+    saved = client.put(url, headers=headers, json=legacy)
+    assert saved.status_code == 200 and saved.json()["experience"] == original["experience"]
+    assert saved.json()["experienceYears"] == 3
+    # The original revision is still the source even after another edit.
+    replaced = client.put(
+        url,
+        headers=headers,
+        json={
+            "demandId": demand_id,
+            "experience": ["Other experience"],
+        },
+    )
+    assert replaced.status_code == 200
+    legacy["experienceYears"] = 7
+    saved = client.put(url, headers=headers, json=legacy)
+    assert saved.status_code == 200 and saved.json()["experience"] == original["experience"]
+    assert saved.json()["experienceYears"] == 7
+    round_trip = client.put(url, headers=headers, json=saved.json())
+    assert round_trip.status_code == 200
+    assert round_trip.json()["experience"] == original["experience"]
+    explicit = client.put(
+        url,
+        headers=headers,
+        json={
+            "demandId": demand_id,
+            "experience": ["Leadership experience"],
+            "experienceYears": 5,
+        },
+    )
+    assert explicit.status_code == 200 and explicit.json()["experience"] == [
+        "Leadership experience"
+    ]
+    assert explicit.json()["experienceYears"] == 5
+    cleared = client.put(url, headers=headers, json={"demandId": demand_id, "experience": []})
+    assert cleared.status_code == 200 and cleared.json()["experience"] == []
+    problem(
+        client.put(
+            url,
+            headers=headers,
+            json={
+                "demandId": demand_id,
+                "experience": [" "],
+            },
+        ),
+        409,
+    )
+    problem(
+        client.put(
+            url,
+            headers=headers,
+            json={
+                "demandId": demand_id,
+                "jdReqId": 999,
+            },
+        ),
+        409,
+    )
+
+
 def test_empty_missing_validation_production_openapi_and_removed_paths(api: Api) -> None:
     client, headers = api
     assert client.get("/api/v1/match-runs").json() == []

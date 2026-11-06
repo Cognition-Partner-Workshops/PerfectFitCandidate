@@ -108,8 +108,15 @@ def edit(
     with database(request.app.state.settings) as db:
         find_demand(db, demand_id)
         try:
+            previous = matching.get_requirements(db, demand_id, jd_req_id=body.jd_req_id)
+            if body.jd_req_id is not None and previous is None:
+                raise Problem(409, "REQUIREMENTS_CONFLICT", "Edited revision not found")
             row = matching.save_draft(
-                db, demand_id, body.extraction(), principal.user.user_id, request.app.state.clock()
+                db,
+                demand_id,
+                body.extraction(previous["extraction"].get("experience", []) if previous else []),
+                principal.user.user_id,
+                request.app.state.clock(),
             )
         except ValueError as exc:
             raise Problem(409, "REQUIREMENTS_CONFLICT", str(exc)) from exc
