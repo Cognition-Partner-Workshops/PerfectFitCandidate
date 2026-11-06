@@ -225,6 +225,33 @@ describe('HttpApiClient — OCC per-item CRUD', () => {
     expect(JSON.parse((fetchMock.mock.calls[2][1] as RequestInit).body as string)).toEqual({ canonical_code: 'AVAILABLE', priority: 1, is_excluded: false })
   })
 
+  it('re-syncs stale status-map priorities after a bench status reorder', async () => {
+    const api = new HttpApiClient('/api/v1')
+    const row = { code: 'AVAILABLE', label: 'Available', is_excluded: 0, priority: 1, flag_in_gaps: 0, available_from_bench_start: 0 }
+    fetchMock
+      .mockResolvedValueOnce(json([row]))
+      .mockResolvedValueOnce(json({}))
+      .mockResolvedValueOnce(json([{ ...row, priority: 2 }]))
+      .mockResolvedValueOnce(
+        json([
+          { source_value: 'Free now', canonical_code: 'AVAILABLE', priority: 1, is_excluded: 0 },
+          { source_value: 'Ok', canonical_code: 'AVAILABLE', priority: 2, is_excluded: 0 },
+        ]),
+      )
+      .mockResolvedValueOnce(json({}))
+    await api.saveBenchStatuses([
+      { code: 'AVAILABLE', label: 'Available', eligibility: 'Eligible', priority: 2, tieredPoints: 4, caveat: '', availableFromBenchStart: false },
+    ])
+    expect(calls()).toEqual([
+      'GET /api/v1/occ/bench-statuses',
+      'PUT /api/v1/occ/bench-statuses/AVAILABLE',
+      'GET /api/v1/occ/bench-statuses',
+      'GET /api/v1/occ/status-map',
+      'PUT /api/v1/occ/status-map/Free%20now',
+    ])
+    expect(JSON.parse((fetchMock.mock.calls[4][1] as RequestInit).body as string)).toEqual({ canonical_code: 'AVAILABLE', priority: 2, is_excluded: false })
+  })
+
   it('updates resource-team members by recipient id', async () => {
     const api = new HttpApiClient('/api/v1')
     fetchMock
