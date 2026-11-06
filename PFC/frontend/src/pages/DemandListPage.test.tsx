@@ -1,4 +1,4 @@
-import { fireEvent, screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { JdRequirements } from '../api/types'
 import { ADMIN, mock, renderApp, seed, signIn } from '../test/utils'
@@ -52,5 +52,42 @@ describe('JD review extraction method', () => {
       extractionMethod: 'rule_based_fallback',
       fallbackReason: 'provider_unavailable',
     })
+  })
+})
+
+/** JD review edits qualifications and the location/onsite flag extracted from the JD, apart from the DL region (REQ-MAT-02). */
+describe('JD review qualifications and location', () => {
+  beforeEach(async () => {
+    await seed()
+    await signIn('Admin', ADMIN.email, ADMIN.password)
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  const open = async (req: Partial<JdRequirements>) => {
+    const base = await mock.getRequirements(1)
+    vi.spyOn(mock, 'getRequirements').mockResolvedValue({ ...base, ...req })
+    renderApp('/demands')
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Review JD' }))[0])
+    await screen.findByRole('button', { name: /Confirm & Start/ })
+  }
+  const input = (label: string | RegExp) => screen.getByLabelText(label) as HTMLInputElement
+
+  it('shows the extracted values and labels the DL region separately', async () => {
+    await open({ qualifications: 'BSc Computing', location: 'Leeds', mandatoryOnsite: true })
+    expect(screen.getByText(/DL region:/)).toBeTruthy()
+    expect(input(/Qualifications/).value).toBe('BSc Computing')
+    expect(input('Location (extracted from JD)').value).toBe('Leeds')
+    expect(input(/Mandatory\s+onsite/).checked).toBe(true)
+  })
+
+  it('saves edited qualifications, location and onsite through the requirements PUT', async () => {
+    await open({ qualifications: '', location: '', mandatoryOnsite: false })
+    const save = vi.spyOn(mock, 'saveRequirements')
+    fireEvent.change(input(/Qualifications/), { target: { value: 'BSc; PRINCE2' } })
+    fireEvent.change(input('Location (extracted from JD)'), { target: { value: 'Glasgow' } })
+    fireEvent.click(input(/Mandatory\s+onsite/))
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+    expect(save.mock.calls[0]?.[0]).toMatchObject({ qualifications: 'BSc; PRINCE2', location: 'Glasgow', mandatoryOnsite: true })
   })
 })

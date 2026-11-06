@@ -110,7 +110,8 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
       }
     >
       <span className="muted small">
-        {demand.demandRequestName} · {demand.accountName} · {demand.codeLocalGrade} · {roleLocation(demand.region)} · Start {formatDate(demand.positionStartDate)}
+        {demand.demandRequestName} · {demand.accountName} · {demand.codeLocalGrade} · DL region: {roleLocation(demand.region) || '—'} · Start{' '}
+        {formatDate(demand.positionStartDate)}
       </span>
       {req.isError && !value ? (
         <ErrorState error={req.error} />
@@ -145,11 +146,20 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
               <input type="number" min={0} value={value.experienceYears ?? ''} onChange={(e) => setEdit({ ...value, experienceYears: e.target.value === '' ? null : Number(e.target.value) })} />
             </label>
             <label className="field">
+              Qualifications (separate with ;)
+              <input value={value.qualifications} onChange={(e) => setEdit({ ...value, qualifications: e.target.value })} />
+            </label>
+            <label className="field">
               Domain
               <input value={value.domain} onChange={(e) => setEdit({ ...value, domain: e.target.value })} />
             </label>
+            <label className="field">
+              Location (extracted from JD)
+              <input value={value.location} placeholder="Not stated in the JD" onChange={(e) => setEdit({ ...value, location: e.target.value })} />
+            </label>
             <label className="row small">
-              <input type="checkbox" checked={value.mandatoryOnsite} onChange={(e) => setEdit({ ...value, mandatoryOnsite: e.target.checked })} /> Mandatory onsite
+              <input type="checkbox" checked={value.mandatoryOnsite} onChange={(e) => setEdit({ ...value, mandatoryOnsite: e.target.checked })} /> Mandatory
+              onsite (extracted from JD)
             </label>
             {value.synonymsApplied.length > 0 && <span className="small muted">Synonyms applied: {value.synonymsApplied.join(', ')}</span>}
             {/* The backend repeats the fallback as a warning; the banner above already shows it. */}
