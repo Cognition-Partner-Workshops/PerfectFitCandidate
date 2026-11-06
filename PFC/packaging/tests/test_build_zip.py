@@ -80,7 +80,7 @@ def test_parse_models_lock_accepts_null_hash_for_explicit_opt_in() -> None:
         [
             {
                 "name": "Model",
-                "file": "model.onnx",
+                "file": "nomic-embed-text-v1.5/tokenizer.json",
                 "url": "https://example.invalid/model.onnx",
                 "sha256": None,
                 "licence": "Apache-2.0",
@@ -89,10 +89,11 @@ def test_parse_models_lock_accepts_null_hash_for_explicit_opt_in() -> None:
     )
 
     assert models[0]["sha256"] is None
+    assert models[0]["file"] == "nomic-embed-text-v1.5/tokenizer.json"
 
 
 def test_parse_models_lock_rejects_path_traversal() -> None:
-    with pytest.raises(ValueError, match="file must be a filename"):
+    with pytest.raises(ValueError, match="file must be a safe relative path"):
         parse_models_lock(
             [
                 {

@@ -46,6 +46,18 @@ def _is_filename(value: str) -> bool:
     )
 
 
+def _is_safe_relative_path(value: str) -> bool:
+    normalized = value.replace("\\", "/")
+    path = PurePosixPath(normalized)
+    return (
+        not path.is_absolute()
+        and bool(path.parts)
+        and ".." not in path.parts
+        and re.match(r"^[A-Za-z]:", path.parts[0]) is None
+        and all(part not in {"", "."} for part in normalized.split("/"))
+    )
+
+
 def read_json(path: Path) -> object:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -86,8 +98,9 @@ def parse_models_lock(data: object) -> list[dict[str, str | None]]:
                 raise ValueError(f"Model entry {index} field {field!r} is required")
             model[field] = value.strip()
 
-        if not _is_filename(model["file"] or ""):
-            raise ValueError(f"Model entry {index} file must be a filename")
+        if not _is_safe_relative_path(model["file"] or ""):
+            raise ValueError(f"Model entry {index} file must be a safe relative path")
+        model["file"] = (model["file"] or "").replace("\\", "/")
         if not _is_https_url(model["url"] or ""):
             raise ValueError(f"Model entry {index} URL must use HTTPS")
 
@@ -188,12 +201,7 @@ def download_verified(
 def _safe_path(root: Path, archive_name: str) -> Path:
     normalized_name = archive_name.replace("\\", "/")
     member = PurePosixPath(normalized_name)
-    if (
-        member.is_absolute()
-        or not member.parts
-        or ".." in member.parts
-        or member.parts[0].endswith(":")
-    ):
+    if not _is_safe_relative_path(archive_name):
         raise ValueError(f"Unsafe archive path: {archive_name}")
     return root.joinpath(*member.parts)
 
