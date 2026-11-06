@@ -111,6 +111,14 @@ Edit component **Weights**, band thresholds (**Strong**, **Potential**, **Avg**;
 
 Add or remove email domains used to classify candidates as Internal or External (exact match). The domain is a heuristic, not proof of employment. While you edit, **Classification impact** previews how many candidates become Internal, External and Unknown. **Save and re-evaluate** saves; **Discard** drops edits. An edit is a delete plus an add.
 
+### Cached CV text and classification
+
+**OCC → Operations → Cached CV text** lists a selected candidate's cached CV versions with the masked filename, version, extraction time and removed flag. Use **Clear this candidate's extractions** or **Clear all candidates' extractions**, then review the scope and confirm. Cancel makes no change. The result shows versions cleared, chunks deleted, vectors deleted and matching vectors deleted.
+
+Original CV files, candidate identities and past match runs are kept. Candidate emails and CV-derived skills are retained. The next CV sync re-reads the files and restores the extraction and vectors. Removal is Admin-only and audited.
+
+In **Candidate Profile → Overview → Classification**, review the effective and live computed classifications, override reason, setter's user ID and time. Select Internal, External or Unknown and provide a non-blank reason to **Set override**. **Clear override** also requires a reason and immediately returns to automatic classification. Email addresses in the displayed reason are redacted. Analysts can read this information but cannot change it. Domain classification is a heuristic, not proof of employment.
+
 ## 11. Approved models
 
 **OCC → Approved models**

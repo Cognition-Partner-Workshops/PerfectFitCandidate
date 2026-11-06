@@ -562,6 +562,36 @@ def test_req_in_23_manual_email_correction_does_not_link_old_address(client):
         )
 
 
+def test_req_in_23_manual_email_updates_candidate_classification_without_changing_ct(client):
+    ingest(client, "ct", [{"Email Address": None}])
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "INSERT OR IGNORE INTO internal_email_domains(domain,added_at) "
+            "VALUES ('example.com','2026-01-01')"
+        )
+    login(client, "Analyst")
+    for email, expected in [
+        (None, "Unknown"),
+        ("Morgan@example.com", "Internal"),
+        ("Morgan@outside.example", "External"),
+    ]:
+        response = client.put(
+            "/api/v1/candidates/1/identity",
+            json={
+                "action": "manual_entry",
+                "name": "Morgan Synthetic",
+                **({"email": email} if email else {}),
+            },
+        )
+        assert response.status_code == 200, response.text
+        classification = response.json()["classification"]
+        assert classification["computedClassification"] == expected
+        assert classification["effectiveClassification"] == expected
+        with database(client.app.state.settings) as db:
+            assert db.execute("SELECT classification FROM candidates").fetchone()[0] == expected
+            assert db.execute("SELECT email_address FROM resources").fetchone()[0] is None
+
+
 def test_req_in_23_manual_email_conflict_preserves_previous_address(client):
     ingest(client, "ct", [{"Email Address": None}, {}])
     with database(client.app.state.settings) as db:

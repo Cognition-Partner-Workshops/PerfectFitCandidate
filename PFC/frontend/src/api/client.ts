@@ -10,6 +10,10 @@ import type {
   BenchAnalytics,
   BenchStatus,
   CandidateDetail,
+  CandidateClassification,
+  CandidateType,
+  CvExtraction,
+  RemovalCounts,
   ChangePasswordRequest,
   ClassificationPreview,
   CurrentUser,
@@ -139,6 +143,10 @@ export interface ApiClient {
 
   /** GET /candidates/{id} */
   getCandidate(candidateId: number): Promise<CandidateDetail>
+  setClassification(candidateId: number, body: { classification: CandidateType | null; reason: string }): Promise<CandidateClassification>
+  listCvExtractions(candidateId: number): Promise<CvExtraction[]>
+  clearCandidateExtractions(candidateId: number): Promise<RemovalCounts>
+  clearAllExtractions(): Promise<RemovalCounts>
   /** PUT /candidates/{id}/identity */
   resolveIdentity(candidateId: number, resolution: IdentityResolution): Promise<CandidateDetail>
 
