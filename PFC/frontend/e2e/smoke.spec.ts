@@ -222,7 +222,15 @@ test('summary cards: grounded evidence, stale source, provider unavailable, no r
   await card.getByRole('button', { name: 'Generate summary' }).click()
   await expect(card.getByText('Built reporting pipelines for retail banking clients.')).toBeAttached()
   await expectEvidence(card, 3)
-  await expect(card.getByText(/^Reach Taylor at /)).toBeVisible()
+  const contactSentence = card.getByText(/^Reach Taylor at /)
+  const contactEvidence = card.locator('blockquote').filter({ hasText: /^Contact: / })
+  const expectRedactedContact = async () => {
+    await expect(contactSentence).toBeVisible()
+    await expect(contactSentence).toHaveText('Reach Taylor at [email removed] or [phone removed].')
+    await expect(contactEvidence).toBeVisible()
+    await expect(contactEvidence).toHaveText('Contact: [email removed]; phone: [phone removed].')
+  }
+  await expectRedactedContact()
   const body = page.locator('body')
   for (const raw of [CV_EMAIL, CV_PHONE, CV_PHONE.replace(' ', '')]) await expect(body).not.toContainText(raw)
 
@@ -237,6 +245,7 @@ test('summary cards: grounded evidence, stale source, provider unavailable, no r
   await expect(card.getByRole('button', { name: 'Regenerate' })).toBeEnabled()
   await expect(stale).toHaveCount(0)
   await expectEvidence(card, 3)
+  await expectRedactedContact()
   for (const raw of [CV_EMAIL, CV_PHONE, CV_PHONE.replace(' ', '')]) await expect(body).not.toContainText(raw)
 
   // Demand review drawer: the JD keeps only its own sentence.
