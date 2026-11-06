@@ -524,6 +524,49 @@ def test_incremental_equals_full(
         assert not any(r["overridden"] for r in left["items"])
 
 
+def test_cv_fact_skill_change_rescores_resource(
+    settings: Settings, runner: JobRunner, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with database(settings) as db:
+        seed_demand(db)
+        candidate = seed_candidate(db)
+        resource = seed_resource(db, candidate=candidate, skills="Python")
+        seed_resource(db, "Unchanged")
+        version = seed_cv(db, resource, candidate, skills=())
+        db.execute(
+            "UPDATE cv_versions SET facts_json=? WHERE cv_version_id=?",
+            (
+                json.dumps({"facts": {"skills": [{"value": "Python", "evidence": "Python"}]}}),
+                version,
+            ),
+        )
+    base = execute(settings, runner)
+    with database(settings) as db:
+        db.execute(
+            "UPDATE cv_versions SET facts_json=? WHERE cv_version_id=?",
+            (json.dumps({"facts": {"skills": [{"value": "SQL", "evidence": "SQL"}]}}), version),
+        )
+    original = engine.score_basis
+    calls = []
+
+    def counted(demand: Any, person: Any, *args: Any, **kwargs: Any) -> Any:
+        calls.append(person.resource_id)
+        return original(demand, person, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(engine, "score_basis", counted)
+        incremental = execute(settings, runner, incremental=True)
+    full = execute(settings, runner)
+    assert calls and set(calls) == {str(resource)}
+    with database(settings) as db:
+        run = db.execute("SELECT * FROM match_runs WHERE run_id=?", (incremental,)).fetchone()
+        scope = json.loads(run["scope_json"])
+        assert scope["mode"] == "incremental"
+        assert scope["base_run_id"] == base
+        assert scope["dirty_resources"] == 1
+        assert persisted(db, incremental) == persisted(db, full)
+
+
 @pytest.mark.parametrize("error,status", [(ValueError, "failed"), (JobCancelled, "cancelled")])
 def test_incremental_persistence_rolls_back(
     settings: Settings,

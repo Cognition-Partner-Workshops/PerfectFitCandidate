@@ -260,22 +260,23 @@ def execute(
     return run_id
 
 
-def test_req_in_21_23_skills_json_does_not_affect_matching(
-    settings: Settings, runner: JobRunner
+@pytest.mark.parametrize("ct_skills", ["Python", "unrecognised"])
+def test_req_in_21_23_skills_json_counts_in_matching(
+    settings: Settings, runner: JobRunner, ct_skills: str
 ) -> None:
     with database(settings) as db:
         seed_demand(db)
         candidate = seed_candidate(db)
-        resource = seed_resource(db, candidate=candidate)
+        resource = seed_resource(db, candidate=candidate, skills=ct_skills)
         version = seed_cv(db, resource, candidate, skills=())
         facts = {
             "facts_schema": 2,
             "facts": {
                 "skills": [
                     {
-                        "value": "AWS",
-                        "canonical": "SQL",
-                        "evidence": "AWS",
+                        "value": "SQL",
+                        "canonical": "AWS",
+                        "evidence": "SQL",
                         "span": [11, 14],
                         "source": "llm",
                     }
@@ -295,24 +296,79 @@ def test_req_in_21_23_skills_json_does_not_affect_matching(
         )
     second = execute(settings, runner)
     with database(settings) as db:
+        row = db.execute("SELECT * FROM match_results WHERE run_id=?", (first,)).fetchone()
+        assert row is not None
+        assert row["best_cv_version_id"] == version
+        assert "SQL" in row["matching_evidence"]
+        assert "(CV v1)" in row["matching_evidence"]
+        points = db.execute(
+            "SELECT points FROM score_breakdowns WHERE result_id=? AND component='skills'",
+            (row["result_id"],),
+        ).fetchone()[0]
+        assert points > 0
+        if ct_skills == "unrecognised":
+            assert (
+                db.execute(
+                    "SELECT count(*) FROM eligibility_exclusions "
+                    "WHERE run_id=? AND reason_code='NO_SKILLS'",
+                    (second,),
+                ).fetchone()[0]
+                == 1
+            )
+            assert (
+                db.execute(
+                    "SELECT count(*) FROM eligibility_exclusions "
+                    "WHERE run_id=? AND reason_code='NO_SKILLS'",
+                    (first,),
+                ).fetchone()[0]
+                == 0
+            )
+        else:
+            assert (
+                row["score"]
+                > db.execute(
+                    "SELECT score FROM match_results WHERE run_id=?", (second,)
+                ).fetchone()[0]
+            )
 
-        def scored(run_id: int) -> tuple[Any, list[tuple[Any, ...]]]:
-            row = db.execute(
-                "SELECT result_id,score AS match_pct FROM match_results WHERE run_id=?", (run_id,)
-            ).fetchone()
-            assert row is not None
-            breakdown = [
-                tuple(item)
-                for item in db.execute(
-                    "SELECT component,points,max_points,inputs_json FROM score_breakdowns "
-                    "WHERE result_id=? ORDER BY component",
-                    (row["result_id"],),
-                )
-            ]
-            assert breakdown
-            return row["match_pct"], breakdown
 
-        assert scored(first) == scored(second)
+@pytest.mark.parametrize("removed", [False, True])
+def test_cv_fact_basis_deduplication_and_removal(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, removed: bool
+) -> None:
+    config = load_domain_config()
+    with database(settings) as db:
+        candidate = seed_candidate(db)
+        resource = seed_resource(db, candidate=candidate)
+        version = seed_cv(db, resource, candidate, skills=("SQL",))
+        payload = json.dumps(
+            {
+                "facts": {
+                    "skills": [
+                        {"value": term, "evidence": term} for term in ["sql", "Python", "python"]
+                    ]
+                }
+            }
+        )
+        db.execute(
+            "UPDATE cv_versions SET facts_json=?,extraction_removed_at=? WHERE cv_version_id=?",
+            (payload, STAMP if removed else None, version),
+        )
+        original = runs.cv_fact_skills
+        calls = []
+
+        def tracked(value: str | None, current: Any) -> Any:
+            calls.append(value)
+            return original(value, current)
+
+        monkeypatch.setattr(runs, "cv_fact_skills", tracked)
+        bases = _inputs(db, "full", (), config)[2][f"candidate:{candidate}"]
+        assert len(bases) == 1
+        assert [item.raw for item in bases[0].skills] == (["SQL"] if removed else ["SQL", "Python"])
+        assert calls == ([] if removed else [payload])
+        db.execute("DELETE FROM resource_skills WHERE cv_version_id=?", (version,))
+        basis = _inputs(db, "full", (), config)[2][f"candidate:{candidate}"][0]
+        assert [item.raw for item in basis.skills] == ([] if removed else ["sql", "Python"])
 
 
 @pytest.mark.parametrize("llm", [FakeLlm(), FakeLlm(fail=True), FakeLlm(invalid=True), None])
