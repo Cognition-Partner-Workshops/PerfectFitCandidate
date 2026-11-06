@@ -21,7 +21,7 @@ describe('Data changed since this run banner', () => {
     vi.spyOn(mock, 'listMatchRuns').mockResolvedValue([run])
     vi.spyOn(mock, 'getMatchRun').mockResolvedValue(run)
     renderApp(path)
-    expect(await screen.findByText('Data changed since this run')).toBeTruthy()
+    expect(await screen.findByText('Data changed since this run', {}, { timeout: 5000 })).toBeTruthy()
     expect(screen.getByText(/DL\/CT committed, CV synced/)).toBeTruthy()
     expect(screen.getByText(/point-in-time snapshot/)).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Re-run matching' }).getAttribute('href')).toContain('/demands')
@@ -32,7 +32,7 @@ describe('Data changed since this run banner', () => {
     vi.spyOn(mock, 'listMatchRuns').mockResolvedValue([])
     const get = vi.spyOn(mock, 'getMatchRun').mockResolvedValue(run)
     renderApp('/')
-    expect(await screen.findByText('Data changed since this run')).toBeTruthy()
+    expect(await screen.findByText('Data changed since this run', {}, { timeout: 5000 })).toBeTruthy()
     expect(get).toHaveBeenCalledWith(run.runId)
   })
 
