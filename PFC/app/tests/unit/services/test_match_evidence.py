@@ -2,6 +2,7 @@
 
 import pytest
 
+from pfc.domain.normalise import normalise_term
 from pfc.services.matching.evidence import shows_duration
 
 
@@ -47,3 +48,28 @@ def test_quote_negation_cannot_be_hidden_in_value() -> None:
 )
 def test_duration_can_be_recorded_only_in_quote(quote: str, expected: bool) -> None:
     assert shows_duration("SQL", quote, "SQL", 10) is expected
+
+
+@pytest.mark.parametrize("skill", ["C#", "C++", ".NET"])
+@pytest.mark.parametrize("quote_only", [False, True])
+@pytest.mark.parametrize(
+    "template,expected",
+    [
+        ("10 years {skill}", True),
+        ("{skill} experience: 12+ years", True),
+        ("No 10 years {skill}", False),
+        ("5-10 years {skill}", False),
+        ("10 years x{skill}", False),
+        ("10 years {skill}x", False),
+        ("2 years {skill}", False),
+        ("10 years Java", False),
+        ("{skill}", False),
+    ],
+)
+def test_specialist_skill_punctuation(
+    skill: str, quote_only: bool, template: str, expected: bool
+) -> None:
+    assert normalise_term(skill) == skill.casefold()
+    quote = template.format(skill=skill)
+    value = skill if quote_only else quote
+    assert shows_duration(value, quote, skill, 10) is expected

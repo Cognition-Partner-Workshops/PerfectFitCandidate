@@ -25,7 +25,7 @@ def shows_duration(value: str, evidence: str, text: str, years: float) -> bool:
     amount = r"(?P<years>\d+(?:\.\d+)?)\+?\s*(?:years?|yrs?)\b"
     patterns: tuple[str, ...]
     if term:
-        specialist = r"\b" + re.escape(term) + r"\b"
+        specialist = r"(?<!\w)" + re.escape(term) + r"(?!\w)"
         patterns = (
             amount + r"\s+(?:of\s+)?" + specialist,
             specialist + r"(?:\s+experience)?\s*[:—–-]?\s*(?:for\s+)?" + amount,
