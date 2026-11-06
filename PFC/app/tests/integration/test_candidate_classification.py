@@ -25,7 +25,8 @@ def test_startup_backfills_pre_classification_candidates(tmp_path: Path) -> None
     assert migrate(settings, migrations) == ["0001", "0002"]
     with database(settings) as db:
         db.execute(
-            "INSERT INTO internal_email_domains(domain,added_at) VALUES ('example.com','2026-01-01')"
+            "INSERT INTO internal_email_domains(domain,added_at) "
+            "VALUES ('example.com','2026-01-01')"
         )
         for id, value, override in (
             (1, "External", None),
@@ -46,7 +47,8 @@ def test_startup_backfills_pre_classification_candidates(tmp_path: Path) -> None
         with TestClient(create_app(settings)):
             with database(settings) as db:
                 rows = db.execute(
-                    "SELECT classification,classification_override FROM candidates ORDER BY candidate_id"
+                    "SELECT classification,classification_override FROM candidates "
+                    "ORDER BY candidate_id"
                 ).fetchall()
                 assert [tuple(row) for row in rows] == [
                     ("Internal", None),
