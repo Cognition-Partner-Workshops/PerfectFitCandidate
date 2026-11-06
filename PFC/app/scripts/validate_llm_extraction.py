@@ -11,6 +11,7 @@ import statistics
 import threading
 import unicodedata
 from collections import Counter
+from collections.abc import Callable
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -36,6 +37,8 @@ from pfc.config import Settings
 from pfc.domain.config_loader import load_domain_config
 from pfc.domain.normalise.text import normalise_text
 from pfc.jobs.runner import JobContext
+from pfc.security.problems import Problem
+from pfc.services import summaries
 from pfc.services.ingestion.cv_facts import (
     KEYS,
     SCHEMA,
@@ -44,10 +47,12 @@ from pfc.services.ingestion.cv_facts import (
     rule_facts,
     validate_facts,
 )
+from pfc.services.ingestion.masking import EMAIL, MASK_PHONE, YEAR_LIST
 from pfc.services.matching.llm_bridge import JdLlmBridge
 from pfc.services.matching.requirements import ExtractionFailure, Requirements, _fallback
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tests/fixtures/llm_validation.json"
+HELD_OUT = FIXTURES.with_name("llm_validation_held_out.json")
 MEMORY_LIMIT = 8_000_000_000
 
 
@@ -116,13 +121,15 @@ def final_fact_failures(text: str, facts: CVFacts) -> int:
 
 
 class RecordingProvider:
-    """Delegate unchanged; retain text even if the real adapter rejects its schema."""
+    """Delegate unchanged; optionally count responses without retaining completion text."""
 
-    def __init__(self, provider: LLMProvider) -> None:
+    def __init__(self, provider: LLMProvider, *, retain_text: bool = True) -> None:
         self.provider = provider
         self.calls: list[dict[str, Any]] = []
         self.wire_texts: list[str] = []
         self.name, self.kind = provider.name, provider.kind
+        self.retain_text = retain_text
+        self.sentences_returned = 0
 
     def capabilities(self) -> Capabilities:
         return self.provider.capabilities()
@@ -138,7 +145,10 @@ class RecordingProvider:
         try:
             content = response.json()["choices"][0]["message"]["content"]
             if isinstance(content, str):
-                self.wire_texts.append(content)
+                if self.retain_text:
+                    self.wire_texts.append(content)
+                else:
+                    self.sentences_returned = sentence_count(content)
         except (ValueError, KeyError, IndexError, TypeError):
             pass
 
@@ -147,10 +157,14 @@ class RecordingProvider:
     ) -> GenerateResult:
         started = perf_counter()
         self.wire_texts = []
+        self.sentences_returned = 0
         call: dict[str, Any] = {"purpose": request.purpose, "raw": None, "error": None}
         try:
             result = await self.provider.generate(request, api_version=api_version)
-            call["raw"] = result.text
+            if self.retain_text:
+                call["raw"] = result.text
+            else:
+                self.sentences_returned = sentence_count(result.text)
             return result
         except Exception as exc:
             call["error"] = type(exc).__name__
@@ -160,7 +174,148 @@ class RecordingProvider:
                 call["raw"] = self.wire_texts[-1]
             call["wire_responses"] = self.wire_texts.copy()
             call["latency_s"] = perf_counter() - started
+            if not self.retain_text:
+                call["sentences_returned"] = self.sentences_returned
             self.calls.append(call)
+
+
+def sentence_count(raw: str) -> int:
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        return 0
+    sentences = value.get("sentences") if isinstance(value, dict) else None
+    return len(sentences) if isinstance(sentences, list) else 0
+
+
+def remaining_pii(text: str) -> int:
+    phones = sum(
+        not YEAR_LIST.fullmatch(match[0]) and len(re.sub(r"\D", "", match[0])) >= 7
+        for match in MASK_PHONE.finditer(text)
+    )
+    return len(EMAIL.findall(text)) + phones
+
+
+async def run_summary(provider: RecordingProvider, fixture: dict[str, Any]) -> dict[str, Any]:
+    started = perf_counter()
+    before = len(provider.calls)
+    row: dict[str, Any] = {
+        "id": fixture["id"],
+        "schema_valid": False,
+        "sentences_returned": 0,
+        "sentences_kept": 0,
+        "evidence_drops": 0,
+        "digit_drops": 0,
+        "remaining_pii_patterns": 0,
+    }
+    try:
+        result = await summaries.summarise_text(provider, normalise_text(fixture["text"]))
+        row.update(
+            schema_valid=True,
+            sentences_returned=result.returned,
+            sentences_kept=len(result.sentences),
+            evidence_drops=result.evidence_drops,
+            digit_drops=result.digit_drops,
+            remaining_pii_patterns=sum(
+                remaining_pii(sentence.text) + remaining_pii(sentence.evidence)
+                for sentence in result.sentences
+            ),
+            outcome="200" if result.sentences else "422 SUMMARY_UNGROUNDED",
+        )
+    except Problem as exc:
+        row["outcome"] = f"{exc.status} {exc.code}"
+        if len(provider.calls) > before:
+            row["sentences_returned"] = provider.calls[-1]["sentences_returned"]
+    row["latency_s"] = perf_counter() - started
+    return row
+
+
+def summary_totals(rows: list[dict[str, Any]], peak_bytes: int | None) -> dict[str, Any]:
+    returned = sum(row["sentences_returned"] for row in rows)
+    kept = sum(row["sentences_kept"] for row in rows)
+    latencies = [row["latency_s"] for row in rows]
+    return {
+        "calls": len(rows),
+        "schema_valid": sum(row["schema_valid"] for row in rows),
+        "outcomes": dict(sorted(Counter(row["outcome"] for row in rows).items())),
+        "sentences_returned": returned,
+        "sentences_kept": kept,
+        "evidence_drops": sum(row["evidence_drops"] for row in rows),
+        "digit_drops": sum(row["digit_drops"] for row in rows),
+        "remaining_pii_patterns": sum(row["remaining_pii_patterns"] for row in rows),
+        "kept_share": kept / returned if returned else None,
+        "share_422": sum(row["outcome"].startswith("422 ") for row in rows) / len(rows)
+        if rows
+        else None,
+        "median_s": statistics.median(latencies) if rows else None,
+        "max_s": max(latencies) if rows else None,
+        "peak_server_bytes": peak_bytes,
+        "memory_pass": peak_bytes is not None and peak_bytes <= MEMORY_LIMIT,
+    }
+
+
+async def summary_pass(
+    provider: RecordingProvider,
+    fixtures: dict[str, Any],
+    held_out: dict[str, Any],
+    memory_probe: Callable[[], int | None],
+) -> dict[str, Any]:
+    report: dict[str, Any] = {"summary_results": {}}
+    for category, documents in (("jd", fixtures["jds"] + held_out["jds"]), ("cv", fixtures["cvs"])):
+        rows = []
+        for fixture in documents:
+            row = await run_summary(provider, fixture)
+            rows.append(row)
+            print(f"Summary {fixture['id']}: {row['outcome']}", flush=True)
+        report["summary_results"][category] = rows
+        report[category] = summary_totals(rows, memory_probe())
+    report["memory_pass"] = all(report[key]["memory_pass"] for key in ("jd", "cv"))
+    return report
+
+
+def render_summary_markdown(report: dict[str, Any]) -> str:
+    lines = ["# Live summary validation", "", "Linux VM, not target laptop.", ""]
+    for category in ("jd", "cv"):
+        group = report[category]
+        outcomes = group["outcomes"]
+        peak = group["peak_server_bytes"]
+        metrics = {
+            "Calls": group["calls"],
+            "Schema-valid calls": group["schema_valid"],
+            "200": outcomes.get("200", 0),
+            "422 SUMMARY_UNGROUNDED": outcomes.get("422 SUMMARY_UNGROUNDED", 0),
+            "422 SUMMARY_INVALID": outcomes.get("422 SUMMARY_INVALID", 0),
+            "503 LLM_UNAVAILABLE": outcomes.get("503 LLM_UNAVAILABLE", 0),
+            "Sentences returned": group["sentences_returned"],
+            "Sentences kept": group["sentences_kept"],
+            "Evidence drops": group["evidence_drops"],
+            "Digit-rule drops": group["digit_drops"],
+            "Kept share": display(group["kept_share"], percent=True),
+            "Calls ending in 422": display(group["share_422"], percent=True),
+            "Median latency (s)": display(group["median_s"]),
+            "Maximum latency (s)": display(group["max_s"]),
+            "Remaining email/phone patterns": group["remaining_pii_patterns"],
+            "Peak model RSS/HWM (bytes)": peak if peak is not None else "n/a",
+            "Model ≤ 8 GB": "PASS" if group["memory_pass"] else "FAIL/unavailable",
+        }
+        lines += [f"## {category.upper()}", "", "| Metric | Value |", "|---|---:|"]
+        lines += [f"| {key} | {value} |" for key, value in metrics.items()]
+        lines += [
+            "",
+            "| Fixture | Schema valid | Returned | Kept | Evidence drops | "
+            "Digit drops | Remaining PII | Outcome | Latency (s) |",
+            "|---|---|---:|---:|---:|---:|---:|---|---:|",
+        ]
+        for row in report["summary_results"][category]:
+            lines.append(
+                f"| {row['id']} | {'yes' if row['schema_valid'] else 'no'} | "
+                f"{row['sentences_returned']} | {row['sentences_kept']} | "
+                f"{row['evidence_drops']} | {row['digit_drops']} | "
+                f"{row['remaining_pii_patterns']} | {row['outcome']} | "
+                f"{display(row['latency_s'])} |"
+            )
+        lines.append("")
+    return "\n".join(lines)
 
 
 def run_jd(provider: RecordingProvider, text: str) -> dict[str, Any]:
@@ -306,6 +461,8 @@ def display(value: float | None, *, percent: bool = False) -> str:
 
 
 def render_markdown(report: dict[str, Any]) -> str:
+    if "summary_results" in report:
+        return render_summary_markdown(report)
     jd, cv, latency = report["jd"], report["cv"], report["latency"]
     peak = report["peak_server_bytes"]
     peak_gb = display(peak / 1e9 if peak is not None else None)
@@ -414,6 +571,35 @@ async def live(args: argparse.Namespace) -> dict[str, Any]:
                 f"Supervisor unavailable: {supervisor.state}: {supervisor.detail}; "
                 f"see {settings.data_dir}/logs/llm.log"
             )
+        if getattr(args, "summaries_only", False):
+            provider = RecordingProvider(state.llm_provider, retain_text=False)
+            supervisor.provider._client.event_hooks["response"].append(provider.observe_response)
+
+            def memory_probe() -> int | None:
+                measured = process_memory(supervisor.proc.pid) if supervisor.proc else None
+                return max(peak or 0, measured or 0) or None
+
+            report = await summary_pass(
+                provider,
+                fixtures,
+                json.loads(args.held_out_fixtures.read_text(encoding="utf-8")),
+                memory_probe,
+            )
+            report.update(
+                model_pin=pin,
+                binary=str(binary),
+                model_load_s=load_s,
+                hardware={
+                    "platform": platform.platform(),
+                    "python": platform.python_version(),
+                    "cpus": os.cpu_count(),
+                    "ram_bytes": os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES"),
+                    "context": settings.llm_ctx_size,
+                    "threads": settings.llm_threads or max(1, (os.cpu_count() or 2) // 2 - 1),
+                },
+                memory_limit_bytes=MEMORY_LIMIT,
+            )
+            return report
         provider = RecordingProvider(state.llm_provider)
         # Observe before adapter schema validation; do not alter requests or validators.
         supervisor.provider._client.event_hooks["response"].append(provider.observe_response)
@@ -470,6 +656,12 @@ def main() -> int:
         "--llama-server", type=Path, default=os.getenv("PFC_VALIDATION_LLAMA_SERVER")
     )
     parser.add_argument("--fixtures", type=Path, default=FIXTURES)
+    parser.add_argument("--held-out-fixtures", type=Path, default=HELD_OUT)
+    parser.add_argument(
+        "--summaries-only",
+        action="store_true",
+        help="Run count-only summaries for all fixtures and held-out JDs instead of extraction",
+    )
     parser.add_argument(
         "--out", type=Path, required=True, help="Output prefix outside the repository"
     )
@@ -485,6 +677,11 @@ def main() -> int:
     markdown = render_markdown(report)
     Path(f"{args.out}.md").write_text(markdown, encoding="utf-8")
     print(markdown)
+    if "summary_results" in report:
+        return int(
+            not report["memory_pass"]
+            or any(report[key]["remaining_pii_patterns"] for key in ("jd", "cv"))
+        )
     return int(not report["memory_pass"] or report["cv"]["final_fact_failures"] != 0)
 
 

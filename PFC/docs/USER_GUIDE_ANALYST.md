@@ -4,6 +4,8 @@ This guide covers the Phase 1 screens as built in `PFC/frontend` against the `/a
 
 Use the Summary card on Candidate Profile or in the JD review drawer to generate or regenerate a local, masked reading aid, expand each sentence’s evidence and regenerate after a source change; it is not used in scoring and must be checked against the source.
 
+Summaries fully redact emails and phones; other screens use the REQ-OUT-03 mask.
+
 ## Contents
 
 1. [Daily flow](#1-daily-flow)

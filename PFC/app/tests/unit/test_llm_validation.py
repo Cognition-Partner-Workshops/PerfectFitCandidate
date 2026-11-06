@@ -124,6 +124,154 @@ class RawFake(FakeProvider):
         return GenerateResult(self.text, "fake", "fake-v1")
 
 
+def test_live_summary_pass_uses_production_grounding_masking_and_count_only_reports() -> None:
+    text = "SQL engineer: jonathan.smithers@example.com; 07700 900123"
+    raw = json.dumps(
+        {
+            "sentences": [
+                {"text": text, "evidence": text},
+                {"text": "Invented", "evidence": "Not in the source"},
+                {"text": "10 years of SQL", "evidence": "SQL engineer"},
+            ]
+        }
+    )
+
+    async def probe() -> dict[str, Any]:
+        provider = RecordingProvider(RawFake(raw), retain_text=False)
+        report = await validation.summary_pass(
+            provider,
+            {"jds": [{"id": "jd", "text": text}], "cvs": [{"id": "cv", "text": text}]},
+            {"jds": [{"id": "held-out", "text": text}]},
+            lambda: 1_000_000_000,
+        )
+        for row in report["summary_results"]["jd"] + report["summary_results"]["cv"]:
+            assert {key: value for key, value in row.items() if key not in ("id", "latency_s")} == {
+                "schema_valid": True,
+                "sentences_returned": 3,
+                "sentences_kept": 1,
+                "evidence_drops": 1,
+                "digit_drops": 1,
+                "remaining_pii_patterns": 0,
+                "outcome": "200",
+            }
+            assert row["latency_s"] >= 0
+        assert report["jd"]["calls"] == 2 and report["cv"]["calls"] == 1
+        assert report["jd"]["sentences_kept"] == 2
+        assert report["jd"]["kept_share"] == 1 / 3
+        assert report["jd"]["share_422"] == 0
+        assert report["memory_pass"]
+        assert all(call["raw"] is None and call["wire_responses"] == [] for call in provider.calls)
+        serialized = json.dumps(report) + validation.render_markdown(report)
+        assert text not in serialized and "jonathan.smithers@example.com" not in serialized
+        assert "Not in the source" not in serialized and "10 years" not in serialized
+        return report
+
+    report = anyio.run(probe)
+    assert [row["id"] for row in report["summary_results"]["jd"]] == ["jd", "held-out"]
+    assert validation.remaining_pii(text) == 2
+    assert validation.remaining_pii("2019-2023") == 0
+
+
+@pytest.mark.parametrize(
+    "raw,valid,returned,evidence,digits,outcome",
+    [
+        ("not JSON", False, 0, 0, 0, "422 SUMMARY_INVALID"),
+        ('{"sentences": []}', False, 0, 0, 0, "422 SUMMARY_INVALID"),
+        (
+            '{"sentences": [{"text": "SQL", "evidence": "absent"}]}',
+            True,
+            1,
+            1,
+            0,
+            "422 SUMMARY_UNGROUNDED",
+        ),
+        (
+            '{"sentences": [{"text": "10 years SQL", "evidence": "SQL"}]}',
+            True,
+            1,
+            0,
+            1,
+            "422 SUMMARY_UNGROUNDED",
+        ),
+    ],
+)
+def test_live_summary_error_counts(
+    raw: str, valid: bool, returned: int, evidence: int, digits: int, outcome: str
+) -> None:
+    row = anyio.run(
+        validation.run_summary,
+        RecordingProvider(RawFake(raw), retain_text=False),
+        {"id": "probe", "text": "SQL"},
+    )
+    assert row["schema_valid"] == valid and row["sentences_returned"] == returned
+    assert row["sentences_kept"] == 0
+    assert row["evidence_drops"] == evidence and row["digit_drops"] == digits
+    assert row["outcome"] == outcome and row["remaining_pii_patterns"] == 0
+
+
+def test_live_summary_empty_totals() -> None:
+    report = validation.summary_totals([], None)
+    assert report["calls"] == 0 and report["outcomes"] == {}
+    assert report["kept_share"] is None and report["share_422"] is None
+    assert report["median_s"] is None and report["max_s"] is None
+    assert not report["memory_pass"]
+
+
+def test_live_summary_redaction_preserves_schema_bounds() -> None:
+    text = "x" * 285 + " 1234567"
+    raw = json.dumps({"sentences": [{"text": text, "evidence": text}]})
+    row = anyio.run(
+        validation.run_summary,
+        RecordingProvider(RawFake(raw), retain_text=False),
+        {"id": "probe", "text": text},
+    )
+    assert row["outcome"] == "422 SUMMARY_INVALID"
+    assert row["sentences_returned"] == 1 and row["sentences_kept"] == 0
+    assert row["remaining_pii_patterns"] == 0
+
+
+@pytest.mark.parametrize(
+    "health_status,outcome,returned",
+    [
+        (200, "422 SUMMARY_INVALID", 1),
+        (503, "503 LLM_UNAVAILABLE", 0),
+    ],
+)
+def test_live_summary_adapter_rejection_and_unavailable_counts(
+    health_status: int, outcome: str, returned: int
+) -> None:
+    async def probe() -> None:
+        def respond(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/health":
+                return httpx.Response(health_status, json={})
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": '{"sentences":[{"evidence":"SQL"}]}'}}]},
+            )
+
+        actual = LlamaCppProvider(
+            "http://127.0.0.1:1234",
+            "fake-model",
+            api_key="synthetic-key",
+            transport=httpx.MockTransport(respond),
+        )
+        provider = RecordingProvider(actual, retain_text=False)
+        actual._client.event_hooks["response"].append(provider.observe_response)
+        try:
+            row = await validation.run_summary(provider, {"id": "probe", "text": "SQL"})
+            assert row["outcome"] == outcome and not row["schema_valid"]
+            assert row["sentences_returned"] == returned and row["sentences_kept"] == 0
+            assert row["evidence_drops"] == row["digit_drops"] == 0
+            assert all(
+                call["raw"] is None and call["wire_responses"] == [] for call in provider.calls
+            )
+            assert provider.wire_texts == []
+        finally:
+            await actual.aclose()
+
+    anyio.run(probe)
+
+
 @pytest.mark.parametrize(
     "raw,reason",
     [

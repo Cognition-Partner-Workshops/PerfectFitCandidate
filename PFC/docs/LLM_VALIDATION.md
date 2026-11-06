@@ -46,6 +46,117 @@ outputs must never contain real candidate data. The script returns nonzero if
 final fact validation fails or server memory exceeds 8 GB/is unavailable.
 Extraction quality/fallback counts are reported, not hidden by pass thresholds.
 
+## Count-only summary pass
+
+Use the same verified model, binary and supervisor with `--summaries-only`:
+
+```sh
+PYTHONPATH=. python scripts/validate_llm_extraction.py --summaries-only \
+  --gguf ~/pfc-models/llm/Qwen3-4B-Instruct-2507-Q4_K_M.gguf \
+  --llama-server ~/pfc-models/llm/b8936/llama-b8936/llama-server \
+  --out ~/pfc-models/llm/validation/summaries.run2
+```
+
+This mode calls production `services/summaries.summarise_text`, also used by the routes,
+with the unchanged summary prompt, schema, 60-second deadline, evidence substring and
+digit checks, then summary-only full contact redaction. Other screens retain the unchanged
+REQ-OUT-03 masker. No database is needed and no summary output text
+is written to JSON, Markdown or progress logs. The normal extraction mode is unchanged
+and still retains its synthetic extraction responses.
+Redacted strings must still fit the existing 300-character schema bounds; replacement
+overflow fails closed with SUMMARY_INVALID rather than truncation or an internal error.
+
+The summary pass covers all ten original JDs, five held-out JDs from
+`app/tests/fixtures/llm_validation_held_out.json` (override with `--held-out-fixtures`),
+and ten original CVs. Inputs use the normal production text normalization.
+Each row contains only fixture ID, schema-valid flag, returned/kept/drop counts, outcome,
+latency and remaining email/phone-pattern count across retained text and evidence. The
+remaining-pattern check uses the masker's `EMAIL`, `MASK_PHONE` and `YEAR_LIST` rules.
+Evidence failures take precedence: a sentence with both failures counts only as an
+evidence drop. Invalid-schema calls are not grounded; a parseable `sentences` array still
+contributes its returned count, but malformed/missing responses contribute zero.
+503 calls have schema-valid=no, not a fabricated schema-invalid 422.
+
+Aggregates separate JDs and CVs, with kept/returned share and 422/call share. Zero
+denominators are n/a. Latency covers provider health, generation, validation, grounding
+and redaction, including failed calls. The existing 50 ms child-process VmRSS/VmHWM sampler
+is used, with a final sample per category. Categories run JD then CV on one supervised
+model; HWM is cumulative since process start, so the CV peak can include the JD phase.
+The 8 GB comparison is model-process memory only, not combined Python/embedding memory
+or target-laptop acceptance. The CLI fails on excessive/unavailable memory or any
+remaining email/phone pattern; 422/503 rates are reported, not hidden behind quality gates.
+
+## Summary contact-redaction validation — Linux VM, not target laptop
+
+Measured 2026-11-06 on Linux 6.8.0-1060-aws x86_64, 8 logical CPUs, 33,655,369,728 bytes
+RAM, Python 3.12.16; production supervisor defaults: context 4096, 3 CPU threads.
+Startup to healthy: **4.067 s**. The model was the MODELS.lock-pinned
+Qwen3-4B-Instruct-2507-Q4_K_M (SHA-256
+`2fde00ce69dd4899c70d020845e2638353015bba0fdf161b3eb965f2bca4464e`), with official
+Linux CPU llama.cpp **b8936**, version **8936 (2dd84169d)**. The archive hash matched
+the published release digest above; the harness reverified the entire GGUF before start.
+
+Count-only per-fixture JSON/Markdown and progress log are outside git at
+`~/pfc-models/llm/validation/summaries.run2.{json,md,log}`. No model output text was
+saved. The earlier run1 measured **2** remaining patterns in `jd08` from the existing
+partial email mask's suffix. This rerun uses full contact redaction only for summaries;
+the prompt, schema, evidence-substring and digit grounding checks are unchanged, and
+other screens retain their REQ-OUT-03 masking. The literal zero-pattern gate is unchanged.
+
+### JD
+
+| Metric | Value |
+|---|---:|
+| Calls | 15 |
+| Schema-valid calls | 15 |
+| 200 | 15 |
+| 422 SUMMARY_UNGROUNDED | 0 |
+| 422 SUMMARY_INVALID | 0 |
+| 503 LLM_UNAVAILABLE | 0 |
+| Sentences returned | 44 |
+| Sentences kept | 43 |
+| Evidence drops | 1 |
+| Digit-rule drops | 0 |
+| Kept share | 97.7% |
+| Calls ending in 422 | 0.0% |
+| Median latency (s) | 22.587 |
+| Maximum latency (s) | 30.771 |
+| Remaining email/phone patterns | 0 |
+| Peak model RSS/HWM (bytes) | 5330759680 |
+| Model ≤ 8 GB | PASS |
+
+### CV
+
+| Metric | Value |
+|---|---:|
+| Calls | 10 |
+| Schema-valid calls | 10 |
+| 200 | 10 |
+| 422 SUMMARY_UNGROUNDED | 0 |
+| 422 SUMMARY_INVALID | 0 |
+| 503 LLM_UNAVAILABLE | 0 |
+| Sentences returned | 47 |
+| Sentences kept | 47 |
+| Evidence drops | 0 |
+| Digit-rule drops | 0 |
+| Kept share | 100.0% |
+| Calls ending in 422 | 0.0% |
+| Median latency (s) | 27.337 |
+| Maximum latency (s) | 30.986 |
+| Remaining email/phone patterns | 0 |
+| Peak model RSS/HWM (bytes) | 5713330176 |
+| Model ≤ 8 GB | PASS |
+
+All 25 calls were schema-valid and returned 200; all retained sentences passed the
+literal post-redaction email/phone-pattern check. `jd03` dropped one sentence for
+absent evidence; no digit-only drops occurred in this live sample. Fake-provider tests
+exercise digit drops, evidence drops, invalid output and unavailable-provider outcomes.
+Both model-memory peaks are below decimal 8 GB. CV HWM is cumulative since startup
+and can include the earlier JD phase. This does not measure combined Python/embedding
+memory or certify laptop latency, visual states or summary entailment. Grounding checks
+verbatim evidence and numbers only, not whether a sentence follows from its quote.
+Target-laptop checks are in UAT_RUNBOOK.md step 9 and remain unexecuted here.
+
 ## Production wiring and metrics
 
 - Instantiate `Settings` with only artifact/data locations changed. Use the real
