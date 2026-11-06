@@ -162,3 +162,35 @@ def test_req_in_23_backfill_preserves_emails_and_version(
     client.app.state.llm_provider = FakeProvider("invalid JSON")
     repeat = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
     assert repeat["unchanged"] == 1 and repeat["facts_llm_failed"] == 0
+
+
+@pytest.mark.parametrize("line", ["+44 7700 900123 2020-2024", "2020-2024 +44 7700 900123"])
+def test_req_in_23_adjacent_phone_and_years_masked_in_both_responses(
+    client: TestClient,
+    tmp_path: Path,
+    line: str,
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(client, upload(client, "ct", [{}]))
+    resume_docx(root, "Alex.docx", f"alex@example.com\nProjects\n{line}")
+    wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    with database(client.app.state.settings) as db:
+        version = db.execute("SELECT candidate_id,text_norm,facts_json FROM cv_versions").fetchone()
+        phone = json.loads(version["facts_json"])["facts"]["phone"]
+        assert phone["value"] == "+44 7700 900123"
+        assert version["text_norm"][slice(*phone["span"])] == phone["evidence"]
+        candidate = version["candidate_id"]
+    for endpoint in (
+        f"/api/v1/candidates/{candidate}/cv-versions",
+        f"/api/v1/candidates/{candidate}",
+    ):
+        response = client.get(endpoint)
+        assert response.status_code == 200, response.text
+        assert "7700" not in response.text and "900123" not in response.text
+        items = (
+            response.json() if isinstance(response.json(), list) else response.json()["cvVersions"]
+        )
+        assert items[0]["facts"]["phone"]["value"] == "***23"
+        assert "***" in items[0]["facts"]["projects"][0]["evidence"]

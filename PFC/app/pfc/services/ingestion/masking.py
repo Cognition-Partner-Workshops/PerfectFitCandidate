@@ -11,17 +11,19 @@ YEAR_RANGE = re.compile(r"(?<!\d)(?:19|20)\d{2}\s*[-–—/]\s*(?:19|20)\d{2}(?!
 
 
 def phone_matches(text: str) -> Iterator[re.Match[str]]:
-    year_ranges = list(YEAR_RANGE.finditer(text))
-    for match in PHONE.finditer(text):
-        if any(
-            match.start() < years.end() and years.start() < match.end() for years in year_ranges
-        ):
-            continue
-        value = match[0]
-        if 7 <= len(re.sub(r"\D", "", value)) <= 15 and not re.fullmatch(
-            r"\d{4}[-.]\d{4}|\d{4}[-.]\d{2}[-.]\d{2}|\d{2}[-.]\d{2}[-.]\d{4}", value
-        ):
-            yield match
+    start = 0
+    segments = []
+    for years in YEAR_RANGE.finditer(text):
+        segments.append((start, years.start()))
+        start = years.end()
+    segments.append((start, len(text)))
+    for start, end in segments:
+        for match in PHONE.finditer(text, start, end):
+            value = match[0]
+            if 7 <= len(re.sub(r"\D", "", value)) <= 15 and not re.fullmatch(
+                r"\d{4}[-.]\d{4}|\d{4}[-.]\d{2}[-.]\d{2}|\d{2}[-.]\d{2}[-.]\d{4}", value
+            ):
+                yield match
 
 
 def mask_phone(phone: str | None) -> str | None:
@@ -32,6 +34,7 @@ def mask_phone(phone: str | None) -> str | None:
 
 def mask_evidence(text: str) -> str:
     text = EMAIL.sub(lambda match: _mask(match[0]) or "***", text)
-    for match in reversed(list(phone_matches(text))):
-        text = text[: match.start()] + (mask_phone(match[0]) or "***") + text[match.end() :]
+    for match in reversed(list(PHONE.finditer(text))):
+        if len(re.sub(r"\D", "", match[0])) >= 7:
+            text = text[: match.start()] + (mask_phone(match[0]) or "***") + text[match.end() :]
     return text
