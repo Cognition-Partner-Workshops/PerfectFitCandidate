@@ -22,6 +22,7 @@ class DemandIds(WireModel):
 
 
 class RunRequest(WireModel):
+    incremental: bool = False
     scope: Literal["full", "demands"] = "full"
     demand_ids: list[int] = Field(default_factory=list)
     as_of_date: date | None = None

@@ -20,7 +20,7 @@ def settings(tmp_path: Path) -> Settings:
 
 
 def test_schema_and_pragmas(settings: Settings) -> None:
-    assert migrate(settings) == ["0001", "0002", "0003", "0004"]
+    assert migrate(settings) == ["0001", "0002", "0003", "0004", "0005"]
     assert migrate(settings) == []
     assert len(list((settings.data_dir / "backups").glob("*-pre-0002.db"))) == 1
     sql = Path("pfc/db/migrations/0001_initial.sql").read_text()
@@ -166,21 +166,21 @@ def test_backup_restore(settings: Settings, tmp_path: Path) -> None:
     migrate(settings)
     directory = tmp_path / "migrations"
     directory.mkdir()
-    (directory / "0005_bad.sql").write_text(
+    (directory / "0006_bad.sql").write_text(
         "CREATE TABLE should_rollback(id INTEGER);\nINSERT INTO missing VALUES(1);\n"
     )
     with pytest.raises(sqlite3.OperationalError):
         migrate(settings, directory)
-    backups = list((settings.data_dir / "backups").glob("pfc-*-pre-0005.db"))
+    backups = list((settings.data_dir / "backups").glob("pfc-*-pre-0006.db"))
     assert len(backups) == 1
     with database(settings) as db:
-        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 4
+        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 5
         assert (
             db.execute("SELECT 1 FROM sqlite_master WHERE name='should_rollback'").fetchone()
             is None
         )
-    (directory / "0005_bad.sql").write_text("CREATE TABLE success(id INTEGER);\n")
-    assert migrate(settings, directory) == ["0005"]
+    (directory / "0006_bad.sql").write_text("CREATE TABLE success(id INTEGER);\n")
+    assert migrate(settings, directory) == ["0006"]
     assert migrate(settings, directory) == []
 
 
@@ -210,7 +210,7 @@ def test_item_ancestry_upgrade(settings: Settings, tmp_path: Path) -> None:
             "INSERT INTO jd_requirement_items(item_id,jd_req_id,kind,text,position) "
             "VALUES (1,1,'mandatory_skill','SQL',0)"
         )
-    assert migrate(settings) == ["0003", "0004"]
+    assert migrate(settings) == ["0003", "0004", "0005"]
     assert migrate(settings) == []
     with database(settings) as db:
         row = db.execute("SELECT text,source_jd_req_id FROM jd_requirement_items").fetchone()
@@ -244,7 +244,7 @@ def test_synonym_upgrade_after_published_jd_migration(settings: Settings, tmp_pa
             "(42,7,'Data','data','related',0.6,'approved',NULL,?)",
             (NOW,),
         )
-    assert migrate(settings) == ["0004"]
+    assert migrate(settings) == ["0004", "0005"]
     assert migrate(settings) == []
     with database(settings) as db:
         assert tuple(db.execute("SELECT * FROM skill_synonyms").fetchone()) == (
