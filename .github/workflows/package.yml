@@ -1,6 +1,11 @@
 name: Package Windows portable ZIP
 
 on:
+  pull_request:
+    paths:
+      - "PFC/packaging/**"
+      - ".github/workflows/package.yml"
+      - "PFC/app/pyproject.toml"
   workflow_dispatch:
   push:
     tags:
