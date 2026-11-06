@@ -6,6 +6,7 @@ and invented names, accounts and projects. The same seed always gives the same d
 
 import argparse
 import random
+import re
 import sys
 from datetime import date, timedelta
 from io import BytesIO
@@ -40,6 +41,7 @@ EXCLUDED_STATUS = "Selected"
 UNMAPPED_STATUS = "On secondment"
 UNPARSEABLE_DATE = "TBC"
 MAX_ROWS = 9999
+GENERATED_CV = re.compile(r"person\d{4}@example\.com\.txt")
 
 
 def workbook_bytes(headers: list[str], rows: list[dict[str, object]]) -> bytes:
@@ -176,7 +178,8 @@ def generate(
     paths["dl"].write_bytes(workbook_bytes(list(DL), dl))
     paths["ct"].write_bytes(workbook_bytes(list(CT), ct))
     for stale in resumes.glob("person*@example.com.txt"):
-        stale.unlink()
+        if GENERATED_CV.fullmatch(stale.name):
+            stale.unlink()
     for index, row in enumerate(ct, start=1):
         (resumes / f"{row['Email Address']}.txt").write_text(cv_text(index, row, rng), "utf-8")
     if dirty_percent is not None:
