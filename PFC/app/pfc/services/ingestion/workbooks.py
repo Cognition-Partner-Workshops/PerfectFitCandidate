@@ -204,9 +204,7 @@ def parse_workbook(
                 if not email:
                     business["email_address"] = None
                     issue("MISSING_EMAIL", "email_address", "Incomplete identity; email not provided")
-                if email and not re.fullmatch(
-                    r"[^\s@]+@[^\s@]+\.[^\s@]+", str(raw["email_address"])
-                ):
+                if email and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
                     issue("EMAIL_INVALID", "email_address", "Email copied verbatim; syntax invalid")
                 if _label(business["bench_status"]) not in {_label(s) for s in known_statuses}:
                     issue("UNMAPPED_STATUS", "bench_status", "Unmapped status; not excluded")

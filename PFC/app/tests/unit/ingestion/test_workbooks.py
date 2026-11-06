@@ -199,6 +199,7 @@ def test_req_in_14_verbatim_email_normalised_key(tmp_path: Path) -> None:
     ).rows[0]
     assert row.fields["email_address"] == " AlEx@Example.com "
     assert row.key == ("alex", "alex@example.com")
+    assert not row.issues
 
 
 def test_req_in_14_invalid_email_warning_only(tmp_path: Path) -> None:
