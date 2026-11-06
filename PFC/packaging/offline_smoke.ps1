@@ -12,6 +12,8 @@ public static class OfflineSmokeProfile {
 }
 '@
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    # restrict_acl grants the data dir to USERDOMAIN\USERNAME, so these must name this token's account too.
+    $env:USERDOMAIN, $env:USERNAME = $identity.Name.Split('\', 2)
     try {
         [uint32]$size = 0
         [void][OfflineSmokeProfile]::GetUserProfileDirectory($identity.Token, $null, [ref]$size)
