@@ -198,6 +198,9 @@ Phase 1 clause remains the separate summarisation feature.
 
 ### REQ-IN-21 — Partial → Partial
 
+PR [#59](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/59)
+adds grounded CV skill facts; the separate skill-fact vector-store clause remains open.
+
 - **Per-candidate Sync and finding the profile in the configured folder:**
   `frontend/src/pages/BenchListPage.tsx` calls `api.syncCvs([r.resourceId])`;
   `app/pfc/api/routers/cv.py::_submit`,
@@ -211,38 +214,63 @@ Phase 1 clause remains the separate summarisation feature.
   `app/tests/unit/ingestion/test_sources.py::test_req_in_25_identity_signals`.
 - **Extract skills and experience:**
   `app/pfc/services/ingestion/cv_facts.py::{rule_facts,extract_facts,validate_facts}`
-  and `cv_sync.py::_persist` now store grounded experience. Evidence:
+  and `cv_sync.py::_persist` store grounded experience and skills in schema-2 facts.
+  `app/pfc/api/schemas/cv.py::{CVFacts,SkillFact}` includes verbatim skills with
+  exact token evidence/spans. `cv_sync.py::sync` applies approved canonical names
+  from one `valid_synonym_table` snapshot per job, outside the persistence
+  transaction; unmatched or unapproved terms keep a null canonical. Evidence:
   `app/tests/unit/ingestion/test_cv_facts.py::test_req_in_23_rule_spans` and
   `app/tests/integration/test_cv_structured_facts.py::test_req_in_21_23_sync_persists_only_grounded_facts`
-  (healthy/absent/timeout/invalid provider cases). **Skills remain missing:**
-  `app/pfc/api/schemas/cv.py::CVFacts` and `cv_facts.py::KEYS` exclude skills;
-  `rule_facts` skips the skills heading. Searching production `app/pfc` finds
-  only schema/index definitions and the matching reader for `resource_skills`,
-  not a writer. No merged automated CV-skill extraction/persistence test exists.
+  cover experience and healthy/absent/timeout/invalid provider cases.
+  `test_req_in_21_23_skill_tokens_have_exact_first_spans` and
+  `test_req_in_21_23_llm_skills_grounding_and_category_fallback` in the unit file
+  cover rule tokens/deduplication, grounded versus fabricated LLM skills and
+  per-category rule fallback. Integration
+  `test_req_in_21_23_skills_use_one_approved_snapshot` proves persisted skill
+  spans, approved/null canonical names and one pre-transaction snapshot.
 - **Store in DB and vector store:** `cv_sync.py::_persist` stores normalized CV
   text/facts; `_embed_affected` and
   `app/pfc/services/embeddings/chunking.py::chunk_owner` embed the CV text when
   an active embedding model is available. The structured-facts test above
-  proves DB persistence; `app/tests/integration/test_ingestion.py::test_req_mat_01_cv_sync_optional_embedding`
+  proves DB persistence;
+  `test_req_in_23_backfill_preserves_emails_and_version` in the same file proves
+  in-place schema-1 to schema-2 backfill without a new CV version.
+  `app/tests/integration/test_ingestion.py::test_req_mat_01_cv_sync_optional_embedding`
   checks CV chunks, vector count/search, absent-model behavior and idempotence.
-  Whole-text vectors are not proof of extracting/storing CV skill records.
+  **Remaining gap:** skill facts are not separately vectorised/retrieved;
+  whole-CV text vectors do not establish that clause. By lead decision,
+  grounded CV skills are deliberately not written to `resource_skills` or
+  used in scoring; embedding inputs are unchanged.
+  `app/tests/integration/test_matching_service.py::test_req_in_21_23_skills_json_does_not_affect_matching`
+  runs matching with and without JSON skills and proves identical scores and
+  score breakdowns. IN-21 therefore remains Partial, not an extraction/SQLite gap.
 - **Global Sync of manually selected candidates; enabled only with selection:**
   `BenchListPage.tsx` submits `[...selected]`, disabled at `selected.size === 0`;
   `frontend/src/App.test.tsx` test
   `enables Sync selected only when a candidate is selected (REQ-IN-21)` checks
   the disabled/enabled transition. Backend selected/empty handling uses the
-  same `_submit` path and the ingestion tests above. Thus the remaining
-  requirement clause is skill extraction, not experience or vector storage.
+  same `_submit` path and the ingestion tests above.
 
-### REQ-IN-23 — Partial → Partial
+### REQ-IN-23 — Partial → Implemented+tested
 
-- **Name, phone, experience, qualifications, projects:**
+PR [#59](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/59)
+closes the skills, manual-entry, incomplete-information prompt and phone-warning gaps.
+
+- **Name, phone, skills, experience, qualifications, projects:**
   `app/pfc/services/ingestion/cv_facts.py::{rule_facts,validate_facts,extract_facts}`
-  plus `cv_sync.py::_persist` implement these five categories, not skills.
+  plus `cv_sync.py::_persist` implement all six categories, including
+  `app/pfc/api/schemas/cv.py::SkillFact` with optional canonical metadata.
   `app/tests/unit/ingestion/test_cv_facts.py::test_req_in_23_rule_spans` asserts
-  every category and quote/span; the structured-facts integration test named
-  above asserts persisted values and failure fallback. **Skills are missing**
-  for the schema/writer reasons recorded under IN-21.
+  the original categories and quote/span;
+  `test_req_in_21_23_skill_tokens_have_exact_first_spans` and
+  `test_req_in_21_23_llm_skills_grounding_and_category_fallback` cover skills,
+  fabrication rejection and independent category fallback. The structured-facts
+  integration tests `test_req_in_21_23_sync_persists_only_grounded_facts` and
+  `test_req_in_21_23_skills_use_one_approved_snapshot` assert persisted values,
+  provenance, fallback and canonical resolution. As audited under IN-21,
+  skill facts are stored but not separately vectorised/retrieved, scored or
+  written to `resource_skills`, by lead decision; that does not leave an
+  IN-23 extraction clause open.
 - **Emails:** `app/pfc/services/ingestion/cv_sync.py::_persist` copies regex
   matches from the actual CV into `facts_json.emails`;
   `app/tests/integration/test_cv_structured_facts.py::test_req_in_23_backfill_preserves_emails_and_version`
@@ -251,33 +279,59 @@ Phase 1 clause remains the separate summarisation feature.
 - **Evidence/provenance where available:** `validate_facts` requires exact
   normalized-text slices, a value present in the quote, valid spans and phone
   digit agreement. `CandidateProfilePage.tsx::CvFactsCard` shows source tags
-  and quote details. Integration evidence is the grounded-facts test above;
+  and quote details. Skills additionally require `value == evidence`; canonical
+  metadata is not grounding and LLM-supplied canonical names are ignored.
+  Integration evidence is the grounded-facts/snapshot tests above;
   `frontend/src/pages/CandidateProfilePage.test.tsx` test
   `shows each fact with its source tag and expandable evidence, and empty lists as not found`
-  covers display. Invalid output is dropped by
+  and `shows verbatim skills, differing canonicals, provenance and expandable evidence`
+  cover display. `cv_facts.py::public_facts` masks values and quotes; unit
+  `test_req_in_23_public_skill_masking_and_phone_warning` covers skill masking.
+  Invalid output is dropped by
   `app/tests/unit/ingestion/test_cv_facts.py::test_req_in_23_invalid_facts_are_dropped`
   and `test_req_in_23_phone_value_must_match_evidence_digits`.
 - **Missing name/email prompt and all three options:**
   `app/pfc/services/ingestion/apply.py::_candidate` derives incomplete identity
   from the CT email key; `CandidateProfilePage.tsx` exposes Resolve identity
-  for incomplete/ambiguous status (automatically opens only ambiguous status).
+  and automatically opens the dialog for incomplete or ambiguous status.
   `IncompleteIdentityDialog` defaults to `generate_internal_id` and also offers
-  `review_later` and `select_ct_record`. The API action enum in
-  `app/pfc/api/schemas/candidates.py::IdentityResolution` has exactly those
-  three actions: **no manual-entry option**. Backend evidence in
+  `manual_entry`, `review_later` and the additional `select_ct_record` option.
+  `app/pfc/api/schemas/candidates.py::IdentityResolution` validates manual entry:
+  a trimmed nonblank name (maximum 200 characters) and optional CT-rule-valid
+  email. `identity.py::resolve` stores the stripped, case-preserved email as
+  confirmed `source='manual'`, refuses CT authority/other-candidate confirmed
+  email conflicts with 409, and records masked audit fields only. Correcting
+  an email removes obsolete manual rows, not CT/CV rows; omitting email retains
+  the existing manual address. Backend evidence in
   `app/tests/integration/test_ingestion_approvals.py`:
   `test_req_in_23_25_analyst_can_resolve_separate_identity_without_email` and
-  `test_req_in_23_select_ct_record_confirms_verbatim_email`. These prove internal
-  ID/review-later/CT selection, not literal manual entry or the default UI
-  selection. Missing CV name alone is displayed as not found; no merged test
-  establishes that it triggers the required incomplete-information prompt.
-- **Missing phone warning only:** `CVFacts.phone` is nullable and
-  `CvFactsCard` displays `Not found in CV`, without blocking sync or identity
-  resolution. The frontend test
-  `shows "Not found in CV" for a missing name or phone and nothing for legacy versions`
-  and unit `test_req_in_23_missing_identity_is_null` prove null/non-blocking
-  presentation, **not an explicit missing-phone warning**. No phone-missing
-  warning is produced by the sync counts/identity path.
+  `test_req_in_23_select_ct_record_confirms_verbatim_email` prove internal
+  ID/review-later/CT selection;
+  `test_req_in_23_manual_identity_success_and_private_audit`,
+  `test_req_in_23_manual_identity_cannot_override_any_ct_email`,
+  `test_req_in_23_manual_email_correction_does_not_link_old_address` and
+  `test_req_in_23_manual_identity_conflict_validation_and_access` cover manual
+  entry with/without email, whitespace, refusals, privacy and Analyst/CSRF access.
+  `app/tests/integration/test_cv_structured_facts.py::test_req_in_23_nameless_cv_without_ct_link_keeps_profile_incomplete`
+  proves a synced nameless CV without a CT link leaves identity incomplete.
+  Frontend tests in `CandidateProfilePage.test.tsx`,
+  `auto-opens %s identity with internal-ID default` and
+  `submits manual identity with optional email=%s and displays 409 detail inline`,
+  verify the corresponding incomplete/no-name/no-email state, default selection,
+  manual payloads and inline conflicts. An already complete CT-linked or
+  analyst-resolved identity has authoritative information; a missing CV name
+  alone does not require reopening its dialog.
+- **Missing phone warning only:** `cv_facts.py::public_facts` adds
+  `PHONE_NOT_FOUND` when the phone fact is null.
+  `CandidateProfilePage.tsx::{CvFactsCard,CandidateProfilePage}` render a
+  non-blocking card warning and a profile warning for the latest CV, not
+  necessarily the best-scoring CV. Unit
+  `test_req_in_23_public_skill_masking_and_phone_warning` proves warning
+  presence/absence; the snapshot integration test above checks the public API.
+  Frontend tests `shows non-blocking card and latest-CV phone warnings` and
+  `does not warn at profile level for an older best CV or a legacy latest CV`
+  verify display and latest-version selection. Missing phone does not block
+  browsing, identity resolution, CV sync or matching.
 - **Never invent email/phone; absent values NULL:** CV email regex extraction,
   `validate_facts` phone grounding and nullable phone/name fields are the
   guards. `test_req_in_23_missing_identity_is_null`, the invalid-fact tests
