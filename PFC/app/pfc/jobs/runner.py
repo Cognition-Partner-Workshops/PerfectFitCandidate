@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import sqlite3
 import threading
 import traceback
 from collections.abc import AsyncIterator, Callable
@@ -135,6 +136,11 @@ class JobRunner:
         except JobCancelled:
             self._finish(job_id, "cancelled", "cancelled")
         except Exception as exc:
+            exception_type = type(exc).__qualname__
+            if isinstance(exc, sqlite3.Error):
+                error_name = getattr(exc, "sqlite_errorname", None)
+                error_code = getattr(exc, "sqlite_errorcode", None)
+                exception_type += f" ({error_name}, {error_code})"
             frames = "\n".join(
                 f'  File "{frame.filename}", line {frame.lineno}, in {frame.name}'
                 for frame in traceback.extract_tb(exc.__traceback__)
@@ -143,7 +149,7 @@ class JobRunner:
                 "Background job %s failed\nTraceback (most recent call last):\n%s\n%s",
                 job_id,
                 frames,
-                type(exc).__qualname__,
+                exception_type,
             )
             self._finish(job_id, "failed", "Job failed")
 
