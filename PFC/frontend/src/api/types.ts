@@ -190,7 +190,7 @@ export interface MatchRun {
   rolesWithoutCandidate: number
   /** True when DL/CT, OCC, JD or CV data changed after the run finished; scores are a point-in-time snapshot. */
   dataChangedSinceRun: boolean
-  /** e.g. "DL/CT committed", "OCC approval edit", "JD confirmed", "CV synced". */
+  /** e.g. "DL/CT committed", "OCC approval decision", "OCC settings edit", "JD confirmed", "CV synced". */
   dataChangedReasons: string[]
 }
 

@@ -919,7 +919,7 @@ export class MockApiClient implements ApiClient {
     if (e.state !== 'Pending') fail(409, 'This entry has already been decided', 'ALREADY_DECIDED')
     const comment = d.comment?.trim()
     if ((d.action === 'modify' || d.action === 'revert') && !comment) fail(422, 'A reason is required', 'REASON_REQUIRED')
-    this.noteDataChange('OCC approval edit')
+    this.noteDataChange('OCC approval decision')
     if (d.action === 'modify') {
       const values = d.values ?? {}
       if (!Object.keys(values).length) fail(422, 'Enter at least one corrected value', 'NO_CHANGES')
