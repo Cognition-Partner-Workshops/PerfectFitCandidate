@@ -432,6 +432,8 @@ def test_email_templates(client: TestClient) -> None:
     "body_html",
     [
         "<style>p { color: red }</style><p>{candidate_name}</p>",
+        "<style>a{color:red}</style>",
+        "{candidate_name}",
         "{{",
         "{{literal_braces}}",
         "{unfinished",
@@ -450,6 +452,18 @@ def test_email_literal_braces(client: TestClient, body_html: str) -> None:
     )
     assert result.status_code == 201, result.text
     assert result.json()["body_html"] == body_html
+
+
+@pytest.mark.parametrize("token", ["{Unknown}", "{missing!r}"])
+@pytest.mark.parametrize("field", ["subject", "body_html"])
+def test_email_unknown_brace_tokens(client: TestClient, token: str, field: str) -> None:
+    """REQ-EML-03: every unescaped placeholder token must be allowlisted."""
+    login(client)
+    body = {"name": "invalid", "subject": "{role}", "body_html": "{candidate_name}"}
+    body[field] = token
+    response = client.post("/api/v1/occ/email-templates", json=body)
+    assert response.status_code == 422, response.text
+    assert response.json()["code"] == "UNKNOWN_PLACEHOLDER"
 
 
 def test_recipients_domains_settings_and_audit(client: TestClient) -> None:

@@ -152,7 +152,7 @@ def activate(db: sqlite3.Connection, user_id: int, target: int) -> dict[str, Any
 
 
 def validate_placeholders(subject: str, body: str) -> None:
-    tokens = re.findall(r"(?<!\{)\{([a-z_][a-z0-9_]*)\}(?!\})", subject + "\n" + body)
+    tokens = re.findall(r"(?<!\{)\{([^{}\s:;]+)\}(?!\})", subject + "\n" + body)
     if set(tokens) - PLACEHOLDERS:
         raise Problem(422, "UNKNOWN_PLACEHOLDER", "Unknown email placeholder")
 
