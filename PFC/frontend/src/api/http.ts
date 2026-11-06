@@ -39,6 +39,11 @@ import {
   type IngestionRunRow,
   toDemand,
   type DemandItem,
+  toAnalyticsSummary,
+  toBenchAnalytics,
+  toDemandAnalytics,
+  toMatchAnalytics,
+  toExportQuery,
 } from './mappers'
 import type { BenchStatus, CurrentUser, InternalDomain, PersonalSettings, ProblemDetails, ResourceTeamMember, StatusMapEntry } from './types'
 
@@ -100,7 +105,8 @@ export class HttpApiClient implements ApiClient {
     this.base = base.replace(/\/$/, '')
   }
 
-  private async request<T>(method: Method, path: string, body?: unknown): Promise<T> {
+  /** With `raw`, the successful `Response` is returned unread (file downloads). */
+  private async request<T>(method: Method, path: string, body?: unknown, raw = false): Promise<T> {
     const headers: Record<string, string> = { Accept: 'application/json' }
     let payload: BodyInit | undefined
     if (body instanceof FormData) payload = body
@@ -123,6 +129,7 @@ export class HttpApiClient implements ApiClient {
       }
       throw new ApiError(problem)
     }
+    if (raw) return res as T
     if (res.status === 204) return undefined as T
     return (await res.json()) as T
   }
@@ -218,10 +225,15 @@ export class HttpApiClient implements ApiClient {
     const s = p.toString()
     return s ? `?${s}` : ''
   }
-  analyticsSummary: ApiClient['analyticsSummary'] = (f) => this.request('GET', `/analytics/summary${this.qs(f)}`)
-  analyticsDemand: ApiClient['analyticsDemand'] = (f) => this.request('GET', `/analytics/demand${this.qs(f)}`)
-  analyticsBench: ApiClient['analyticsBench'] = (f) => this.request('GET', `/analytics/bench${this.qs(f)}`)
-  analyticsMatch: ApiClient['analyticsMatch'] = (f) => this.request('GET', `/analytics/match${this.qs(f)}`)
+  analyticsSummary: ApiClient['analyticsSummary'] = async (f) => toAnalyticsSummary(await this.request('GET', `/analytics/summary${this.qs(f)}`))
+  analyticsDemand: ApiClient['analyticsDemand'] = async (f) => toDemandAnalytics(await this.request('GET', `/analytics/demand${this.qs(f)}`))
+  analyticsBench: ApiClient['analyticsBench'] = async (f) => toBenchAnalytics(await this.request('GET', `/analytics/bench${this.qs(f)}`))
+  analyticsMatch: ApiClient['analyticsMatch'] = async (f) => toMatchAnalytics(await this.request('GET', `/analytics/match${this.qs(f)}`))
+  exportResults: ApiClient['exportResults'] = async (runId, f, format, includeEmails) => {
+    const res = await this.request<Response>('GET', `/match-runs/${runId}/export?${toExportQuery(f, format, includeEmails)}`, undefined, true)
+    const named = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1]
+    return { blob: await res.blob(), fileName: named ?? `PFC-results-run${runId}.${format}` }
+  }
 
   /** POST /emails/drafts needs run_id|demand_id; the latest run is used until matching (#10) exposes it per result. */
   /** Drafts come from the run on screen; by default the newest completed one, since a queued/running run is rejected. */
