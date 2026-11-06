@@ -7,6 +7,11 @@ import { formatDateTime } from '../../lib/format'
 
 /** History is newest-first; after a rollback the newest row is `rolled_back`, so the flag decides. */
 const currentOf = (h: PackageImportRecord[] | undefined) => h?.find((x) => x.isCurrent)
+/** Rollback restores the newest applied version older than the installed one. */
+const rollbackTargetOf = (h: PackageImportRecord[] | undefined) => {
+  const cur = currentOf(h)
+  return cur && h?.filter((x) => x.version < cur.version && x.status === 'applied').sort((a, b) => b.version - a.version)[0]
+}
 
 /**
  * Settings-package import with signature/version validation, change preview, atomic apply and
@@ -38,6 +43,7 @@ export function SettingsPackagePanel() {
     },
   })
   const installed = currentOf(history.data)
+  const rollbackTarget = rollbackTargetOf(history.data)
   const valid = preview && preview.errors.length === 0
   return (
     <section className="card stack" aria-label="Settings package">
@@ -181,7 +187,7 @@ export function SettingsPackagePanel() {
                 Cancel
               </button>
               <button className="btn btn-danger" onClick={() => rollback.mutate()}>
-                Roll back to v{history.data?.[1]?.version}
+                Roll back to v{rollbackTarget?.version}
               </button>
             </>
           }

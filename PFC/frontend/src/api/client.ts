@@ -147,7 +147,7 @@ export interface ApiClient {
   analyticsMatch(filters: DashboardFilters): Promise<MatchAnalytics>
 
   /** POST /emails/drafts */
-  createDrafts(resultIds: number[]): Promise<EmailDraft[]>
+  createDrafts(resultIds: number[], runId?: number): Promise<EmailDraft[]>
   /** GET /emails */
   listEmails(): Promise<EmailList>
   /** PUT /emails/{id} */
