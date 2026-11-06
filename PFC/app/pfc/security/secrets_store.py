@@ -81,10 +81,21 @@ def sensitive_setting(key: str, value: Any) -> bool:
     return isinstance(value, str) and value.startswith(PREFIX)
 
 
+def public_identity(key: str, value: Any) -> bool:
+    return key in {"id", "name", "provider"} and (
+        value is None or isinstance(value, (str, int, float, bool))
+    )
+
+
 def redact_sensitive(value: Any, key: str = "") -> Any:
     def redact(node: Any, sensitive: bool) -> Any:
         if isinstance(node, dict):
-            return {k: redact(v, sensitive or sensitive_key(str(k))) for k, v in node.items()}
+            return {
+                k: v
+                if public_identity(str(k), v)
+                else redact(v, sensitive or sensitive_key(str(k)))
+                for k, v in node.items()
+            }
         if isinstance(node, list):
             return [redact(v, sensitive) for v in node]
         if sensitive or (isinstance(node, str) and node.startswith(PREFIX)):

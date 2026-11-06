@@ -598,6 +598,34 @@ def test_reordered_providers_keep_their_credentials(client: TestClient, identity
         }
 
 
+@pytest.mark.parametrize("identity", ["id", "name", "provider"])
+def test_auth_list_identity_survives_redaction(client: TestClient, identity: str) -> None:
+    setup(client)
+    login(client)
+    options = {
+        "auth": [{identity: "first", "key": "PrivateKey", "token": "PrivateToken"}],
+        "enabled": True,
+    }
+    response = client.put("/api/v1/occ/settings", json={"provider.options": options})
+    assert response.status_code == 200
+    updated = client.get("/api/v1/occ/settings").json()
+    assert updated["provider.options"]["auth"][0] == {
+        identity: "first",
+        "key": "[REDACTED]",
+        "token": "[REDACTED]",
+    }
+    updated["provider.options"]["enabled"] = False
+    assert client.put("/api/v1/occ/settings", json=updated).status_code == 200
+    options["enabled"] = False
+    with database(client.app.state.settings) as db:
+        stored = json.loads(
+            db.execute("SELECT value_json FROM settings WHERE key='provider.options'").fetchone()[0]
+        )
+        assert (
+            json.loads(SecretStore(client.app.state.settings.data_dir).decrypt(stored)) == options
+        )
+
+
 @pytest.mark.parametrize(
     "existing,incoming",
     [
@@ -621,6 +649,18 @@ def test_reordered_providers_keep_their_credentials(client: TestClient, identity
             {"items": [{"id": 1, "token": "[REDACTED]"}]},
         ),
         ({"items": [{"id": 1, "enabled": True}]}, {"items": [{"id": 1, "token": "[REDACTED]"}]}),
+        (
+            {"items": [{"id": 1, "token": "FirstSecret"}]},
+            {"items": [{"id": 1, "token": "[REDACTED]"}, {"id": 1, "token": "ExplicitSecret"}]},
+        ),
+        (
+            {"items": [{"id": 1, "token": "FirstSecret"}]},
+            {"items": [{"id": 1, "token": "ExplicitSecret"}, {"id": 1, "token": "[REDACTED]"}]},
+        ),
+        (
+            {"auth": [{"key": "PrivateKey", "token": "FirstSecret"}]},
+            {"auth": [{"key": "[REDACTED]", "token": "[REDACTED]"}]},
+        ),
     ],
 )
 def test_redacted_credential_requires_existing_path(

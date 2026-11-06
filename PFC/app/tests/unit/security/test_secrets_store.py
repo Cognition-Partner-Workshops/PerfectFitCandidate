@@ -157,3 +157,21 @@ def test_count_exception_applies_to_all_credential_families(secret: str, count: 
 
 def test_tokens_per_minute_is_not_a_credential() -> None:
     assert not sensitive_setting("tokens_per_minute", 120)
+
+
+@pytest.mark.parametrize("key", ["id", "name", "provider"])
+@pytest.mark.parametrize("value", [None, False, 0, 1.5, "", "provider-a"])
+def test_scalar_identity_is_public_under_sensitive_parent(key: str, value: object) -> None:
+    assert redact_sensitive({"auth": [{key: value, "key": "private", "token": "private"}]}) == {
+        "auth": [{key: value, "key": "[REDACTED]", "token": "[REDACTED]"}],
+    }
+
+
+def test_structured_identity_is_not_public() -> None:
+    assert redact_sensitive(
+        {
+            "auth": {"id": {"token": "private"}, "name": ["private"], "provider": ("private",)},
+        }
+    ) == {
+        "auth": {"id": {"token": "[REDACTED]"}, "name": ["[REDACTED]"], "provider": "[REDACTED]"},
+    }

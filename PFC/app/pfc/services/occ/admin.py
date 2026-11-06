@@ -13,6 +13,7 @@ from pfc.security.secrets_store import (
     PREFIX,
     SecretStore,
     SecretStoreError,
+    public_identity,
     redact_sensitive,
     sensitive_key,
     sensitive_setting,
@@ -23,6 +24,13 @@ _MISSING = object()
 
 
 def _restore_redacted(value: Any, previous: Any, key: str, settings: Settings) -> Any:
+    def has_marker(node: Any) -> bool:
+        if isinstance(node, dict):
+            return any(has_marker(v) for v in node.values())
+        if isinstance(node, list):
+            return any(has_marker(v) for v in node)
+        return node == "[REDACTED]"
+
     def existing_at(path: tuple[Any, ...]) -> Any:
         nonlocal previous
         if isinstance(previous, str) and previous.startswith(PREFIX):
@@ -56,20 +64,38 @@ def _restore_redacted(value: Any, previous: Any, key: str, settings: Settings) -
     def restore(node: Any, path: tuple[Any, ...], sensitive: bool) -> Any:
         if isinstance(node, dict):
             return {
-                k: restore(v, (*path, k), sensitive or sensitive_key(str(k)))
+                k: v
+                if public_identity(str(k), v)
+                else restore(v, (*path, k), sensitive or sensitive_key(str(k)))
                 for k, v in node.items()
             }
         if isinstance(node, list):
-            result = []
-            for item in node:
-                identity = next(
+            identities = [
+                next(
                     (
                         (name, item[name])
                         for name in ("id", "name", "key", "provider")
-                        if isinstance(item, dict) and name in item
+                        if isinstance(item, dict) and name in item and item[name] != "[REDACTED]"
                     ),
                     None,
                 )
+                for item in node
+            ]
+            result = []
+            for item, identity in zip(node, identities, strict=True):
+                if identity is not None:
+                    duplicates = [
+                        other
+                        for other, candidate in zip(node, identities, strict=True)
+                        if candidate is not None
+                        and identity[0] == candidate[0]
+                        and type(identity[1]) is type(candidate[1])
+                        and identity[1] == candidate[1]
+                    ]
+                    if len(duplicates) > 1 and any(has_marker(other) for other in duplicates):
+                        raise Problem(
+                            422, "VALIDATION_ERROR", "Re-enter the credential; duplicate identity"
+                        )
                 result.append(restore(item, (*path, identity), sensitive))
             return result
         if node == "[REDACTED]":
