@@ -64,7 +64,7 @@ import { benchAnalytics, demandAnalytics, matchAnalytics, summarise } from '../.
 import { applyResultFilters } from '../../lib/filters'
 import { resultsToCsv } from '../../lib/csv'
 import { checkPassword } from '../../lib/password'
-import { unknownPlaceholders } from '../../lib/occ'
+import { checkTemplate } from '../../lib/occ'
 import { formatPct } from '../../lib/format'
 import { maskEmail, maskPhone } from '../../lib/mask'
 
@@ -1238,7 +1238,8 @@ export class MockApiClient implements ApiClient {
     const u = this.requireAdmin()
     const name = d.name.trim()
     if (!name) fail(422, 'A template name is required', 'VALIDATION_ERROR')
-    if (unknownPlaceholders(d.subject, d.bodyHtml).length) fail(422, 'Unknown email placeholder', 'UNKNOWN_PLACEHOLDER')
+    const check = checkTemplate(d.subject, d.bodyHtml)
+    if (check.unknown.length || check.malformed) fail(422, 'Unknown email placeholder', 'UNKNOWN_PLACEHOLDER')
     const version = Math.max(0, ...this.state.emailTemplates.filter((t) => t.name === name).map((t) => t.version)) + 1
     const row: EmailTemplateVersion = { emailTemplateId: this.nextId(), name, version, subject: d.subject, bodyHtml: d.bodyHtml, isDefault: false, createdBy: u.userId, createdAt: iso() }
     this.state.emailTemplates.push(row)

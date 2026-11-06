@@ -101,8 +101,8 @@ Edit component **Weights**, band thresholds (**Strong**, **Potential**, **Avg**;
 - **OCC → Resource-team list:** the recipients of candidate emails (display name, email, active). Changes apply to new drafts only. An address already in the list or not a valid email is rejected.
 - **OCC → Email templates:** lists the latest version of each template with its subject, version, created date and whether it is the default. **Show all versions** adds the earlier versions.
   - **Edit** opens a version; **Save as v(N+1)** adds the next version. Versions are never changed in place. **New template** starts a new template name.
-  - Subjects and bodies may use only `{candidate_name}`, `{requisition}`, `{role}`, `{match_pct}`, `{analysis}`, `{gaps}`, `{pointers}`, `{spoc_1}` and `{spoc_2}`. Any other `{token}` is rejected; `{{`, `}}` and CSS blocks are kept as literal text.
-  - **Set as default** makes that version the one new email drafts use. There is one default at a time, and a new version is not the default until you set it. If no template exists, the first email draft creates `candidate_default` v1 as the default.
+  - Subjects and bodies may use only `{candidate_name}`, `{requisition}`, `{role}`, `{match_pct}`, `{analysis}`, `{gaps}`, `{pointers}`, `{spoc_1}` and `{spoc_2}`. Any other `{token}`, an unmatched brace or a `{name:spec}` form is rejected; write a literal brace as `{{` or `}}`.
+  - **Set as default** makes that version the one new email drafts use. There is one default at a time, and a new version is not the default until you set it. If no default exists, the template you save becomes the default; with no templates at all, the first email draft creates `candidate_default` v1.
   - Analysts' **Settings → Email template** is separate and stored in their browser.
 
 ## 10. Internal domains

@@ -4,7 +4,7 @@ import { api } from '../../api'
 import type { EmailTemplateDraft } from '../../api/types'
 import { Banner, Chip, EmptyState, ErrorState, Spinner } from '../../components/ui'
 import { formatDateTime } from '../../lib/format'
-import { EMAIL_PLACEHOLDERS, unknownPlaceholders } from '../../lib/occ'
+import { EMAIL_PLACEHOLDERS, checkTemplate } from '../../lib/occ'
 
 /** Versioned candidate email templates (REQ-EML-03, GUI_OCC_DESIGN.md §16.3). Versions are append-only. */
 export function OccEmailTemplates() {
@@ -19,10 +19,19 @@ export function OccEmailTemplates() {
     onSuccess: (t) => setDraft({ name: t.name, subject: t.subject, bodyHtml: t.bodyHtml, isNew: false }),
   })
   const create = useMutation({
-    mutationFn: (d: EmailTemplateDraft) => api.createEmailTemplate(d),
+    // With no default, the first email draft inserts candidate_default v1, which collides with a saved candidate_default.
+    mutationFn: async (d: EmailTemplateDraft) => {
+      const t = await api.createEmailTemplate(d)
+      const hasDefault = (await api.listEmailTemplates(true)).some((x) => x.isDefault)
+      return hasDefault ? t : api.setDefaultEmailTemplate(t.emailTemplateId)
+    },
     onSuccess: (t) => {
       setDraft(null)
-      setNotice(`${t.name} v${t.version} saved. Set it as default to use it for new email drafts.`)
+      setNotice(
+        t.isDefault
+          ? `${t.name} v${t.version} saved and set as the default template, because no default existed.`
+          : `${t.name} v${t.version} saved. Set it as default to use it for new email drafts.`,
+      )
       refresh()
     },
   })
@@ -39,8 +48,8 @@ export function OccEmailTemplates() {
   const name = draft?.name.trim() ?? ''
   const nextVersion = Math.max(0, ...rows.filter((r) => r.name === name).map((r) => r.version)) + 1
   const taken = Boolean(draft?.isNew && rows.some((r) => r.name === name))
-  const unknown = draft ? unknownPlaceholders(draft.subject, draft.bodyHtml) : []
-  const canSave = Boolean(draft && name && draft.subject.trim() && draft.bodyHtml.trim() && !taken && unknown.length === 0)
+  const { unknown, malformed } = draft ? checkTemplate(draft.subject, draft.bodyHtml) : { unknown: [], malformed: false }
+  const canSave = Boolean(draft && name && draft.subject.trim() && draft.bodyHtml.trim() && !taken && unknown.length === 0 && !malformed)
   return (
     <section className="card stack" aria-label="Email templates">
       <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -55,7 +64,7 @@ export function OccEmailTemplates() {
         <input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> Show all versions
       </label>
       {rows.length === 0 ? (
-        <EmptyState message="No email templates yet. The first email draft creates candidate_default v1 as the default." />
+        <EmptyState message="No email templates yet. The first template you save becomes the default; otherwise the first email draft creates candidate_default v1." />
       ) : (
         <table className="data" aria-label="Email template versions">
           <thead>
@@ -112,6 +121,7 @@ export function OccEmailTemplates() {
           </label>
           <span className="small muted">Placeholders: {EMAIL_PLACEHOLDERS.map((p) => `{${p}}`).join(' ')}</span>
           {unknown.length > 0 && <span className="error-text">Unknown placeholder: {unknown.map((p) => `{${p}}`).join(', ')}</span>}
+          {malformed && <span className="error-text">Unmatched or formatted brace. Write a literal brace as {'{{'} or {'}}'}.</span>}
           <div className="row">
             <button
               className="btn btn-primary"

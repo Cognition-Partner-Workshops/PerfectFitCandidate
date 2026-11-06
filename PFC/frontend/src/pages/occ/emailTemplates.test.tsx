@@ -2,13 +2,15 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { ADMIN, ANALYST_PASSWORD, renderApp, seed, signIn } from '../../test/utils'
 import { api } from '../../api'
-import { unknownPlaceholders } from '../../lib/occ'
+import { checkTemplate } from '../../lib/occ'
 
 describe('email template placeholders (REQ-EML-03)', () => {
-  it('flags tokens outside the allowlist and keeps literal braces and CSS', () => {
-    expect(unknownPlaceholders('Opportunity {role}', '<p>{candidate_name} {spoc_1}</p>')).toEqual([])
-    expect(unknownPlaceholders('{Unknown}', '{missing!r} {Unknown}')).toEqual(['Unknown', 'missing!r'])
-    expect(unknownPlaceholders('', '<style>a{color:red}</style>{{literal}} {unfinished')).toEqual([])
+  it('flags tokens outside the allowlist and braces the renderer cannot format', () => {
+    const ok = { unknown: [], malformed: false }
+    expect(checkTemplate('Opportunity {role}', '<p>{candidate_name} {spoc_1}</p> {{literal}}')).toEqual(ok)
+    expect(checkTemplate('{Unknown}', '{other} {Unknown} {}')).toEqual({ unknown: ['Unknown', 'other', ''], malformed: false })
+    for (const bad of ['Hi {candidate_name', 'a } b', '<style>a{color:red}</style>', '{role!r}', '{a{b}}'])
+      expect(checkTemplate('', bad).malformed).toBe(true)
   })
 })
 
@@ -63,6 +65,19 @@ describe('OCC email templates — screen', () => {
     const table = await screen.findByRole('table', { name: 'Email template versions' })
     await waitFor(() => expect(within(table).getAllByRole('row')).toHaveLength(3))
     expect((within(table).getByRole('button', { name: 'Set candidate_default v1 as default' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('makes the first template the default when none exists', async () => {
+    ;(api as unknown as { state: { emailTemplates: unknown[] } }).state.emailTemplates = []
+    renderApp('/occ/email-templates')
+    fireEvent.click(await screen.findByRole('button', { name: 'New template' }))
+    fireEvent.change(screen.getByLabelText('Template name'), { target: { value: 'candidate_default' } })
+    fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Role {role}' } })
+    fireEvent.change(screen.getByLabelText('Body (HTML)'), { target: { value: '<p>Hi {candidate_name</p>' } })
+    expect(screen.getByText(/Unmatched or formatted brace/)).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Body (HTML)'), { target: { value: '<p>Hi {candidate_name}</p>' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create template' }))
+    expect(await screen.findByText('candidate_default v1 saved and set as the default template, because no default existed.')).toBeTruthy()
   })
 
   it('blocks a new template that reuses an existing name', async () => {
