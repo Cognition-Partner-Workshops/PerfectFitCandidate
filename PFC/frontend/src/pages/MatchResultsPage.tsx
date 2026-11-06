@@ -3,12 +3,15 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, Download, Mail, TriangleAlert } from 'lucide-react'
 import { api } from '../api'
+import { ApiError, type ExportFormat } from '../api/client'
+import { EXPORT_UNSUPPORTED_FILTERS } from '../api/mappers'
+import { downloadBlob } from '../lib/download'
 import type { Band, MatchResult, MatchRun, ResultFilters } from '../api/types'
 import { FilterBar } from '../components/FilterBar'
 import { BandChip, Banner, Chip, EmptyState, ErrorState, MaskedValue, MatchDoughnut, Modal, ScoreBreakdown, Spinner } from '../components/ui'
 import { applyResultFilters, distinct } from '../lib/filters'
 import { groupByRequisition, preselectForEmail } from '../lib/emailSelection'
-import { DISCLAIMER, RESULT_COLUMNS, resultsToCsv } from '../lib/csv'
+import { DISCLAIMER, RESULT_COLUMNS } from '../lib/csv'
 import { formatDate, formatDateTime, roleLocation } from '../lib/format'
 import { BAND_ORDER, bandLabel } from '../lib/bands'
 import { useAuth } from '../auth/context'
@@ -172,6 +175,12 @@ export const RUN_POLL_MS = 1500
 const isActive = (r: MatchRun) => r.status === 'queued' || r.status === 'running'
 
 /** Match Results grid (REQ-OUT-01, REQ-MAT-03/09/10, REQ-OUT-08/09, GUI_OCC_DESIGN.md §11). */
+function exportError(error: unknown): string {
+  if (error instanceof ApiError && error.code === 'UNMASK_DISABLED')
+    return 'Full emails cannot be exported: unmasking is disabled for Analysts. Export with masked emails, or ask an OCC Admin to allow unmasking in Admin settings.'
+  return error instanceof Error ? error.message : 'Export failed.'
+}
+
 export function MatchResultsPage() {
   const { user } = useAuth()
   const [params] = useSearchParams()
@@ -202,6 +211,14 @@ export function MatchResultsPage() {
       navigate('/email')
     },
   })
+
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('csv')
+  const [includeEmails, setIncludeEmails] = useState(false)
+  const exporter = useMutation({
+    mutationFn: () => api.exportResults(run?.runId ?? 0, filters, exportFormat, includeEmails),
+    onSuccess: ({ blob, fileName }) => downloadBlob(blob, fileName),
+  })
+  const unsupported = EXPORT_UNSUPPORTED_FILTERS.filter((k) => filters[k] !== undefined && filters[k] !== '')
 
   const all = useMemo(() => results.data ?? [], [results.data])
   const rows = useMemo(() => applyResultFilters(all, filters), [all, filters])
@@ -239,15 +256,6 @@ export function MatchResultsPage() {
     )
   }
   const meta = `Run ${formatDateTime(run.finishedAt)} · Model ${run.llmModel} · Template v${run.templateVersion}`
-  const exportCsv = () => {
-    const blob = new Blob([resultsToCsv(rows, meta)], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `PFC-match-results-run${run.runId}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
   const selectedVisible = rows.filter((r) => selected.has(r.resultId))
   const groups = grouped ? groupByRequisition(rows) : [['', rows] as [string, MatchResult[]]]
   const canOverride = !!user && canEdit(user.role, 'matchOverrides')
@@ -265,13 +273,24 @@ export function MatchResultsPage() {
           {meta} {user?.role === 'Analyst' && '(read-only)'} · {run.demandsAssessed} reqs · {run.pairsScored} rows
         </span>
         <span className="spacer" />
-        <button className="btn" onClick={exportCsv}>
-          <Download size={16} /> Export CSV
+        <select aria-label="Export format" value={exportFormat} onChange={(e) => setExportFormat(e.target.value as ExportFormat)}>
+          <option value="csv">CSV</option>
+          <option value="xlsx">XLSX</option>
+        </select>
+        <label className="small">
+          <input type="checkbox" checked={includeEmails} onChange={(e) => setIncludeEmails(e.target.checked)} /> Include full emails
+        </label>
+        <button className="btn" disabled={exporter.isPending} onClick={() => exporter.mutate()}>
+          <Download size={16} /> Export {exportFormat.toUpperCase()}
         </button>
         <button className="btn btn-primary" disabled={selectedVisible.length === 0 || send.isPending} onClick={() => send.mutate(selectedVisible.map((r) => r.resultId))} title={selectedVisible.length ? undefined : 'Select at least one candidate'}>
           <Mail size={16} /> Send selected to Email Approval ({selectedVisible.length})
         </button>
       </div>
+      {exporter.isError && <Banner tone="danger">{exportError(exporter.error)}</Banner>}
+      {unsupported.length > 0 && (
+        <p className="small">The export applies the requisition, account, grade, location, band, status and score filters; BU, region, candidate type, identity and mandatory-skill filters are not applied to the file.</p>
+      )}
       <div className="card stack">
         <FilterBar value={filters} onChange={setFilters} options={options} splitGrade />
         <div className="row small">

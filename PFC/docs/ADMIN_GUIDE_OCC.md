@@ -138,7 +138,7 @@ The append-only log of sign-ins, OCC changes, uploads, overrides, approvals and 
 
 ## 15. Admin settings
 
-**OCC → Admin settings** holds instance-wide settings such as sign-in lockout limits, minimum password lengths, whether Analysts may unmask emails and the number of pre-selected emails per requisition. **Admin settings saved.** confirms a save.
+**OCC → Admin settings** holds instance-wide settings such as sign-in lockout limits, minimum password lengths, whether Analysts may unmask emails (this also controls whether Analysts can export results with full emails) and the number of pre-selected emails per requisition. **Admin settings saved.** confirms a save.
 
 ## 16. Pending in this build
 
@@ -148,5 +148,4 @@ The append-only log of sign-ins, OCC changes, uploads, overrides, approvals and 
 | OCC email templates | Pending: no OCC screen; backend routes exist |
 | Global default model | Pending: **Make default** is per user |
 | Signing-key details screen | Pending |
-| Dashboard analytics | Pending: `/analytics/*` not merged |
 | Lockout status on sign-in | Pending: the backend answers a lockout as invalid credentials |

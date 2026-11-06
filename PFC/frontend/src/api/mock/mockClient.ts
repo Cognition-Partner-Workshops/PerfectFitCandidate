@@ -60,6 +60,7 @@ import {
 import { classify, scoreAll, toResource } from './scorer'
 import { benchAnalytics, demandAnalytics, matchAnalytics, summarise } from '../../lib/analytics'
 import { applyResultFilters } from '../../lib/filters'
+import { resultsToCsv } from '../../lib/csv'
 import { checkPassword } from '../../lib/password'
 import { formatPct } from '../../lib/format'
 import { maskEmail, maskPhone } from '../../lib/mask'
@@ -731,6 +732,14 @@ export class MockApiClient implements ApiClient {
       { id: 'capacity', label: 'Available Capacity not used for availability', passed: true },
       { id: 'unparseable', label: 'Unparseable dates stay eligible (pending review)', passed: true },
     ]
+  }
+
+  async exportResults(runId: number, f: ResultFilters, format: 'csv' | 'xlsx', includeEmails: boolean) {
+    const me = this.currentUser()
+    if (includeEmails && me.role === 'Analyst' && !this.policy().analystsMayUnmask) fail(403, 'Unmasking is disabled for Analysts', 'UNMASK_DISABLED')
+    if (format === 'xlsx') fail(501, 'XLSX export needs the backend', 'NOT_IMPLEMENTED')
+    const rows = applyResultFilters(await this.getResults(runId), f)
+    return { blob: new Blob([resultsToCsv(rows, `Run ${runId}`)], { type: 'text/csv;charset=utf-8' }), fileName: `PFC-results-run${runId}.csv` }
   }
 
   async analyticsSummary(f: DashboardFilters) {

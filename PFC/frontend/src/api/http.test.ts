@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveApiMode } from '../config'
 import { ApiError } from './client'
 import { HttpApiClient, setUnauthorizedHandler } from './http'
-import { fromGrades, toCurrentUser, toEmailDraft, toGrade } from './mappers'
+import { fromGrades, toCurrentUser, toDashboardQuery, toEmailDraft, toExportQuery, toGrade } from './mappers'
 
 const AUTH = {
   user: { user_id: 1, email: 'admin@example.com', display_name: 'OCC Admin', role: 'Admin', must_change_password: false },
@@ -356,5 +356,74 @@ describe('HttpApiClient — ingestion wiring', () => {
     expect(fetchMock.mock.calls.map(([u]) => String(u))).toEqual(['/api/v1/demands?page=1&page_size=200', '/api/v1/demands?page=2&page_size=200'])
     expect(d.map((x) => x.codeRequisition)).toEqual(['T10001', 'T10002'])
     expect(d[0]).toMatchObject({ demandId: 1, accountName: 'Acme', jdStatus: 'Not analysed', matches: 0, bestBand: null })
+  })
+})
+
+describe('HttpApiClient — analytics and export wiring (REQ-OUT-04..09)', () => {
+  it('sends only backend DashboardFilters keys, with the demand grade as grade', () => {
+    expect(
+      toDashboardQuery({ codeRequisition: 'T1', demandGrade: 'B1', personGrade: 'C1', bu: '', scoreMin: 50 }),
+    ).toEqual({ codeRequisition: 'T1', grade: 'B1', scoreMin: 50 })
+  })
+
+  it('maps result filters onto the export query and leaves emails masked by default', () => {
+    const q = new URLSearchParams(
+      toExportQuery({ codeRequisition: ' T1 ', accountName: 'Acme', location: 'Pune', band: 'Strong', bu: 'X', scoreMax: 90 }, 'xlsx', false),
+    )
+    expect(Object.fromEntries(q)).toEqual({
+      format: 'xlsx',
+      requisition: 'T1',
+      account: 'Acme',
+      personLocation: 'Pune',
+      band: 'Strong',
+      scoreMax: '90',
+    })
+    expect(new URLSearchParams(toExportQuery({}, 'csv', true)).get('includeEmails')).toBe('true')
+  })
+
+  it('downloads the export with the server file name', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(
+      new Response('a,b\n', { headers: { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="PFC-results-run3.csv"' } }),
+    )
+    const f = await api.exportResults(3, { accountName: 'Acme' }, 'csv', false)
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe('/api/v1/match-runs/3/export?format=csv&account=Acme')
+    expect(f.fileName).toBe('PFC-results-run3.csv')
+    expect(await f.blob.text()).toBe('a,b\n')
+  })
+
+  it('surfaces UNMASK_DISABLED when full emails are refused', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(problem(403, 'UNMASK_DISABLED', 'Unmasking is disabled for Analysts'))
+    const err = await api.exportResults(3, {}, 'csv', true).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect((err as ApiError).code).toBe('UNMASK_DISABLED')
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('includeEmails=true')
+  })
+
+  it('normalises analytics replies', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock
+      .mockResolvedValueOnce(json({ coveragePct: 50, bandDistribution: [{ label: 'Strong', count: 1 }], emailStatusCounts: [], validation: [{ id: 'v1', label: 'Check', passed: true }] }))
+      .mockResolvedValueOnce(
+        json({
+          run: null,
+          requisitionsAssessed: 0,
+          openRequisitions: 2,
+          roleToPersonCombinations: 0,
+          rolesWithNoSuitableCandidate: 0,
+          weakOnlyRequisitions: 0,
+          dataQualityIssues: { total: 1, dl: 1, ct: 0 },
+          eligibleBench: 1,
+          excludedBench: 1,
+          matchCoveragePct: 0,
+          emailsWithin24hPct: 0,
+        }),
+      )
+    const m = await api.analyticsMatch({ bu: 'X' })
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe('/api/v1/analytics/match?bu=X')
+    expect(m.validation[0]).toEqual({ id: 'v1', label: 'Check', passed: true, detail: '' })
+    const s = await api.analyticsSummary({})
+    expect(s).toMatchObject({ run: null, openRequisitions: 2, dataQualityIssues: { total: 1, dl: 1, ct: 0 } })
   })
 })
