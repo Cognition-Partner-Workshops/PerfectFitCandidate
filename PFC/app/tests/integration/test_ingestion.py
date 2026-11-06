@@ -191,8 +191,9 @@ def test_dl_embedding_trigger_only_changed_versions_and_titles(
     assert calls == []
 
 
-def test_dl_replacement_cleans_only_indexed_active_requirement_items(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("restore", [False, True])
+def test_dl_replacement_cleans_and_restores_requirement_items(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, restore: bool
 ) -> None:
     commit(client, upload(client, "dl", [{}, {"Code Requisition": "T21234"}]))
     settings = client.app.state.settings
@@ -291,16 +292,19 @@ def test_dl_replacement_cleans_only_indexed_active_requirement_items(
     )
     rows: list[dict[str, object]] = [{"JD": "Python"}, {"Code Requisition": "T21234"}]
     commit(client, upload(client, "dl", rows))
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        job = client.app.state.job_runner.get(jobs[0])
-        assert job is not None
-        if job.status in {"completed", "failed", "cancelled"}:
-            assert job.status == "completed", job
-            break
-        time.sleep(0.01)
-    else:
+
+    def wait_latest() -> None:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            job = client.app.state.job_runner.get(jobs[-1])
+            assert job is not None
+            if job.status in {"completed", "failed", "cancelled"}:
+                assert job.status == "completed", job
+                return
+            time.sleep(0.01)
         pytest.fail("Incremental embedding did not finish")
+
+    wait_latest()
     with database(settings) as db:
         current = db.execute(
             "SELECT current_version_id FROM demands WHERE code_requisition='T11234'"
@@ -323,6 +327,34 @@ def test_dl_replacement_cleans_only_indexed_active_requirement_items(
     rows[0]["Account Name"] = "Metadata only"
     commit(client, upload(client, "dl", rows))
     assert calls == []
+    if restore:
+        rows[0]["JD"] = "? SQL"
+        commit(client, upload(client, "dl", rows))
+        wait_latest()
+        assert calls == [
+            {
+                ("jd", versions["T11234"]),
+                ("jd", current),
+                ("jd_item", 1),
+                ("jd_item", 3),
+                ("jd_item", 4),
+            }
+        ]
+        with database(settings) as db:
+            assert (
+                db.execute(
+                    "SELECT current_version_id FROM demands WHERE code_requisition='T11234'"
+                ).fetchone()[0]
+                == versions["T11234"]
+            )
+            chunks = db.execute(
+                "SELECT owner_id,chunk_id FROM embedding_chunks WHERE owner_type='jd_item' "
+                "AND embedding_model_id=? AND owner_id IN (1,3,4)",
+                (model_id,),
+            ).fetchall()
+            assert {row[0] for row in chunks} == {1, 3, 4}
+            store = create_vector_store(db, dimensions=8)
+            assert all(store.get_vector(row[1]) is not None for row in chunks)
 
 
 @pytest.mark.parametrize("failure", ["raise", "inactive", "snapshot"])

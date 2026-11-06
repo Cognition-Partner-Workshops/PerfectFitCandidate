@@ -95,6 +95,13 @@ def commit(run_id: int, request: Request, principal: Analyst) -> IngestionRun:
                                 request.app.state.settings, old_version
                             )
                         )
+                    if version is not None and old_version != version:
+                        owners.update(
+                            ("jd_item", id)
+                            for id in _confirmed_requirement_items(
+                                request.app.state.settings, version
+                            )
+                        )
             if (
                 owners
                 and submit_incremental_embed(
@@ -117,6 +124,19 @@ def _current_versions(settings: Settings) -> dict[int, tuple[int | None, str | N
             row[0]: (row[1], row[2])
             for row in db.execute(
                 "SELECT demand_id,current_version_id,demand_request_name FROM demands"
+            )
+        }
+
+
+def _confirmed_requirement_items(settings: Settings, version_id: int) -> set[int]:
+    with database(settings) as db:
+        return {
+            row[0]
+            for row in db.execute(
+                "SELECT i.item_id FROM jd_requirement_items i "
+                "JOIN jd_requirements r ON r.jd_req_id=i.jd_req_id "
+                "WHERE r.demand_version_id=? AND r.status='confirmed'",
+                (version_id,),
             )
         }
 
