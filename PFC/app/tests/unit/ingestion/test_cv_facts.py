@@ -127,7 +127,30 @@ def test_req_in_23_phone_next_to_year_range_is_found_and_masked(line: str) -> No
     assert line[slice(*fact.span)] == fact.evidence == fact.value
     assert "+44 7700 900123" not in mask_evidence(line)
     assert "7700" not in mask_evidence(line)
-    assert "2020-2024" in mask_evidence(line)
+    assert "2020-2024" not in mask_evidence(line)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "+44 2020-2024 555",
+        "+44 7700 900123 2020-2024",
+        "2020-2024 +44 7700 900123",
+        "44 (2020-2024) 555",
+        "2020-2024.555",
+        "44-2020-2024",
+        "+44 2020/2024 555",
+    ],
+)
+def test_req_in_23_year_ranges_joined_to_digits_are_masked(line: str) -> None:
+    assert mask_evidence(line) == "***" + line[-2:]
+
+
+@pytest.mark.parametrize(
+    "text", ["2015-2019 at Acme", "Dates: 2015 - 2019.", "2015–2019", "2015/2019"]
+)
+def test_req_in_23_isolated_year_ranges_remain_readable(text: str) -> None:
+    assert mask_evidence(text) == text
 
 
 @pytest.mark.parametrize(
