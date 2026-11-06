@@ -211,8 +211,7 @@ def _persist(
         (resume_id, digest),
     ).fetchone()
     if existing:
-        if existing["extraction_removed_at"] is not None:
-            assert extracted is not None
+        if existing["extraction_removed_at"] is not None and extracted is not None:
             db.execute(
                 "UPDATE cv_versions SET text_norm=?,sections_json=NULL,facts_json=?,"
                 "extracted_by=?,prompt_version=?,extraction_removed_at=NULL,extracted_at=? "
@@ -234,7 +233,7 @@ def _persist(
                     existing["cv_version_id"],
                 ),
             )
-        else:
+        elif existing["extraction_removed_at"] is None:
             saved = json.loads(existing["facts_json"] or "{}")
             if "facts_schema" not in saved and extracted is not None:
                 saved.update(

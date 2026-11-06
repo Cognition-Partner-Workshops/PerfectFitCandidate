@@ -1,6 +1,9 @@
 """REQ-MAT-07: payload removal, vector invalidation and unchanged-file restoration."""
 
 import json
+import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,9 +22,11 @@ from test_matching_service import execute, seed_candidate, seed_cv, seed_demand,
 
 from pfc.adapters.vector.embeddings import FakeEmbedder
 from pfc.adapters.vector.stores import create_vector_store
+from pfc.config import Settings
 from pfc.db.audit import verify_chain
 from pfc.db.connection import database
 from pfc.services.embeddings.matching_bridge import MatchingVectorStore
+from pfc.services.ingestion import cv_sync
 from pfc.services.matching.ports import ChunkOwner
 
 
@@ -243,6 +248,65 @@ def test_removed_extraction_restores_structured_facts(
             assert restored[key] == original[key]
     repeated = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
     assert repeated["new_versions"] == 0 and repeated["embedded"] == 0
+
+
+def test_removal_after_facts_lookup_defers_refill(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    text = "Name: Alex Border\nalex@example.com\nWork Experience\nSQL Python engineer"
+    _, versions = prepare(client, tmp_path, text)
+    candidate = min(versions)
+    settings = client.app.state.settings
+    with database(settings) as db:
+        original = db.execute(
+            "SELECT v.*,r.file_sha256 FROM cv_versions v JOIN resumes r USING(resume_id) "
+            "WHERE v.cv_version_id=?",
+            (versions[candidate],),
+        ).fetchone()
+    removed = False
+
+    @contextmanager
+    def remove_after_lookup(sync_settings: Settings) -> Iterator[sqlite3.Connection]:
+        nonlocal removed
+        queries: list[str] = []
+        with database(sync_settings) as db:
+            db.set_trace_callback(queries.append)
+            yield db
+        if not removed and any(
+            query.startswith("SELECT v.facts_json,v.extraction_removed_at")
+            and original["file_sha256"] in query
+            for query in queries
+        ):
+            removed = True
+            response = client.delete(f"/api/v1/occ/candidates/{candidate}/cv-extractions")
+            assert response.status_code == 200
+
+    monkeypatch.setattr(cv_sync, "database", remove_after_lookup)
+    result = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert removed
+    assert result["new_versions"] == 0 and result["embedded"] == 0
+    with database(settings) as db:
+        deferred = db.execute(
+            "SELECT * FROM cv_versions WHERE cv_version_id=?", (versions[candidate],)
+        ).fetchone()
+        assert deferred["extraction_removed_at"] is not None
+        assert deferred["text_norm"] == "" and json.loads(deferred["facts_json"]) == {}
+        assert (
+            db.execute(
+                "SELECT count(*) FROM embedding_chunks WHERE owner_type='cv' AND owner_id=?",
+                (versions[candidate],),
+            ).fetchone()[0]
+            == 0
+        )
+    retry = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert retry["new_versions"] == 0 and retry["embedded"] == 1
+    with database(settings) as db:
+        restored = db.execute(
+            "SELECT * FROM cv_versions WHERE cv_version_id=?", (versions[candidate],)
+        ).fetchone()
+        assert restored["extraction_removed_at"] is None
+        assert restored["text_norm"] == original["text_norm"]
+        assert json.loads(restored["facts_json"]) == json.loads(original["facts_json"])
 
 
 def test_extraction_filenames_are_masked(client: TestClient, tmp_path: Path) -> None:
