@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,6 +9,9 @@ class Settings(BaseSettings):
 
     data_dir: Path = Path(__file__).resolve().parents[2] / "data"
     config_dir: Path = Path(__file__).resolve().parents[2] / "config"
+    bundled_models_dir: Path = Field(
+        default_factory=lambda data: data["config_dir"].parent / "models"
+    )
     frontend_dir: Path = Path(__file__).resolve().parents[2] / "frontend" / "dist"
     host: str = "127.0.0.1"
     port: int = 8765
