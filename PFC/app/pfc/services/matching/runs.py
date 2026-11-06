@@ -26,6 +26,7 @@ from pfc.jobs.runner import JobCancelled, JobContext, JobRunner
 from pfc.services.occ.domain import active_template, occ_domain_config
 
 from .common import audit, digest, dumps, timestamp
+from .evidence import apply_experience_checks, snapshot_experience
 from .incremental import Plan, carry_forward, fingerprints, plan_run, rerank
 from .ports import MatchingPorts
 from .results import _mask_email
@@ -371,6 +372,7 @@ def start_run(
         template_id, template = active_template(db)
         model_id = _embedding_model(db, identity)
         demands, resources, cvs, metadata, skipped = _inputs(db, scope, demand_ids, config)
+        experience = snapshot_experience(db, metadata, resources)
         display_emails = {
             str(row["resource_id"]): _mask_email(row["email_address"])
             for row in db.execute(
@@ -394,6 +396,7 @@ def start_run(
             "resources": [repr(resource) for resource in resources],
             "display_emails": display_emails,
             "cv_bases": {key: [asdict(basis) for basis in value] for key, value in cvs.items()},
+            "experience_evidence": experience,
         }
         llm_models = sorted({m["extracted_by"] for m in metadata.values() if m["extracted_by"]})
         config_key = digest(
@@ -482,6 +485,7 @@ def start_run(
                     carry_forward(db, run_id, plan)
                     _persist(db, run_id, result, metadata, config, skipped, display_emails)
                     rerank(db, run_id, demands, resources, metadata, config, template, skipped)
+                    apply_experience_checks(db, run_id, experience)
                     db.execute(
                         "UPDATE match_runs SET status='completed',finished_at=? WHERE run_id=?",
                         (timestamp(clock()), run_id),
@@ -534,6 +538,7 @@ def start_run(
             with database(settings) as db:
                 context.raise_if_cancelled()
                 _persist(db, run_id, result, metadata, config, skipped, display_emails)
+                apply_experience_checks(db, run_id, experience)
                 db.execute(
                     "UPDATE match_runs SET status='completed',finished_at=? WHERE run_id=?",
                     (timestamp(clock()), run_id),

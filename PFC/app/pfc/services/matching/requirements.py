@@ -3,8 +3,9 @@
 import json
 import re
 import sqlite3
+import unicodedata
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
@@ -25,6 +26,8 @@ class ExtractedItem(BaseModel):
     text: str = Field(min_length=1)
     evidence: str | None = None
     years: float | None = Field(default=None, ge=0)
+    classification_reason: Literal["classification_adjusted"] | None = None
+    evidence_unverified: bool = False
 
     @field_validator("text")
     @classmethod
@@ -59,6 +62,32 @@ KINDS = {
     "qualifications": "qualification",
     "domain": "domain",
 }
+
+
+def _classification_reason(
+    extraction: dict[str, Any], position: int
+) -> Literal["classification_adjusted"] | None:
+    items = [item for field in KINDS for item in extraction.get(field, [])]
+    if (
+        0 <= position < len(items)
+        and isinstance(items[position], dict)
+        and items[position].get("classification_reason") == "classification_adjusted"
+    ):
+        return "classification_adjusted"
+    return None
+
+
+def _extraction_json(data: Requirements) -> str:
+    value = data.model_dump()
+    for field in KINDS:
+        for item in value[field]:
+            if item.get("classification_reason") is None:
+                item.pop("classification_reason", None)
+            if not item["evidence_unverified"]:
+                item.pop("evidence_unverified")
+    return dumps(value)
+
+
 PREFERRED = re.compile(r"\b(desirable|preferred|nice to have|bonus)\b", re.I)
 MANDATORY = re.compile(r"\b(mandatory|required|essential|must have)\b", re.I)
 
@@ -152,7 +181,10 @@ def get_requirements(
     )
     result["extraction"] = json.loads(result.pop("extraction_json") or "{}")
     result["items"] = [
-        dict(item)
+        {
+            **dict(item),
+            "classification_reason": _classification_reason(result["extraction"], item["position"]),
+        }
         for item in db.execute(
             "SELECT i.*,s.name AS canonical FROM jd_requirement_items i "
             "LEFT JOIN skills s ON s.skill_id=i.canonical_skill_id "
@@ -160,6 +192,15 @@ def get_requirements(
             (row["jd_req_id"],),
         )
     ]
+    offsets: dict[str, int] = {}
+    fields = {kind: field for field, kind in KINDS.items()}
+    for item in result["items"]:
+        field = fields[item["kind"]]
+        index = offsets.get(field, 0)
+        extracted = result["extraction"].get(field, [])
+        detail = extracted[index] if index < len(extracted) else {}
+        item["evidence_unverified"] = bool(detail.get("evidence_unverified", False))
+        offsets[field] = index + 1
     return result
 
 
@@ -173,6 +214,10 @@ def _write(
     *,
     source_ids: dict[tuple[str, int], int] | None = None,
 ) -> int:
+    if extracted_by == "manual":
+        for field in KINDS:
+            for item in getattr(data, field):
+                item.classification_reason = None
     revision = db.execute(
         "SELECT COALESCE(MAX(revision),0)+1 FROM jd_requirements WHERE demand_version_id=?",
         (version_id,),
@@ -191,7 +236,7 @@ def _write(
             version_id,
             revision,
             extracted_by,
-            dumps(data.model_dump()),
+            _extraction_json(data),
             normalise_term(data.location) if data.location else None,
             data.onsite_required,
             max(years) if years else None,
@@ -215,7 +260,8 @@ def _write(
             source_id = (source_ids or {}).get((kind, index))
             source = (
                 db.execute(
-                    "SELECT i.item_id FROM jd_requirement_items i JOIN jd_requirements r "
+                    "SELECT i.item_id,i.position,i.kind,i.text,r.extraction_json "
+                    "FROM jd_requirement_items i JOIN jd_requirements r "
                     "ON r.jd_req_id=i.jd_req_id WHERE i.item_id=? "
                     "AND r.demand_version_id=? AND r.jd_req_id<>?",
                     (source_id, version_id, req_id),
@@ -223,6 +269,15 @@ def _write(
                 if source_id is not None
                 else None
             )
+            if (
+                source is not None
+                and source["kind"] == kind
+                and unicodedata.normalize("NFKC", source["text"]).casefold().split()
+                == unicodedata.normalize("NFKC", item.text).casefold().split()
+            ):
+                item.classification_reason = _classification_reason(
+                    json.loads(source["extraction_json"]), source["position"]
+                )
             db.execute(
                 "INSERT INTO jd_requirement_items(jd_req_id,kind,text,canonical_skill_id,"
                 "source_span,position,source_jd_req_id) VALUES (?,?,?,?,?,?,?)",
@@ -237,6 +292,11 @@ def _write(
                 ),
             )
             position += 1
+    if extracted_by == "manual":
+        db.execute(
+            "UPDATE jd_requirements SET extraction_json=? WHERE jd_req_id=?",
+            (_extraction_json(data), req_id),
+        )
     return req_id
 
 
@@ -259,6 +319,13 @@ def analyze_jd(
         if ports.llm is None:
             raise ExtractionFailure("provider_unavailable")
         data = Requirements.model_validate(ports.llm.extract_jd(text))
+        for field in KINDS:
+            for item in getattr(data, field):
+                item.evidence_unverified = (
+                    not item.evidence or not item.evidence.strip() or item.evidence not in text
+                )
+                if item.evidence_unverified:
+                    item.evidence = None
         extracted_by = ports.llm.model
     except Exception as exc:
         fallback_reason = (
@@ -290,6 +357,56 @@ def analyze_jd(
     return result
 
 
+def _edited_data(
+    db: sqlite3.Connection, demand_id: int, edited: dict[str, Any]
+) -> tuple[Requirements, dict[tuple[str, int], int]]:
+    cleaned = dict(edited)
+    previous = get_requirements(db, demand_id)
+    prior = previous["items"] if previous else []
+    version_id = _current(db, demand_id)["demand_version_id"]
+    sources: dict[tuple[str, int], int] = {}
+    for field, kind in KINDS.items():
+        if not isinstance(cleaned.get(field, []), list):
+            continue
+        items = []
+        available = [item for item in prior if item["kind"] == kind]
+        for index, raw in enumerate(cleaned.get(field, [])):
+            if isinstance(raw, str) and field in {"qualifications", "domain"}:
+                raw = {"text": raw}
+            if not isinstance(raw, dict):
+                items.append(raw)
+                continue
+            item = dict(raw)
+            source_id = item.pop("jdReqId", None)
+            source = None
+            if type(source_id) is int:
+                parent = db.execute(
+                    "SELECT i.jd_req_id FROM jd_requirement_items i JOIN jd_requirements r "
+                    "ON r.jd_req_id=i.jd_req_id WHERE i.item_id=? AND i.kind=? "
+                    "AND r.demand_version_id=?",
+                    (source_id, kind, version_id),
+                ).fetchone()
+                if parent:
+                    ancestor = get_requirements(db, demand_id, jd_req_id=parent[0])
+                    assert ancestor is not None
+                    source = next(i for i in ancestor["items"] if i["item_id"] == source_id)
+                    sources[(kind, index)] = source_id
+            else:
+                source = next((i for i in available if i["text"] == item.get("text")), None)
+                if source:
+                    available.remove(source)
+            if source:
+                item.setdefault("evidence", source["source_span"])
+                if source["evidence_unverified"]:
+                    item["evidence_unverified"] = True
+            if item.get("evidence_unverified"):
+                item["evidence"] = None
+            items.append(item)
+        if field in cleaned:
+            cleaned[field] = items
+    return Requirements.model_validate(cleaned), sources
+
+
 def save_draft(
     db: sqlite3.Connection,
     demand_id: int,
@@ -297,21 +414,7 @@ def save_draft(
     user_id: int,
     now: datetime,
 ) -> dict[str, Any]:
-    cleaned = dict(edited_requirements)
-    sources: dict[tuple[str, int], int] = {}
-    for field, kind in KINDS.items():
-        if not isinstance(cleaned.get(field), list):
-            continue
-        items = []
-        for index, item in enumerate(cleaned[field]):
-            if isinstance(item, dict):
-                item = dict(item)
-                source_id = item.pop("jdReqId", None)
-                if type(source_id) is int:
-                    sources[(kind, index)] = source_id
-            items.append(item)
-        cleaned[field] = items
-    data = Requirements.model_validate(cleaned)
+    data, sources = _edited_data(db, demand_id, edited_requirements)
     config = occ_domain_config(db)
     with atomic(db):
         version = _current(db, demand_id)
@@ -332,16 +435,22 @@ def confirm_requirements(
     now: datetime,
 ) -> dict[str, Any]:
     """REQ-MAT-02: replace confirmation atomically, preserving the revision history."""
-    data = (
-        Requirements.model_validate(edited_requirements)
+    data, sources = (
+        _edited_data(db, demand_id, edited_requirements)
         if edited_requirements is not None
-        else None
+        else (None, {})
     )
     with atomic(db):
         version = _current(db, demand_id)
         if data is not None:
             req_id = _write(
-                db, version["demand_version_id"], data, "manual", now, occ_domain_config(db)
+                db,
+                version["demand_version_id"],
+                data,
+                "manual",
+                now,
+                occ_domain_config(db),
+                source_ids=sources,
             )
         else:
             draft = db.execute(
