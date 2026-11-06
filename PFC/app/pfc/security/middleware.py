@@ -56,18 +56,16 @@ def install_middleware(app: FastAPI) -> None:
                                     403, "PASSWORD_CHANGE_REQUIRED", "Password change required"
                                 )
                             request.state.principal = Principal(user, session)
-                            if request.url.path != "/api/v1/occ/internal-domains/preview":
-                                sessions.touch_session(
-                                    db,
-                                    session.session_id,
-                                    stamp(now),
-                                    stamp(
-                                        min(
-                                            now + timedelta(minutes=settings.idle_timeout_min),
-                                            absolute,
-                                        )
-                                    ),
-                                )
+                            sessions.touch_session(
+                                db,
+                                session.session_id,
+                                stamp(now),
+                                stamp(
+                                    min(
+                                        now + timedelta(minutes=settings.idle_timeout_min), absolute
+                                    )
+                                ),
+                            )
             result = await call_next(request)
         except Problem as exc:
             result = response(request, exc.status, exc.code, exc.detail)

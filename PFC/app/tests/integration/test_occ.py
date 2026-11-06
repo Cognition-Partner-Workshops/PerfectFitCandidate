@@ -839,7 +839,7 @@ def test_internal_domains_preview_security(client: TestClient) -> None:
 
 
 def test_internal_domains_preview_read_only(client: TestClient) -> None:
-    """REQ-CLS-01: exact CT email domains, no resource/domain/audit/session writes."""
+    """REQ-CLS-01: preview preserves business data while refreshing the Admin session."""
     login(client)
     path = "/api/v1/occ/internal-domains/preview"
     assert client.post(path, json={"domains": []}).json() == {
@@ -878,7 +878,9 @@ def test_internal_domains_preview_read_only(client: TestClient) -> None:
     clock = client.app.state.clock() + timedelta(seconds=2)
     client.app.state.clock = lambda: clock
     with database(client.app.state.settings) as db:
-        before = list(db.iterdump())
+        before = [line for line in db.iterdump() if not line.startswith('INSERT INTO "sessions"')]
+        audit_count = db.execute("SELECT count(*) FROM audit_log").fetchone()[0]
+        expiry = db.execute("SELECT expires_at FROM sessions WHERE user_id=1").fetchone()[0]
     response = client.post(path, json={"domains": [" @EXAMPLE.COM ", "other.test", "example.com"]})
     assert response.status_code == 200, response.text
     assert response.json() == {
@@ -897,5 +899,9 @@ def test_internal_domains_preview_read_only(client: TestClient) -> None:
         bad = client.post(path, json={"domains": domains})
         assert bad.status_code == 422 and bad.json()["code"] == "VALIDATION_ERROR"
     with database(client.app.state.settings) as db:
-        assert list(db.iterdump()) == before
+        assert [
+            line for line in db.iterdump() if not line.startswith('INSERT INTO "sessions"')
+        ] == before
+        assert db.execute("SELECT count(*) FROM audit_log").fetchone()[0] == audit_count
+        assert db.execute("SELECT expires_at FROM sessions WHERE user_id=1").fetchone()[0] > expiry
         assert audit.verify_chain(db)
