@@ -1,17 +1,39 @@
-"""Masked result and non-destructive override contracts (REQ-OUT-01/03, REQ-MAT-09)."""
+"""Frontend result contracts; label normalization stays at the HTTP boundary."""
 
-from typing import Any, Literal, Self
+from typing import Any, Literal, Self, cast
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    Field,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
+from pydantic.alias_generators import to_snake
 
-from pfc.services.matching import ResultFilters
+from .match import WireModel
 
 Band = Literal["Strong", "Potential", "Avg", "Weak", "Insufficient data"]
-OverrideAction = Literal["pin", "unpin", "exclude", "include", "adjust_band"]
+Action = Literal["pin", "unpin", "exclude", "include", "adjust_band"]
 
 
-class ResultsQuery(ResultFilters):
-    run_id: int | None = Field(default=None, gt=0)
+def band_label(value: str) -> Band:
+    return cast(Band, {"Avg.": "Avg", "Weak Match": "Weak"}.get(value, value))
+
+
+class ResultsQuery(WireModel):
+    requisition: str | None = None
+    account: str | None = None
+    demand_grade: str | None = None
+    person_grade: str | None = None
+    person_location: str | None = None
+    band: Band | None = None
+    location_assessment: str | None = None
+    mandatory_skill: str | None = None
+    score_min: float | None = Field(default=None, ge=0, le=100)
+    score_max: float | None = Field(default=None, ge=0, le=100)
+    status: str | None = None
+    shortlisted_only: bool = False
     sort: Literal[
         "rank",
         "score",
@@ -26,13 +48,32 @@ class ResultsQuery(ResultFilters):
         "start_date",
     ] = "rank"
     descending: bool = False
-    limit: int = Field(default=50, ge=1, le=1000)
+    limit: int = Field(default=1000, ge=1, le=5000)
     offset: int = Field(default=0, ge=0)
 
+    @field_validator("sort", mode="before")
+    @classmethod
+    def normalize_sort(cls, value: str) -> str:
+        return to_snake(value)
 
-class OverrideReason(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    reason: str = Field(min_length=1)
+    @field_validator("band", mode="before")
+    @classmethod
+    def normalize_band(cls, value: str | None) -> str | None:
+        return band_label(value) if value is not None else None
+
+    @model_validator(mode="after")
+    def limits(self) -> Self:
+        if (
+            self.score_min is not None
+            and self.score_max is not None
+            and self.score_min > self.score_max
+        ):
+            raise ValueError("scoreMin exceeds scoreMax")
+        return self
+
+
+class OverrideReason(WireModel):
+    reason: str
 
     @field_validator("reason")
     @classmethod
@@ -43,86 +84,86 @@ class OverrideReason(BaseModel):
 
 
 class OverrideRequest(OverrideReason):
-    action: OverrideAction
+    action: Action
     new_band: Band | None = None
+
+    @field_validator("new_band", mode="before")
+    @classmethod
+    def normalize_band(cls, value: str | None) -> str | None:
+        return band_label(value) if value is not None else None
 
     @model_validator(mode="after")
     def band_required(self) -> Self:
         if (self.action == "adjust_band") != (self.new_band is not None):
-            raise ValueError("new_band is required only for adjust_band")
+            raise ValueError("newBand is required only for adjust_band")
         return self
 
 
-class OverrideView(BaseModel):
-    override_id: int
-    demand_id: int
-    resource_id: int
-    result_id: int | None
-    action: OverrideAction
+class OverrideView(WireModel):
+    action: Action
     new_band: Band | None
     reason: str
-    created_by: int
+    created_by: str
     created_at: str
-    revoked_by: int | None
-    revoked_at: str | None
+    override_id: int
+    revoked_at: str | None = None
+
+    @model_serializer(mode="wrap")
+    def serialize(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        output: dict[str, Any] = handler(self)
+        if self.new_band is None:
+            output.pop("newBand", None)
+            output.pop("new_band", None)
+        return output
 
 
-class ResultRow(BaseModel):
-    result_id: int
-    run_id: int
-    demand_id: int
-    demand_version_id: int
-    jd_req_id: int
-    resource_id: int
-    candidate_id: int | None
-    best_cv_version_id: int | None
-    requisition: str
-    start_date: str | None
-    account: str | None
-    role: str | None
-    demand_grade: str | None
-    role_location: str
-    potential_person: str
-    person_email: str | None = Field(description="Masked source email; never an unmasked value")
-    person_grade: str | None
-    person_location: str | None
-    score: float
-    band: Band
-    location_assessment: str
-    matching_evidence: str
-    gaps_checks: str
-    eligibility_evidence: str
-    rank: int
-    shortlisted: bool
-    email_preselected: bool
-    grade_relation: Literal["exact", "adjacent_above", "adjacent_below"]
-    status_priority: int | None
-    mandatory_missing: int
-    status: str | None
-    overridden: bool
-    effective_band: Band
-    effective_shortlisted: bool
-    effective_excluded: bool
-    effective_email_preselected: bool
-    display_band: str
-
-
-class ResultsPage(BaseModel):
-    run_id: int | None
-    items: list[ResultRow]
-    total: int
-    limit: int
-    offset: int
-
-
-class BreakdownView(BaseModel):
+class BreakdownView(WireModel):
     component: Literal["skills", "grade", "location", "bench_start", "bench_end", "status"]
     points: float
     max_points: float
-    inputs: dict[str, Any]
+    inputs: dict[str, Any] | None = None
 
 
-class CvScoreView(BaseModel):
+class ResultRow(WireModel):
+    result_id: int
+    run_id: int
+    demand_id: int
+    resource_id: int
+    candidate_id: int
+    rank: int
+    code_requisition: str
+    position_start_date: str | None
+    account_name: str | None
+    bu: str | None
+    demand_request_name: str | None
+    demand_grade: str | None
+    region: str | None
+    person_name: str | None
+    person_email_masked: str | None
+    person_grade: str | None
+    person_location: str | None
+    bench_status: str | None
+    score: float
+    band: Band
+    grade_relation: Literal["exact", "adjacent_above", "adjacent_below"]
+    location_assessment: Literal[
+        "Aligned", "Remote/unspecified", "Potential travel", "Location check"
+    ]
+    matching_evidence: list[str]
+    gaps_checks: list[str]
+    eligibility_evidence: list[str]
+    mandatory_missing: int
+    candidate_type: Literal["Internal", "External", "Unknown"]
+    incomplete_identity: bool
+    email_preselected: bool
+    breakdown: list[BreakdownView]
+    override: OverrideView | None
+    effective_band: Band
+    effective_shortlisted: bool
+    shortlisted: bool
+
+
+class CvScoreView(WireModel):
     cv_version_id: int | None
     score: float
     band: Band
@@ -131,24 +172,30 @@ class CvScoreView(BaseModel):
 
 
 class ResultDetail(ResultRow):
-    breakdown: list[BreakdownView]
     cv_scores: list[CvScoreView]
     overrides: list[OverrideView]
 
 
-class ExcludedRow(BaseModel):
-    run_id: int
+class ExcludedResource(WireModel):
     resource_id: int
-    demand_id: int | None
-    reason_code: str
-    detail: str | None
+    candidate_id: int
     short_name: str
-    requisition: str | None
-
-
-class DemandMatches(BaseModel):
-    run_id: int | None
-    items: list[ResultRow]
-    no_suitable_candidate: bool
-    weak_only: bool
-    flags: list[str]
+    email_address_masked: str | None
+    name: str | None
+    grade: str | None
+    location: str | None
+    bench_status: str | None
+    bench_status_priority: int | None
+    unmapped_status: bool
+    skills: list[str]
+    available_capacity: Literal["Y", "N"] | None
+    bench_start_date: str | None
+    bench_end_date: str | None
+    group_name: str | None
+    group_owner: str | None
+    eligibility: Literal["excluded"] = "excluded"
+    exclusion_reasons: list[str]
+    cv_status: Literal["Synced", "Not found", "Partial", "Error", "Not synced"]
+    cv_count: int
+    candidate_type: Literal["Internal", "External", "Unknown"]
+    identity_status: Literal["complete", "incomplete", "ambiguous", "review_later"]

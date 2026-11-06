@@ -10,7 +10,9 @@ from fastapi.staticfiles import StaticFiles
 from pfc.api.routers.auth import router as auth_router
 from pfc.api.routers.health import router as health_router
 from pfc.api.routers.llm import router as llm_router
+from pfc.api.routers.match import router as match_router
 from pfc.api.routers.occ import router as occ_router
+from pfc.api.routers.results import router as results_router
 from pfc.api.routers.settings import router as settings_router
 from pfc.config import Settings
 from pfc.db.connection import database
@@ -23,6 +25,7 @@ from pfc.security.middleware import install_middleware
 from pfc.security.passwords import hasher
 from pfc.security.problems import Problem, install_handlers
 from pfc.security.setup import code_path, generate_setup_code
+from pfc.services.matching import MatchingPorts
 from pfc.services.occ.seed import seed_reference_data
 
 
@@ -50,6 +53,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="PerfectFitCandidate", lifespan=lifespan)
     app.state.settings = settings
+    app.state.matching_ports = MatchingPorts()
     app.state.clock = lambda: datetime.now(UTC)
     app.state.dummy_hash = hasher(settings).hash("unused-random-dummy-password")
     install_handlers(app)
@@ -60,6 +64,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(occ_router, prefix="/api/v1")
     app.include_router(settings_router, prefix="/api/v1")
     app.include_router(llm_router, prefix="/api/v1")
+    app.include_router(match_router, prefix="/api/v1")
+    app.include_router(results_router, prefix="/api/v1")
     frontend = settings.frontend_dir.resolve()
     if (frontend / "index.html").is_file():
         if (frontend / "assets").is_dir():

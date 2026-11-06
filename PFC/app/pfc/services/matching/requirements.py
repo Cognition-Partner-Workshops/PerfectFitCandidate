@@ -119,7 +119,9 @@ def get_requirements(db: sqlite3.Connection, demand_id: int) -> dict[str, Any] |
     result["items"] = [
         dict(item)
         for item in db.execute(
-            "SELECT * FROM jd_requirement_items WHERE jd_req_id=? ORDER BY position,item_id",
+            "SELECT i.*,s.name AS canonical FROM jd_requirement_items i "
+            "LEFT JOIN skills s ON s.skill_id=i.canonical_skill_id "
+            "WHERE jd_req_id=? ORDER BY position,item_id",
             (row["jd_req_id"],),
         )
     ]

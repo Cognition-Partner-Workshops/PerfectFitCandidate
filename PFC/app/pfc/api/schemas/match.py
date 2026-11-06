@@ -1,87 +1,150 @@
-"""Reviewed requirements and run contracts (REQ-MAT-02/03/08)."""
+"""CamelCase matching contracts for the Phase-1 client."""
 
 from datetime import date
 from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic.alias_generators import to_camel
 
-from pfc.services.matching.requirements import Requirements
+
+class WireModel(BaseModel):
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
 
 
-class RunRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class DemandIds(WireModel):
+    demand_ids: list[int] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def positive(self) -> Self:
+        if any(value <= 0 for value in self.demand_ids):
+            raise ValueError("Demand IDs must be positive")
+        return self
+
+
+class RunRequest(WireModel):
     scope: Literal["full", "demands"] = "full"
     demand_ids: list[int] = Field(default_factory=list)
-    edited_requirements: dict[int, Requirements | None] = Field(default_factory=dict)
     as_of_date: date | None = None
 
     @model_validator(mode="after")
     def validate_scope(self) -> Self:
-        if any(value <= 0 for value in (*self.demand_ids, *self.edited_requirements)):
+        if any(value <= 0 for value in self.demand_ids):
             raise ValueError("Demand IDs must be positive")
         if len(set(self.demand_ids)) != len(self.demand_ids):
             raise ValueError("Demand IDs must be unique")
-        if self.scope == "demands":
-            if not self.demand_ids:
-                raise ValueError("Demand scope needs demand IDs")
-            if not set(self.edited_requirements) <= set(self.demand_ids):
-                raise ValueError("Confirmed demands must belong to the requested scope")
-        elif self.demand_ids:
-            raise ValueError("Full scope does not accept demand IDs")
+        if (self.scope == "demands") != bool(self.demand_ids):
+            raise ValueError("Only demand scope requires demand IDs")
         return self
 
 
-class RequirementItemView(BaseModel):
-    item_id: int
-    jd_req_id: int
-    kind: Literal["mandatory_skill", "preferred_skill", "experience", "qualification", "domain"]
-    text: str
-    canonical_skill_id: int | None
-    source_span: str | None
-    position: int
+class JdRequirements(WireModel):
+    demand_id: int = Field(gt=0)
+    mandatory_skills: list[str] = Field(default_factory=list)
+    preferred_skills: list[str] = Field(default_factory=list)
+    experience_years: float | None = Field(default=None, ge=0)
+    qualifications: str = ""
+    domain: str = ""
+    location: str = ""
+    mandatory_onsite: bool = False
+    synonyms_applied: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    revision: int | None = None
+    status: Literal["draft", "confirmed", "superseded"] | None = None
+    extracted_by: str | None = None
+    confirmed_at: str | None = None
+    jd_req_id: int | None = None
+
+    @model_validator(mode="after")
+    def nonblank_skills(self) -> Self:
+        if any(not value.strip() for value in self.mandatory_skills + self.preferred_skills):
+            raise ValueError("Skill text must not be blank")
+        return self
+
+    def extraction(self) -> dict[str, Any]:
+        return {
+            "mandatory_skills": [{"text": term} for term in self.mandatory_skills],
+            "preferred_skills": [{"text": term} for term in self.preferred_skills],
+            "experience": []
+            if self.experience_years is None
+            else [
+                {
+                    "text": f"{self.experience_years:g} years experience",
+                    "years": self.experience_years,
+                }
+            ],
+            "qualifications": [
+                {"text": value.strip()} for value in self.qualifications.split(";") if value.strip()
+            ],
+            "domain": [
+                {"text": value.strip()} for value in self.domain.split(";") if value.strip()
+            ],
+            "location": self.location,
+            "onsite_required": self.mandatory_onsite,
+        }
 
 
-class RequirementsView(BaseModel):
-    jd_req_id: int
-    demand_version_id: int
-    revision: int
-    status: Literal["draft", "confirmed", "superseded"]
-    extracted_by: str | None
-    prompt_version: str | None
-    extraction: Requirements
-    location_norm: str | None
-    onsite_required: bool | None
-    min_years_exp: float | None
-    confirmed_by: int | None
-    confirmed_at: str | None
-    created_at: str
-    items: list[RequirementItemView]
+def requirements_view(demand_id: int, row: dict[str, Any]) -> JdRequirements:
+    data = row["extraction"]
+    years = [item["years"] for item in data.get("experience", []) if item.get("years") is not None]
+    synonyms = []
+    for item in row["items"]:
+        if item.get("canonical") and item["canonical"] != item["text"]:
+            synonyms.append(f"{item['text']} → {item['canonical']}")
+    return JdRequirements(
+        demand_id=demand_id,
+        mandatory_skills=[item["text"] for item in data.get("mandatory_skills", [])],
+        preferred_skills=[item["text"] for item in data.get("preferred_skills", [])],
+        experience_years=max(years) if years else None,
+        qualifications="; ".join(item["text"] for item in data.get("qualifications", [])),
+        domain="; ".join(item["text"] for item in data.get("domain", [])),
+        location=data.get("location") or "",
+        mandatory_onsite=bool(data.get("onsite_required")),
+        synonyms_applied=synonyms,
+        warnings=[],
+        revision=row["revision"],
+        status=row["status"],
+        extracted_by=row["extracted_by"],
+        confirmed_at=row["confirmed_at"],
+        jd_req_id=row["jd_req_id"],
+    )
 
 
-class RunAccepted(BaseModel):
+class AnalysisFailure(WireModel):
+    demand_id: int
+    detail: str
+
+
+class BulkAnalysis(WireModel):
+    analyzed: list[JdRequirements]
+    failed: list[AnalysisFailure]
+
+
+class RunAccepted(WireModel):
     run_id: int
     job_id: int
 
 
-class RunView(BaseModel):
+class RunView(WireModel):
     run_id: int
-    scope: Literal["full", "demands", "resources", "incremental"]
-    scope_json: str | None
+    status: Literal["queued", "running", "completed", "failed", "cancelled"]
+    finished_at: str | None
+    llm_model: str
+    template_version: int
+    demands_assessed: int
+    pairs_scored: int
+    roles_without_candidate: int
+    started_at: str | None
+    engine_version: str
+    config_hash: str
     template_id: int
     embedding_model_id: int
-    llm_model: str | None
-    engine_version: str
-    synonyms_version: str
-    config_hash: str
-    triggered_by: int | None
-    status: Literal["queued", "running", "completed", "failed", "cancelled"]
-    started_at: str | None
-    finished_at: str | None
-    demands_assessed: int | None
-    pairs_scored: int | None
-    roles_without_candidate: int | None
+    scope: str
     dq_summary_json: str | None
 
 
-def extraction_payload(value: Requirements | None) -> dict[str, Any] | None:
-    return value.model_dump(mode="json") if value is not None else None
+def run_view(row: dict[str, Any]) -> RunView:
+    fields = {name: row[name] for name in RunView.model_fields}
+    for name in ("demands_assessed", "pairs_scored", "roles_without_candidate"):
+        fields[name] = fields[name] or 0
+    fields["llm_model"] = fields["llm_model"] or ""
+    return RunView.model_validate(fields)
