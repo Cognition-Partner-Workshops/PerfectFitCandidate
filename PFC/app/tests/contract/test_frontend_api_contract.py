@@ -49,7 +49,6 @@ PENDING: dict[Route, str] = {
     ("GET", "/api/v1/analytics/summary"): "W2-5 analytics/export",
     ("GET", "/api/v1/candidates/{}"): "W2-1 ingestion",
     ("GET", "/api/v1/occ/approvals"): "W2-1 ingestion: OCC approvals",
-    ("POST", "/api/v1/pii/unmask"): "W2-2 matching #10",
     ("PUT", "/api/v1/candidates/{}/identity"): "W2-1 ingestion",
     ("PUT", "/api/v1/occ/bench-statuses"): (
         "MISMATCH: merged OCC router only updates /occ/bench-statuses/{code}"

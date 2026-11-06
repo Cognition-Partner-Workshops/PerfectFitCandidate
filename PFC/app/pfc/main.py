@@ -19,6 +19,7 @@ from pfc.api.routers.llm import router as llm_router
 from pfc.api.routers.match import router as match_router
 from pfc.api.routers.occ import router as occ_router
 from pfc.api.routers.packages import router as packages_router
+from pfc.api.routers.pii import router as pii_router
 from pfc.api.routers.resources import router as resources_router
 from pfc.api.routers.results import router as results_router
 from pfc.api.routers.settings import router as settings_router
@@ -104,6 +105,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(occ_router, prefix="/api/v1")
     app.include_router(settings_router, prefix="/api/v1")
     app.include_router(packages_router, prefix="/api/v1")
+    app.include_router(pii_router, prefix="/api/v1")
     app.include_router(llm_router, prefix="/api/v1")
     app.include_router(match_router, prefix="/api/v1")
     app.include_router(results_router, prefix="/api/v1")
