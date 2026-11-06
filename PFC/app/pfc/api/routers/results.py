@@ -5,6 +5,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends, Query, Request, Response
 
+from pfc.api.schemas.analytics import ExportQuery
 from pfc.api.schemas.results import (
     BreakdownView,
     CvScoreView,
@@ -21,6 +22,7 @@ from pfc.db.connection import database
 from pfc.security.dependencies import Principal, require_role
 from pfc.security.problems import Problem
 from pfc.services import matching
+from pfc.services.matching.export import export_results
 
 router = APIRouter(dependencies=[Depends(require_role("Analyst"))])
 Analyst = Annotated[Principal, Depends(require_role("Analyst"))]
@@ -157,6 +159,36 @@ def results(
         )
         response.headers["X-Total-Count"] = str(page["total"])
         return [result_view(db, row) for row in page["items"]]
+
+
+@router.get("/match-runs/{run_id}/export")
+def export(
+    run_id: int, request: Request, principal: Analyst, query: Annotated[ExportQuery, Query()]
+) -> Response:
+    filters = query.model_dump(
+        exclude={"format", "include_emails", "sort", "descending", "limit", "offset"}
+    )
+    with database(request.app.state.settings) as db:
+        content, media = export_results(
+            db,
+            run_id,
+            query.format,
+            filters,
+            user_id=principal.user.user_id,
+            now=request.app.state.clock(),
+            include_emails=query.include_emails,
+            sort=query.sort,
+            descending=query.descending,
+            limit=query.limit,
+            offset=query.offset,
+        )
+    return Response(
+        content,
+        media_type=media,
+        headers={
+            "Content-Disposition": f'attachment; filename="PFC-results-run{run_id}.{query.format}"'
+        },
+    )
 
 
 @router.get("/match-results/{result_id}", response_model=ResultDetail)
