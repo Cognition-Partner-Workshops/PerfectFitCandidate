@@ -165,14 +165,29 @@ test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({
   await page.reload()
   await expect(page.getByText(/Mode: (incremental|full)/)).toBeVisible()
   await expect(page.getByText('Data changed since this run')).toHaveCount(0)
+
+  // Candidate Profile with match results: it loads, and the Matches tab lists the run's result with its evidence.
+  await page.goto('/#/bench')
+  await page.getByRole('link', { name: 'SmokeAlex' }).click()
+  await expect(page.getByRole('heading', { name: /SmokeAlex/ })).toBeVisible()
+  await expect(page.getByText(/Something went wrong/)).toHaveCount(0)
+  await page.getByRole('tab', { name: 'Matches & score history' }).click()
+  // One row per run: the first run and its re-run.
+  await expect(page.getByRole('row', { name: /T10001/ }).first()).toBeVisible()
+  // The Matches tab doesn't render evidence, so read it from the same profile response.
+  const alexId = page.url().split('/').pop()!.split('?')[0]
+  const profile = (await (await page.request.get(`/api/v1/candidates/${alexId}`)).json()) as { matches: { matchingEvidence: string[] }[] }
+  expect(profile.matches.length).toBeGreaterThan(0)
+  for (const m of profile.matches) expect(m.matchingEvidence.filter((e) => e.trim()).length).toBeGreaterThan(0)
 })
 
 // REQ-LLM-02 summary cards. Runs after the smoke test above, on its admin, DL/CT and confirmed JD.
-// Uses SmokeTaylor (C1, listed under All), who has no match results: a profile with match results
-// currently fails to load.
+// Uses SmokeTaylor (C1, listed under All), whose CV fixtures carry the email and phone; the smoke test
+// above covers a profile with match results (SmokeAlex).
 // `serve.py` injects the backend's FakeProvider as a summaries-only stub, with one reply for every
 // source: the backend keeps only the sentences whose evidence is in that source.
 const LABEL = 'AI summary for reading only — not used in scoring. Check against the source.'
+const REDACTED = 'Reach Taylor at [email removed] or [phone removed].'
 const CV_EMAIL = 'taylor.longname-consultant@example.com'
 const CV_PHONE = '07700 900123'
 
@@ -222,7 +237,7 @@ test('summary cards: grounded evidence, stale source, provider unavailable, no r
   await card.getByRole('button', { name: 'Generate summary' }).click()
   await expect(card.getByText('Built reporting pipelines for retail banking clients.')).toBeAttached()
   await expectEvidence(card, 3)
-  await expect(card.getByText(/^Reach Taylor at /)).toBeVisible()
+  await expect(card.getByText(REDACTED, { exact: true })).toBeVisible()
   const body = page.locator('body')
   for (const raw of [CV_EMAIL, CV_PHONE, CV_PHONE.replace(' ', '')]) await expect(body).not.toContainText(raw)
 
@@ -237,6 +252,7 @@ test('summary cards: grounded evidence, stale source, provider unavailable, no r
   await expect(card.getByRole('button', { name: 'Regenerate' })).toBeEnabled()
   await expect(stale).toHaveCount(0)
   await expectEvidence(card, 3)
+  await expect(card.getByText(REDACTED, { exact: true })).toBeVisible()
   for (const raw of [CV_EMAIL, CV_PHONE, CV_PHONE.replace(' ', '')]) await expect(body).not.toContainText(raw)
 
   // Demand review drawer: the JD keeps only its own sentence.
