@@ -20,8 +20,9 @@ from pfc.db.migrate import migrate
 from pfc.main import create_app
 
 SCRIPT = """
-import json, pathlib, signal, sys, time
+import json, os, pathlib, signal, sys, time
 record = pathlib.Path(sys.argv[1])
+record.with_suffix(".key").write_text(os.environ.get("LLAMA_API_KEY", ""))
 if "ignore" in record.name:
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
 temporary = record.with_suffix(".tmp")
@@ -63,8 +64,8 @@ def supervisor(settings: Settings, tmp_path: Path, mode: str = "ready") -> Llama
         assert request.url.path == "/health"
         if not record.exists() or mode in {"timeout", "exit"}:
             return httpx.Response(503)
-        argv = json.loads(record.read_text())
-        if request.headers["authorization"] != "Bearer " + argv[argv.index("--api-key") + 1]:
+        key = record.with_suffix(".key").read_text()
+        if request.headers["authorization"] != "Bearer " + key:
             return httpx.Response(503)
         return httpx.Response(200)
 
@@ -93,8 +94,9 @@ def test_start_switch_stop(settings: Settings, tmp_path: Path, caplog) -> None:
             assert 0 < int(args["--port"]) < 65536
             assert args["-m"] == str((settings.models_dir / "one.gguf").resolve())
             assert args["-c"] == "2048" and args["-t"] == "2"
-            assert args["--parallel"] == "1" and len(args["--api-key"]) >= 32
-            assert args["--api-key"] not in caplog.text
+            assert args["--parallel"] == "1" and "--api-key" not in args
+            key = (tmp_path / "ready.key").read_text()
+            assert len(key) >= 32 and key not in caplog.text
             await service.switch("one", settings.models_dir / "one.gguf")
             assert service.proc is proc
             await service.switch("two", settings.models_dir / "two.gguf")
@@ -106,6 +108,23 @@ def test_start_switch_stop(settings: Settings, tmp_path: Path, caplog) -> None:
             await service.stop()
         assert service.proc is not None and service.proc.poll() is not None
         assert service.app_state.llm_provider is None
+
+    asyncio.run(scenario())
+
+
+def test_api_key_passed_only_in_environment(settings: Settings, tmp_path: Path) -> None:
+    async def scenario() -> None:
+        service = supervisor(settings, tmp_path)
+        try:
+            await service.start("one", settings.models_dir / "one.gguf")
+            argv = json.loads((tmp_path / "ready.json").read_text())
+            assert "--api-key" not in argv
+            key = (tmp_path / "ready.key").read_text()
+            assert len(key) >= 32
+            assert key not in argv
+            assert service.check().status == "ok"
+        finally:
+            await service.stop()
 
     asyncio.run(scenario())
 

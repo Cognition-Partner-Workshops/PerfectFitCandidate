@@ -252,8 +252,6 @@ class LlamaServerSupervisor:
             "127.0.0.1",
             "--port",
             str(port),
-            "--api-key",
-            api_key,
             "-m",
             str(path),
             "-c",
@@ -272,13 +270,18 @@ class LlamaServerSupervisor:
                         argv,
                         stdout=output,
                         stderr=subprocess.STDOUT,
+                        env={**os.environ, "LLAMA_API_KEY": api_key},
                         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
                         | subprocess.CREATE_NO_WINDOW,
                     )
                     self._job = _windows_job(self.proc.pid)
                 else:
                     self.proc = subprocess.Popen(
-                        argv, stdout=output, stderr=subprocess.STDOUT, start_new_session=True
+                        argv,
+                        stdout=output,
+                        stderr=subprocess.STDOUT,
+                        start_new_session=True,
+                        env={**os.environ, "LLAMA_API_KEY": api_key},
                     )
             async with asyncio.timeout(self.settings.llm_startup_timeout_s):
                 async with httpx.AsyncClient(
