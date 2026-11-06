@@ -205,7 +205,7 @@ export class HttpApiClient implements ApiClient {
     (await this.allPages<ResourceItem>((page) => this.request('GET', `/resources?page=${page}&page_size=200`))).map(toResource)
   listExcludedResources: ApiClient['listExcludedResources'] = async () =>
     (await this.allPages<ResourceItem>((page) => this.request('GET', `/resources/excluded?page=${page}&page_size=200`))).map(toResource)
-  syncCvs: ApiClient['syncCvs'] = (ids) => this.request('POST', '/resources/cv-sync', { ids })
+  syncCvs: ApiClient['syncCvs'] = (ids) => this.request('POST', '/resources/cv-sync', { resource_ids: ids })
 
   getCandidate: ApiClient['getCandidate'] = (id) => this.request('GET', `/candidates/${id}`)
   resolveIdentity: ApiClient['resolveIdentity'] = (id, r) => this.request('PUT', `/candidates/${id}/identity`, r)

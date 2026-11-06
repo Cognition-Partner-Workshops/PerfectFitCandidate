@@ -449,3 +449,13 @@ describe('toResource — candidate link and CV status (REQ-IN-22)', () => {
     expect(toResource({ ...item, candidate_id: null, cv_versions_count: 0 })).toMatchObject({ candidateId: 0, cvCount: 0, cvStatus: 'Not synced' })
   })
 })
+
+describe('HttpApiClient — CV sync (REQ-IN-21)', () => {
+  it('sends the selected ids as resource_ids', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(json({ job_id: 3 }, 202))
+    await api.syncCvs([4, 5])
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/resources/cv-sync')
+    expect(JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)).toEqual({ resource_ids: [4, 5] })
+  })
+})
