@@ -2,6 +2,7 @@
 
 import logging
 import sqlite3
+from threading import Lock
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -22,8 +23,11 @@ from pfc.security.dependencies import Principal, require_role
 from pfc.security.problems import Problem
 from pfc.services import matching
 from pfc.services.embeddings.incremental import submit_incremental_embed
+from pfc.services.embeddings.matching_bridge import resolve_matching_ports
+from pfc.services.embeddings.runtime import EmbeddingModelUnavailable
 
 logger = logging.getLogger(__name__)
+_MATCHING_PORTS_LOCK = Lock()
 
 router = APIRouter(dependencies=[Depends(require_role("Analyst"))])
 Analyst = Annotated[Principal, Depends(require_role("Analyst"))]
@@ -35,14 +39,28 @@ def find_demand(db: sqlite3.Connection, demand_id: int) -> None:
 
 
 def available(request: Request) -> matching.MatchingPorts:
-    ports = getattr(request.app.state, "matching_ports", None)
-    if (
-        ports is None
-        or ports.embedder is None
-        or getattr(request.app.state, "job_runner", None) is None
-    ):
-        raise Problem(503, "MATCHING_UNAVAILABLE", "Matching requires embedding ports and runner")
-    return ports
+    if getattr(request.app.state, "job_runner", None) is None:
+        raise Problem(503, "MATCHING_UNAVAILABLE", "Matching runner is unavailable")
+    with _MATCHING_PORTS_LOCK:
+        ports = getattr(request.app.state, "matching_ports", None)
+        managed = getattr(request.app.state, "_resolved_matching_ports", None)
+        if ports is not managed and ports is not None and ports.embedder is not None:
+            return ports
+        try:
+            resolved = resolve_matching_ports(
+                request.app.state.settings,
+                cached=ports if ports is managed else None,
+                llm=ports.llm if ports is not None else None,
+            )
+        except EmbeddingModelUnavailable as exc:
+            request.app.state.matching_ports = matching.MatchingPorts(
+                llm=ports.llm if ports is not None else None
+            )
+            request.app.state._resolved_matching_ports = None
+            raise Problem(503, "MATCHING_UNAVAILABLE", str(exc)) from exc
+        request.app.state.matching_ports = resolved
+        request.app.state._resolved_matching_ports = resolved
+        return resolved
 
 
 def dispatch(request: Request, principal: Principal, body: RunRequest) -> RunAccepted:

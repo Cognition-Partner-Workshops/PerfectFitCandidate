@@ -1,6 +1,7 @@
 """SQL-seeded FDD IDFNE323 and real semantic aggregation (REQ-MAT-01, REQ-SCR-04)."""
 
 import math
+from typing import Literal
 
 import pytest
 from test_matching_service import (
@@ -26,7 +27,9 @@ class FddEmbedder(FakeEmbedder):
     dim = 6
     name = "fdd-geometry"
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
+    def embed(
+        self, texts: list[str], *, task: Literal["document", "query"] = "document"
+    ) -> list[list[float]]:
         self.calls += 1
         return [self.vector(text) for text in texts]
 
