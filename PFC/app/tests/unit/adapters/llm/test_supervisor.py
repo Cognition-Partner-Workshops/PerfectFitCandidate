@@ -4,14 +4,18 @@ import asyncio
 import json
 import os
 import sys
+import time
 from pathlib import Path
+from typing import IO
 from unittest.mock import Mock
 
 import httpx
 import pytest
+from conftest import HeldPipe
 from fastapi.testclient import TestClient
 from starlette.datastructures import State
 
+from pfc.adapters.llm.child_logs import ChildLogCapture
 from pfc.adapters.llm.providers import FallbackProvider
 from pfc.adapters.llm.supervisor import LlamaServerSupervisor
 from pfc.api.schemas.llm import LlmHealth
@@ -22,11 +26,18 @@ from pfc.main import create_app
 
 SCRIPT = """
 import json, os, pathlib, signal, sys, time
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
 record = pathlib.Path(sys.argv[1])
 record.with_suffix(".key").write_text(os.environ.get("LLAMA_API_KEY", ""))
 record.with_suffix(".env.json").write_text(json.dumps({
     name: os.environ.get(name) for name in ("LLAMA_API_KEY", "LLAMA_ARG_API_KEY")
 }))
+lines = record.with_suffix(".lines.json")
+if lines.exists():
+    for index, line in enumerate(json.loads(lines.read_text())):
+        print(line.replace("__CHILD_KEY__", os.environ["LLAMA_API_KEY"]),
+              file=sys.stdout if index % 2 else sys.stderr, flush=True)
 if "ignore" in record.name:
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
 temporary = record.with_suffix(".tmp")
@@ -91,7 +102,9 @@ def supervisor(
     )
 
 
-def test_start_switch_stop(settings: Settings, tmp_path: Path, caplog) -> None:
+def test_start_switch_stop(
+    settings: Settings, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     async def scenario() -> None:
         service = supervisor(settings, tmp_path)
         try:
@@ -173,6 +186,56 @@ def test_api_key_passed_only_in_environment(settings: Settings, tmp_path: Path) 
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize("mode", ["logging", "exit"])
+def test_native_lines_are_filtered_before_child_log_write(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    fixture = Path(__file__).parents[3] / "fixtures" / "llama_b8936_windows.json"
+    cases = json.loads(fixture.read_text(encoding="utf-8"))["cases"]
+    lines = [line for group in cases.values() for line in group]
+    lines += [
+        "main: model loading error: __CHILD_KEY__",
+        "main: model loading error: PARENT_KEY_ONE PARENT_KEY_TWO Bearer UNKNOWN_BEARER",
+        "main: prompt: PRIVATE_PROMPT",
+        "main: completion: PRIVATE_COMPLETION",
+        "main: request body: PRIVATE_BODY",
+        r"main: loading model 'D:\CustomProfile\private-user\models\one.gguf'",
+    ]
+    (tmp_path / f"{mode}.lines.json").write_text(json.dumps(lines))
+    monkeypatch.setenv("LLAMA_API_KEY", "PARENT_KEY_ONE")
+    monkeypatch.setenv("LLAMA_ARG_API_KEY", "PARENT_KEY_TWO")
+    monkeypatch.setenv("USERPROFILE", r"D:\CustomProfile\private-user")
+    monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
+
+    async def scenario() -> None:
+        service = supervisor(settings, tmp_path, mode)
+        await service.start("one", settings.models_dir / "one.gguf")
+        capture = service._log_capture
+        await service.stop()
+        assert service._log_capture is None
+        if capture is not None:
+            assert capture.thread is not None and not capture.thread.is_alive()
+        output = (settings.data_dir / "logs" / "llm.log").read_text(encoding="utf-8")
+        assert "main: model loaded" in output and "couldn't bind HTTP server socket" in output
+        assert "failed to open GGUF file" in output and "<profile>" in output
+        key = (tmp_path / f"{mode}.key").read_text()
+        for sensitive in (
+            key,
+            "PARENT_KEY_ONE",
+            "PARENT_KEY_TWO",
+            "UNKNOWN_BEARER",
+            "PRIVATE_PROMPT",
+            "PRIVATE_COMPLETION",
+            "PRIVATE_BODY",
+            "fixture-user",
+            "private-user",
+            "capture-key-suffix",
+        ):
+            assert sensitive not in output
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("mode", ["timeout", "exit"])
 def test_failed_start(settings: Settings, tmp_path: Path, mode: str) -> None:
     async def scenario() -> None:
@@ -234,6 +297,64 @@ def test_unexpected_exit_clears_provider(settings: Settings, tmp_path: Path) -> 
         assert service.check().status == "degraded"
         assert service.check().detail == "restarting (attempt 1/3)"
         await service.stop()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("operation", ["failed_start", "shutdown", "restart"])
+def test_inherited_output_pipe_does_not_block_lifecycle(
+    settings: Settings,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    held_pipe: HeldPipe,
+    operation: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setattr("pfc.adapters.llm.child_logs.DRAIN_TIMEOUT_S", 0.1)
+    original_start = ChildLogCapture.start
+    captures: list[ChildLogCapture] = []
+
+    def start(capture: ChildLogCapture, stream: IO[bytes]) -> None:
+        if not captures:
+            captures.append(capture)
+            stream.close()
+            original_start(capture, held_pipe)
+        else:
+            original_start(capture, stream)
+
+    monkeypatch.setattr(ChildLogCapture, "start", start)
+
+    async def scenario() -> None:
+        service = supervisor(
+            settings,
+            tmp_path,
+            "exit" if operation == "failed_start" else "ready",
+            restart_backoff_s=(0.01, 0.01, 0.01),
+        )
+        try:
+            async with asyncio.timeout(3):
+                await service.start("one", settings.models_dir / "one.gguf")
+                assert held_pipe.blocked.is_set()
+                if operation == "failed_start":
+                    assert service.state == "failed"
+                elif operation == "shutdown":
+                    started = time.monotonic()
+                    await service.stop()
+                    assert time.monotonic() - started < 1
+                    assert service.state == "unavailable"
+                else:
+                    first = service.proc
+                    first.kill()
+                    await asyncio.to_thread(first.wait)
+                    while service.proc is first or service.check().status != "ok":
+                        await asyncio.sleep(0.01)
+                    assert service.proc is not first and service._restart_attempts == 1
+            assert caplog.text.count("Local LLM output capture truncated at shutdown") == 1
+            assert captures[0].thread.is_alive() and captures[0].log.stream.closed
+        finally:
+            held_pipe.release.set()
+            await service.stop()
+            await asyncio.to_thread(captures[0].thread.join, 1)
 
     asyncio.run(scenario())
 
