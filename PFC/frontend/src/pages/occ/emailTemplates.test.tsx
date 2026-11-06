@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ADMIN, ANALYST_PASSWORD, renderApp, seed, signIn } from '../../test/utils'
 import { api } from '../../api'
 import { checkTemplate } from '../../lib/occ'
@@ -78,6 +78,20 @@ describe('OCC email templates — screen', () => {
     fireEvent.change(screen.getByLabelText('Body (HTML)'), { target: { value: '<p>Hi {candidate_name}</p>' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create template' }))
     expect(await screen.findByText('candidate_default v1 saved and set as the default template, because no default existed.')).toBeTruthy()
+  })
+
+  it('reports a saved version when setting the first default fails', async () => {
+    ;(api as unknown as { state: { emailTemplates: unknown[] } }).state.emailTemplates = []
+    const spy = vi.spyOn(api, 'setDefaultEmailTemplate').mockRejectedValueOnce(new Error('Network down'))
+    renderApp('/occ/email-templates')
+    fireEvent.click(await screen.findByRole('button', { name: 'New template' }))
+    fireEvent.change(screen.getByLabelText('Template name'), { target: { value: 'welcome' } })
+    fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Role {role}' } })
+    fireEvent.change(screen.getByLabelText('Body (HTML)'), { target: { value: '<p>Hi</p>' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create template' }))
+    expect(await screen.findByText(/welcome v1 saved, but the default could not be checked or set \(Network down\)/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Create template' })).toBeNull()
+    spy.mockRestore()
   })
 
   it('blocks a new template that reuses an existing name', async () => {

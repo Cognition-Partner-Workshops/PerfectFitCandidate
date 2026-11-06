@@ -22,13 +22,19 @@ export function OccEmailTemplates() {
     // With no default, the first email draft inserts candidate_default v1, which collides with a saved candidate_default.
     mutationFn: async (d: EmailTemplateDraft) => {
       const t = await api.createEmailTemplate(d)
-      const hasDefault = (await api.listEmailTemplates(true)).some((x) => x.isDefault)
-      return hasDefault ? t : api.setDefaultEmailTemplate(t.emailTemplateId)
+      try {
+        const hasDefault = (await api.listEmailTemplates(true)).some((x) => x.isDefault)
+        return { t: hasDefault ? t : await api.setDefaultEmailTemplate(t.emailTemplateId), warn: null }
+      } catch (e) {
+        return { t, warn: e instanceof Error ? e.message : 'Request failed' }
+      }
     },
-    onSuccess: (t) => {
+    onSuccess: ({ t, warn }) => {
       setDraft(null)
       setNotice(
-        t.isDefault
+        warn
+          ? `${t.name} v${t.version} saved, but the default could not be checked or set (${warn}). Set a default before the first email draft.`
+          : t.isDefault
           ? `${t.name} v${t.version} saved and set as the default template, because no default existed.`
           : `${t.name} v${t.version} saved. Set it as default to use it for new email drafts.`,
       )
