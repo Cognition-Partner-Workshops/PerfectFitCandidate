@@ -13,12 +13,26 @@ class CVFact(BaseModel):
     source: Literal["rule", "llm"]
 
 
+class SkillFact(CVFact):
+    canonical: str | None = None
+
+
 class CVFacts(BaseModel):
     name: CVFact | None = None
     phone: CVFact | None = None
     experience: list[CVFact] = Field(default_factory=list)
     qualifications: list[CVFact] = Field(default_factory=list)
     projects: list[CVFact] = Field(default_factory=list)
+    skills: list[SkillFact] = Field(default_factory=list)
+
+
+class CVWarning(BaseModel):
+    code: Literal["PHONE_NOT_FOUND"]
+    message: str
+
+
+class PublicCVFacts(CVFacts):
+    warnings: list[CVWarning] = Field(default_factory=list)
 
 
 class CVSyncRequest(BaseModel):
@@ -38,7 +52,7 @@ class CVVersionItem(BaseModel):
     identity_match: str | None
     is_latest: bool
     extracted_at: str
-    facts: CVFacts | None = None
+    facts: PublicCVFacts | None = None
 
 
 class CVSyncCounts(BaseModel):

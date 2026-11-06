@@ -18,6 +18,7 @@ import type {
   Demand,
   JdStatus,
   EmailDraft,
+  IdentityResolution,
   JdRequirements,
   MatchOverride,
   MatchResult,
@@ -76,7 +77,13 @@ import { formatPct } from '../../lib/format'
 import { maskEmail, maskPhone } from '../../lib/mask'
 
 // Bump when persisted mock shapes or IDs change so stale state is discarded.
-const STORAGE_KEY = 'pfc.mock.v5'
+const STORAGE_KEY = 'pfc.mock.v7'
+
+interface MockCandidate {
+  displayName: string | null
+  identityStatus: RawResource['identityStatus']
+  emails: { email: string; emailKey: string; source: 'CT' | 'CV'; confirmed: boolean }[]
+}
 
 interface MockUser extends OccUser {
   passwordHash: string
@@ -108,6 +115,7 @@ interface MockState {
   demands: DemandSeed[]
   requirements: Record<number, JdRequirements>
   raws: RawResource[]
+  candidates: Record<number, MockCandidate>
   statuses: BenchStatus[]
   statusMap: StatusMapEntry[]
   synonyms: Synonym[]
@@ -180,6 +188,11 @@ function initialState(): MockState {
     demands: structuredClone(DEMANDS),
     requirements: {},
     raws: structuredClone(RESOURCES),
+    candidates: Object.fromEntries(RESOURCES.map((r) => [r.resourceId, {
+      displayName: r.name,
+      identityStatus: r.identityStatus,
+      emails: r.email ? [{ email: r.email, emailKey: r.email.trim().toLowerCase(), source: 'CT' as const, confirmed: false }] : [],
+    }])),
     statuses: structuredClone(BENCH_STATUSES),
     statusMap: structuredClone(STATUS_MAP),
     synonyms: structuredClone(SYNONYMS),
@@ -262,6 +275,8 @@ function mockCvFacts(shortName: string, skills: string[], phoneMasked: string | 
     experience: skill ? [fact(`5 years ${skill}`, `5 years of hands-on ${skill} delivery for financial-services clients.`, 80, 'llm')] : [],
     qualifications: [],
     projects: skill ? [fact(`${skill} platform migration`, `Led the ${skill} platform migration for a retail bank.`, 200, 'llm')] : [],
+    skills: [],
+    warnings: phoneMasked ? [] : [{ code: 'PHONE_NOT_FOUND', message: 'Phone not found in CV.' }],
   }
 }
 
@@ -414,8 +429,8 @@ export class MockApiClient implements ApiClient {
   }
 
   resources(): Resource[] {
-    const { raws, statuses, statusMap, domains } = this.state
-    return raws.map((r) => ({ ...toResource(r, statuses, statusMap, domains), candidateType: this.classification(r.resourceId).effectiveClassification }))
+    const { raws, candidates, statuses, statusMap, domains } = this.state
+    return raws.map((r) => ({ ...toResource(r, statuses, statusMap, domains), identityStatus: candidates[r.resourceId].identityStatus, candidateType: this.classification(r.resourceId).effectiveClassification }))
   }
 
   computeResults(): MatchResult[] {
@@ -736,6 +751,7 @@ export class MockApiClient implements ApiClient {
     const raw = this.state.raws.find((r) => r.resourceId === candidateId)
     const resource = this.resources().find((r) => r.candidateId === candidateId)
     if (!raw || !resource) fail(404, 'Candidate not found', 'NOT_FOUND')
+    const candidate = this.state.candidates[candidateId]
     const surname = (raw.name ?? '').split(' ').pop()?.toLowerCase() ?? ''
     const ctEmailOptions = this.state.raws
       .filter((r) => r.resourceId !== raw.resourceId && r.email && (r.name ?? '').toLowerCase().endsWith(surname))
@@ -744,9 +760,9 @@ export class MockApiClient implements ApiClient {
       candidateId,
       internalRef: `PFC-C-${String(candidateId).padStart(6, '0')}`,
       classification: this.classification(candidateId),
-      resource,
+      resource: { ...resource, name: candidate.displayName },
       phoneMasked: maskPhone(raw.phone),
-      identityStatus: raw.identityStatus,
+      identityStatus: candidate.identityStatus,
       ctEmailOptions,
       cvVersions: Array.from({ length: raw.cvCount }, (_, i) => ({
         cvVersionId: candidateId * 10 + i,
@@ -768,7 +784,9 @@ export class MockApiClient implements ApiClient {
   private classification(candidateId: number): CandidateClassification {
     const raw = this.state.raws.find((r) => r.resourceId === candidateId)
     if (!raw) fail(404, 'Candidate not found', 'NOT_FOUND')
-    const computed = classify(raw.email, this.state.domains)
+    const emails = this.state.candidates[candidateId].emails.filter((e) => e.email.trim())
+    const computed: CandidateType = emails.some((e) => (e.confirmed || e.source === 'CT') && e.email.trim().split('@').length === 2 && classify(e.email, this.state.domains) === 'Internal')
+      ? 'Internal' : emails.length ? 'External' : 'Unknown'
     const override = this.state.classificationOverrides?.[candidateId]
     return {
       candidateId, computedClassification: computed,
@@ -821,21 +839,36 @@ export class MockApiClient implements ApiClient {
   async clearCandidateExtractions(candidateId: number) { return this.clearExtractions(candidateId) }
   async clearAllExtractions() { return this.clearExtractions() }
 
-  async resolveIdentity(candidateId: number, resolution: { action: string; resourceId?: number }) {
+  async resolveIdentity(candidateId: number, resolution: IdentityResolution) {
     this.currentUser()
     const raw = this.state.raws.find((r) => r.resourceId === candidateId)
     if (!raw) fail(404, 'Candidate not found', 'NOT_FOUND')
-    if (resolution.action === 'select_ct_record') {
+    const candidate = this.state.candidates[candidateId]
+    if ('email' in resolution) fail(422, 'Email must be selected from CT data', 'VALIDATION_ERROR')
+    if (resolution.action !== 'manual_entry' && 'name' in resolution) fail(422, 'Only manual entry accepts a name', 'VALIDATION_ERROR')
+    if (resolution.action === 'manual_entry') {
+      const name = resolution.name?.trim()
+      if (!name || name.length > 200) fail(422, 'Enter a name of 1 to 200 characters', 'VALIDATION_ERROR')
+      candidate.displayName = name
+      candidate.identityStatus = 'complete'
+    } else if (resolution.action === 'select_ct_record') {
       const source = this.state.raws.find((r) => r.resourceId === resolution.resourceId)
       // Emails are copied from an existing CT record, never typed or constructed (REQ-IN-14, GQ-06).
       if (!source?.email) fail(422, 'Select a Candidate Tracker record with an email', 'IDENTITY_EMAIL_REQUIRED')
       raw.email = source.email
       raw.name = source.name
       raw.identityStatus = 'complete'
+      candidate.displayName = source.name
+      const emailKey = source.email.trim().toLowerCase()
+      candidate.emails = candidate.emails.filter((e) => e.emailKey !== emailKey)
+      candidate.emails.push({ email: source.email, emailKey, source: 'CT', confirmed: true })
+      candidate.identityStatus = 'complete'
     } else if (resolution.action === 'generate_internal_id') {
       raw.identityStatus = 'incomplete'
+      candidate.identityStatus = 'incomplete'
     } else {
       raw.identityStatus = 'review_later'
+      candidate.identityStatus = 'review_later'
     }
     this.audit(`Identity resolution: ${resolution.action}`, candidateId)
     this.save()
@@ -897,7 +930,11 @@ export class MockApiClient implements ApiClient {
     let value: string | null | undefined
     if (entity === 'occ_user') this.requireAdmin()
     if (entity === 'occ_user') value = this.state.users.find((u) => u.userId === id)?.email
-    else {
+    else if (entity === 'candidate' && field === 'email') {
+      value = this.state.candidates[id]?.emails
+        .filter((e) => e.email.trim())
+        .sort((a, b) => Number(b.confirmed) - Number(a.confirmed) || (a.emailKey < b.emailKey ? -1 : a.emailKey > b.emailKey ? 1 : 0))[0]?.email
+    } else {
       const raw = this.state.raws.find((r) => r.resourceId === id)
       value = field === 'email' ? raw?.email : raw?.phone
     }

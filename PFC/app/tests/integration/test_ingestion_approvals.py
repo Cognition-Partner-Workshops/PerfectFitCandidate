@@ -465,6 +465,83 @@ def test_req_in_23_select_ct_record_confirms_verbatim_email(client):
         assert verify_chain(db)
 
 
+@pytest.mark.parametrize("with_ct_email", [False, True])
+def test_req_in_23_manual_identity_success_and_private_audit(client, with_ct_email):
+    ingest(client, "ct", [{}] if with_ct_email else [{"Email Address": None}])
+    with database(client.app.state.settings) as db:
+        before = [tuple(row) for row in db.execute("SELECT * FROM candidate_emails")]
+        classification = db.execute("SELECT classification FROM candidates").fetchone()[0]
+    login(client, "Analyst")
+    response = client.put(
+        "/api/v1/candidates/1/identity",
+        json={"action": "manual_entry", "name": "  Morgan Synthetic  "},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["identityStatus"] == "complete"
+    assert response.json()["resource"]["name"] == "Morgan Synthetic"
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT display_name FROM candidates").fetchone()[0] == "Morgan Synthetic"
+        assert [tuple(row) for row in db.execute("SELECT * FROM candidate_emails")] == before
+        if not with_ct_email:
+            assert not db.execute("SELECT 1 FROM candidate_emails").fetchone()
+        assert db.execute("SELECT classification FROM candidates").fetchone()[0] == classification
+        audit = db.execute(
+            "SELECT details_json FROM audit_log WHERE action='IDENTITY_RESOLVE'"
+        ).fetchone()[0]
+        assert "Morgan" not in audit and "Synthetic" not in audit
+        assert json.loads(audit)["name_masked"] == "***"
+        assert verify_chain(db)
+
+
+@pytest.mark.parametrize(
+    "action", ["manual_entry", "generate_internal_id", "review_later", "select_ct_record"]
+)
+@pytest.mark.parametrize("email", ["typed@example.com", "", None])
+def test_req_in_14_23_identity_rejects_typed_email(client, action, email):
+    ingest(client, "ct", [{"Email Address": None}, {}])
+    body = {"action": action, "email": email}
+    if action == "manual_entry":
+        body["name"] = "Morgan Synthetic"
+    if action == "select_ct_record":
+        body["resourceId"] = 2
+    response = client.put("/api/v1/candidates/1/identity", json=body)
+    assert response.status_code == 422, response.text
+    with database(client.app.state.settings) as db:
+        assert not db.execute("SELECT 1 FROM candidate_emails WHERE candidate_id=1").fetchone()
+        assert not db.execute("SELECT 1 FROM audit_log WHERE action='IDENTITY_RESOLVE'").fetchone()
+
+
+@pytest.mark.parametrize("action", ["generate_internal_id", "review_later", "select_ct_record"])
+@pytest.mark.parametrize("name", ["Morgan Synthetic", None])
+def test_req_in_23_other_identity_actions_reject_name(client, action, name):
+    ingest(client, "ct", [{"Email Address": None}, {}])
+    body = {"action": action, "name": name}
+    if action == "select_ct_record":
+        body["resourceId"] = 2
+    response = client.put("/api/v1/candidates/1/identity", json=body)
+    assert response.status_code == 422, response.text
+
+
+def test_req_in_23_manual_identity_validation_and_access(client):
+    ingest(client, "ct", [{"Email Address": None}])
+    for fields in [{}, {"name": "   "}, {"name": "X" * 201}, {"name": "Valid", "resourceId": 2}]:
+        assert (
+            client.put(
+                "/api/v1/candidates/1/identity", json={"action": "manual_entry", **fields}
+            ).status_code
+            == 422
+        )
+    body = {"action": "manual_entry", "name": "Morgan Synthetic"}
+    login(client, "Analyst")
+    csrf = client.headers.pop("X-CSRF-Token")
+    assert client.put("/api/v1/candidates/1/identity", json=body).status_code == 403
+    client.headers["X-CSRF-Token"] = csrf
+    client.cookies.clear()
+    assert client.put("/api/v1/candidates/1/identity", json=body).status_code == 401
+    with database(client.app.state.settings) as db:
+        assert not db.execute("SELECT 1 FROM audit_log WHERE action='IDENTITY_RESOLVE'").fetchone()
+
+
 def test_req_in_25_identity_validation_conflicts_and_csrf(client):
     ingest(
         client,

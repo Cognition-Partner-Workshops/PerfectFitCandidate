@@ -101,7 +101,12 @@ def cv_drops(text: str, raw: str | None) -> dict[str, Any]:
             start = text.find(fact["evidence"])
             if start >= 0:
                 located.append(
-                    {**fact, "span": [start, start + len(fact["evidence"])], "source": "llm"}
+                    {
+                        "value": fact["value"],
+                        "evidence": fact["evidence"],
+                        "span": [start, start + len(fact["evidence"])],
+                        "source": "llm",
+                    }
                 )
         candidates[key] = (located[0] if located else None) if key in ("name", "phone") else located
     validated = validate_facts(text, candidates).model_dump()

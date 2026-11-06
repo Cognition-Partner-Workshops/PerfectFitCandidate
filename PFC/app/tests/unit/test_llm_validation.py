@@ -186,6 +186,7 @@ def test_req_in_23_grounding_drops_are_not_rule_precedence() -> None:
         ],
         "qualifications": [],
         "projects": [],
+        "skills": [{"value": "Engineer", "evidence": "Engineer", "canonical": {"forged": True}}],
     }
     raw = json.dumps(output)
     drops = cv_drops(text, raw)
@@ -198,6 +199,7 @@ def test_req_in_23_grounding_drops_are_not_rule_precedence() -> None:
     }
     assert drops["categories"]["name"]["ungrounded"] == 0
     assert drops["categories"]["name"]["rule_precedence"] == 1
+    assert drops["categories"]["skills"]["validated"] == 1
 
     async def probe() -> CVFacts:
         provider = RecordingProvider(FakeProvider(raw))

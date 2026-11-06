@@ -3,7 +3,7 @@
 Sync enriches normalized CV text before opening the persistence transaction.
 The existing PDF/DOCX subprocess and `cv.extract_timeout_s` remain text-only.
 Deterministic rules always run; a healthy local provider can additionally extract
-facts using the versioned `cv_extract_v1` prompt, JSON Schema, temperature 0 and
+facts using the versioned `cv_extract_v2` prompt, JSON Schema, temperature 0 and
 seed 0. CV generation concurrency is one across jobs in the app. The system
 setting `cv.llm_timeout_s` defaults to 180 seconds and includes health/queue time.
 Absent providers use rules. Other failures use rules and increment
@@ -15,22 +15,32 @@ create a new event loop or move the provider's shared HTTP client into a parser
 process. Its wait has a deadline and checks job cancellation. No existing
 `llm_calls` writer exists, so this change does not introduce one.
 
-`facts_json` keeps the existing `emails` array and adds `facts_schema: 1` and
+`facts_json` keeps the existing `emails` array and adds `facts_schema: 2` and
 `facts`, containing nullable `name`/`phone` and lists `experience`, `qualifications`,
-`projects`. Each fact contains `value`, `evidence`, `[start,end]` span, and `source`
+`projects`, `skills`. Each fact contains `value`, `evidence`, `[start,end]` span, and `source`
 (`rule` or `llm`). Offsets are Python character indices into stored `text_norm`,
 not byte offsets or offsets into the original PDF/DOCX. One validator drops every
 fact whose span/quote is not exact or whose non-empty value is not a substring
 of its quote. Phone values additionally must contain the same phone digits.
 LLM quotes are located exactly; neither values nor quotes are repaired.
 
+Skill facts additionally contain `canonical: string | null`. Their verbatim
+`value` must equal `evidence`, with that exact token at the stored span; canonical
+names are not part of grounding. Rules split lines under Skills, Technical Skills,
+Key Skills and similar headings on commas, semicolons, pipes and bullet separators,
+trim tokens, and keep the first case-insensitive occurrence. LLM proposals use the
+same quote-location and validation path; proposed canonical metadata is ignored.
+After validation, one approved OCC synonym snapshot per sync job resolves canonical
+names, outside the persistence transaction. Unknown or unapproved terms remain null.
+
 Rule names and phones take precedence. Each non-empty validated LLM category
 supplies its list; empty or entirely ungrounded categories use their rule facts.
 Failure uses rule lists.
 Retained LLM facts record `extracted_by=llm:<provider>:<model>` and
-`prompt_version=cv_extract_v1`; rules-only output records `rule_based`/NULL.
-Versions without `facts_schema` are backfilled in place, preserving their emails
-and other existing JSON keys. Already enriched versions are not regenerated.
+`prompt_version=cv_extract_v2`; rules-only output records `rule_based`/NULL.
+Versions whose `facts_schema` is absent or less than 2 are backfilled in place,
+preserving their version IDs, emails and other existing JSON keys. Schema-2 versions
+are not regenerated. Schema-1 facts remain readable until backfill.
 
 Both candidate CV-history responses expose additive `facts` fields, including
 CV entries within the candidate detail response. Legacy versions return null.
@@ -39,3 +49,13 @@ evidence mask phone numbers and emails. Response spans remain coordinates in
 the original stored text, so redacted evidence does not retain its original
 length. Raw facts remain local in SQLite; audits contain counts, not CV facts.
 Neither `candidates.phone` nor CV `resource_skills` is written by enrichment.
+Skills do not change matching scores or embedding inputs; existing embeddings use
+normalized CV text/sections, not `facts_json`. Writing scoring skill records is
+deliberately deferred pending the lead's decision. An integration regression runs
+matching with and without JSON skills and compares scores and complete breakdowns.
+
+Public facts add `warnings: [{code, message}]`, computed on response rather than
+stored. A null phone produces `PHONE_NOT_FOUND` / `Phone not found in CV.`; otherwise
+the list is empty. Warnings appear on each card, plus at profile level for the latest
+CV's missing phone. They never block actions. Skill values, evidence and canonical
+metadata are redacted like other facts; response spans still refer to original text.
