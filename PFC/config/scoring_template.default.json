@@ -1,0 +1,85 @@
+{
+  "name": "default",
+  "version": 1,
+  "weights": {
+    "skills": 70,
+    "grade": 10,
+    "location": 5,
+    "bench_start": 5,
+    "bench_end": 5,
+    "status": 5
+  },
+  "grade": {
+    "exact": 10,
+    "adjacent": 7,
+    "max_distance": 1
+  },
+  "location_points": {
+    "Aligned": 5,
+    "Remote/unspecified": 5,
+    "Potential travel": 3,
+    "Location check": 1
+  },
+  "skills": {
+    "sub_weights": {
+      "mandatory": 0.6,
+      "preferred": 0.15,
+      "semantic": 0.25
+    },
+    "semantic_low": 0.45,
+    "semantic_high": 0.8,
+    "semantic_item_cap": 0.8,
+    "related_synonym_credit": 0.6,
+    "min_evidence_terms": 3
+  },
+  "bench_start": {
+    "tiers_days": [
+      [
+        0,
+        5
+      ],
+      [
+        30,
+        4
+      ],
+      [
+        45,
+        3
+      ],
+      [
+        60,
+        2
+      ],
+      [
+        90,
+        1
+      ]
+    ],
+    "beyond": 0,
+    "missing": 0
+  },
+  "status_score_mode": "binary",
+  "status_tiered_points": {
+    "1": 5,
+    "2": 4,
+    "3": 3,
+    "4": 2,
+    "5": 1,
+    "6": 0
+  },
+  "bands": {
+    "Strong": 90,
+    "Potential": 70,
+    "Avg": 61
+  },
+  "top_n": 5,
+  "email_preselect_n": 4,
+  "weak_inclusion": {
+    "enabled": true,
+    "requires_no_strong": true,
+    "min_transferable_semantic": null
+  },
+  "mandatory_gap_policy": "flag_only",
+  "unmapped_status_priority": 2,
+  "bench_end_blank_points": 5
+}

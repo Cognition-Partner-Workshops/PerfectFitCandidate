@@ -1,0 +1,12 @@
+{
+  "Available": "AVAILABLE",
+  "Overall upskilling (New bench)": "UPSKILLING",
+  "CV with client - Demand Proposed": "DEMAND_PROPOSED",
+  "CV with client - Proactive Proposed": "PROACTIVE_PROPOSED",
+  "Expected on Bench Soon": "EXPECTED",
+  "Status - x": "STATUS_X",
+  "Status - y": "STATUS_Y",
+  "Selected": "SELECTED",
+  "Unknown": "UNKNOWN",
+  "CV with Client - Sold - Pending Allocation": "SOLD_PENDING"
+}
