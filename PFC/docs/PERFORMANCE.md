@@ -88,3 +88,63 @@ ruff format --check pfc tests
 mypy pfc
 pytest
 ```
+
+## Linux CI/VM, not target laptop
+
+### Real ONNX embedding validation — 2026-11-06 (UTC)
+
+One manual CPU-only run of `app/scripts/validate_embedding_model.py`, using the
+official `nomic-ai/nomic-embed-text-v1.5` artifacts at revision
+`ac6fcd72429d86ff25c17895e47a9bfcfc50c1b2`, pinned in `packaging/MODELS.lock`.
+Both existing local files were re-hashed and matched the lock; no replacement
+model or download was needed. Model files remain outside the repository at
+`/home/ubuntu/pfc-models/nomic-embed-text-v1.5/`.
+
+Official pinned sources:
+- [ONNX int8 model](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5/resolve/ac6fcd72429d86ff25c17895e47a9bfcfc50c1b2/onnx/model_int8.onnx)
+- [Tokenizer](https://huggingface.co/nomic-ai/nomic-embed-text-v1.5/resolve/ac6fcd72429d86ff25c17895e47a9bfcfc50c1b2/tokenizer.json)
+
+Verified SHA-256s:
+```text
+model_int8.onnx  b4342336debaea79de872370664b0aaeb67dea4605513d00ee236ea871a81f27
+tokenizer.json   d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66
+```
+
+Provenance: Linux 6.8.0-1060-aws; Python **3.12.16**; onnxruntime **1.31.1**,
+**CPUExecutionProvider**; **Intel(R) Xeon(R) Processor**, `nproc` **8**.
+Before validation, `free -h` reported 31 GiB total RAM, 963 MiB used, 24 GiB free,
+75 MiB shared, 5.5 GiB buff/cache and 29 GiB available; swap was 0 B.
+The run used main base `f630ad8` plus the validator's reporting additions.
+
+| Measurement | Result |
+|---|---:|
+| Model load | 0.900 s |
+| Batch embed throughput | 58.926 docs/s |
+| Tokenizer-counted batch throughput | 1511.449 tokens/s |
+| Timed batches | 20 inputs, 513 tokens, 0.339 s |
+| Warmed per-chunk latency, mean | 18.653 ms |
+| Warmed per-chunk latency, p50 | 18.640 ms |
+| Warmed per-chunk latency, p95 | 28.316 ms |
+| Peak RSS (`resource.getrusage`) | 332.801 MiB |
+| Retrieval top-1 | PASS: 10/10 |
+| Related vs unrelated cosine sanity | PASS: 10/10; minimum margin +0.181082 |
+
+The corpus is ten short synthetic JD/CV pairs. JDs use the query task and CVs
+the document task. Each input chunk counts as one document for docs/s: two
+10-input batches, after twenty warmed single-input measurements. Tokens are
+counted by the model tokenizer over task-prefixed input, including tokenizer
+special tokens but excluding padding; this counting pass is outside the timed
+embed calls. Every related CV beats the highest-scoring non-matching CV, with
+both cosines and their margin printed individually. Vectors are 768-dimensional,
+finite and L2-normalized (observed norms 0.9999999–1.0000000).
+
+The adapter does not guard pre-prefixed input: the probe reports that it adds
+another prefix, so callers must supply raw text. This benchmark is not full-CV
+throughput, application matching throughput, or target-laptop acceptance.
+
+Reproduce with the backend virtual environment activated, from `PFC/app`, after
+verifying the two local artifacts against `packaging/MODELS.lock`:
+```sh
+python scripts/validate_embedding_model.py \
+  --model-dir /home/ubuntu/pfc-models/nomic-embed-text-v1.5/
+```
