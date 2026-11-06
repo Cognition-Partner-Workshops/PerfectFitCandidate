@@ -43,6 +43,7 @@ class JdItemSource(WireModel):
     kind: Literal["mandatory_skill", "preferred_skill", "experience", "qualification", "domain"]
     text: str
     jd_req_id: int | None = Field(default=None, strict=True)
+    classification_reason: Literal["classification_adjusted"] | None = None
     evidence: str | None = None
     evidence_unverified: bool = False
 
@@ -175,6 +176,7 @@ def requirements_view(demand_id: int, row: dict[str, Any]) -> JdRequirements:
                 kind=item["kind"],
                 text=item["text"],
                 jd_req_id=item["item_id"],
+                classification_reason=item.get("classification_reason"),
                 evidence=item["source_span"],
                 evidence_unverified=item.get("evidence_unverified", False),
             )
