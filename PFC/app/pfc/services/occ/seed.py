@@ -17,6 +17,7 @@ from pfc.services.occ.llm import seed_default_models
 from pfc.services.occ.templates import validate_placeholders
 
 logger = logging.getLogger(__name__)
+RELATED_SEED_MARKER = "occ.related_synonyms.v1"
 
 
 def normalize_term(term: str) -> str:
@@ -77,7 +78,7 @@ def _seed(db: sqlite3.Connection, filename: str, data: Any) -> None:
             db.execute(
                 "INSERT INTO skill_synonyms(skill_id,term,term_norm,relation,credit,status,"
                 "updated_at)"
-                " VALUES (?,?,?,?,?,?,?) ON CONFLICT(term_norm) DO NOTHING",
+                " VALUES (?,?,?,?,?,?,?) ON CONFLICT(skill_id,term_norm) DO NOTHING",
                 (
                     skill_id,
                     term,
@@ -128,6 +129,69 @@ def _seed(db: sqlite3.Connection, filename: str, data: Any) -> None:
             _insert(db, "llm_models", model)
 
 
+def _upgrade_related_synonyms(db: sqlite3.Connection, directory: Path) -> None:
+    if db.execute(
+        "SELECT 1 FROM settings WHERE scope='system' AND user_id IS NULL AND key=?",
+        (RELATED_SEED_MARKER,),
+    ).fetchone():
+        return
+    path = directory / "skill_synonyms.seed.csv"
+    if not path.is_file():
+        return
+    db.execute("SAVEPOINT related_seed")
+    try:
+        with path.open(encoding="utf-8-sig", newline="") as stream:
+            rows = [row for row in csv.DictReader(stream) if row["relation"] == "related"]
+        imported = db.execute("SELECT 1 FROM settings_packages LIMIT 1").fetchone()
+        for item in rows:
+            skill = db.execute(
+                "SELECT * FROM skills WHERE name=?", (item["canonical"].strip(),)
+            ).fetchone()
+            if skill is None:
+                logger.warning("Skipping related synonym upgrade: missing canonical skill")
+                continue
+            skill_id = skill["skill_id"]
+            if db.execute(
+                "SELECT 1 FROM skill_synonyms WHERE skill_id=? AND term_norm=?",
+                (skill_id, normalize_term(item["term"])),
+            ).fetchone():
+                continue
+            touched = db.execute(
+                "SELECT 1 FROM audit_log WHERE "
+                "(entity_type='skills' AND entity_id=?) OR "
+                "(entity_type='skill_synonyms' AND ("
+                "json_extract(details_json,'$.before.skill_id')=? OR "
+                "json_extract(details_json,'$.after.skill_id')=? OR "
+                "entity_id IN (SELECT CAST(synonym_id AS TEXT) FROM skill_synonyms "
+                "WHERE skill_id=?))) LIMIT 1",
+                (str(skill_id), skill_id, skill_id, skill_id),
+            ).fetchone()
+            owned = db.execute(
+                "SELECT 1 FROM skill_synonyms WHERE skill_id=? AND created_by IS NOT NULL LIMIT 1",
+                (skill_id,),
+            ).fetchone()
+            if imported or touched or owned or skill["created_by"] != "seed":
+                logger.warning("Skipping related synonym upgrade for touched skill %s", skill_id)
+                continue
+            _seed(db, "skill_synonyms.seed.csv", [item])
+        _insert(
+            db,
+            "settings",
+            {
+                "scope": "system",
+                "key": RELATED_SEED_MARKER,
+                "admin_only": 1,
+                "value_json": "true",
+                "updated_at": now(),
+            },
+        )
+    except (ValueError, TypeError, KeyError, sqlite3.Error, csv.Error, OSError):
+        db.execute("ROLLBACK TO related_seed")
+        logger.warning("Skipping malformed related synonym upgrade")
+    finally:
+        db.execute("RELEASE related_seed")
+
+
 def seed_reference_data(
     db: sqlite3.Connection,
     config_dir: Path | None = None,
@@ -154,6 +218,14 @@ def seed_reference_data(
         )
         if db.execute(f"SELECT 1 FROM {table}{condition} LIMIT 1").fetchone():
             continue
+        if table == "skill_synonyms" and (
+            db.execute("SELECT 1 FROM skills LIMIT 1").fetchone()
+            or db.execute("SELECT 1 FROM settings_packages LIMIT 1").fetchone()
+            or db.execute(
+                "SELECT 1 FROM audit_log WHERE entity_type IN ('skills','skill_synonyms') LIMIT 1"
+            ).fetchone()
+        ):
+            continue
         path = directory / filename
         if not path.is_file():
             logger.info("Skipping missing seed file %s", filename)
@@ -172,6 +244,7 @@ def seed_reference_data(
             logger.warning("Skipping malformed seed file %s", filename)
         finally:
             db.execute("RELEASE seed_file")
+    _upgrade_related_synonyms(db, directory)
     if not (directory / "llm_models.approved.json").is_file():
         seed_default_models(db)
     email_path = (

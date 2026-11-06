@@ -35,7 +35,11 @@ def exported(source: Settings) -> ExportResult:
 
 def verify_export(source: Settings, target: Settings, package: bytes) -> signing.VerifiedPackage:
     return signing.verify_package(
-        package, trusted_keys=load_trusted_keys(target), app_version="0.1.0", current_version=0
+        package,
+        trusted_keys=load_trusted_keys(target),
+        app_version="0.1.0",
+        current_version=0,
+        supported_schemas=(1, 2),
     )
 
 
@@ -80,12 +84,12 @@ def test_roundtrip_preview_secrecy_and_admin_protection(pair: tuple[Settings, Se
     assert "one_time_passwords" not in repr(result)
     package = result.path.read_bytes()
     verified = verify_export(source, target, package)
-    assert len(verified.settings_payloads["llm_models.v1.json"]) == 1
-    provider = verified.settings_payloads["llm_providers.v1.json"][0]
+    assert len(verified.settings_payloads["llm_models.v2.json"]) == 1
+    provider = verified.settings_payloads["llm_providers.v2.json"][0]
     assert "token_blob" not in provider and "owner_user_id" not in provider
     assert b"provider-secret" not in package and b"admin-secret" not in package
     assert b"other-secret" not in package
-    imported_account = verified.settings_payloads["analysts.v1.json"][0]
+    imported_account = verified.settings_payloads["analysts.v2.json"][0]
     assert imported_account["role"] == "Analyst"
     assert imported_account["must_change_password"] is True
     otp = result.one_time_passwords["analyst@example.com"]
@@ -105,7 +109,7 @@ def test_roundtrip_preview_secrecy_and_admin_protection(pair: tuple[Settings, Se
     with database(target) as db:
         after = snapshot(db)
         for table in TABLES:
-            expected = verified.settings_payloads[f"{table}.v1.json"]
+            expected = verified.settings_payloads[f"{table}.v2.json"]
             if table == "llm_providers":
                 expected = [{**row, "provider_id": 8} for row in expected]
             assert after[table] == expected
@@ -471,6 +475,105 @@ def test_natural_keys_preserve_local_ids_and_remap_synonyms(
         assert not db.execute("PRAGMA foreign_key_check").fetchall()
 
 
+def test_legacy_v1_fixture_package_import(pair: tuple[Settings, Settings]) -> None:
+    source, target = pair
+    payloads = json.loads(
+        (Path(__file__).resolve().parents[3] / "fixtures/settings_legacy_v1.json").read_text()
+    )
+    private = SigningKeys(source).get_or_create("test signing passphrase")
+    package = signing.build_settings_package(
+        payloads,
+        private=private,
+        package_version=1,
+        min_app_version="0.1.0",
+        max_app_version="0.1.0",
+        created_at=NOW,
+        schema_version=1,
+    )
+    with database(target) as db:
+        db.execute("INSERT INTO skills VALUES (70, 'Python', NULL, 'admin', 1)")
+    preview = SettingsImporter(target).apply(package, actor_id=1)
+    assert preview.manifest.schema_version == 1
+    with database(target) as db:
+        assert db.execute("SELECT skill_id,term_norm FROM skill_synonyms").fetchone()[:] == (
+            70,
+            "py",
+        )
+        assert snapshot(db)["skill_synonyms"] == [
+            {
+                "canonical": "Python",
+                "term": "py",
+                "term_norm": "py",
+                "relation": "abbreviation",
+                "credit": 1,
+                "status": "approved",
+                "updated_at": NOW,
+            }
+        ]
+
+
+def test_composite_synonym_keys_survive_roundtrip_preview_and_rollback(
+    pair: tuple[Settings, Settings],
+) -> None:
+    source, target = pair
+    with database(source) as db:
+        db.execute("INSERT INTO skills VALUES (2,'SQL',NULL,'admin',1)")
+        for skill in (1, 2):
+            db.execute(
+                "INSERT INTO skill_synonyms(skill_id,term,term_norm,relation,credit,status,"
+                "updated_at) "
+                "VALUES (?,'shared-edge','sharededge','related',0.6,'approved',?)",
+                (skill, NOW),
+            )
+    with database(target) as db:
+        db.execute("INSERT INTO skills VALUES (70,'Python',NULL,'admin',1)")
+        db.execute("INSERT INTO skills VALUES (80,'SQL',NULL,'admin',1)")
+    first = exported(source)
+    verified = verify_export(source, target, first.path.read_bytes())
+    assert verified.manifest.schema_version == 2
+    rows = verified.settings_payloads["skill_synonyms.v2.json"]
+    assert all(
+        "canonical" in row and "skill_id" not in row and "synonym_id" not in row for row in rows
+    )
+    importer = SettingsImporter(target)
+    assert len(importer.preview(first.path).changes["skill_synonyms"].added) == 3
+    importer.apply(first.path, actor_id=1)
+    with database(target) as db:
+        assert [
+            r[0]
+            for r in db.execute(
+                "SELECT skill_id FROM skill_synonyms WHERE term_norm='sharededge' ORDER BY skill_id"
+            )
+        ] == [70, 80]
+        original = snapshot(db)["skill_synonyms"]
+    with database(source) as db:
+        db.execute("UPDATE skill_synonyms SET credit=0.4 WHERE skill_id=2")
+    second = exported(source)
+    changes = importer.preview(second.path).changes["skill_synonyms"]
+    assert not changes.added and not changes.removed
+    assert changes.changed == ('["sql", "sharededge"]',)
+    importer.apply(second.path, actor_id=1)
+    importer.rollback(actor_id=1)
+    with database(target) as db:
+        assert snapshot(db)["skill_synonyms"] == original
+        assert not db.execute("PRAGMA foreign_key_check").fetchall()
+
+
+@pytest.mark.parametrize("invalid", ["duplicate", "canonical", "alias"])
+def test_portable_synonym_payload_validation(pair: tuple[Settings, Settings], invalid: str) -> None:
+    with database(pair[0]) as db:
+        payloads = encode_snapshot(snapshot(db))
+    rows = payloads["skill_synonyms.v2.json"]
+    if invalid == "duplicate":
+        rows.append(dict(rows[0]))
+    elif invalid == "canonical":
+        rows[0]["canonical"] = "Unknown"
+    else:
+        rows[0]["credit"] = 0.5
+    with pytest.raises(PackageServiceError):
+        decode_snapshot(payloads)
+
+
 @pytest.mark.parametrize("name", ["local-private", "approved"])
 def test_unapproved_local_models_survive_apply_and_rollback(
     pair: tuple[Settings, Settings], name: str
@@ -502,12 +605,13 @@ def test_payload_validation_and_missing_approval_target(pair: tuple[Settings, Se
         data = snapshot(db)
     data["analysts"] = []
     payloads = encode_snapshot(data)
-    payloads["unknown.v1.json"] = []
+    payloads["unknown.v2.json"] = []
     private = SigningKeys(source).get_or_create("test signing passphrase")
     package = signing.build_settings_package(
         payloads,
         private=private,
         package_version=1,
+        schema_version=2,
         min_app_version="0.1.0",
         max_app_version="0.1.0",
         created_at=NOW,

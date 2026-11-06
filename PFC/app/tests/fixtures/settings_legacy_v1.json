@@ -1,0 +1,36 @@
+{
+  "skills.v1.json": [
+    {
+      "skill_id": 11,
+      "name": "Python",
+      "category": null,
+      "created_by": "seed",
+      "is_active": 1
+    }
+  ],
+  "skill_synonyms.v1.json": [
+    {
+      "synonym_id": 71,
+      "skill_id": 11,
+      "term": "py",
+      "term_norm": "py",
+      "relation": "abbreviation",
+      "credit": 1,
+      "status": "approved",
+      "updated_at": "2026-11-06T00:00:00Z"
+    }
+  ],
+  "scoring_templates.v1.json": [],
+  "grades.v1.json": [],
+  "bench_statuses.v1.json": [],
+  "status_map.v1.json": [],
+  "resource_team_recipients.v1.json": [],
+  "internal_email_domains.v1.json": [],
+  "email_templates.v1.json": [],
+  "llm_models.v1.json": [],
+  "llm_providers.v1.json": [],
+  "settings.v1.json": [],
+  "analysts.v1.json": [],
+  "dl_approvals.v1.json": [],
+  "ct_approvals.v1.json": []
+}
