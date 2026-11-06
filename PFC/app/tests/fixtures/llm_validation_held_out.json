@@ -1,0 +1,46 @@
+{
+  "split": "held_out_5",
+  "jds": [
+    {
+      "id": "jd11",
+      "text": "Warehouse integration engineer\nBuild reliable order feeds between fulfilment centres and the inventory service. You must use Python to develop ingestion jobs, and SQL is required for reconciliation checks. Kafka experience is nice to have for asynchronous order updates.",
+      "expected": {
+        "mandatory_skills": ["Python", "SQL"],
+        "preferred_skills": ["Kafka"]
+      }
+    },
+    {
+      "id": "jd12",
+      "text": "Clinical reporting analyst\nSupport a research team producing repeatable cohort reports. R is essential for the statistical reporting workflow. SQL is required to validate source extracts. Power BI experience is desirable for sharing dashboards with study coordinators.",
+      "expected": {
+        "mandatory_skills": ["R", "SQL"],
+        "preferred_skills": ["Power BI"]
+      }
+    },
+    {
+      "id": "jd13",
+      "text": "Payments service developer\nJoin the team maintaining merchant reconciliation services and investigating settlement failures. Java is required; Kotlin would be a plus for our new reconciliation service. The role includes code reviews and collaboration with the support team.",
+      "expected": {
+        "mandatory_skills": ["Java"],
+        "preferred_skills": ["Kotlin"]
+      }
+    },
+    {
+      "id": "jd14",
+      "text": "Embedded systems engineer\nDevelop control software for remote environmental instruments. C++ is essential for the control loop. You must be able to diagnose device faults with Linux. Ideally, you have Rust experience for future telemetry components.",
+      "expected": {
+        "mandatory_skills": ["C++", "Linux"],
+        "preferred_skills": ["Rust"]
+      }
+    },
+    {
+      "id": "jd15",
+      "text": "Publishing platform reliability engineer\nKeep the digital publishing platform available during major releases. Terraform is required for environment provisioning, and Kubernetes knowledge is essential to operate production clusters. Prometheus experience is a bonus when expanding operational dashboards.",
+      "expected": {
+        "mandatory_skills": ["Terraform", "Kubernetes"],
+        "preferred_skills": ["Prometheus"]
+      }
+    }
+  ],
+  "cvs": []
+}
