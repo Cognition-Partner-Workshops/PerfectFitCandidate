@@ -66,9 +66,10 @@ def export_results(
     if run is None:
         raise Problem(404, "RUN_NOT_FOUND", "Match run not found")
     page = list_results(
-        db, run_id, filters, sort=sort, descending=descending, limit=limit, offset=offset
+        db, run_id, filters, sort=sort, descending=descending, limit=None, offset=0
     )
     results = [row for row in page["items"] if not row["effective_excluded"]]
+    results = results[offset : None if limit is None else offset + limit]
     metadata = (
         f"Run {run_id} · Finished {run['finished_at'] or ''} · "
         f"Model {run['llm_model'] or ''} · Template v{run['template_version']}"

@@ -216,6 +216,50 @@ def test_shapes_counts_capacity_and_clock(populated: tuple[Api, dict[str, Any]])
     assert get(api, "/analytics/summary")["emailsWithin24hPct"] == 25
 
 
+@pytest.mark.parametrize("format", ["csv", "xlsx"])
+def test_export_paging_ignores_excluded_rows(
+    populated: tuple[Api, dict[str, Any]], format: str
+) -> None:
+    api, ids = populated
+    client, csrf = api
+    response = client.post(
+        f"{PREFIX}/match-results/{ids['results'][0]}/overrides",
+        json={"action": "exclude", "reason": "Not available"},
+        headers=csrf,
+    )
+    assert response.status_code == 201, response.text
+    base = f"{PREFIX}/match-runs/{ids['run']}"
+    original = client.get(base + "/results?sort=score&descending=true&limit=1")
+    assert original.status_code == 200
+    assert original.headers["X-Total-Count"] == "3"
+    assert original.json()[0]["resultId"] == ids["results"][0]
+    for paging, expected in (
+        ("limit=1&offset=0", ["Avg"]),
+        ("limit=1&offset=1", ["Weak"]),
+        ("limit=1&offset=2", []),
+        ("offset=1", ["Weak"]),
+        ("band=Weak&limit=1", ["Weak"]),
+    ):
+        response = client.get(base + f"/export?format={format}&sort=score&descending=true&{paging}")
+        assert response.status_code == 200, response.text
+        if format == "csv":
+            rows = list(csv.reader(io.StringIO(response.text)))
+        else:
+            sheet = load_workbook(io.BytesIO(response.content)).active
+            assert sheet is not None
+            rows = [[cell.value for cell in row] for row in sheet]
+        assert [row[11] for row in rows[3:]] == expected
+    with database(client.app.state.settings) as db:
+        details = json.loads(
+            db.execute(
+                "SELECT details_json FROM audit_log WHERE action='export_results' "
+                "ORDER BY audit_id DESC LIMIT 1"
+            ).fetchone()[0]
+        )
+        assert details["rows"] == 1
+        assert verify_chain(db)
+
+
 def test_overrides_filters_and_explicit_run(populated: tuple[Api, dict[str, Any]]) -> None:
     api, ids = populated
     client, csrf = api
