@@ -627,8 +627,8 @@ export class MockApiClient implements ApiClient {
         mandatorySkills: d.mandatorySkills,
         preferredSkills: d.preferredSkills,
         items: [
-          ...d.mandatorySkills.map((text, index) => ({ kind: 'mandatory_skill' as const, text, evidence: null, evidenceUnverified: demandId !== 2 && index === 0 })),
-          ...d.preferredSkills.map((text) => ({ kind: 'preferred_skill' as const, text, evidence: null, evidenceUnverified: false })),
+          ...d.mandatorySkills.map((text, index) => ({ kind: 'mandatory_skill' as const, text, evidence: null, evidenceUnverified: demandId !== 2 && index === 0, classificationReason: demandId !== 2 && index === 0 ? 'classification_adjusted' as const : null })),
+          ...d.preferredSkills.map((text, index) => ({ kind: 'preferred_skill' as const, text, evidence: null, evidenceUnverified: false, classificationReason: demandId !== 2 && index === 0 ? 'classification_adjusted' as const : null })),
         ],
         experienceYears: 5,
         qualifications: '',

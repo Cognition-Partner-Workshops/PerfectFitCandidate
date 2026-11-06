@@ -24,8 +24,13 @@ def timestamp(now: datetime) -> str:
 
 
 @contextmanager
-def atomic(db: sqlite3.Connection) -> Iterator[None]:
+def atomic(db: sqlite3.Connection, *, immediate: bool = False) -> Iterator[None]:
     """Keep multi-write service operations atomic without committing caller work."""
+    if immediate and not db.in_transaction:
+        with db:
+            db.execute("BEGIN IMMEDIATE")
+            yield
+        return
     db.execute("SAVEPOINT matching_write")
     try:
         yield

@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import sqlite3
 import threading
 import time
 from pathlib import Path
@@ -58,6 +60,35 @@ def test_complete_and_fail(runner: JobRunner) -> None:
     assert runner.get(failed).message == "Job failed"
     assert runner.get(99999) is None
     assert runner.cancel(99999) is None
+
+
+@pytest.mark.parametrize("metadata", ["snapshot", "missing", "none"])
+def test_sqlite_failure_logs_error_code_without_payload(
+    runner: JobRunner, caplog: pytest.LogCaptureFixture, metadata: str
+) -> None:
+    sentinel = "private-sqlite-error-payload"
+    error = sqlite3.OperationalError(sentinel)
+    if metadata == "snapshot":
+        error.sqlite_errorname = "SQLITE_BUSY_SNAPSHOT"
+        error.sqlite_errorcode = sqlite3.SQLITE_BUSY_SNAPSHOT
+    elif metadata == "none":
+        error.sqlite_errorname = None
+        error.sqlite_errorcode = None
+
+    def fail(_: JobContext) -> None:
+        raise error
+
+    with caplog.at_level(logging.ERROR, logger="pfc.jobs.runner"):
+        job_id = runner.submit("sqlite_failure", fail)
+        wait_done(runner, job_id)
+    job = runner.get(job_id)
+    assert job.status == "failed" and job.message == "Job failed"
+    record = next(record for record in caplog.records if record.name == "pfc.jobs.runner")
+    expected = "SQLITE_BUSY_SNAPSHOT, 517" if metadata == "snapshot" else "None, None"
+    assert f"OperationalError ({expected})" in record.getMessage()
+    assert record.exc_info is None
+    assert sentinel not in caplog.text
+    assert sentinel not in repr(record.args)
 
 
 def test_cancel(runner: JobRunner) -> None:
