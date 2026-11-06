@@ -16,6 +16,7 @@ import { BAND_ORDER, bandLabel } from '../lib/bands'
 import { useAuth } from '../auth/context'
 import { canEdit } from '../lib/permissions'
 import { groupExcluded, type ExcludedPerson } from '../lib/excluded'
+import { DataChangedBanner } from '../components/DataChangedBanner'
 
 function OverrideDialog({ row, onClose }: { row: MatchResult; onClose: () => void }) {
   const qc = useQueryClient()
@@ -234,7 +235,8 @@ export function MatchResultsPage() {
   const [grouped, setGrouped] = useState(true)
   const [overrideRow, setOverrideRow] = useState<MatchResult | null>(null)
   const qc = useQueryClient()
-  const runs = useQuery({ queryKey: ['runs'], queryFn: () => api.listMatchRuns() })
+  // Refetch on mount and focus so the data-changed flag reflects edits made on other screens or tabs.
+  const runs = useQuery({ queryKey: ['runs'], queryFn: () => api.listMatchRuns(), staleTime: 0, refetchOnWindowFocus: true })
   // Runs are newest first; a queued/running run has no results yet, so the last completed run stays on screen.
   const run = runs.data?.find((r) => r.status === 'completed')
   const newer = runs.data?.[0] && isActive(runs.data[0]) ? runs.data[0] : undefined
@@ -316,6 +318,7 @@ export function MatchResultsPage() {
           Scoring run {newer.runId} is {progress.data?.status ?? newer.status}. {run ? 'Showing the last completed results until it finishes.' : 'Results appear when it finishes.'}
         </Banner>
       )}
+      <DataChangedBanner run={run} />
       <div className="page-header">
         <h1>Match Results</h1>
         <span className="meta">

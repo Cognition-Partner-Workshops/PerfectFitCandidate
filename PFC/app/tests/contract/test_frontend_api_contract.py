@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from pfc.api.schemas.match import RunView, WireModel
+from pfc.api.schemas.match import JdRequirements, RunView, WireModel
 from pfc.api.schemas.results import ResultDetail, ResultRow
 from pfc.config import Settings
 from pfc.main import create_app
@@ -168,6 +168,18 @@ def test_frontend_api_calls_match_backend_openapi(tmp_path: Path) -> None:
         if not label.startswith(ALLOWED_PENDING_LABELS) and not label.startswith("MISMATCH")
     }
     assert not invalid_labels, f"Unrecognized PENDING labels: {invalid_labels}"
+
+
+def test_jd_extraction_metadata_contract(tmp_path: Path) -> None:
+    schema = create_app(Settings(data_dir=tmp_path)).openapi()["components"]["schemas"][
+        "JdRequirements"
+    ]
+    properties = schema["properties"]
+    assert properties["extractionMethod"]["anyOf"][0]["enum"] == ["llm", "rule_based_fallback"]
+    assert properties["fallbackReason"]["anyOf"][0]["type"] == "string"
+    assert properties["warnings"]["items"]["type"] == "string"
+    assert properties["items"]["items"]["$ref"] == "#/components/schemas/JdItemSource"
+    assert JdRequirements(demand_id=1).extraction_method is None
 
 
 @pytest.mark.parametrize("model", [RunView, ResultRow, ResultDetail])

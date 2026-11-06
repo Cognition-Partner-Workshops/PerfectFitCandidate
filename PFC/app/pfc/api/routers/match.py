@@ -25,6 +25,7 @@ from pfc.services import matching
 from pfc.services.embeddings.incremental import submit_incremental_embed
 from pfc.services.embeddings.matching_bridge import resolve_matching_ports
 from pfc.services.embeddings.runtime import EmbeddingModelUnavailable
+from pfc.services.matching.llm_bridge import JdLlmBridge
 
 logger = logging.getLogger(__name__)
 _MATCHING_PORTS_LOCK = Lock()
@@ -97,6 +98,9 @@ def analyze_bulk(body: DemandIds, request: Request, principal: Analyst) -> BulkA
 @router.post("/demands/{demand_id}/analyze", response_model=JdRequirements)
 def analyze(demand_id: int, request: Request, principal: Analyst) -> JdRequirements:
     ports = getattr(request.app.state, "matching_ports", None) or matching.MatchingPorts()
+    provider = getattr(request.app.state, "llm_provider", None)
+    if ports.llm is None and provider is not None:
+        ports = matching.MatchingPorts(ports.embedder, JdLlmBridge(provider), ports.vector_store)
     with database(request.app.state.settings) as db:
         find_demand(db, demand_id)
         try:

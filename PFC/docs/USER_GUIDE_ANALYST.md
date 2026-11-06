@@ -105,6 +105,8 @@ Each row shows the band, score and the masked email after the name. Expand a row
 
 The top 4 of 5 per requisition are pre-selected for email (the count is an OCC setting).
 
+**Data changed since this run.** If DL/CT data is committed, an OCC approval or edit is made, a JD is confirmed or CVs are synced after the run on screen finished, an information banner names those reasons and notes that the scores are a point-in-time snapshot. **Re-run matching** opens Demand List, where Analyze JD → Confirm & Start runs scoring again. The Dashboard shows the same banner for the latest completed run.
+
 ## 8. Overrides
 
 Choose **Override** on a result row and pick one:
