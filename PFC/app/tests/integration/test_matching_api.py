@@ -284,7 +284,10 @@ def test_req_mat_02_full_flow_drafts_results_overrides_exclusions(api: Api) -> N
         changed = client.post(
             endpoint, headers=headers, json={"action": action, "reason": "Review"}
         )
-        assert changed.status_code == 201 and changed.json()["override"]["action"] == action
+        expected_action = "exclude" if action == "include" else action
+        assert (
+            changed.status_code == 201 and changed.json()["override"]["action"] == expected_action
+        )
         assert "newBand" not in changed.json()["override"]
     active_override = changed.json()["override"]["overrideId"]
     excluded = client.get("/api/v1/resources/excluded")
@@ -595,6 +598,38 @@ def test_band_adjustment_remains_visible_after_pin(api: Api) -> None:
     )
     assert revoked.status_code == 200 and revoked.json()["override"]["action"] == "pin"
     assert [value["action"] for value in revoked.json()["activeOverrides"]] == ["pin"]
+
+
+def test_exclusion_takes_priority_over_band_adjustment(api: Api) -> None:
+    client, headers = api
+    with database(client.app.state.settings) as db:
+        seed_demand(db)
+        seed_resource(db)
+    run_id = finish(client, client.post("/api/v1/match-runs", headers=headers, json={}))
+    row = client.get(f"/api/v1/match-runs/{run_id}/results").json()[0]
+    endpoint = f"/api/v1/match-results/{row['resultId']}/overrides"
+    adjusted = client.post(
+        endpoint,
+        headers=headers,
+        json={
+            "action": "adjust_band",
+            "newBand": "Avg",
+            "reason": "Review band",
+        },
+    )
+    assert adjusted.status_code == 201
+    excluded = client.post(
+        endpoint, headers=headers, json={"action": "exclude", "reason": "Unsafe"}
+    )
+    assert excluded.status_code == 201 and excluded.json()["override"]["action"] == "exclude"
+    assert [item["action"] for item in excluded.json()["activeOverrides"]] == [
+        "adjust_band",
+        "exclude",
+    ]
+    detail = client.get(f"/api/v1/match-results/{row['resultId']}")
+    assert detail.status_code == 200 and detail.json()["override"]["action"] == "exclude"
+    revoked = client.request("DELETE", endpoint, headers=headers, json={"reason": "Undo exclusion"})
+    assert revoked.status_code == 200 and revoked.json()["override"]["action"] == "adjust_band"
 
 
 def test_empty_missing_validation_production_openapi_and_removed_paths(api: Api) -> None:
