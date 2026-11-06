@@ -24,6 +24,17 @@ QUERIES = {
 }
 
 
+def require_unmask_permission(db: sqlite3.Connection, role: str) -> None:
+    if role == "Admin":
+        return
+    policy = db.execute(
+        "SELECT value_json FROM settings WHERE scope='system' AND user_id IS NULL AND key=?",
+        (ANALYST_UNMASK_KEY,),
+    ).fetchone()
+    if policy is not None and json.loads(policy["value_json"]) is not True:
+        raise Problem(403, "UNMASK_DISABLED", "Unmasking is disabled for Analysts")
+
+
 def unmask(
     db: sqlite3.Connection, actor_id: int, role: str, entity: str, target: int, field: str
 ) -> str:
@@ -32,15 +43,9 @@ def unmask(
     Candidate email prefers a confirmed address, then email_key order.
     The system privacy setting defaults to true; only JSON true enables it when present.
     """
-    if role != "Admin":
-        if entity == "occ_user":
-            raise Problem(403, "FORBIDDEN", "Insufficient permissions")
-        policy = db.execute(
-            "SELECT value_json FROM settings WHERE scope='system' AND user_id IS NULL AND key=?",
-            (ANALYST_UNMASK_KEY,),
-        ).fetchone()
-        if policy is not None and json.loads(policy["value_json"]) is not True:
-            raise Problem(403, "UNMASK_DISABLED", "Unmasking is disabled for Analysts")
+    if role != "Admin" and entity == "occ_user":
+        raise Problem(403, "FORBIDDEN", "Insufficient permissions")
+    require_unmask_permission(db, role)
     query = QUERIES.get((entity, field))
     if query is None:
         raise Problem(422, "FIELD_NOT_SUPPORTED", "Field is not recorded for this entity")

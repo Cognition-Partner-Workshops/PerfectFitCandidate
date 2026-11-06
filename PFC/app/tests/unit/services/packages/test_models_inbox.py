@@ -3,16 +3,22 @@
 import asyncio
 import io
 import json
-from collections.abc import Callable
-from typing import Any, cast
+import logging
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any
 
 import pytest
+from embeddings.conftest import jd, tiny_bundle
+from tokenizers import Tokenizer, models, pre_tokenizers
 
 from pfc.config import Settings
 from pfc.db.audit import verify_chain
 from pfc.db.connection import database
 from pfc.jobs.runner import JobContext, JobRunner
 from pfc.security import package_signing as signing
+from pfc.services.embeddings.runtime import EmbeddingModelUnavailable, create_embedder
 from pfc.services.packages.common import PackageServiceError
 from pfc.services.packages.inbox import PackageInbox, list_pending, scan_inbox
 from pfc.services.packages.keys import SigningKeys
@@ -22,18 +28,150 @@ from .conftest import NOW
 from .test_settings import exported, rewrite
 
 
-class Progress:
-    def __init__(self) -> None:
-        self.values: list[tuple[float, str]] = []
+@contextmanager
+def running_jobs(settings: Settings) -> Iterator[JobRunner]:
+    runner = JobRunner(settings)
+    try:
+        yield runner
+    finally:
+        runner.shutdown()
 
-    def report_progress(self, fraction: float, message: str = "") -> None:
-        self.values.append((fraction, message))
+
+def finished(runner: JobRunner, job_id: int) -> dict[str, Any]:
+    async def wait() -> dict[str, Any]:
+        async for event in runner.events(job_id, poll_interval=0.01):
+            if event.startswith("event: done"):
+                return json.loads(event.split("data: ", 1)[1])
+        raise AssertionError("Missing terminal job event")
+
+    async def bounded() -> dict[str, Any]:
+        return await asyncio.wait_for(wait(), timeout=20)
+
+    return asyncio.run(bounded())
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "failed", "cancelled", "completed"])
+def test_retry_uses_persisted_job_state(pair: tuple[Settings, Settings], status: str) -> None:
+    source, target = pair
+    jobs = Jobs(target)
+    importer = ModelImporter(target, jobs=jobs)
+    result = importer.apply(model_package(source), actor_id=1)
+    with database(target) as db:
+        db.execute(
+            "UPDATE jobs SET status=?,message='interrupted by restart' WHERE job_id=?",
+            (status, result.job_id),
+        )
+    expected = 1 if status in ("queued", "running") else 2
+    assert importer.retry_reembedding(1, actor_id=1) == expected
+    receipt = json.loads((target.data_dir / "models/receipts/v1.json").read_bytes())
+    assert receipt["job_id"] == expected and len(jobs.calls) == expected
+
+
+def test_missing_files_fail_job_not_import(
+    pair: tuple[Settings, Settings], caplog: pytest.LogCaptureFixture
+) -> None:
+    source, target = pair
+    target.bundled_models_dir = target.data_dir / "missing-models"
+    with running_jobs(target) as runner:
+        importer = ModelImporter(target, jobs=runner)
+        result = importer.apply(model_package(source, include_tokenizer=False), actor_id=1)
+        job = finished(runner, result.job_id)
+        assert job["status"] == "failed"
+        assert "tokenizer is missing" in job["message"]
+        assert "POST /occ/embedding-models/1/reembed" in job["message"]
+        assert result.path.is_file()
+        assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
+
+
+def test_real_import_and_terminal_retry_are_incremental(
+    pair: tuple[Settings, Settings], tmp_path: Path
+) -> None:
+    source, target = pair
+    model = tiny_bundle(tmp_path / "tiny")
+    with database(target) as db:
+        jd(db, 2, "Python", "Engineer")
+    package = model_package(
+        source,
+        dim=8,
+        artifacts={
+            "weights/model.onnx": model.read_bytes(),
+            "weights/tokenizer.json": (model.parent / "tokenizer.json").read_bytes(),
+            "tokenizer.json": (model.parent / "tokenizer.json").read_bytes(),
+        },
+    )
+    with running_jobs(target) as runner:
+        importer = ModelImporter(target, jobs=runner)
+        result = importer.apply(package, actor_id=1)
+        job = finished(runner, result.job_id)
+        assert job["status"] == "completed" and "embedded=1" in job["message"]
+        retry = importer.retry_reembedding(1, actor_id=1)
+        assert retry != result.job_id
+        job = finished(runner, retry)
+        assert (
+            job["status"] == "completed"
+            and "embedded=0" in job["message"]
+            and "skipped=1" in job["message"]
+        )
+    with database(target) as db:
+        assert (
+            db.execute(
+                "SELECT is_active FROM embedding_models WHERE embedding_model_id=?",
+                (result.model_id,),
+            ).fetchone()[0]
+            == 1
+        )
+        vector = db.execute("SELECT model_version FROM pfc_vector_records").fetchone()
+        assert vector is not None and "pipeline=" in vector[0]
+
+
+def test_failed_job_resumes_committed_owner(
+    pair: tuple[Settings, Settings], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source, target = pair
+    model = tiny_bundle(tmp_path / "tiny")
+    with database(target) as db:
+        jd(db, 2, "Python", "Engineer")
+        jd(db, 3, "SQL", "Engineer")
+    package = model_package(
+        source,
+        dim=8,
+        artifacts={
+            "weights/model.onnx": model.read_bytes(),
+            "weights/tokenizer.json": (model.parent / "tokenizer.json").read_bytes(),
+            "tokenizer.json": (model.parent / "tokenizer.json").read_bytes(),
+        },
+    )
+    report = JobContext.report_progress
+
+    def interrupt(self: JobContext, fraction: float, message: str = "") -> None:
+        report(self, fraction, message)
+        if message == "Indexed jd 2":
+            raise EmbeddingModelUnavailable("Local model files were removed")
+
+    with running_jobs(target) as runner:
+        importer = ModelImporter(target, jobs=runner)
+        with monkeypatch.context() as patch:
+            patch.setattr(JobContext, "report_progress", interrupt)
+            result = importer.apply(package, actor_id=1)
+            assert finished(runner, result.job_id)["status"] == "failed"
+        with database(target) as db:
+            assert db.execute("SELECT count(*) FROM embedding_chunks").fetchone()[0] == 1
+        retry = importer.retry_reembedding(1, actor_id=1)
+        assert retry != result.job_id
+        job = finished(runner, retry)
+        assert (
+            job["status"] == "completed"
+            and "embedded=1" in job["message"]
+            and "skipped=1" in job["message"]
+        )
+        with database(target) as db:
+            assert db.execute("SELECT count(*) FROM embedding_chunks").fetchone()[0] == 2
 
 
 class Jobs:
-    def __init__(self) -> None:
+    def __init__(self, settings: Settings) -> None:
+        self.settings = settings
         self.calls: list[tuple[str, dict[str, Any] | None, int | None]] = []
-        self.progress = Progress()
         self.fail = False
 
     def submit(
@@ -46,12 +184,22 @@ class Jobs:
         if self.fail:
             raise RuntimeError("job queue unavailable")
         self.calls.append((kind, params, created_by))
-        fn(cast(JobContext, self.progress))
+        with database(self.settings) as db:
+            db.execute(
+                "INSERT INTO jobs(job_id,kind,status,created_at) VALUES (?,?,'queued',?)",
+                (len(self.calls), kind, NOW),
+            )
         return len(self.calls)
 
 
 def model_package(
-    source: Settings, *, version: int = 1, model_type: str = "embedding", **metadata: Any
+    source: Settings,
+    *,
+    version: int = 1,
+    model_type: str = "embedding",
+    include_tokenizer: bool = True,
+    artifacts: dict[str, bytes] | None = None,
+    **metadata: Any,
 ) -> bytes:
     output = io.BytesIO()
     values = {
@@ -68,7 +216,8 @@ def model_package(
             METADATA: signing.canonical_json(values),
             "weights/model.onnx": b"test model weights",
             "weights/external.data": b"external tensors",
-            "tokenizer.json": b"test tokenizer",
+            **({"tokenizer.json": b"test tokenizer"} if include_tokenizer else {}),
+            **(artifacts or {}),
         },
         output,
         private=SigningKeys(source).get_or_create("test signing passphrase"),
@@ -78,6 +227,80 @@ def model_package(
         created_at=NOW,
     )
     return output.getvalue()
+
+
+@pytest.mark.parametrize("include_tokenizer", [True, False])
+def test_imported_root_tokenizer_precedes_bundled_fallback(
+    pair: tuple[Settings, Settings], tmp_path: Path, include_tokenizer: bool
+) -> None:
+    source, target = pair
+    target.bundled_models_dir = tmp_path / "bundled"
+    bundled = tiny_bundle(target.bundled_models_dir / "nomic-embed-text-v1.5")
+    imported = tiny_bundle(tmp_path / "imported")
+    vocab = Tokenizer.from_file(str(bundled.parent / "tokenizer.json")).get_vocab()
+    vocab["Python"], vocab["Ruby"] = 8, 5
+    tokenizer = Tokenizer(models.WordLevel(vocab, unk_token="[UNK]"))
+    tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
+    tokenizer.save(str(bundled.parent / "tokenizer.json"))
+    root_tokenizer = (imported.parent / "tokenizer.json").read_bytes()
+    artifacts = {"weights/model.onnx": imported.read_bytes()}
+    if include_tokenizer:
+        artifacts["tokenizer.json"] = root_tokenizer
+    package = model_package(source, dim=8, include_tokenizer=include_tokenizer, artifacts=artifacts)
+    with running_jobs(target) as runner:
+        result = ModelImporter(target, jobs=runner).apply(package, actor_id=1)
+        assert finished(runner, result.job_id)["status"] == "completed"
+    embedder = create_embedder(target, embedding_model_id=result.model_id)
+    adjacent = result.path.parent / "tokenizer.json"
+    if include_tokenizer:
+        assert adjacent.read_bytes() == root_tokenizer
+        assert embedder.tokenizer.encode("Python").ids == [5]
+        assert embedder.tokenizer.encode("Python").ids != tokenizer.encode("Python").ids
+    else:
+        assert not adjacent.exists()
+        assert embedder.tokenizer.encode("Python").ids == tokenizer.encode("Python").ids
+    assert not list((target.data_dir / "models").glob(".pfc-*"))
+
+
+def test_root_tokenizer_signature_hash_and_conflict_validation(
+    pair: tuple[Settings, Settings],
+) -> None:
+    source, target = pair
+    importer = ModelImporter(target, jobs=Jobs(target))
+    package = model_package(source)
+    with pytest.raises(signing.PackageError):
+        importer.apply(rewrite(package, "tokenizer.json", b"tampered tokenizer"), actor_id=1)
+    package = model_package(source, artifacts={"weights/tokenizer.json": b"different tokenizer"})
+    with pytest.raises(PackageServiceError, match="tokenizers must be identical"):
+        importer.apply(package, actor_id=1)
+    with database(target) as db:
+        assert db.execute("SELECT count(*) FROM embedding_models").fetchone()[0] == 0
+    assert not (target.data_dir / "models/v1").exists()
+    assert not (target.data_dir / "models/receipts/v1.json").exists()
+    assert not list((target.data_dir / "models").glob(".pfc-*"))
+
+
+@pytest.mark.parametrize("adjacent_tokenizer", [None, b"different tokenizer"])
+def test_llm_tokenizers_preserve_original_package_layout(
+    pair: tuple[Settings, Settings], adjacent_tokenizer: bytes | None
+) -> None:
+    source, target = pair
+    artifacts = (
+        {"weights/tokenizer.json": adjacent_tokenizer} if adjacent_tokenizer is not None else {}
+    )
+    package = model_package(source, model_type="llm", artifacts=artifacts)
+    with running_jobs(target) as runner:
+        result = ModelImporter(target, jobs=runner).apply(package, actor_id=1)
+        assert finished(runner, result.job_id)["status"] == "completed"
+    assert (target.data_dir / "models/v1/tokenizer.json").read_bytes() == b"test tokenizer"
+    adjacent = result.path.parent / "tokenizer.json"
+    if adjacent_tokenizer is None:
+        assert not adjacent.exists()
+    else:
+        assert adjacent.read_bytes() == adjacent_tokenizer
+    with database(target) as db:
+        assert db.execute("SELECT count(*) FROM embedding_models").fetchone()[0] == 0
+        assert db.execute("SELECT count(*) FROM llm_models").fetchone()[0] == 1
 
 
 @pytest.mark.parametrize("model_type", ["embedding", "llm"])
@@ -99,7 +322,7 @@ def test_model_apply_retains_older_models_and_vectors(
             "'Apache-2.0', 1, NULL, 1)"
         )
         old_chunks = [tuple(row) for row in db.execute("SELECT * FROM embedding_chunks")]
-    jobs = Jobs()
+    jobs = Jobs(target)
     importer = ModelImporter(target, jobs=jobs)
     package = model_package(source, model_type=model_type)
     preview = importer.preview(package)
@@ -111,7 +334,6 @@ def test_model_apply_retains_older_models_and_vectors(
     assert (target.data_dir / "models/v1/tokenizer.json").read_bytes() == b"test tokenizer"
     assert result.job_id == 1
     assert jobs.calls[0][0] == "embed" and jobs.calls[0][2] == 1
-    assert [fraction for fraction, _ in jobs.progress.values] == [0, 1]
     with database(target) as db:
         assert [tuple(row) for row in db.execute("SELECT * FROM embedding_chunks")] == old_chunks
         assert db.execute(
@@ -133,7 +355,7 @@ def test_model_apply_retains_older_models_and_vectors(
 
 def test_model_failure_cleanup_and_pending_job_retry(pair: tuple[Settings, Settings]) -> None:
     source, target = pair
-    jobs = Jobs()
+    jobs = Jobs(target)
     importer = ModelImporter(target, jobs=jobs)
     package = model_package(source)
     with pytest.raises(Exception, match="FOREIGN KEY"):
@@ -156,7 +378,7 @@ def test_model_failure_cleanup_and_pending_job_retry(pair: tuple[Settings, Setti
 
 def test_external_tensor_update_has_a_new_model_version(pair: tuple[Settings, Settings]) -> None:
     source, target = pair
-    importer = ModelImporter(target, jobs=Jobs())
+    importer = ModelImporter(target, jobs=Jobs(target))
     first = importer.apply(model_package(source), actor_id=1)
     output = io.BytesIO()
     metadata = {
@@ -190,7 +412,7 @@ def test_external_tensor_update_has_a_new_model_version(pair: tuple[Settings, Se
 
 def test_model_tamper_metadata_and_wrong_kind(pair: tuple[Settings, Settings]) -> None:
     source, target = pair
-    importer = ModelImporter(target, jobs=Jobs())
+    importer = ModelImporter(target, jobs=Jobs(target))
     package = model_package(source)
     tampered = rewrite(package, "weights/model.onnx", b"changed weights")
     with pytest.raises(signing.PackageError) as error:
@@ -207,11 +429,13 @@ def test_model_tamper_metadata_and_wrong_kind(pair: tuple[Settings, Settings]) -
         ModelImporter(target).apply(package, actor_id=1)
 
 
-def test_real_job_runner_integration(pair: tuple[Settings, Settings]) -> None:
+def test_real_llm_job_runner_remains_noop(pair: tuple[Settings, Settings]) -> None:
     source, target = pair
     runner = JobRunner(target)
     try:
-        result = ModelImporter(target, jobs=runner).apply(model_package(source), actor_id=1)
+        result = ModelImporter(target, jobs=runner).apply(
+            model_package(source, model_type="llm"), actor_id=1
+        )
 
         async def completed() -> None:
             async for _ in runner.events(result.job_id, poll_interval=0.01):
@@ -243,7 +467,7 @@ def test_startup_inbox_is_preview_only_and_explicit_apply(pair: tuple[Settings, 
     with database(target) as db:
         assert db.execute("SELECT count(*) FROM settings_packages").fetchone()[0] == 0
         assert db.execute("SELECT count(*) FROM audit_log").fetchone()[0] == 0
-    service = PackageInbox(target, jobs=Jobs())
+    service = PackageInbox(target, jobs=Jobs(target))
     assert service.list_pending() == pending
     service.apply_pending(settings_file, actor_id=1)
     assert (target.data_dir / "packages/v1.pfcpkg").exists()

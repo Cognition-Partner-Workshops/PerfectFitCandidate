@@ -12,7 +12,7 @@ export interface AuthState {
   logout: (reason?: 'timeout') => Promise<void>
   refresh: () => Promise<void>
   setUser: (user: CurrentUser) => void
-  signedOutReason: 'timeout' | null
+  signedOutReason: 'timeout' | 'expired' | null
 }
 
 export const AuthContext = createContext<AuthState | null>(null)

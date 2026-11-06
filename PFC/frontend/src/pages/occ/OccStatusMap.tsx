@@ -13,8 +13,10 @@ export function OccStatusMap() {
   const [draft, setDraft] = useState<BenchStatus[] | null>(null)
   const [mapTo, setMapTo] = useState<Record<string, string>>({})
   const list = draft ?? statuses.data ?? []
-  const saveStatuses = useMutation({ mutationFn: (s: BenchStatus[]) => api.saveBenchStatuses(s), onSuccess: () => { setDraft(null); void qc.invalidateQueries() } })
-  const saveMap = useMutation({ mutationFn: api.saveStatusMap.bind(api), onSuccess: () => void qc.invalidateQueries() })
+  // A failed per-item save may have applied part of the list, so the server's copy is reloaded either way.
+  const reload = () => { setDraft(null); void qc.invalidateQueries({ queryKey: ['occ'] }) }
+  const saveStatuses = useMutation({ mutationFn: (s: BenchStatus[]) => api.saveBenchStatuses(s), onSettled: reload })
+  const saveMap = useMutation({ mutationFn: api.saveStatusMap.bind(api), onSettled: reload })
   if (statuses.isLoading || map.isLoading) return <Spinner />
   if (statuses.isError) return <ErrorState error={statuses.error} />
   const eligible = list.filter((s) => s.eligibility !== 'Excluded')
@@ -29,6 +31,8 @@ export function OccStatusMap() {
   }
   return (
     <div className="stack">
+      {saveStatuses.isError && <ErrorState error={saveStatuses.error} />}
+      {saveMap.isError && <ErrorState error={saveMap.error} />}
       {map.data && map.data.unmapped.length > 0 && (
         <section className="card stack" aria-label="Unmapped statuses">
           <Banner tone="warning">

@@ -36,6 +36,7 @@ pfc = "pfc.launcher:main"
 
 [project.optional-dependencies]
 dev = [
+  "onnx>=1.17",
   "pytest>=8",
   "pytest-cov>=6",
   "ruff>=0.9",
@@ -71,4 +72,5 @@ disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["perf: default-on synthetic API performance checks (skip with -m 'not perf')"]
+addopts = "-m 'not perf'"
+markers = ["perf: synthetic ingestion API and offline 500 by 500 NFR-01 performance regressions (select with -m perf)"]

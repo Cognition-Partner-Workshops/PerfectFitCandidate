@@ -43,27 +43,11 @@ ALLOWED_PENDING_LABELS = (
 )
 
 PENDING: dict[Route, str] = {
-    ("GET", "/api/v1/analytics/bench"): "W2-5 analytics/export",
-    ("GET", "/api/v1/analytics/demand"): "W2-5 analytics/export",
-    ("GET", "/api/v1/analytics/match"): "W2-5 analytics/export",
-    ("GET", "/api/v1/analytics/summary"): "W2-5 analytics/export",
     ("GET", "/api/v1/candidates/{}"): "W2-1 ingestion",
     ("GET", "/api/v1/occ/approvals"): "W2-1 ingestion: OCC approvals",
     ("PUT", "/api/v1/candidates/{}/identity"): "W2-1 ingestion",
-    ("PUT", "/api/v1/occ/bench-statuses"): (
-        "MISMATCH: merged OCC router only updates /occ/bench-statuses/{code}"
-    ),
-    ("PUT", "/api/v1/occ/internal-domains"): (
-        "MISMATCH: merged OCC router has no collection PUT operation"
-    ),
     ("PUT", "/api/v1/occ/demands/{}"): "W2-1 ingestion: OCC approvals",
-    ("PUT", "/api/v1/occ/resource-team"): (
-        "MISMATCH: merged OCC router only updates /occ/resource-team/{target}"
-    ),
     ("PUT", "/api/v1/occ/resources/{}"): "W2-1 ingestion: OCC approvals",
-    ("PUT", "/api/v1/occ/status-map"): (
-        "MISMATCH: merged OCC router only updates /occ/status-map/{source}"
-    ),
 }
 
 
