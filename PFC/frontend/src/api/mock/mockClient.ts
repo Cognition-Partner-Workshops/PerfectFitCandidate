@@ -466,8 +466,10 @@ export class MockApiClient implements ApiClient {
   async changePassword(req: { currentPassword: string; newPassword: string }) {
     const u = this.currentUser()
     if (u.passwordHash !== mockHash(req.currentPassword)) fail(400, 'Current password is incorrect', 'PASSWORD_MISMATCH')
-    if (!checkPassword(req.newPassword, u.role, { email: u.email, name: u.fullName }).ok || req.newPassword.length < this.minPasswordLength(u.role))
+    if (!checkPassword(req.newPassword, u.role, { email: u.email, name: u.fullName }).ok)
       fail(422, 'Password does not meet the policy', 'PASSWORD_POLICY')
+    const min = this.minPasswordLength(u.role)
+    if (req.newPassword.length < min) fail(422, `Password must be at least ${min} characters (OCC policy)`, 'PASSWORD_POLICY')
     if (req.newPassword === req.currentPassword) fail(422, 'Choose a different password', 'PASSWORD_REUSED')
     u.passwordHash = mockHash(req.newPassword)
     u.mustChangePassword = false
@@ -764,7 +766,9 @@ export class MockApiClient implements ApiClient {
 
   async listEmails(): Promise<EmailList> {
     this.currentUser()
-    return this.done({ items: this.state.emails, transport: { transport: 'Outlook COM', outlookDetected: true } })
+    const n = this.policy().emailsPreselected
+    const items = this.state.emails.map((e) => (e.status === 'Draft' && e.rank ? { ...e, preselected: e.rank <= n } : e))
+    return this.done({ items, transport: { transport: 'Outlook COM', outlookDetected: true } })
   }
 
   private email(id: number): EmailDraft {
