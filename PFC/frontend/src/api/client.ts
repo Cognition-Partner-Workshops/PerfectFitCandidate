@@ -1,4 +1,5 @@
 import type {
+  DocumentSummary,
   ExcludedEntry,
   AdminSettings,
   ApprovalDecision,
@@ -101,6 +102,10 @@ export interface StatusMapData {
  * `MockApiClient` (in-browser fixtures), selected by `VITE_PFC_API`.
  */
 export interface ApiClient {
+  getCandidateSummary(id: number): Promise<DocumentSummary>
+  generateCandidateSummary(id: number): Promise<DocumentSummary>
+  getDemandSummary(id: number): Promise<DocumentSummary>
+  generateDemandSummary(id: number): Promise<DocumentSummary>
   /** GET /setup/status */
   getSetupStatus(): Promise<SetupStatus>
   /** POST /setup/admin */

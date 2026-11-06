@@ -7,6 +7,7 @@
 import { ApiError, type ApiClient, type EmailList, type StatusMapData } from '../client'
 import { applyChanges } from '../crud'
 import type {
+  DocumentSummary,
   CandidateDetail,
   CandidateClassification,
   CandidateType,
@@ -96,6 +97,7 @@ interface MockAuditEntry {
 }
 
 interface MockState {
+  summaries?: Record<string, DocumentSummary>
   classificationOverrides?: Record<number, CandidateClassification>
   removedExtractions?: number[]
   /** Reasons data changed since the mock run finished. The mock never completes a new run, so they are only cleared on reset. */
@@ -268,6 +270,50 @@ function mockCvFacts(shortName: string, skills: string[], phoneMasked: string | 
 const needsAnalysis = (d: { jdStatus: JdStatus }) => d.jdStatus === 'Not analysed' || d.jdStatus === 'JD changed'
 
 export class MockApiClient implements ApiClient {
+  private async summarySource(kind: 'candidate' | 'demand', id: number) {
+    this.currentUser()
+    if (kind === 'candidate') {
+      const candidate = await this.getCandidate(id)
+      const cv = candidate.cvVersions[0]
+      if (!cv || this.state.removedExtractions?.includes(cv.cvVersionId)) fail(409, 'No source document is recorded', 'SUMMARY_NO_SOURCE')
+      const fact = cv.facts?.experience[0] ?? cv.facts?.qualifications[0]
+      if (!fact?.evidence) fail(409, 'No source text is recorded', 'SUMMARY_NO_SOURCE')
+      return { version: cv.cvVersionId, text: fact.evidence }
+    }
+    const demand = this.state.demands.find((d) => d.demandId === id)
+    if (!demand?.jdText?.trim()) fail(409, 'No source document is recorded', 'SUMMARY_NO_SOURCE')
+    const version = Array.from(demand.jdText).reduce((hash, char) => (Math.imul(hash, 31) + char.charCodeAt(0)) >>> 0, 1)
+    return { version, text: demand.jdText }
+  }
+
+  private async readSummary(kind: 'candidate' | 'demand', id: number): Promise<DocumentSummary> {
+    this.currentUser()
+    const saved = this.state.summaries?.[`${kind}:${id}`]
+    if (!saved) fail(404, 'No summary has been generated', 'SUMMARY_NOT_FOUND')
+    let stale = true
+    try { stale = (await this.summarySource(kind, id)).version !== saved.sourceVersionId } catch { /* Removed source leaves the saved reading aid stale. */ }
+    return this.done({ ...saved, stale })
+  }
+
+  private async writeSummary(kind: 'candidate' | 'demand', id: number): Promise<DocumentSummary> {
+    const source = await this.summarySource(kind, id)
+    const text = source.text.slice(0, 300)
+      .replace(/[\w.+-]+@[\w.-]+/g, (email) => maskEmail(email) ?? '***')
+      .replace(/\+?(?:\(\d{1,4}\)|\d)[\d ().-]{5,}\d/g, (phone) => /^(19|20)\d{2}\s*[-–—/]\s*(19|20)\d{2}$/.test(phone) ? phone : '***' + phone.slice(-2))
+    const summary: DocumentSummary = {
+      sentences: [{ text, evidence: text }], model: 'mock-summary', createdAt: new Date().toISOString(),
+      stale: false, droppedUngrounded: 0, sourceVersionId: source.version,
+    }
+    this.state.summaries ??= {}
+    this.state.summaries[`${kind}:${id}`] = summary
+    this.save()
+    return this.done(summary)
+  }
+
+  getCandidateSummary = (id: number) => this.readSummary('candidate', id)
+  generateCandidateSummary = (id: number) => this.writeSummary('candidate', id)
+  getDemandSummary = (id: number) => this.readSummary('demand', id)
+  generateDemandSummary = (id: number) => this.writeSummary('demand', id)
   state: MockState
   private readonly persist: boolean
   private readonly latencyMs: number

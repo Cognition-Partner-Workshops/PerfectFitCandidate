@@ -1511,6 +1511,7 @@ Base path `/api/v1`; JSON; cookie session + `X-CSRF-Token` on writes; errors as 
 | GET | `/resources/excluded` | Excluded-from-matching view with reasons | A | P1 | REQ-ELIG-08 |
 | POST | `/resources/{id}/cv-sync` · `/resources/cv-sync` (body: ids ≥ 1) | Per-candidate / global sync | A | P1 | REQ-IN-21 |
 | GET | `/candidates/{id}` · `/candidates/{id}/cv-versions` | Identity, CV versions, scores | A | P1 / P2 | REQ-IN-24 |
+| GET / POST | `/candidates/{id}/summary` · `/demands/{id}/summary` | Read the latest summary or synchronously generate a grounded, masked local reading aid (≤60 s inference); stale summaries are flagged and never used in scoring. | A | P1 | REQ-LLM-02 |
 | PUT | `/candidates/{id}/identity` | Resolve incomplete/ambiguous identity | A | P1 | REQ-IN-23/25 |
 | PUT | `/candidates/{id}/classification` | Manual classification override (audited; reason required, null clears) | Adm | P2 | REQ-CLS-02 |
 | POST | `/match-runs` | Start full/incremental run | A | P1 | REQ-MAT-03 |

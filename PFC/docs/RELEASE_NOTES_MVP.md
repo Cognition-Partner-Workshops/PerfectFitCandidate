@@ -72,12 +72,14 @@ model-free. This historical Windows CI evidence is not target-laptop UAT or a
 fresh-head dispatch. Before a fresh dispatch, the packaging owner must adapt
 `offline_smoke.py`'s exact health-JSON assertion to #56's added health details.
 
+**REQ-LLM-02 — Implemented+tested:** Candidate Profile and JD review now offer local, grounded, masked summaries with expandable evidence and stale-source warnings; generated summaries never enter scoring. Live-model summary quality remains UAT only, and chat-with-data is Phase 2.
+
 ## Known limitations and release gates
 
 All Partial and UAT-only requirements below remain visible release work. None is
 silently accepted/deferred by these notes. The matrix has no Not started rows.
 
-- **REQ-IN-21/23 and Phase 1 REQ-LLM-02:** resume sync persists
+- **REQ-IN-21/23:** resume sync persists
   normalized text and email facts, not the complete structured contact/experience/
   qualifications/projects/evidence model. MAT-02's completed JD review workflow
   does not close these requirements' separate extraction/grounding gaps.

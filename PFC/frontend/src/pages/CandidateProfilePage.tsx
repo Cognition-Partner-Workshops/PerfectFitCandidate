@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import type { CandidateDetail, CvFact, CvFacts, CvVersion, IdentityResolution } from '../api/types'
 import { BandChip, Banner, Chip, EligibilityBadge, ErrorState, MaskedValue, MatchDoughnut, Modal, Spinner } from '../components/ui'
+import { SummaryCard } from '../components/SummaryCard'
 import { formatDate, formatDateTime, initials, orNotRecorded } from '../lib/format'
 import { CandidateClassificationCard } from './CandidateClassificationCard'
 
@@ -188,6 +189,7 @@ export function CandidateProfilePage() {
           Open in Match Results
         </Link>
       </div>
+      <SummaryCard kind="candidate" id={id} />
       {r.eligibility === 'excluded' && <Banner tone="danger">Excluded — {r.exclusionReasons.join('; ')}. Not compared with JDs.</Banner>}
       <div className="tabs" role="tablist">
         {(
