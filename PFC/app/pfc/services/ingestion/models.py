@@ -63,6 +63,8 @@ def diff_rows(rows: Iterable[ParsedRow], existing: Mapping[RowKey, str]) -> Diff
         if row.rejected or row.key is None:
             result.rejected += 1
             continue
+        if row.key in seen:
+            continue
         seen.add(row.key)
         if row.key not in existing:
             result.new.append(row.key)

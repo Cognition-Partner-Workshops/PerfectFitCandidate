@@ -400,6 +400,21 @@ def test_req_ing_02_canonical_hash_order() -> None:
     assert row_hash({"a": 1}) != row_hash({"a": 2})
 
 
+@pytest.mark.parametrize(
+    "existing,category",
+    [({}, "new"), ({("alex", ""): "old"}, "changed"), ({("alex", ""): "same"}, "unchanged")],
+)
+def test_req_ing_02_diff_counts_shared_key_once(existing: dict, category: str) -> None:
+    rows = [
+        ParsedRow(row_number=number, key=("alex", ""), fields={}, row_hash="same")
+        for number in (4, 5)
+    ]
+    diff = diff_rows(rows, existing)
+    assert getattr(diff, category) == [("alex", "")]
+    assert len(diff.new) + len(diff.changed) + len(diff.unchanged) == 1
+    assert diff.rejected == 0
+
+
 def test_req_ing_06_file_hash_no_op(tmp_path: Path) -> None:
     path = tmp_path / "file.txt"
     path.write_bytes(b"synthetic")
