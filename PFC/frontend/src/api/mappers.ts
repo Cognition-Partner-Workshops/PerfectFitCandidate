@@ -21,8 +21,15 @@ import type {
   Synonym,
   UploadPreview,
   Demand,
+  AnalyticsSummary,
+  BenchAnalytics,
+  DashboardFilters,
+  DemandAnalytics,
+  MatchAnalytics,
+  ResultFilters,
 } from './types'
 import { maskEmail } from '../lib/mask'
+import type { EmailTemplateVersion } from './types'
 
 type Flag = boolean | 0 | 1
 const b = (v: Flag | null | undefined): boolean => Boolean(v)
@@ -218,6 +225,26 @@ export const fromSynonymRelation = (r: Synonym['relation']) =>
   (Object.entries(REL).find(([, v]) => v === r)?.[0] ?? 'related') as keyof typeof REL
 
 export interface RecipientRow { recipient_id: number; email: string; display_name: string | null; is_active: Flag }
+export interface EmailTemplateRow {
+  email_template_id: number
+  name: string
+  version: number
+  subject: string
+  body_html: string
+  is_default: Flag
+  created_by: number | null
+  created_at: string
+}
+export const toEmailTemplate = (r: EmailTemplateRow): EmailTemplateVersion => ({
+  emailTemplateId: r.email_template_id,
+  name: r.name,
+  version: r.version,
+  subject: r.subject,
+  bodyHtml: r.body_html,
+  isDefault: b(r.is_default),
+  createdBy: r.created_by ?? null,
+  createdAt: r.created_at,
+})
 export const toMember = (r: RecipientRow): ResourceTeamMember => ({ email: r.email, displayName: r.display_name ?? '', active: b(r.is_active), notes: '' })
 export interface BenchRow {
   code: string
@@ -369,3 +396,86 @@ export const toDemand = (r: DemandItem): Demand => ({
   mandatorySkills: [],
   preferredSkills: [],
 })
+
+/**
+ * Dashboard filters → `/analytics/*` query (REQ-OUT-08). The backend `DashboardFilters` forbids
+ * unknown keys, so only its keys are sent; the single Grade filter is the demand grade.
+ */
+const DASHBOARD_KEYS = [
+  'codeRequisition',
+  'accountName',
+  'bu',
+  'location',
+  'region',
+  'band',
+  'status',
+  'candidateType',
+  'incompleteIdentity',
+  'mandatorySkills',
+  'scoreMin',
+  'scoreMax',
+] as const
+
+export const toDashboardQuery = (f: ResultFilters): DashboardFilters => {
+  const out: Record<string, unknown> = {}
+  for (const k of DASHBOARD_KEYS) if (f[k] !== undefined && f[k] !== '') out[k] = f[k]
+  if (f.demandGrade) out.grade = f.demandGrade
+  return out as DashboardFilters
+}
+
+/** `/analytics/*` replies are camelCase `pfc.api.schemas.analytics` models; normalise optional parts. */
+export const toAnalyticsSummary = (r: AnalyticsSummary): AnalyticsSummary => ({
+  ...r,
+  run: r.run ?? null,
+  dataQualityIssues: { total: r.dataQualityIssues?.total ?? 0, dl: r.dataQualityIssues?.dl ?? 0, ct: r.dataQualityIssues?.ct ?? 0 },
+})
+
+export const toDemandAnalytics = (r: DemandAnalytics): DemandAnalytics => ({
+  openByBuRegion: r.openByBuRegion ?? [],
+  topSkills: r.topSkills ?? [],
+  gradeToJdCount: r.gradeToJdCount ?? [],
+  topAccounts: r.topAccounts ?? [],
+  startPipeline: r.startPipeline ?? [],
+  rows: r.rows ?? [],
+})
+
+export const toBenchAnalytics = (r: BenchAnalytics): BenchAnalytics => ({
+  topSkills: r.topSkills ?? [],
+  demandVsSupply: r.demandVsSupply ?? [],
+  gradeHistogram: r.gradeHistogram ?? [],
+  timeline: r.timeline ?? [],
+  aging: r.aging ?? [],
+  statusDistribution: r.statusDistribution ?? [],
+  rows: r.rows ?? [],
+})
+
+export const toMatchAnalytics = (r: MatchAnalytics): MatchAnalytics => ({
+  coveragePct: r.coveragePct ?? 0,
+  bandDistribution: r.bandDistribution ?? [],
+  emailStatusCounts: r.emailStatusCounts ?? [],
+  validation: (r.validation ?? []).map((v) => ({ ...v, detail: v.detail ?? '' })),
+})
+
+/** Match Results filters → `ExportQuery` (`pfc.api.schemas.analytics`), REQ-OUT-09. */
+export const toExportQuery = (f: ResultFilters, format: 'csv' | 'xlsx', includeEmails: boolean): string => {
+  const p = new URLSearchParams({ format })
+  const set = (k: string, v: string | number | undefined) => {
+    if (v !== undefined && v !== '') p.set(k, String(v))
+  }
+  set('requisition', f.codeRequisition?.trim())
+  set('account', f.accountName)
+  set('demandGrade', f.demandGrade)
+  set('personGrade', f.personGrade)
+  set('personLocation', f.location)
+  set('band', f.band)
+  set('status', f.status)
+  set('scoreMin', f.scoreMin)
+  set('scoreMax', f.scoreMax)
+  set('bu', f.bu)
+  set('region', f.region)
+  set('candidateType', f.candidateType)
+  set('incompleteIdentity', f.incompleteIdentity)
+  set('mandatorySkills', f.mandatorySkills)
+  if (includeEmails) p.set('includeEmails', 'true')
+  return p.toString()
+}

@@ -24,7 +24,7 @@ from pfc.domain.scoring import build_ct_basis
 from pfc.main import create_app
 from pfc.security.setup import code_path
 from pfc.services.matching import MatchingPorts
-from pfc.services.matching.ports import ChunkOwner
+from pfc.services.matching.ports import ChunkOwner, Task
 from pfc.services.matching.runs import _inputs
 from pfc.services.matching.semantic import VectorCache
 
@@ -60,7 +60,7 @@ class FakeEmbedder:
     def __init__(self) -> None:
         self.calls = 0
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
+    def embed(self, texts: list[str], *, task: Task = "document") -> list[list[float]]:
         self.calls += 1
         return [
             [(byte + 1) / 256 for byte in hashlib.sha256(text.encode()).digest()[: self.dim]]
@@ -207,7 +207,7 @@ def prime_vectors(db: sqlite3.Connection, ports: MatchingPorts) -> None:
         meta = metadata[demand.code_requisition]
         cache.vectors("jd", meta["current_version_id"], [meta["jd_text_norm"]])
         for item in demand.requirements:
-            cache.vectors("jd_item", int(item.item_id), [item.text])
+            cache.vectors("jd_item", int(item.item_id), [item.text], task="query")
     for resource in resources:
         basis = build_ct_basis(resource, config)
         cache.vectors(

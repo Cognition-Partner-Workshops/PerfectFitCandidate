@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { expect, test } from '@playwright/test'
 
 /**
- * End-to-end smoke test against the real backend (REQ-AUTH-01/02, REQ-ING-01..03, REQ-OUT-03).
+ * End-to-end smoke test against the real backend (REQ-AUTH-01/02, REQ-ING-01..03, REQ-OUT-03..07, REQ-EML-03).
  * `e2e/serve.py` starts FastAPI on a fresh data dir with synthetic DL/CT workbooks.
  */
 const data = fileURLToPath(new URL('./.data/', import.meta.url))
@@ -38,6 +38,10 @@ test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({
   await signIn.locator('#login-password').fill(PASSWORD)
   await signIn.getByRole('button', { name: 'Sign in' }).click()
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
+  // Dashboard reads the four /analytics/* endpoints; on an empty data dir it must load without an error.
+  await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
+  await expect(page.getByText('Requisitions assessed')).toBeVisible()
+  await expect(page.getByText('Not Found')).toHaveCount(0)
 
   await page.goto('/#/demands')
   await expect(page.getByRole('heading', { name: 'Demand List' })).toBeVisible()
@@ -52,4 +56,19 @@ test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({
   // C1 is not in the seeded grade list, so the second synthetic row is excluded from matching.
   await page.getByRole('tab', { name: 'Excluded from matching (1)' }).click()
   await expect(page.getByText('SmokeTaylor')).toBeVisible()
+
+  await page.goto('/#/dashboard')
+  await expect(page.getByText('Requisitions assessed')).toBeVisible()
+  await expect(page.getByText('Not Found')).toHaveCount(0)
+
+  // OCC email templates (REQ-EML-03): create v1 and make it the default against the real routes.
+  await page.goto('/#/occ/email-templates')
+  await page.getByRole('button', { name: 'New template' }).click()
+  await page.getByLabel('Template name').fill('smoke_template')
+  await page.getByLabel('Subject').fill('Opportunity {requisition}')
+  await page.getByLabel('Body (HTML)').fill('<p>Hi {candidate_name}</p>')
+  await page.getByRole('button', { name: 'Create template' }).click()
+  await expect(page.getByText('smoke_template v1 saved.', { exact: false })).toBeVisible()
+  await page.getByRole('button', { name: 'Set smoke_template v1 as default' }).click()
+  await expect(page.getByText('smoke_template v1 is now the default template.')).toBeVisible()
 })

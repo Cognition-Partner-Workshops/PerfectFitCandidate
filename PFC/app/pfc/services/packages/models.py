@@ -106,6 +106,7 @@ def _embedding_job(settings: Settings, model_id: int, version: int, context: Job
                 f"POST /occ/embedding-models/{version}/reembed"
             )
             with database(settings) as db:
+                # TODO(foundation): replace with JobContext.fail(message) in pfc/jobs/runner.py.
                 db.execute(
                     "UPDATE jobs SET status='failed',message=?,finished_at=? WHERE job_id=?",
                     (message, timestamp(), context.job_id),
@@ -117,6 +118,7 @@ def _embedding_job(settings: Settings, model_id: int, version: int, context: Job
         )
         context.report_progress(1, message)
         with database(settings) as db:
+            # TODO(foundation): replace with JobContext.complete(message) in pfc/jobs/runner.py.
             db.execute(
                 "UPDATE jobs SET status='completed',progress=1,message=?,finished_at=? "
                 "WHERE job_id=?",

@@ -27,6 +27,8 @@ import type {
   ResourceTeamMember,
   Role,
   ScoringTemplate,
+  EmailTemplateDraft,
+  EmailTemplateVersion,
   SettingsPackageInfo,
   Synonym,
   UserStatus,
@@ -60,12 +62,14 @@ import {
 import { classify, scoreAll, toResource } from './scorer'
 import { benchAnalytics, demandAnalytics, matchAnalytics, summarise } from '../../lib/analytics'
 import { applyResultFilters } from '../../lib/filters'
+import { resultsToCsv } from '../../lib/csv'
 import { checkPassword } from '../../lib/password'
+import { checkTemplate } from '../../lib/occ'
 import { formatPct } from '../../lib/format'
 import { maskEmail, maskPhone } from '../../lib/mask'
 
 // Bump when persisted mock shapes or IDs change so stale state is discarded.
-const STORAGE_KEY = 'pfc.mock.v4'
+const STORAGE_KEY = 'pfc.mock.v5'
 
 interface MockUser extends OccUser {
   passwordHash: string
@@ -96,6 +100,7 @@ interface MockState {
   statusMap: StatusMapEntry[]
   synonyms: Synonym[]
   templates: ScoringTemplate[]
+  emailTemplates: EmailTemplateVersion[]
   resourceTeam: ResourceTeamMember[]
   domains: string[]
   emails: EmailDraft[]
@@ -200,6 +205,18 @@ function initialState(): MockState {
     models: structuredClone(MODELS),
     adminSettings: { ...ADMIN_SETTINGS },
     nextId: 1000,
+    emailTemplates: [
+      {
+        emailTemplateId: 1,
+        name: 'candidate_default',
+        version: 1,
+        subject: 'Opportunity {requisition} – {role}',
+        bodyHtml: "<p>Hi {candidate_name},</p>\n<p>You have been shortlisted for {role} ({requisition}), with a match score of {match_pct}.</p>\n<p>{analysis}</p>\n<p><strong>Gaps to consider:</strong><br>{gaps}</p>\n<p><strong>Profile improvement pointers:</strong><br>{pointers}</p>\n<p>Please update your CV against the attached job description and share it with {spoc_1} and {spoc_2}.</p>",
+        isDefault: true,
+        createdBy: null,
+        createdAt: '2026-10-20T10:00:00Z',
+      },
+    ],
   }
   return state
 }
@@ -733,6 +750,22 @@ export class MockApiClient implements ApiClient {
     ]
   }
 
+  async exportResults(runId: number, f: ResultFilters, format: 'csv' | 'xlsx', includeEmails: boolean) {
+    const me = this.currentUser()
+    if (includeEmails && me.role === 'Analyst' && !this.policy().analystsMayUnmask) fail(403, 'Unmasking is disabled for Analysts', 'UNMASK_DISABLED')
+    if (format === 'xlsx') fail(501, 'XLSX export needs the backend', 'NOT_IMPLEMENTED')
+    const rows0 = applyResultFilters(await this.getResults(runId), f)
+    const details = `run ${runId} · ${format} · rows ${rows0.length}`
+    if (includeEmails) this.audit('Unmasked emails in results export', undefined, { action: 'unmask', entity: 'match_run', details })
+    this.audit(`Exported results for run ${runId}`, undefined, { action: 'export_results', entity: 'match_run', details })
+    const raw = new Map(this.state.raws.map((r) => [r.resourceId, r.email]))
+    const rows = rows0.map((r) =>
+      includeEmails ? { ...r, personEmailMasked: raw.get(r.resourceId) ?? r.personEmailMasked } : r,
+    )
+    this.save()
+    return { blob: new Blob([resultsToCsv(rows, `Run ${runId}`)], { type: 'text/csv;charset=utf-8' }), fileName: `PFC-results-run${runId}.csv` }
+  }
+
   async analyticsSummary(f: DashboardFilters) {
     this.currentUser()
     const { demands, resources, results } = this.filtered(f)
@@ -1181,6 +1214,45 @@ export class MockApiClient implements ApiClient {
     this.state.templates.push({ ...draft, templateId: this.nextId(), version, status: 'active', createdAt: iso(), createdBy: u.fullName })
     this.audit(`Scoring template v${version} published`)
     return this.listTemplates()
+  }
+
+  private emailTemplate(id: number): EmailTemplateVersion {
+    const t = this.state.emailTemplates.find((x) => x.emailTemplateId === id)
+    if (!t) fail(404, 'Email template not found', 'NOT_FOUND')
+    return t
+  }
+
+  async listEmailTemplates(all: boolean) {
+    this.requireAdmin()
+    const ts = this.state.emailTemplates
+    const latest = (t: EmailTemplateVersion) => t.version === Math.max(...ts.filter((x) => x.name === t.name).map((x) => x.version))
+    return this.done((all ? [...ts] : ts.filter(latest)).sort((a, b) => a.name.localeCompare(b.name) || b.version - a.version))
+  }
+
+  async getEmailTemplate(id: number) {
+    this.requireAdmin()
+    return this.done(this.emailTemplate(id))
+  }
+
+  async createEmailTemplate(d: EmailTemplateDraft) {
+    const u = this.requireAdmin()
+    const name = d.name.trim()
+    if (!name) fail(422, 'A template name is required', 'VALIDATION_ERROR')
+    const check = checkTemplate(d.subject, d.bodyHtml)
+    if (check.unknown.length || check.malformed) fail(422, 'Unknown email placeholder', 'UNKNOWN_PLACEHOLDER')
+    const version = Math.max(0, ...this.state.emailTemplates.filter((t) => t.name === name).map((t) => t.version)) + 1
+    const row: EmailTemplateVersion = { emailTemplateId: this.nextId(), name, version, subject: d.subject, bodyHtml: d.bodyHtml, isDefault: false, createdBy: u.userId, createdAt: iso() }
+    this.state.emailTemplates.push(row)
+    this.audit(`Email template ${name} v${version} created`, undefined, { action: 'update', entity: 'email_templates' })
+    return this.done(row)
+  }
+
+  async setDefaultEmailTemplate(id: number) {
+    this.requireAdmin()
+    const t = this.emailTemplate(id)
+    this.state.emailTemplates = this.state.emailTemplates.map((x) => ({ ...x, isDefault: x.emailTemplateId === id }))
+    this.audit(`Email template ${t.name} v${t.version} set as default`, undefined, { action: 'update', entity: 'email_templates' })
+    return this.done(this.emailTemplate(id))
   }
 
   async listResourceTeam() {

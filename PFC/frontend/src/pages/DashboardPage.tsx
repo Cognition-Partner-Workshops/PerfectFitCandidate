@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { EChartsCoreOption } from 'echarts/core'
 import { api } from '../api'
+import { toDashboardQuery } from '../api/mappers'
 import type { DashboardFilters, ResultFilters } from '../api/types'
 import { EChart } from '../components/EChart'
 import { CHART_PALETTE } from '../lib/chartPalette'
@@ -59,7 +60,7 @@ const SECTIONS: { id: Section; label: string }[] = [
 export function DashboardPage() {
   const [filters, setFilters] = useState<ResultFilters>({})
   const [section, setSection] = useState<Section>('overview')
-  const df: DashboardFilters = useMemo(() => ({ ...filters, grade: filters.demandGrade, demandGrade: undefined } as DashboardFilters), [filters])
+  const df: DashboardFilters = useMemo(() => toDashboardQuery(filters), [filters])
   const summary = useQuery({ queryKey: ['analytics', 'summary', df], queryFn: () => api.analyticsSummary(df) })
   const demand = useQuery({ queryKey: ['analytics', 'demand', df], queryFn: () => api.analyticsDemand(df) })
   const bench = useQuery({ queryKey: ['analytics', 'bench', df], queryFn: () => api.analyticsBench(df) })

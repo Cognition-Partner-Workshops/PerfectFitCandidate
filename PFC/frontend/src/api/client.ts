@@ -37,9 +37,12 @@ import type {
   PersonalSettings,
   ProblemDetails,
   Resource,
+  ResultFilters,
   ResourceTeamMember,
   Role,
   ScoringTemplate,
+  EmailTemplateDraft,
+  EmailTemplateVersion,
   SettingsPackageInfo,
   SetupAdminRequest,
   SetupStatus,
@@ -66,6 +69,13 @@ export class ApiError extends Error {
   get code(): string | undefined {
     return this.problem.code
   }
+}
+
+export type ExportFormat = 'csv' | 'xlsx'
+
+export interface ExportedFile {
+  blob: Blob
+  fileName: string
 }
 
 export interface EmailList {
@@ -137,6 +147,8 @@ export interface ApiClient {
   /** POST /pii/unmask — audited (REQ-OUT-03, REQ-AUTH-05) */
   unmask(entity: 'resource' | 'candidate' | 'occ_user', id: number, field: 'email' | 'phone'): Promise<string>
 
+  /** GET /match-runs/{id}/export?format=csv|xlsx — emails masked unless includeEmails (REQ-OUT-09). */
+  exportResults(runId: number, filters: ResultFilters, format: ExportFormat, includeEmails: boolean): Promise<ExportedFile>
   /** GET /analytics/summary */
   analyticsSummary(filters: DashboardFilters): Promise<AnalyticsSummary>
   /** GET /analytics/demand */
@@ -205,6 +217,15 @@ export interface ApiClient {
   listTemplates(): Promise<ScoringTemplate[]>
   /** POST /occ/scoring-templates then POST /occ/scoring-templates/{id}/activate */
   publishTemplate(draft: Omit<ScoringTemplate, 'templateId' | 'version' | 'status' | 'createdAt' | 'createdBy'>): Promise<ScoringTemplate[]>
+
+  /** GET /occ/email-templates (latest version per name; `all` lists every version) */
+  listEmailTemplates(all: boolean): Promise<EmailTemplateVersion[]>
+  /** GET /occ/email-templates/{id} */
+  getEmailTemplate(emailTemplateId: number): Promise<EmailTemplateVersion>
+  /** POST /occ/email-templates — appends the next version of `name` */
+  createEmailTemplate(draft: EmailTemplateDraft): Promise<EmailTemplateVersion>
+  /** POST /occ/email-templates/{id}/set-default */
+  setDefaultEmailTemplate(emailTemplateId: number): Promise<EmailTemplateVersion>
 
   /** GET /occ/resource-team */
   listResourceTeam(): Promise<ResourceTeamMember[]>

@@ -20,9 +20,9 @@ def settings(tmp_path: Path) -> Settings:
 
 
 def test_schema_and_pragmas(settings: Settings) -> None:
-    assert migrate(settings) == ["0001"]
+    assert migrate(settings) == ["0001", "0002"]
     assert migrate(settings) == []
-    assert not list((settings.data_dir / "backups").glob("*"))
+    assert len(list((settings.data_dir / "backups").glob("*-pre-0002.db"))) == 1
     sql = Path("pfc/db/migrations/0001_initial.sql").read_text()
     expected = set(re.findall(r"CREATE (?:VIRTUAL )?TABLE (\w+)", sql))
     with database(settings) as db:
@@ -166,21 +166,21 @@ def test_backup_restore(settings: Settings, tmp_path: Path) -> None:
     migrate(settings)
     directory = tmp_path / "migrations"
     directory.mkdir()
-    (directory / "0002_bad.sql").write_text(
+    (directory / "0003_bad.sql").write_text(
         "CREATE TABLE should_rollback(id INTEGER);\nINSERT INTO missing VALUES(1);\n"
     )
     with pytest.raises(sqlite3.OperationalError):
         migrate(settings, directory)
-    backups = list((settings.data_dir / "backups").glob("pfc-*-pre-0002.db"))
+    backups = list((settings.data_dir / "backups").glob("pfc-*-pre-0003.db"))
     assert len(backups) == 1
     with database(settings) as db:
-        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 1
+        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 2
         assert (
             db.execute("SELECT 1 FROM sqlite_master WHERE name='should_rollback'").fetchone()
             is None
         )
-    (directory / "0002_bad.sql").write_text("CREATE TABLE success(id INTEGER);\n")
-    assert migrate(settings, directory) == ["0002"]
+    (directory / "0003_bad.sql").write_text("CREATE TABLE success(id INTEGER);\n")
+    assert migrate(settings, directory) == ["0003"]
     assert migrate(settings, directory) == []
 
 

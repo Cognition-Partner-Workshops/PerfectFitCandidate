@@ -51,7 +51,9 @@ class FakeEmbedder:
     def __init__(self) -> None:
         self.calls = 0
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
+    def embed(
+        self, texts: list[str], *, task: Literal["document", "query"] = "document"
+    ) -> list[list[float]]:
         self.calls += 1
         return [[0.0, 1.0] if text.startswith("Skill:") else [1.0, 0.0] for text in texts]
 
@@ -677,7 +679,9 @@ def test_req_mat_08_failed_or_cancelled_jobs(
     kind: str,
 ) -> None:
     class Broken(FakeEmbedder):
-        def embed(self, texts: list[str]) -> list[list[float]]:
+        def embed(
+            self, texts: list[str], *, task: Literal["document", "query"] = "document"
+        ) -> list[list[float]]:
             if kind == "raises":
                 raise RuntimeError("Embedding failed")
             if kind == "cancelled":
@@ -719,10 +723,12 @@ def test_req_mat_08_real_job_cancellation(settings: Settings, runner: JobRunner)
     entered, release = threading.Event(), threading.Event()
 
     class Blocking(FakeEmbedder):
-        def embed(self, texts: list[str]) -> list[list[float]]:
+        def embed(
+            self, texts: list[str], *, task: Literal["document", "query"] = "document"
+        ) -> list[list[float]]:
             entered.set()
             assert release.wait(5)
-            return super().embed(texts)
+            return super().embed(texts, task=task)
 
     with database(settings) as db:
         seed_demand(db)

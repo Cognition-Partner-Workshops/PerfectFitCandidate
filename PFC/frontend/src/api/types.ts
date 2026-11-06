@@ -568,3 +568,17 @@ export interface AdminSettings {
   emailTurnaroundHours: number
   allowExternalProviders: boolean
 }
+
+/** OCC email template version (REQ-EML-03); rows are append-only per `name`. */
+export interface EmailTemplateVersion {
+  emailTemplateId: number
+  name: string
+  version: number
+  subject: string
+  bodyHtml: string
+  isDefault: boolean
+  createdBy: number | null
+  createdAt: string
+}
+
+export type EmailTemplateDraft = Pick<EmailTemplateVersion, 'name' | 'subject' | 'bodyHtml'>

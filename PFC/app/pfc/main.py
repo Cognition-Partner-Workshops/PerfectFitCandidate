@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pfc.adapters.llm.supervisor import LlamaServerSupervisor
 from pfc.api.routers.analytics import router as analytics_router
 from pfc.api.routers.auth import router as auth_router
+from pfc.api.routers.candidates import router as candidates_router
 from pfc.api.routers.cv import router as cv_router
 from pfc.api.routers.demands import router as demands_router
 from pfc.api.routers.email import router as email_router
@@ -19,6 +20,7 @@ from pfc.api.routers.ingestion import router as ingestion_router
 from pfc.api.routers.llm import router as llm_router
 from pfc.api.routers.match import router as match_router
 from pfc.api.routers.occ import router as occ_router
+from pfc.api.routers.occ_approvals import router as occ_approvals_router
 from pfc.api.routers.packages import router as packages_router
 from pfc.api.routers.pii import router as pii_router
 from pfc.api.routers.resources import router as resources_router
@@ -104,6 +106,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(resources_router, prefix="/api/v1")
     app.include_router(cv_router, prefix="/api/v1")
     app.include_router(occ_router, prefix="/api/v1")
+    app.include_router(occ_approvals_router, prefix="/api/v1")
+    app.include_router(candidates_router, prefix="/api/v1")
     app.include_router(settings_router, prefix="/api/v1")
     app.include_router(packages_router, prefix="/api/v1")
     app.include_router(pii_router, prefix="/api/v1")

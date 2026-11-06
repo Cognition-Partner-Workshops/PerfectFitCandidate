@@ -131,12 +131,28 @@ Recipients come from the OCC resource-team list; "No resource-team recipients" m
 
 ## 11. Dashboard
 
-**Pending:** the Dashboard sections (Overview, Demand analytics, Bench analytics, Match & communication, Data quality) read the `/analytics/*` endpoints, which are not merged yet. Against the real backend the Dashboard shows an error with **Retry** until they are.
+The Dashboard is the landing page. It uses the latest completed scoring run; the run date and template version are shown in the header.
+
+- **Filters:** the same filter bar as Match Results. The Grade filter applies to the demand grade.
+- **Sections:** Overview, Demand analytics, Bench analytics, Match & communication and Data quality.
+- **Overview tiles:** Requisitions assessed (of open requisitions), Role-to-person combinations, Roles with no suitable candidate and Data-quality limitations.
+- **Demand analytics:** open demand by BU and region, top skills, Grade → JD count, top accounts, start pipeline, and the DL table sorted by start date (newest first).
+- **Bench analytics:** top skills, the top-5 demanded skills against eligible bench supply split by Available Capacity Y/N (display only), grade histogram, bench timeline and aging, bench status distribution, and the CT table sorted by bench start date (newest first).
+- **Match & communication:** band distribution, email status counts and the validation checks.
+
+With no completed run yet, the tiles show zero and the charts are empty.
 
 ## 12. Export
 
-- **Match Results → Export CSV** downloads the filtered grid as CSV. Cells that start with a formula character are protected.
-- **Pending:** PDF report download of the dashboard and match results is Phase 2 (REQ-OUT-09).
+**Match Results → Export** downloads the results of the completed run on screen.
+
+1. Choose **CSV** or **XLSX**.
+2. Leave **Include full emails** clear to export masked emails (the default). Tick it to export emails exactly as in the CT; this is recorded in the audit log as an unmask. If the OCC Admin has disabled unmasking for Analysts, PFC says so and you can export with masked emails instead.
+3. Choose **Export CSV** or **Export XLSX**.
+
+The file starts with the run, finish time, model and template version, then the disclaimer, then the result columns. Overridden-out rows are left out, and cells that start with a formula character are protected. The export applies the same filters as the grid. Every export is recorded in the audit log.
+
+PDF report download is Phase 2 (REQ-OUT-09).
 
 ## 13. Your settings
 
@@ -146,10 +162,9 @@ Recipients come from the OCC resource-team list; "No resource-team recipients" m
 
 | Area | Status |
 |---|---|
-| Dashboard analytics | Pending: `/analytics/*` not merged |
 | Candidate Profile | Pending: `GET /candidates/{id}` not served; bench names are not links yet |
 | Bench List CV status | Pending: list rows carry no CV data yet |
 | Per-run excluded list in Match Results | Pending: not on screen yet |
 | PDF export | Phase 2 |
 | DL/CT auto-sync, SMTP, Chat | Phase 2 |
-| Lockout countdown on sign-in | Pending: the backend answers a lockout as invalid credentials |
+| Lockout countdown on sign-in | Pending: the backend answers a locked account with 401 invalid credentials. The sign-in screen shows the lockout message on a 423, with a countdown when the reply carries `Retry-After` |

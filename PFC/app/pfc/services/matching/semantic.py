@@ -8,7 +8,7 @@ from pfc.domain.config_loader import ScoringTemplate
 from pfc.domain.scoring import Demand, SemanticInput, SkillBasis, normalise_cosine
 
 from .common import digest
-from .ports import ChunkOwner, Embedder, MatchingPorts
+from .ports import ChunkOwner, Embedder, MatchingPorts, Task
 
 
 def model_identity(embedder: Embedder) -> dict[str, str | int]:
@@ -46,18 +46,28 @@ class VectorCache:
         if ports.embedder is None:
             raise ValueError("An embedder must be configured to start matching")
         self.ports, self.embedder = ports, ports.embedder
-        self.model_key = digest(model_identity(self.embedder))
+        self.model_key = digest(
+            {
+                "identity": model_identity(self.embedder),
+                "model_version": getattr(self.embedder, "model_version", None),
+            }
+        )
         self.local: dict[ChunkOwner, list[float]] = {}
 
-    def vectors(self, owner_type: str, owner_id: int, texts: list[str]) -> list[list[float]]:
+    def vectors(
+        self, owner_type: str, owner_id: int, texts: list[str], *, task: Task = "document"
+    ) -> list[list[float]]:
+        if task not in ("document", "query"):
+            raise ValueError("Invalid matching embedding task")
         owners = [
             ChunkOwner(
                 owner_type,
                 owner_id,
                 "matching",
                 i,
-                hashlib.sha256(text.encode()).hexdigest(),
+                hashlib.sha256(f"search_{task}: {text}".encode()).hexdigest(),
                 self.model_key,
+                task,
             )
             for i, text in enumerate(texts)
         ]
@@ -73,7 +83,7 @@ class VectorCache:
         missing = [owner for owner in owners if owner not in self.local]
         if missing:
             text_by_owner = dict(zip(owners, texts, strict=True))
-            vectors = self.embedder.embed([text_by_owner[owner] for owner in missing])
+            vectors = self.embedder.embed([text_by_owner[owner] for owner in missing], task=task)
             if len(vectors) != len(missing):
                 raise ValueError("Embedder returned the wrong number of vectors")
             for vector in vectors:
@@ -98,12 +108,16 @@ def semantic_inputs(
         owner_type = "ct_skills" if basis.basis_id.startswith("CT:") else "cv"
         owner_id = int(basis.basis_id.split(":")[1])
         texts = [f"Skill: {skill.raw}\nEvidence: {skill.evidence}" for skill in basis.skills]
-        basis_vectors[basis.basis_id] = cache.vectors(owner_type, owner_id, texts) if texts else []
+        basis_vectors[basis.basis_id] = (
+            cache.vectors(owner_type, owner_id, texts, task="document") if texts else []
+        )
     for i, demand in enumerate(demands):
         meta = metadata[demand.code_requisition]
-        jd = cache.vectors("jd", meta["current_version_id"], [meta["jd_text_norm"]])
+        jd = cache.vectors(
+            "jd", meta["current_version_id"], [meta["jd_text_norm"]], task="document"
+        )
         items = {
-            item.item_id: cache.vectors("jd_item", int(item.item_id), [item.text])[0]
+            item.item_id: cache.vectors("jd_item", int(item.item_id), [item.text], task="query")[0]
             for item in demand.requirements
         }
         for basis in bases:
