@@ -65,9 +65,7 @@ def export_results(
     run = get_run(db, run_id)
     if run is None:
         raise Problem(404, "RUN_NOT_FOUND", "Match run not found")
-    page = list_results(
-        db, run_id, filters, sort=sort, descending=descending, limit=None, offset=0
-    )
+    page = list_results(db, run_id, filters, sort=sort, descending=descending, limit=None, offset=0)
     results = [row for row in page["items"] if not row["effective_excluded"]]
     results = results[offset : None if limit is None else offset + limit]
     metadata = (
