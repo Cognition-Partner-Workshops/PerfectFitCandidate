@@ -135,4 +135,13 @@ test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({
   await page.reload()
   await expect(page.getByText('Data changed since this run')).toBeVisible()
   await expect(page.getByText(/DL\/CT committed/)).toBeVisible()
+
+  // Re-run changed only (REQ-MAT-07): the banner clears once the new run completes, and the mode is shown.
+  const latestRun = async () => ((await (await page.request.get('/api/v1/match-runs')).json()) as { runId: number; status: string }[])[0]
+  const before = (await latestRun())?.runId
+  await page.getByRole('button', { name: 'Re-run changed only' }).click()
+  await expect.poll(async () => { const r = await latestRun(); return r && r.runId !== before ? r.status : 'pending' }, { timeout: 30_000, intervals: [250, 500, 1000] }).toBe('completed')
+  await page.reload()
+  await expect(page.getByText(/Mode: (incremental|full)/)).toBeVisible()
+  await expect(page.getByText('Data changed since this run')).toHaveCount(0)
 })

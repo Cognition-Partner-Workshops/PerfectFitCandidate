@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MatchRun } from '../api/types'
 import { ADMIN, mock, renderApp, seed, signIn } from '../test/utils'
@@ -24,7 +24,32 @@ describe('Data changed since this run banner', () => {
     expect(await screen.findByText('Data changed since this run', {}, { timeout: 5000 })).toBeTruthy()
     expect(screen.getByText(/DL\/CT committed, CV synced/)).toBeTruthy()
     expect(screen.getByText(/point-in-time snapshot/)).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'Re-run matching' }).getAttribute('href')).toContain('/demands')
+    expect(screen.getByRole('link', { name: 'Full re-run' }).getAttribute('href')).toContain('/demands')
+  })
+
+  it('Re-run changed only starts an incremental run with the scope of the run on screen', async () => {
+    const run = { ...(await stale()), scope: 'demands', demandIds: [3, 7] }
+    vi.spyOn(mock, 'listMatchRuns').mockResolvedValue([run])
+    vi.spyOn(mock, 'getMatchRun').mockResolvedValue(run)
+    const start = vi.spyOn(mock, 'startMatchRun')
+    renderApp('/matches')
+    fireEvent.click(await screen.findByRole('button', { name: 'Re-run changed only' }, { timeout: 5000 }))
+    await waitFor(() => expect(start).toHaveBeenCalledWith({ incremental: true, scope: 'demands', demandIds: [3, 7] }))
+  })
+
+  it('mock clears the banner after an incremental re-run and records the mode', async () => {
+    await mock.startMatchRun({ incremental: true, scope: 'full', demandIds: [] })
+    expect((await mock.listMatchRuns())[0]).toMatchObject({ dataChangedSinceRun: false, mode: 'incremental', modeReason: 'inputs_compared' })
+    await mock.startMatchRun({ incremental: true, scope: 'demands', demandIds: [1] })
+    expect((await mock.listMatchRuns())[0]).toMatchObject({ mode: 'full', modeReason: 'scope_not_full' })
+  })
+
+  it('shows the run mode and a full run fallback reason in the run summary', async () => {
+    const run = { ...(await stale()), mode: 'full' as const, modeReason: 'config_changed' }
+    vi.spyOn(mock, 'listMatchRuns').mockResolvedValue([run])
+    vi.spyOn(mock, 'getMatchRun').mockResolvedValue(run)
+    renderApp('/matches')
+    expect(await screen.findByText(/Mode: full \(config_changed\)/, {}, { timeout: 5000 })).toBeTruthy()
   })
 
   it('Dashboard looks up the summary run by id, not in the capped run list', async () => {

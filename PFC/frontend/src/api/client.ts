@@ -52,6 +52,7 @@ import type {
   UploadPreview,
   UserStatus,
   SystemHealth,
+  MatchRunRequest,
 } from './types'
 
 /** Error carrying an RFC 9457 problem document. */
@@ -150,6 +151,8 @@ export interface ApiClient {
   getResults(runId: number): Promise<MatchResult[]>
   /** GET /match-runs/{id}/excluded — people the run did not score, with reason codes (REQ-ELIG-08). */
   getRunExcluded(runId: number): Promise<ExcludedEntry[]>
+  /** POST /match-runs — incremental re-scores only changed inputs when the backend can; otherwise it records a full run and why. */
+  startMatchRun(req: MatchRunRequest): Promise<{ runId: number; jobId: number }>
   /** POST /match-results/{id}/overrides */
   addOverride(resultId: number, override: Omit<MatchOverride, 'createdBy' | 'createdAt'>): Promise<MatchResult>
   /** POST /pii/unmask — audited (REQ-OUT-03, REQ-AUTH-05) */

@@ -180,6 +180,15 @@ def test_match_run_change_metadata_contract(model: type[WireModel]) -> None:
     assert {"dataChangedSinceRun", "dataChangedReasons"} <= set(schema["required"])
 
 
+def test_match_run_mode_contract() -> None:
+    schema = RunView.model_json_schema(mode="serialization", by_alias=True)["properties"]
+    assert schema["mode"]["anyOf"][0]["enum"] == ["incremental", "full"]
+    assert schema["modeReason"]["anyOf"][0]["type"] == "string"
+    assert schema["demandIds"]["items"]["type"] == "integer"
+    types = (FRONTEND_ROOT / "src" / "api" / "types.ts").read_text(encoding="utf-8")
+    assert "mode: 'incremental' | 'full' | null" in types and "modeReason: string | null" in types
+
+
 def test_demand_jd_status_contract(tmp_path: Path) -> None:
     schemas = create_app(Settings(data_dir=tmp_path)).openapi()["components"]["schemas"]
     statuses = list(get_args(JdStatus))

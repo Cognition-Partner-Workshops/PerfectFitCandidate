@@ -1,5 +1,6 @@
 """CamelCase matching contracts for the Phase-1 client."""
 
+import json
 from datetime import date
 from typing import Any, Literal, Self
 
@@ -203,10 +204,23 @@ class RunView(WireModel):
     embedding_model_id: int
     scope: str
     dq_summary_json: str | None
+    demand_ids: list[int] = Field(default_factory=list)
+    mode: Literal["incremental", "full"] | None = None
+    mode_reason: str | None = None
 
 
 def run_view(row: dict[str, Any]) -> RunView:
-    fields = {name: row[name] for name in RunView.model_fields}
+    derived = {"demand_ids", "mode", "mode_reason"}
+    fields = {name: row[name] for name in RunView.model_fields if name not in derived}
+    try:
+        recorded = json.loads(row.get("scope_json") or "{}")
+    except ValueError:
+        recorded = {}
+    if isinstance(recorded, dict):
+        fields["demand_ids"] = [i for i in recorded.get("demand_ids") or [] if isinstance(i, int)]
+        if recorded.get("mode") in {"incremental", "full"}:
+            fields["mode"] = recorded["mode"]
+            fields["mode_reason"] = recorded.get("reason")
     for name in ("demands_assessed", "pairs_scored", "roles_without_candidate"):
         fields[name] = fields[name] or 0
     fields["llm_model"] = fields["llm_model"] or ""
