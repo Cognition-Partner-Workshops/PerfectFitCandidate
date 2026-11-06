@@ -11,7 +11,8 @@ from pfc.domain.config_loader import (
     LocationConfig,
     ScoringTemplate,
 )
-from pfc.domain.normalise import SynonymTable, normalise_term
+from pfc.domain.normalise import normalise_term
+from pfc.services.occ.synonyms import valid_synonym_table
 
 
 def active_template(db: sqlite3.Connection) -> tuple[int, ScoringTemplate]:
@@ -59,13 +60,7 @@ def occ_domain_config(db: sqlite3.Connection) -> DomainConfig:
             codes=tuple(row[0] for row in db.execute("SELECT code FROM grades ORDER BY ordinal"))
         ),
         bench_statuses=BenchStatuses(statuses=statuses, status_map=mapping),
-        synonyms=SynonymTable(
-            dict(row)
-            for row in db.execute(
-                "SELECT s.name AS canonical,y.term,y.relation,y.credit,y.status "
-                "FROM skill_synonyms y JOIN skills s USING(skill_id) ORDER BY y.synonym_id"
-            )
-        ),
+        synonyms=valid_synonym_table(db),
         locations=LocationConfig(
             aliases={normalise_term(k): normalise_term(v) for k, v in locations.aliases.items()},
             travel_clusters={

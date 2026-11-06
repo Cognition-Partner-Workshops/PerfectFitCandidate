@@ -1,9 +1,42 @@
+import logging
 import sqlite3
 from typing import Any
 
+from pfc.domain.normalise import SynonymTable
 from pfc.security.problems import Problem
 from pfc.services.occ.common import audit_write, get_row, now
 from pfc.services.occ.seed import normalize_term
+
+logger = logging.getLogger(__name__)
+
+
+def valid_synonym_table(db: sqlite3.Connection, exclude: int | None = None) -> SynonymTable:
+    rows = [
+        dict(row)
+        for row in db.execute(
+            "SELECT y.*,s.name AS canonical FROM skill_synonyms y JOIN skills s USING(skill_id) "
+            "WHERE (? IS NULL OR y.synonym_id!=?) ORDER BY y.synonym_id",
+            (exclude, exclude),
+        )
+    ]
+    try:
+        return SynonymTable(rows)
+    except ValueError:
+        table = SynonymTable([])
+        for row in rows:
+            try:
+                table = SynonymTable([*table.rows, row])
+            except ValueError:
+                logger.warning("Skipping invalid stored synonym row %s", row["synonym_id"])
+        return table
+
+
+def _validate(db: sqlite3.Connection, data: dict[str, Any], target: int | None) -> None:
+    try:
+        candidate = SynonymTable([data]).rows[0]
+        SynonymTable([*valid_synonym_table(db, exclude=target).rows, candidate])
+    except ValueError as exc:
+        raise Problem(422, "VALIDATION_ERROR", str(exc)) from exc
 
 
 def list_synonyms(
@@ -53,6 +86,7 @@ def save(
     db: sqlite3.Connection, user_id: int, data: dict[str, Any], target: int | None = None
 ) -> dict[str, Any]:
     before = get_row(db, "skill_synonyms", "synonym_id", target) if target is not None else None
+    _validate(db, data, target)
     norm = normalize_term(data["term"])
     if not norm:
         raise Problem(422, "VALIDATION_ERROR", "Term must not be empty")
@@ -102,6 +136,8 @@ def transition(
     mapped = (
         skill_id(db, user_id, canonical, existing_only=True) if canonical else before["skill_id"]
     )
+    name = db.execute("SELECT name FROM skills WHERE skill_id=?", (mapped,)).fetchone()[0]
+    _validate(db, {**before, "canonical": name, "status": status}, target)
     db.execute(
         "UPDATE skill_synonyms SET status=?,skill_id=?,updated_at=? WHERE synonym_id=?",
         (status, mapped, now(), target),
