@@ -520,3 +520,65 @@ def test_exports_layout_emails_injection_and_audit(
         assert details["run_id"] == ids["run"] and details["rows"] == 1
         assert details["includeEmails"] and details["filters"]["band"] == "Avg"
         assert verify_chain(db)
+
+
+def _export_bands(api: Api, run: int, query: str) -> list[str]:
+    response = api[0].get(f"{PREFIX}/match-runs/{run}/export?format=csv&sort=score&{query}")
+    assert response.status_code == 200, response.text
+    return sorted(row[11] for row in list(csv.reader(io.StringIO(response.text)))[3:])
+
+
+def _list_bands(api: Api, run: int, query: str) -> list[str]:
+    return sorted(row["band"] for row in get(api, f"/match-runs/{run}/results?{query}"))
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("bu=cloud", ["Weak"]),
+        ("bu=Data", ["Avg", "Strong"]),
+        ("region=EMEA", ["Weak"]),
+        ("region=manchester", ["Avg", "Strong"]),
+        ("candidateType=External", ["Weak"]),
+        ("candidateType=Unknown", ["Avg", "Strong"]),
+        ("incompleteIdentity=yes", ["Weak"]),
+        ("incompleteIdentity=no", ["Avg", "Strong"]),
+        ("mandatorySkills=gap", ["Avg"]),
+        ("mandatorySkills=met", ["Strong", "Weak"]),
+        ("bu=Data&mandatorySkills=met&candidateType=Unknown&region=Manchester", ["Strong"]),
+        ("bu=Cloud&incompleteIdentity=no", []),
+        (
+            "bu=&region=&candidateType=&incompleteIdentity=&mandatorySkills=",
+            ["Avg", "Strong", "Weak"],
+        ),
+    ],
+)
+def test_export_honours_results_page_filters(
+    populated: tuple[Api, dict[str, Any]], query: str, expected: list[str]
+) -> None:
+    api, ids = populated
+    with database(api[0].app.state.settings) as db:
+        db.execute(
+            "UPDATE demands SET bu='Cloud',region='EMEA' WHERE demand_id=?", (ids["demands"][1],)
+        )
+        candidate = db.execute(
+            "INSERT INTO candidates(internal_ref,identity_status,classification,created_at,"
+            "updated_at) VALUES ('PFC-C-T1','incomplete','External',?,?)",
+            (NOW.isoformat(), NOW.isoformat()),
+        ).lastrowid
+        db.execute(
+            "UPDATE match_results SET candidate_id=? WHERE result_id=?",
+            (candidate, ids["results"][1]),
+        )
+        db.execute(
+            "UPDATE match_results SET mandatory_missing=1 WHERE result_id=?", (ids["results"][2],)
+        )
+    assert _export_bands(api, ids["run"], query) == expected
+    assert _list_bands(api, ids["run"], query) == expected
+
+
+def test_export_rejects_unknown_filter_values(populated: tuple[Api, dict[str, Any]]) -> None:
+    api, ids = populated
+    for query in ("candidateType=Robot", "incompleteIdentity=maybe", "mandatorySkills=some"):
+        response = api[0].get(f"{PREFIX}/match-runs/{ids['run']}/export?{query}")
+        assert response.status_code == 422, (query, response.text)

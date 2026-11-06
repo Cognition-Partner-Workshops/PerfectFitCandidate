@@ -27,6 +27,11 @@ class ResultFilters(BaseModel):
     score_min: float | None = Field(default=None, ge=0, le=100)
     score_max: float | None = Field(default=None, ge=0, le=100)
     status: str | None = None
+    bu: str | None = None
+    region: str | None = None
+    candidate_type: str | None = None
+    incomplete_identity: Literal["yes", "no", ""] | None = None
+    mandatory_skills: Literal["met", "gap", ""] | None = None
     shortlisted_only: bool = False
 
     @model_validator(mode="after")
@@ -195,6 +200,22 @@ def list_results(
             for key in ("demand_grade", "person_grade", "location_assessment")
             if getattr(f, key) is not None
         ):
+            continue
+        if any(
+            str(row.get(column) or "").casefold() != str(getattr(f, key)).casefold()
+            for key, column in (
+                ("bu", "bu"),
+                ("region", "role_location"),
+                ("candidate_type", "candidate_type"),
+            )
+            if getattr(f, key)
+        ):
+            continue
+        if f.incomplete_identity and bool(row["incomplete_identity"]) != (
+            f.incomplete_identity == "yes"
+        ):
+            continue
+        if f.mandatory_skills and (row["mandatory_missing"] == 0) != (f.mandatory_skills == "met"):
             continue
         if f.band is not None and f.band not in {row["effective_band"], row["display_band"]}:
             continue
