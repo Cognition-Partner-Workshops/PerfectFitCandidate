@@ -1,7 +1,8 @@
 # JD mandatory/preferred diagnosis and blind fixture split
 
-Diagnosis only, based on main `7e7d4f4`. No production prompt, schema, validator,
-adapter, post-processing or harness changes. No extraction-quality tuning.
+The initial diagnosis below was committed at `8db7dda`, based on main `7e7d4f4`,
+without production prompt, schema, validator, adapter, post-processing or harness
+changes. The subsequent blind baseline and LLM-only fix are recorded at the end.
 
 ## Evidence provenance
 
@@ -192,6 +193,34 @@ aggregate figures are from `PERFORMANCE.md` and #52, not this single-case report
 Mandatory cues include must, required and essential. jd13 deliberately has both
 classes in one sentence: `Java is required; Kotlin would be a plus for our new
 reconciliation service.` The five were authored after the sole jd05 live run.
-**No model call or harness run was made on the held-out five.** Their regression
-test only reads JSON and checks IDs, labels, cue coverage and source-text presence;
+**During that initial diagnosis, no model call or harness run was made on the
+held-out five.** Their regression test only reads JSON and checks IDs, labels,
+cue coverage and source-text presence;
 it never invokes extraction or scoring on them.
+
+## Follow-up: blind before baseline and LLM-only correction
+
+Before any production edits, both live baselines completed at unchanged `8db7dda`.
+Reports are outside git under `~/pfc-models/llm/before/`:
+
+- `original-10.json`, `.md` and `.console.log`: default original ten JDs and ten
+  CVs. Mandatory precision/recall 94.1%/100%; preferred 100%/100%; LLM-used 10/10;
+  no fallback/schema failures; no final CV fact/span failures. Twenty-call
+  median/max latency 13.022/24.890 s, startup 3.554 s, peak RSS/HWM
+  5,552,574,464 bytes.
+- `held-out-5.json`, `.md` and `.console.log`: separate five-JD run. All output
+  was redirected; these results were not opened, printed, summarized or used to
+  choose the fix. `source-head.txt` records the baseline commit.
+
+The fix changes only the LLM path in `JdLlmBridge`: generic exclusive-list and
+verbatim-evidence instructions, followed by grounded cue/heading classification
+after JSON-schema validation. Ambiguous/unlocatable contexts are left alone;
+conflicting grounded classifications for the same normalized skill are also
+left unchanged. When moving a duplicate, the existing correctly placed item's
+metadata wins. No evidence is fabricated. Schema, scoring, fallback and API
+fields remain unchanged. There is no existing warning/provenance channel in
+this strict bridge return contract, so no new fields were added for moves.
+
+Offline tests include the captured jd05 raw response and generic synthetic cue,
+heading, grounding, ambiguity, deduplication and fallback cases. **No after-fix
+live harness has been run, and the held-out before results remain unread.**
