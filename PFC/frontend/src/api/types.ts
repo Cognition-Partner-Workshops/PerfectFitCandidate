@@ -89,6 +89,10 @@ export interface JdRequirements {
   mandatoryOnsite: boolean
   synonymsApplied: string[]
   warnings: string[]
+  /** How the draft was extracted; null for older rows and manual drafts. */
+  extractionMethod?: 'llm' | 'rule_based_fallback' | null
+  /** Backend reason code when extraction fell back to rules (e.g. "provider_unavailable"). */
+  fallbackReason?: string | null
 }
 
 export interface Resource {

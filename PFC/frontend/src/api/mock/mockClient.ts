@@ -538,6 +538,9 @@ export class MockApiClient implements ApiClient {
         mandatoryOnsite: false,
         synonymsApplied: d.mandatorySkills.includes('dbt') ? ['dbt ↔ data build tool'] : [],
         warnings: d.preferredSkills.includes('Python') ? ['"Python" mentioned once — confirm priority'] : [],
+        // Demand 2 shows the rule-based fallback the backend uses when the local model is unavailable.
+        extractionMethod: demandId === 2 ? 'rule_based_fallback' : 'llm',
+        fallbackReason: demandId === 2 ? 'provider_unavailable' : null,
       },
     )
   }
