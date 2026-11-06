@@ -39,6 +39,12 @@ EMAIL_RESPONSE_SCHEMA = {
     "additionalProperties": False,
 }
 UNRESOLVED_PLACEHOLDER = re.compile(r"\{[A-Za-z][A-Za-z0-9_]*\}")
+SHORTLIST_POSITION_SQL = (
+    "CASE WHEN mr.shortlisted=1 THEN (SELECT COUNT(*)+1 FROM match_results earlier "
+    "WHERE earlier.run_id=mr.run_id AND earlier.demand_id=mr.demand_id "
+    "AND earlier.shortlisted=1 AND (earlier.rank<mr.rank OR "
+    "(earlier.rank=mr.rank AND earlier.result_id<mr.result_id))) END"
+)
 
 
 @dataclass(frozen=True)
@@ -184,6 +190,7 @@ def _draft_from_row(row: sqlite3.Row) -> EmailDraft:
         else ()
     )
     rank_value = row["result_rank"]
+    shortlist_position = row["shortlist_position"]
     run_value = row["result_run_id"]
     attachment = row["jd_attachment_path"]
     return EmailDraft(
@@ -193,7 +200,7 @@ def _draft_from_row(row: sqlite3.Row) -> EmailDraft:
         result_id=int(row["result_id"]) if row["result_id"] is not None else None,
         run_id=int(run_value) if run_value is not None else None,
         rank=int(rank_value) if rank_value is not None else None,
-        selected=bool(rank_value is not None and rank_value <= 4),
+        selected=bool(shortlist_position is not None and shortlist_position <= 4),
         to_address=str(row["to_address"]),
         cc=cc,
         subject=str(row["subject"]),
@@ -236,7 +243,8 @@ class EmailService:
         demand_where = "WHERE demand_id=?" if demand_id is not None else ""
         with database(self.settings) as db:
             rows = db.execute(
-                f"SELECT em.*, mr.run_id AS result_run_id, mr.rank AS result_rank "
+                f"SELECT em.*, mr.run_id AS result_run_id, mr.rank AS result_rank, "
+                f"{SHORTLIST_POSITION_SQL} AS shortlist_position "
                 f"FROM email_messages em LEFT JOIN match_results mr ON mr.result_id=em.result_id "
                 f"{where} ORDER BY em.created_at DESC, em.message_id DESC LIMIT ?",
                 (*parameters, limit),
@@ -717,7 +725,7 @@ class EmailService:
             "JOIN resources r ON r.resource_id=mr.resource_id "
             "LEFT JOIN candidates c ON c.candidate_id=COALESCE(mr.candidate_id,r.candidate_id) "
             "JOIN demand_versions dv ON dv.demand_version_id=mr.demand_version_id "
-            "WHERE mr.run_id=? AND m.status='completed' "
+            "WHERE mr.run_id=? AND m.status='completed' AND mr.shortlisted=1 "
             f"{demand_clause}"
             "), shortlist AS ("
             " SELECT *, ROW_NUMBER() OVER (PARTITION BY demand_id ORDER BY rank, result_id) "
@@ -896,7 +904,8 @@ class EmailService:
     def _existing_pair(self, demand_id: int, resource_id: int) -> EmailDraft | None:
         with database(self.settings) as db:
             row = db.execute(
-                "SELECT em.*, mr.run_id AS result_run_id, mr.rank AS result_rank "
+                f"SELECT em.*, mr.run_id AS result_run_id, mr.rank AS result_rank, "
+                f"{SHORTLIST_POSITION_SQL} AS shortlist_position "
                 "FROM email_messages em LEFT JOIN match_results mr ON mr.result_id=em.result_id "
                 "WHERE em.demand_id=? AND em.resource_id=? AND em.send_seq=1",
                 (demand_id, resource_id),
@@ -905,7 +914,8 @@ class EmailService:
 
     def _get_draft_row(self, db: sqlite3.Connection, message_id: int) -> sqlite3.Row | None:
         return db.execute(
-            "SELECT em.*, mr.run_id AS result_run_id, mr.rank AS result_rank "
+            f"SELECT em.*, mr.run_id AS result_run_id, mr.rank AS result_rank, "
+            f"{SHORTLIST_POSITION_SQL} AS shortlist_position "
             "FROM email_messages em LEFT JOIN match_results mr ON mr.result_id=em.result_id "
             "WHERE em.message_id=?",
             (message_id,),

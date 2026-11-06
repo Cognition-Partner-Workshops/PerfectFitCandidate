@@ -99,10 +99,15 @@ def login(client: TestClient) -> str:
 
 
 def seed_matches(
-    client: TestClient, emails: list[str | None] | None = None
+    client: TestClient,
+    emails: list[str | None] | None = None,
+    shortlisted: list[bool] | None = None,
+    ranks: list[int] | None = None,
 ) -> tuple[int, list[int]]:
     app = cast(FastAPI, client.app)
     values = emails or [f"candidate-{index}@example.test" for index in range(1, 6)]
+    shortlisted_values = shortlisted or [True] * len(values)
+    rank_values = ranks or list(range(1, len(values) + 1))
     settings = app.state.settings
     with database(settings) as db:
         template_id = int(
@@ -177,7 +182,7 @@ def seed_matches(
                         "(run_id,demand_id,demand_version_id,jd_req_id,resource_id,score,band,"
                         "rank,shortlisted,email_preselected,grade_relation,location_assessment,"
                         "matching_evidence,gaps_checks,eligibility_evidence) "
-                        "VALUES (?,?,?,?,?,?,'Strong',?,1,0,'exact','Aligned',?,?,?)",
+                        "VALUES (?,?,?,?,?,?,'Strong',?,?,0,'exact','Aligned',?,?,?)",
                         (
                             run_id,
                             demand_id,
@@ -185,7 +190,8 @@ def seed_matches(
                             jd_req_id,
                             resource_id,
                             95.0 - index,
-                            index,
+                            rank_values[index - 1],
+                            int(shortlisted_values[index - 1]),
                             "Python and SQL evidence",
                             "Missing dbt experience",
                             "Eligible",
@@ -244,6 +250,30 @@ def test_demand_scope_and_result_filter_select_only_top_five(client: TestClient)
     assert response.json()["drafts"][0]["result_id"] == result_ids[4]
     assert response.json()["drafts"][0]["rank"] == 5
     assert response.json()["drafts"][0]["selected"] is False
+
+
+def test_only_shortlisted_results_get_drafts_and_unshortlisted_ids_fail(
+    client: TestClient,
+) -> None:
+    run_id, result_ids = seed_matches(
+        client,
+        shortlisted=[True, True, True, False, False],
+        ranks=[3, 4, 5, 1, 2],
+    )
+    csrf = login(client)
+
+    response = create_drafts(client, csrf, run_id)
+
+    assert response.status_code == 201
+    assert len(response.json()["drafts"]) == 3
+    assert all(draft["selected"] for draft in response.json()["drafts"])
+    rejected = client.post(
+        "/api/v1/emails/drafts",
+        headers={"X-CSRF-Token": csrf},
+        json={"run_id": run_id, "result_ids": [result_ids[3]]},
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["code"] == "EMAIL_RESULT_NOT_TOP_FIVE"
 
 
 @pytest.mark.parametrize("operation", ["edit", "approve"])
