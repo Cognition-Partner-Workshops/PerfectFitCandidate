@@ -787,3 +787,37 @@ def test_startup_seeding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, presen
                     "nomic-embed-text-v1.5",
                 }
                 assert all(r["file_sha256"] == "" and not r["approved"] for r in models)
+
+
+@pytest.mark.parametrize(
+    ("bounds", "expected"),
+    [
+        ({"from": "2026-01-01T00:00:00.5Z"}, ["next"]),
+        ({"from": "2026-01-01T00:00:00.100002Z"}, ["next", "second"]),
+        ({"to": "2026-01-01T00:00:00.100001Z"}, ["first", "zero"]),
+        ({"from": "2026-01-01T00:00:00Z", "to": "2026-01-01T00:00:00Z"}, ["zero"]),
+        ({"from": "2026-01-01T00:00:00.100001Z", "to": "2026-01-01T00:00:00.100001Z"}, ["first"]),
+        ({"from": "2026-01-01T01:00:00.100002+01:00"}, ["next", "second"]),
+    ],
+)
+def test_audit_timestamp_precision(
+    client: TestClient,
+    bounds: dict[str, str],
+    expected: list[str],
+) -> None:
+    """REQ-AUTH-05: inclusive audit ranges preserve precision and timezone equivalence."""
+    login(client)
+    with database(client.app.state.settings) as db:
+        for entity_id, ts in [
+            ("zero", "2026-01-01T00:00:00Z"),
+            ("first", "2026-01-01T00:00:00.100001Z"),
+            ("second", "2026-01-01T00:00:00.100002Z"),
+            ("next", "2026-01-01T00:00:01Z"),
+        ]:
+            audit.append_audit(db, ts=ts, action="AUDIT_RANGE", entity_id=entity_id)
+    params = {"action": "AUDIT_RANGE", **bounds}
+    result = client.get("/api/v1/occ/audit-log", params=params).json()
+    assert [row["entity_id"] for row in result["items"]] == expected
+    assert result["total"] == len(expected) and result["chain_valid"]
+    exported = client.get("/api/v1/occ/audit-log/export", params=params)
+    assert [row["entity_id"] for row in csv.DictReader(io.StringIO(exported.text))] == expected

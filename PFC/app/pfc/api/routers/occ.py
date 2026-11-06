@@ -25,7 +25,6 @@ from pfc.api.schemas.occ import (
 from pfc.db.connection import database
 from pfc.security.dependencies import Principal, require_role
 from pfc.security.problems import Problem
-from pfc.security.sessions import stamp
 from pfc.services.occ import admin as administration
 from pfc.services.occ import llm, reference, synonyms, templates, users
 from pfc.services.occ.common import get_row
@@ -274,10 +273,7 @@ Filters = Annotated[AuditFilters, Query()]
 
 
 def filter_values(filters: AuditFilters) -> dict[str, Any]:
-    values = filters.model_dump(by_alias=True)
-    values["from"] = stamp(filters.from_) if filters.from_ else None
-    values["to"] = stamp(filters.to) if filters.to else None
-    return values
+    return filters.model_dump(mode="json", by_alias=True)
 
 
 @router.get("/audit-log")

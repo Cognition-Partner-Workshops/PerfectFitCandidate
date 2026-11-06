@@ -3,6 +3,7 @@ import io
 import json
 import re
 import sqlite3
+from datetime import UTC, datetime
 from typing import Any
 
 from pfc.db.audit import verify_chain
@@ -113,6 +114,10 @@ def settings_put(db: sqlite3.Connection, user_id: int, values: dict[str, Any]) -
     return settings_get(db, user_id)
 
 
+def audit_timestamp(value: str) -> str:
+    return datetime.fromisoformat(value).astimezone(UTC).isoformat(timespec="microseconds")
+
+
 def audit_query(
     db: sqlite3.Connection, user_id: int, filters: dict[str, Any], limit: int, offset: int
 ) -> dict[str, Any]:
@@ -127,8 +132,9 @@ def audit_query(
         params.extend(filters["action"])
     for key, operator in (("from", ">="), ("to", "<=")):
         if filters.get(key):
-            clauses.append(f"ts{operator}?")
-            params.append(filters[key])
+            db.create_function("audit_timestamp", 1, audit_timestamp, deterministic=True)
+            clauses.append(f"audit_timestamp(ts){operator}?")
+            params.append(audit_timestamp(filters[key]))
     where = " WHERE " + " AND ".join(clauses) if clauses else ""
     total = db.execute("SELECT count(*) FROM audit_log" + where, params).fetchone()[0]
     rows = [
