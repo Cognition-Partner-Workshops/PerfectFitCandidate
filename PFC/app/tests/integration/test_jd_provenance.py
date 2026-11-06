@@ -102,6 +102,53 @@ def test_manual_item_cannot_assert_classification_reason(api: Api, source_id: in
     assert response.json()["fallbackReason"] is None
 
 
+@pytest.mark.parametrize(
+    ("kind", "text", "expected"),
+    [
+        ("preferred_skill", "MySQL", None),
+        ("mandatory_skill", "PostgreSQL", None),
+        ("preferred_skill", "PostgreSQL!", None),
+        ("preferred_skill", "  ＰＯＳＴＧＲＥＳＱＬ  ", "classification_adjusted"),
+    ],
+)
+def test_reused_item_id_requires_same_kind_and_normalized_text(
+    api: Api, kind: str, text: str, expected: str | None
+) -> None:
+    client, headers = api
+    client.app.state.llm_provider = FakeProvider(
+        json.dumps(
+            {
+                "mandatory_skills": [{"text": "PostgreSQL"}],
+                "preferred_skills": [{"text": "PostgreSQL"}],
+            }
+        )
+    )
+    with database(client.app.state.settings) as db:
+        demand = seed_demand(db, confirmed=False)
+        db.execute(
+            "UPDATE demand_versions SET jd_text_norm=? WHERE demand_version_id="
+            "(SELECT current_version_id FROM demands WHERE demand_id=?)",
+            ("PREFERRED SKILLS: PostgreSQL", demand),
+        )
+    url = f"/api/v1/demands/{demand}"
+    analyzed = client.post(url + "/analyze", headers=headers)
+    assert analyzed.status_code == 200, analyzed.text
+    source = analyzed.json()["items"][0]
+    assert source["classificationReason"] == "classification_adjusted"
+    response = client.put(
+        url + "/requirements",
+        headers=headers,
+        json={
+            "demandId": demand,
+            "mandatorySkills" if kind == "mandatory_skill" else "preferredSkills": [text],
+            "items": [{**source, "kind": kind, "text": text}],
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["items"][0]["classificationReason"] == expected
+    assert client.get(url + "/requirements").json()["items"][0]["classificationReason"] == expected
+
+
 @pytest.mark.parametrize("mode", ["ready", "down"])
 def test_edit_then_confirm_preserves_analysis_provenance(api: Api, mode: str) -> None:
     client, headers = api

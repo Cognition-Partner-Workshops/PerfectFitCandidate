@@ -3,6 +3,7 @@
 import json
 import re
 import sqlite3
+import unicodedata
 from datetime import datetime
 from typing import Any, Literal
 
@@ -247,7 +248,7 @@ def _write(
             source_id = (source_ids or {}).get((kind, index))
             source = (
                 db.execute(
-                    "SELECT i.item_id,i.position,r.extraction_json "
+                    "SELECT i.item_id,i.position,i.kind,i.text,r.extraction_json "
                     "FROM jd_requirement_items i JOIN jd_requirements r "
                     "ON r.jd_req_id=i.jd_req_id WHERE i.item_id=? "
                     "AND r.demand_version_id=? AND r.jd_req_id<>?",
@@ -256,7 +257,12 @@ def _write(
                 if source_id is not None
                 else None
             )
-            if source is not None:
+            if (
+                source is not None
+                and source["kind"] == kind
+                and unicodedata.normalize("NFKC", source["text"]).casefold().split()
+                == unicodedata.normalize("NFKC", item.text).casefold().split()
+            ):
                 item.classification_reason = _classification_reason(
                     json.loads(source["extraction_json"]), source["position"]
                 )
