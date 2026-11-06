@@ -36,6 +36,13 @@ def save_bench(
             "SELECT * FROM status_map WHERE canonical_code=? ORDER BY source_value", (code,)
         ).fetchall():
             mapping = {key: row[key] for key in ("canonical_code", "priority", "is_excluded")}
+            if (
+                before["is_excluded"]
+                and before["priority"] is None
+                and not data["is_excluded"]
+                and row["is_excluded"] == before["is_excluded"]
+            ):
+                mapping["priority"] = data["priority"]
             for field in ("priority", "is_excluded"):
                 if data[field] is not None and mapping[field] == before[field]:
                     mapping[field] = data[field]
