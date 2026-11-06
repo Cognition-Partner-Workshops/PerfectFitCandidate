@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
@@ -7,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from pfc.adapters.llm.supervisor import LlamaServerSupervisor
 from pfc.api.routers.auth import router as auth_router
 from pfc.api.routers.health import router as health_router
 from pfc.api.routers.llm import router as llm_router
@@ -39,10 +41,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             elif count_admins(db):
                 code_path(settings).unlink(missing_ok=True)
         app.state.job_runner = JobRunner(settings)
+        supervisor = LlamaServerSupervisor(
+            settings, app_state=app.state if not hasattr(app.state, "llm_provider") else None
+        )
+        app.state.llm_supervisor = supervisor
+        if not hasattr(app.state, "llm_health_provider"):
+            app.state.llm_health_provider = supervisor
+        with database(settings) as db:
+            model = supervisor.resolve_model(db)
+        if settings.llm_enabled and supervisor.binary_available and model:
+            supervisor.schedule(model)
+        else:
+            logging.getLogger(__name__).info("Local LLM unavailable: %s", supervisor.detail)
         cleanup = asyncio.create_task(session_cleanup(settings))
         try:
             yield
         finally:
+            await supervisor.stop()
             cleanup.cancel()
             with suppress(asyncio.CancelledError):
                 await cleanup

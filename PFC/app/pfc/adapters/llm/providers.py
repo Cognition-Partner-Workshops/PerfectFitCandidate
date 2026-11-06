@@ -260,13 +260,29 @@ class ExternalProviderPlaceholder(FakeProvider):
 class FallbackProvider:
     """Retry compatible versions, then only local; expose served_by (REQ-LLM-04)."""
 
+    name = "fallback"
+    kind = "fallback"
+
     def __init__(self, primary: LLMProvider, local: LLMProvider) -> None:
         if local.capabilities().data_residency != "local":
             raise ValueError("Fallback must be local")
         self.primary, self.local = primary, local
 
-    async def generate(self, request: PromptRequest) -> GenerateResult:
-        versions = self.primary.capabilities().api_versions
+    def capabilities(self) -> Capabilities:
+        return self.primary.capabilities()
+
+    async def health(self) -> Health:
+        return await self.primary.health()
+
+    async def embed(self, texts: list[str]) -> NDArray[np.float32]:
+        return await self.local.embed(texts)
+
+    async def generate(
+        self, request: PromptRequest, *, api_version: str | None = None
+    ) -> GenerateResult:
+        versions = (
+            (api_version,) if api_version is not None else self.primary.capabilities().api_versions
+        )
         attempts: list[str] = []
         for version in versions or (None,):
             attempts.append(f"{self.primary.name}:{version or 'default'}")

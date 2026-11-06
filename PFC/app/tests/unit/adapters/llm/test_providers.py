@@ -14,6 +14,7 @@ from pfc.adapters.llm.providers import (
     FallbackProvider,
     GenerateResult,
     LlamaCppProvider,
+    LLMProvider,
     PromptRequest,
     ProviderError,
 )
@@ -161,3 +162,18 @@ def test_disabled_and_fake() -> None:
 def test_reject_remote_server() -> None:
     with pytest.raises(ValueError, match="loopback"):
         LlamaCppProvider("https://example.com", "m", api_key="test")
+
+
+def test_fallback_provider_contract() -> None:
+    async def scenario() -> None:
+        primary = FakeProvider("primary")
+        local = FakeProvider("local")
+        provider: LLMProvider = FallbackProvider(primary, local)
+        assert provider.name == "fallback" and provider.kind == "fallback"
+        assert provider.capabilities() == primary.capabilities()
+        assert await provider.health() == await primary.health()
+        assert (await provider.embed(["text"])).shape == (1, 768)
+        result = await provider.generate(PromptRequest([]), api_version="explicit")
+        assert result.text == "primary" and result.api_version == "explicit"
+
+    asyncio.run(scenario())

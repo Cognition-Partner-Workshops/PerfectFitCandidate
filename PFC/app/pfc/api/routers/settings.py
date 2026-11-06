@@ -1,7 +1,8 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 
+from pfc.api.routers.llm import restart_selected_model
 from pfc.api.routers.occ import DB
 from pfc.api.schemas.settings import PersonalSettings
 from pfc.security.dependencies import Principal, current_user
@@ -18,5 +19,16 @@ def get_settings(db: DB, user: User) -> PersonalSettings:
 
 
 @router.put("/me", response_model=PersonalSettings)
-def put_settings(body: PersonalSettings, db: DB, user: User) -> PersonalSettings:
-    return put_personal(db, user.user.user_id, body.model_dump(exclude_unset=True))
+def put_settings(
+    body: PersonalSettings, db: DB, user: User, request: Request, background_tasks: BackgroundTasks
+) -> PersonalSettings:
+    """Commit preferences before scheduling a shared-server model switch."""
+    before = get_personal(db, user.user.user_id)
+    result = put_personal(db, user.user.user_id, body.model_dump(exclude_unset=True))
+    db.commit()
+    if (
+        "active_model_id" in body.model_fields_set
+        and before.active_model_id != result.active_model_id
+    ):
+        background_tasks.add_task(restart_selected_model, request)
+    return result

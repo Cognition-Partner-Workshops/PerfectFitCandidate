@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from pfc.adapters.llm.supervisor import LlamaServerSupervisor
 from pfc.api.schemas.llm import LlmHealth
 from pfc.config import Settings
 from pfc.db import audit, users
@@ -671,12 +672,41 @@ def test_clear_active_model_choice(client: TestClient) -> None:
         assert audit.verify_chain(db)
 
 
+def test_model_updates_schedule_after_commit(client: TestClient, tmp_path: Path) -> None:
+    """REQ-LLM-06: both settings surfaces schedule switches only after a committed choice."""
+    settings = client.app.state.settings
+    settings.models_dir = tmp_path
+    for name in ("one", "two"):
+        (tmp_path / f"{name}.gguf").touch()
+    with database(settings) as db:
+        db.execute("UPDATE llm_models SET approved=1,file_name='one.gguf' WHERE model_id=1")
+        db.execute("UPDATE llm_models SET approved=1,file_name='two.gguf' WHERE model_id=2")
+
+    class Probe(LlamaServerSupervisor):
+        selections: list[tuple[str, Path] | None] = []
+
+        def schedule(self, model: tuple[str, Path] | None) -> None:
+            self.selections.append(model)
+
+    probe = Probe(settings)
+    client.app.state.llm_supervisor = probe
+    login(client, "worker@example.com", "Analyst")
+    assert client.put("/api/v1/llm/active", json={"model_id": 2}).status_code == 200
+    assert probe.selections == [("nomic-embed-text-v1.5", (tmp_path / "two.gguf").resolve())]
+    assert client.put("/api/v1/settings/me", json={"active_model_id": 1}).status_code == 200
+    assert probe.selections[-1] == ("Qwen3-4B-Instruct-2507", (tmp_path / "one.gguf").resolve())
+    assert client.put("/api/v1/settings/me", json={"density": "compact"}).status_code == 200
+    assert len(probe.selections) == 2
+    assert client.put("/api/v1/llm/active", json={"model_id": 999}).status_code == 422
+    assert len(probe.selections) == 2
+
+
 def test_health_stub_and_override(client: TestClient) -> None:
     """REQ-LLM-01: the API reports unavailable without claiming adapter health."""
     login(client, "worker@example.com", "Analyst")
     assert client.get("/api/v1/llm/health").json() == {
         "status": "unavailable",
-        "detail": "local LLM adapter not configured",
+        "detail": "llama-server binary missing",
         "model": None,
     }
 
