@@ -200,7 +200,10 @@ def parse_workbook(
                 short = str(business["short_name"] or "").strip().lower()
                 email = str(raw.get("email_address") or "").strip().lower()
                 business.update(short_name_key=short, email_key=email)
-                key = (short, email) if short and email else None
+                key = (short, email) if short else None
+                if not email:
+                    business["email_address"] = None
+                    issue("MISSING_EMAIL", "email_address", "Incomplete identity; email not provided")
                 if email and not re.fullmatch(
                     r"[^\s@]+@[^\s@]+\.[^\s@]+", str(raw["email_address"])
                 ):

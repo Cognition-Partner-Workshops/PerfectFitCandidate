@@ -210,6 +210,24 @@ def test_req_in_14_invalid_email_warning_only(tmp_path: Path) -> None:
     assert [(i.code, i.severity) for i in row.issues] == [("EMAIL_INVALID", "warning")]
 
 
+@pytest.mark.parametrize("email", [None, "", "   "])
+def test_req_in_23_missing_email_keeps_incomplete_identity(tmp_path: Path, email: object) -> None:
+    row = parse_workbook(workbook(tmp_path, "CT", [ct_row(**{"Email Address": email})]), "CT").rows[
+        0
+    ]
+    assert row.key == ("alex", "")
+    assert row.fields["email_address"] is None
+    assert not row.rejected
+    assert [(i.code, i.severity) for i in row.issues] == [("MISSING_EMAIL", "warning")]
+
+
+def test_req_in_11_missing_shortname_rejects(tmp_path: Path) -> None:
+    row = parse_workbook(workbook(tmp_path, "CT", [ct_row(**{"ShortName": " "})]), "CT").rows[0]
+    assert row.key is None
+    assert row.rejected
+    assert [(i.code, i.severity) for i in row.issues] == [("MISSING_KEY", "error")]
+
+
 @pytest.mark.parametrize("gap,expected", [(2, 2), (4, 1)])
 def test_req_ing_02_bounded_formatted_rows(tmp_path: Path, gap: int, expected: int) -> None:
     path = workbook(tmp_path, "DL", [dl_row()])
