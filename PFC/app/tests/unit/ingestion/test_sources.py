@@ -70,6 +70,8 @@ def test_req_in_25_email_boundary(tmp_path: Path) -> None:
         ("alex@example.com.au.pdf", False),
         ("alex@example.com1.pdf", False),
         ("AlEx@Example.com.pdf", True),
+        ("alex@example.com_CV.pdf", True),
+        ("CV - alex@example.com.pdf", True),
     ],
 )
 def test_req_in_25_filename_email_exact_domain(
@@ -88,6 +90,23 @@ def test_req_in_22_missing_cv_not_error(tmp_path: Path) -> None:
     (result,) = ResumeFolderSource(tmp_path).scan([candidate(short_name="Nobody")])
     assert result.checks == ["CV not found"]
     assert result.versions == []
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("alex@example.com_CV", True),
+        ("CV - alex@example.com", True),
+        ("alex@example.com.au", False),
+        ("alex@example.com1", False),
+    ],
+)
+def test_req_in_25_text_candidate_email_boundaries(
+    tmp_path: Path, text: str, expected: bool
+) -> None:
+    (tmp_path / "profile.txt").write_text(text, encoding="utf-8")
+    (result,) = ResumeFolderSource(tmp_path).scan([candidate(email_address="alex@example.com")])
+    assert bool(result.versions) is expected
 
 
 @pytest.mark.parametrize("filename", ["~$Alex.docx", "Alex.bin", "Alex.xlsx"])
