@@ -1,4 +1,4 @@
-"""Signed model bundles with retained versions and a re-embedding stub (REQ-OCC-03/LLM-07)."""
+"""Signed model bundles and incremental local re-embedding (REQ-OCC-03/LLM-07)."""
 
 from __future__ import annotations
 
@@ -17,10 +17,14 @@ from typing import Any, BinaryIO, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from pfc.adapters.vector.stores import create_vector_store
 from pfc.config import Settings
 from pfc.db.audit import append_audit
+from pfc.db.connection import connect, database
 from pfc.jobs.runner import JobContext
 from pfc.security import package_signing as signing
+from pfc.services.embeddings.reembed import reembed
+from pfc.services.embeddings.runtime import EmbeddingModelUnavailable, create_embedder
 from pfc.services.packages.common import (
     PackageServiceError,
     app_version,
@@ -82,9 +86,44 @@ def _stream(source: Path | bytes) -> Iterator[BinaryIO]:
         stream.close()
 
 
-def _stub(context: JobContext) -> None:
+def _llm_placeholder(context: JobContext) -> None:
     context.report_progress(0, "Re-embedding placeholder; existing vectors are retained")
     context.report_progress(1, "Placeholder complete; no vectors were changed")
+
+
+def _embedding_job(settings: Settings, model_id: int, version: int, context: JobContext) -> None:
+    connection = connect(settings)
+    try:
+        try:
+            embedder = create_embedder(settings, embedding_model_id=model_id)
+            store = create_vector_store(connection, dimensions=embedder.dimensions)
+            counts = reembed(
+                settings, context, embedding_model_id=model_id, embedder=embedder, store=store
+            )
+        except EmbeddingModelUnavailable as exc:
+            message = (
+                f"{exc}; install the approved model/tokenizer files and "
+                f"POST /occ/embedding-models/{version}/reembed"
+            )
+            with database(settings) as db:
+                db.execute(
+                    "UPDATE jobs SET status='failed',message=?,finished_at=? WHERE job_id=?",
+                    (message, timestamp(), context.job_id),
+                )
+            return
+        message = (
+            f"Re-embedding complete: embedded={counts.embedded}, reused={counts.reused}, "
+            f"skipped={counts.skipped}, deleted={counts.deleted}"
+        )
+        context.report_progress(1, message)
+        with database(settings) as db:
+            db.execute(
+                "UPDATE jobs SET status='completed',progress=1,message=?,finished_at=? "
+                "WHERE job_id=?",
+                (message, timestamp(), context.job_id),
+            )
+    finally:
+        connection.close()
 
 
 class ModelImporter:
@@ -279,18 +318,27 @@ class ModelImporter:
         return ModelApplyResult(version, model_id, model_path, job_id)
 
     def retry_reembedding(self, version: int, *, actor_id: int) -> int:
-        """Explicitly retry a committed bundle's pending submission (REQ-OCC-03)."""
+        """Deduplicate live jobs; terminal jobs resume through a fresh run (REQ-OCC-03)."""
         if self.jobs is None:
             raise PackageServiceError("job_runner_required", "A job runner is required")
         with package_lock(self.settings):
             path = self._receipts / f"v{version}.json"
             receipt = json.loads(path.read_bytes())
             if receipt["job_id"] is not None:
-                return int(receipt["job_id"])
+                with database(self.settings) as db:
+                    job = db.execute(
+                        "SELECT status FROM jobs WHERE job_id=?", (receipt["job_id"],)
+                    ).fetchone()
+                if job is not None and job["status"] in ("queued", "running"):
+                    return int(receipt["job_id"])
+
+            def run(context: JobContext) -> None:
+                _embedding_job(self.settings, receipt["model_id"], version, context)
+
             try:
                 job_id = self.jobs.submit(
                     "embed",
-                    _stub,
+                    run if receipt["model_type"] == "embedding" else _llm_placeholder,
                     params={
                         "model_id": receipt["model_id"],
                         "model_type": receipt["model_type"],
