@@ -10,7 +10,7 @@ from typing import Any
 from pfc.config import Settings
 from pfc.services.ingestion.models import file_sha256
 from pfc.services.ingestion.repository import parse, upload_path
-from pfc.services.ingestion.workbooks import valid_ct_email
+from pfc.services.ingestion.workbooks import valid_ct_email, valid_requisition
 
 PROXY = "first Send to Email Approval"
 INTERVALS = ("upload_to_confirm", "confirm_to_reviewed", "upload_to_reviewed")
@@ -129,7 +129,11 @@ def _effort(db: sqlite3.Connection) -> dict[str, Any]:
         ):
             elapsed[key] = (end - start).total_seconds() / 3600 if start and end else None
         item = {
-            "requisition": row["code_requisition"],
+            "requisition": (
+                row["code_requisition"]
+                if valid_requisition(row["code_requisition"])
+                else f"demand:{row['demand_id']}"
+            ),
             "cycle_run_id": row["ingestion_run_id"],
             **{f"{key}_at": value.isoformat() if value else None for key, value in stamps.items()},
             "missing_stages": [key for key, value in stamps.items() if value is None],

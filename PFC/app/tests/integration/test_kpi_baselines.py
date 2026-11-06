@@ -399,6 +399,22 @@ def test_no_runs_or_demands(settings: Settings) -> None:
     assert "Latest committed CT run: n/a" in markdown(result)
 
 
+@pytest.mark.parametrize("code", ["private.person@example.com", "Private Person"])
+def test_invalid_requisitions_never_expose_pii(
+    sample: tuple[Settings, dict[str, int]], code: str
+) -> None:
+    """KPI-02 privacy / REQ-IN-02: invalid source requisitions use a safe demand id."""
+    with database(sample[0]) as db:
+        demand_id = db.execute(
+            "SELECT demand_id FROM demands WHERE code_requisition='T10001'"
+        ).fetchone()[0]
+        db.execute("UPDATE demands SET code_requisition=? WHERE demand_id=?", (code, demand_id))
+    result = report(sample)
+    assert code not in json.dumps(result)
+    assert code not in markdown(result)
+    assert any(row["requisition"] == f"demand:{demand_id}" for row in result["kpi02"]["demands"])
+
+
 @pytest.mark.parametrize("damage", ["missing", "changed", "invalid", "counts", "rejected"])
 def test_unavailable_history_fails_without_pii(
     sample: tuple[Settings, dict[str, int]],

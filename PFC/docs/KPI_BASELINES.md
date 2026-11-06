@@ -95,9 +95,12 @@ UAT/pilot. This timestamp report alone does not establish an effort reduction.
 
 ## Privacy and repeatability
 
-Reports identify entities only by requisition codes and ingestion run ids. They
+Reports identify entities by valid DL requisition codes and ingestion run ids.
+Invalid requisition values are replaced by `demand:<demand_id>` in both formats,
+using the same format predicate as the DL parser, so malformed source values
+cannot expose a name or email. They
 contain no names, emails (even masked), CV data, filenames, owners, account names,
-draft text, internal demand ids, or upload paths. Preserve the source database and
+draft text, or upload paths. Preserve the source database and
 original workbooks when capturing a baseline; later changes to the current demand
 version can legitimately change KPI-02's confirmation milestone. Tests use
 hand-computed fixtures, verify both output formats against fixture PII, and run
