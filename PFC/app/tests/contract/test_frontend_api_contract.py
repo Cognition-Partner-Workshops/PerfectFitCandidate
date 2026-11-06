@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from pfc.api.schemas.match import JdRequirements
+from pfc.api.schemas.match import JdRequirements, RunView, WireModel
+from pfc.api.schemas.results import ResultDetail, ResultRow
 from pfc.config import Settings
 from pfc.main import create_app
 
@@ -165,3 +166,12 @@ def test_jd_extraction_metadata_contract(tmp_path: Path) -> None:
     assert properties["fallbackReason"]["anyOf"][0]["type"] == "string"
     assert properties["warnings"]["items"]["type"] == "string"
     assert JdRequirements(demand_id=1).extraction_method is None
+
+
+@pytest.mark.parametrize("model", [RunView, ResultRow, ResultDetail])
+def test_match_run_change_metadata_contract(model: type[WireModel]) -> None:
+    schema = model.model_json_schema(mode="validation", by_alias=True)
+    assert schema["properties"]["dataChangedSinceRun"]["type"] == "boolean"
+    reasons = schema["properties"]["dataChangedReasons"]
+    assert reasons["type"] == "array" and reasons["items"]["type"] == "string"
+    assert {"dataChangedSinceRun", "dataChangedReasons"} <= set(schema["required"])

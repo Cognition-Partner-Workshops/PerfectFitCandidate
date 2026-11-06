@@ -1,5 +1,6 @@
 """Frontend result rows and audited, non-destructive overrides."""
 
+import json
 import sqlite3
 from typing import Annotated, Any
 
@@ -29,9 +30,11 @@ router = APIRouter(dependencies=[Depends(require_role("Analyst"))])
 Analyst = Annotated[Principal, Depends(require_role("Analyst"))]
 
 
-def find_run(db: sqlite3.Connection, run_id: int) -> None:
-    if matching.get_run(db, run_id) is None:
+def find_run(db: sqlite3.Connection, run_id: int) -> dict[str, Any]:
+    run = matching.get_run(db, run_id)
+    if run is None:
         raise Problem(404, "RUN_NOT_FOUND", "Match run not found")
+    return run
 
 
 def override_views(db: sqlite3.Connection, result_id: int) -> list[OverrideView]:
@@ -93,6 +96,8 @@ def result_view(db: sqlite3.Connection, row: dict[str, Any], *, detail: bool = F
         )
     }
     fields.update(
+        data_changed_since_run=row["data_changed_since_run"],
+        data_changed_reasons=row["data_changed_reasons"],
         candidate_id=row["candidate_id"] or 0,
         code_requisition=row["requisition"],
         position_start_date=row["start_date"],
@@ -139,6 +144,11 @@ def required_result(db: sqlite3.Connection, result_id: int) -> dict[str, Any]:
     row = matching.result_detail(db, result_id)
     if row is None:
         raise Problem(404, "RESULT_NOT_FOUND", "Match result not found")
+    run = find_run(db, row["run_id"])
+    row.update(
+        data_changed_since_run=run["data_changed_since_run"],
+        data_changed_reasons=run["data_changed_reasons"],
+    )
     return row
 
 
@@ -148,7 +158,7 @@ def results(
 ) -> list[ResultRow]:
     filters = query.model_dump(exclude={"sort", "descending", "limit", "offset"})
     with database(request.app.state.settings) as db:
-        find_run(db, run_id)
+        run = find_run(db, run_id)
         page = matching.list_results(
             db,
             run_id,
@@ -159,6 +169,13 @@ def results(
             offset=query.offset,
         )
         response.headers["X-Total-Count"] = str(page["total"])
+        response.headers["X-Data-Changed-Since-Run"] = json.dumps(run["data_changed_since_run"])
+        response.headers["X-Data-Changed-Reasons"] = json.dumps(run["data_changed_reasons"])
+        for row in page["items"]:
+            row.update(
+                data_changed_since_run=run["data_changed_since_run"],
+                data_changed_reasons=run["data_changed_reasons"],
+            )
         return [result_view(db, row) for row in page["items"]]
 
 
