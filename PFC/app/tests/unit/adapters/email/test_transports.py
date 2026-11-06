@@ -157,8 +157,10 @@ def test_reconcile_after_restart_and_manual_send(message: transports.EmailMessag
         second.close()
 
 
-def test_send_preserves_analyst_draft_edits(message: transports.EmailMessage) -> None:
-    """Approved Outlook edits, not original generated fields, are sent (REQ-EML-01/02)."""
+def test_send_overwrites_outlook_draft_with_stored_content(
+    message: transports.EmailMessage,
+) -> None:
+    """PFC's stored edits are authoritative when sending (REQ-EML-01/02)."""
     app = Application()
     transport = transports.OutlookComTransport(com_factory=lambda: app)
     try:
@@ -169,13 +171,56 @@ def test_send_preserves_analyst_draft_edits(message: transports.EmailMessage) ->
         mail.Subject = "Analyst subject"
         mail.HTMLBody = "<p>Analyst-edited body</p>"
         mail.paths[:] = ["/analyst-added.docx"]
-        assert transport.send(replace(message, approved=True)).status == "sent"
-        assert mail.To == "edited-to@example.test"
-        assert mail.CC == "edited-cc@example.test"
-        assert mail.Subject == "Analyst subject"
-        assert mail.HTMLBody == "<p>Analyst-edited body</p>"
-        assert mail.paths == ["/analyst-added.docx"]
-        assert len(app.created) == mail.sent == mail.saved == 1
+        stored = replace(
+            message,
+            to="stored-to@example.test",
+            cc="stored-cc@example.test",
+            subject="PFC subject",
+            html_body="<p>PFC body</p>",
+            attachments=("/pfc.docx",),
+            approved=True,
+        )
+        assert transport.send(stored).status == "sent"
+        assert (mail.To, mail.CC, mail.Subject, mail.HTMLBody) == (
+            stored.to,
+            stored.cc,
+            stored.subject,
+            stored.html_body,
+        )
+        assert mail.paths == list(stored.attachments)
+        assert len(app.created) == mail.sent == 1
+        assert mail.saved == 2
+    finally:
+        transport.close()
+
+
+def test_send_uses_pfc_edited_content_from_database_message(
+    message: transports.EmailMessage,
+) -> None:
+    app = Application()
+    transport = transports.OutlookComTransport(com_factory=lambda: app)
+    stored = replace(
+        message,
+        to="pfc-edited@example.test",
+        cc="pfc-team@example.test",
+        subject="Updated in PFC",
+        html_body="<p>Stored PFC content</p>",
+        attachments=("/updated-jd.txt",),
+        approved=True,
+    )
+    try:
+        transport.create_draft(message)
+
+        assert transport.send(stored).status == "sent"
+        mail = app.created[0]
+        assert (mail.To, mail.CC, mail.Subject, mail.HTMLBody) == (
+            stored.to,
+            stored.cc,
+            stored.subject,
+            stored.html_body,
+        )
+        assert mail.paths == list(stored.attachments)
+        assert mail.sent == 1
     finally:
         transport.close()
 
@@ -225,7 +270,7 @@ def test_regeneration_updates_unsent_draft_only(
             regenerated.html_body,
         )
         assert mail.paths == list(attachments)
-        assert mail.saved == 2
+        assert mail.saved == 3
         assert len(app.created) == mail.sent == mail.displayed == 1
     finally:
         restarted.close()
