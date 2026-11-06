@@ -9,11 +9,13 @@ import type {
   CurrentUser,
   EmailDraft,
   Grade,
+  BenchStatus,
   InternalDomain,
   LlmModel,
   OccUser,
   PersonalSettings,
   ResourceTeamMember,
+  StatusMapEntry,
   Role,
   Synonym,
 } from './types'
@@ -214,6 +216,45 @@ export const fromSynonymRelation = (r: Synonym['relation']) =>
 
 export interface RecipientRow { recipient_id: number; email: string; display_name: string | null; is_active: Flag }
 export const toMember = (r: RecipientRow): ResourceTeamMember => ({ email: r.email, displayName: r.display_name ?? '', active: b(r.is_active), notes: '' })
+export interface BenchRow {
+  code: string
+  label: string
+  is_excluded: Flag
+  priority: number | null
+  flag_in_gaps: Flag
+  available_from_bench_start: Flag
+}
+/** Tiered points by priority: P1 5 … P6 0 (FDD.md §Scoring, FR-MAT-51); excluded statuses score 0. */
+export const toBenchStatus = (r: BenchRow): BenchStatus => ({
+  code: r.code,
+  label: r.label,
+  eligibility: b(r.is_excluded) ? 'Excluded' : b(r.flag_in_gaps) ? 'Eligible with caveat' : 'Eligible',
+  priority: b(r.is_excluded) ? null : r.priority,
+  tieredPoints: b(r.is_excluded) || r.priority == null ? 0 : Math.max(0, 6 - r.priority),
+  caveat: '',
+  availableFromBenchStart: b(r.available_from_bench_start),
+})
+export const fromBenchStatus = (s: BenchStatus) => ({
+  code: s.code,
+  label: s.label,
+  is_excluded: s.eligibility === 'Excluded',
+  priority: s.eligibility === 'Excluded' ? null : (s.priority ?? 1),
+  flag_in_gaps: s.eligibility === 'Eligible with caveat',
+  available_from_bench_start: !!s.availableFromBenchStart,
+})
+
+export interface StatusMapRow { source_value: string; canonical_code: string | null; priority: number; is_excluded: Flag }
+export const toStatusMapEntry = (r: StatusMapRow): StatusMapEntry => ({ sourceText: r.source_value, canonicalCode: r.canonical_code ?? '' })
+/** The mapping takes the target status's priority and exclusion; an unmapped value stays eligible at priority 2 (FR-MAT-08). */
+export function fromStatusMapEntry(e: StatusMapEntry, statuses: BenchStatus[]) {
+  const target = statuses.find((s) => s.code === e.canonicalCode)
+  return {
+    canonical_code: target ? target.code : null,
+    priority: target?.priority ?? 2,
+    is_excluded: target?.eligibility === 'Excluded',
+  }
+}
+
 export const toDomain = (r: { domain: string }): InternalDomain => ({ domain: r.domain })
 export const toPreview = (r: { internal: number; external: number; unknown: number }): ClassificationPreview => ({
   internal: r.internal,

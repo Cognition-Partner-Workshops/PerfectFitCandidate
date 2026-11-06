@@ -199,3 +199,40 @@ describe('resolveApiMode', () => {
     expect(resolveApiMode({ VITE_PFC_API: 'http', DEV: true }, '?mock=1')).toBe('http')
   })
 })
+
+describe('HttpApiClient — OCC per-item CRUD', () => {
+  const calls = () => fetchMock.mock.calls.map(([u, i]) => `${(i as RequestInit).method ?? 'GET'} ${String(u)}`)
+
+  it('saves domains as delete plus add and reports the items that did not save', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock
+      .mockResolvedValueOnce(json([{ domain: 'old.example.com' }, { domain: 'keep.example.com' }]))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(problem(422, 'VALIDATION_ERROR', 'Invalid domain'))
+    const err = await api
+      .saveInternalDomains([{ domain: 'keep.example.com' }, { domain: 'bad' }, { domain: 'new.example.com' }])
+      .catch((e: unknown) => e)
+    expect(calls()).toEqual(['GET /api/v1/occ/internal-domains', 'DELETE /api/v1/occ/internal-domains/old.example.com', 'POST /api/v1/occ/internal-domains'])
+    expect((err as Error).message).toContain('Not saved: bad, new.example.com.')
+  })
+
+  it('upserts status-map entries by encoded source with the target status priority', async () => {
+    const api = new HttpApiClient('/api/v1')
+    const bench = [{ code: 'AVAILABLE', label: 'Available', is_excluded: 0, priority: 1, flag_in_gaps: 0, available_from_bench_start: 0 }]
+    fetchMock.mockResolvedValueOnce(json(bench)).mockResolvedValueOnce(json([])).mockResolvedValueOnce(json({})).mockResolvedValueOnce(json([]))
+    await api.saveStatusMap([{ sourceText: 'On bench / free', canonicalCode: 'AVAILABLE' }])
+    expect(calls()[2]).toBe('PUT /api/v1/occ/status-map/On%20bench%20%2F%20free')
+    expect(JSON.parse((fetchMock.mock.calls[2][1] as RequestInit).body as string)).toEqual({ canonical_code: 'AVAILABLE', priority: 1, is_excluded: false })
+  })
+
+  it('updates resource-team members by recipient id', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock
+      .mockResolvedValueOnce(json([{ recipient_id: 7, email: 'team@example.com', display_name: 'Team', is_active: 1 }]))
+      .mockResolvedValueOnce(json({}))
+      .mockResolvedValueOnce(json([]))
+    await api.saveResourceTeam([{ email: 'team@example.com', displayName: 'Team', active: false, notes: '' }])
+    expect(calls()[1]).toBe('PUT /api/v1/occ/resource-team/7')
+    expect(JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string)).toEqual({ display_name: 'Team', is_active: false })
+  })
+})

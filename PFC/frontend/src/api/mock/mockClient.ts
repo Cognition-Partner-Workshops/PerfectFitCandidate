@@ -5,6 +5,7 @@
  * Argon2id (TDD.md §9.2).
  */
 import { ApiError, type ApiClient, type EmailList, type StatusMapData } from '../client'
+import { applyChanges } from '../crud'
 import type {
   CandidateDetail,
   CurrentUser,
@@ -1079,11 +1080,25 @@ export class MockApiClient implements ApiClient {
     return this.done(this.state.statuses)
   }
 
+  /** Per-item like the backend: deleting a status still referenced by the map is a 409. */
   async saveBenchStatuses(statuses: BenchStatus[]) {
     this.requireAdmin()
-    this.state.statuses = statuses
-    this.audit('Status list saved (new version)')
-    return this.done(statuses)
+    const s = this.state
+    try {
+      await applyChanges(s.statuses, statuses, (x) => x.code, (a, b) => JSON.stringify(a) === JSON.stringify(b), {
+        create: async (x) => void (s.statuses = [...s.statuses, x]),
+        update: async (x) => void (s.statuses = s.statuses.map((y) => (y.code === x.code ? x : y))),
+        remove: async (x) => {
+          if (s.statusMap.some((m) => m.canonicalCode === x.code)) fail(409, 'Status is referenced by status_map', 'CONFLICT')
+          s.statuses = s.statuses.filter((y) => y.code !== x.code)
+        },
+      })
+      s.statuses = statuses
+    } finally {
+      this.audit('Status list saved')
+      this.save()
+    }
+    return this.done(s.statuses)
   }
 
   private statusMapData(): StatusMapData {
@@ -1101,8 +1116,21 @@ export class MockApiClient implements ApiClient {
 
   async saveStatusMap(entries: StatusMapEntry[]) {
     this.requireAdmin()
-    this.state.statusMap = entries
-    this.audit('Source-status mapping saved')
+    const s = this.state
+    const put = async (e: StatusMapEntry) => {
+      if (e.canonicalCode && !s.statuses.some((x) => x.code === e.canonicalCode)) fail(422, 'Unknown canonical status', 'VALIDATION_ERROR')
+      s.statusMap = [...s.statusMap.filter((m) => m.sourceText !== e.sourceText), e]
+    }
+    try {
+      await applyChanges(s.statusMap, entries, (e) => e.sourceText, (a, b) => a.canonicalCode === b.canonicalCode, {
+        create: put,
+        update: put,
+        remove: async (e) => void (s.statusMap = s.statusMap.filter((m) => m.sourceText !== e.sourceText)),
+      })
+    } finally {
+      this.audit('Source-status mapping saved')
+      this.save()
+    }
     return this.done(this.statusMapData())
   }
 
@@ -1156,9 +1184,19 @@ export class MockApiClient implements ApiClient {
 
   async saveResourceTeam(members: ResourceTeamMember[]) {
     this.requireAdmin()
-    this.state.resourceTeam = members
-    this.audit('Resource-team list saved')
-    return this.done(members)
+    const s = this.state
+    const key = (m: ResourceTeamMember) => m.email.toLowerCase()
+    try {
+      await applyChanges(s.resourceTeam, members, key, (a, b) => a.displayName === b.displayName && a.active === b.active, {
+        create: async (m) => void (s.resourceTeam = [...s.resourceTeam, m]),
+        update: async (m) => void (s.resourceTeam = s.resourceTeam.map((x) => (key(x) === key(m) ? m : x))),
+        remove: async (m) => void (s.resourceTeam = s.resourceTeam.filter((x) => key(x) !== key(m))),
+      })
+    } finally {
+      this.audit('Resource-team list saved')
+      this.save()
+    }
+    return this.done(s.resourceTeam)
   }
 
   async listInternalDomains() {
@@ -1168,9 +1206,18 @@ export class MockApiClient implements ApiClient {
 
   async saveInternalDomains(domains: { domain: string }[]) {
     this.requireAdmin()
-    this.state.domains = domains.map((d) => d.domain)
-    this.audit('Internal email domains saved; classification re-evaluated')
-    return this.done(domains)
+    const s = this.state
+    try {
+      await applyChanges(s.domains.map((domain) => ({ domain })), domains, (d) => d.domain, () => true, {
+        create: async (d) => void (s.domains = [...s.domains, d.domain]),
+        update: async () => undefined,
+        remove: async (d) => void (s.domains = s.domains.filter((x) => x !== d.domain)),
+      })
+    } finally {
+      this.audit('Internal email domains saved; classification re-evaluated')
+      this.save()
+    }
+    return this.done(s.domains.map((domain) => ({ domain })))
   }
 
   async previewClassification(domains: { domain: string }[]) {

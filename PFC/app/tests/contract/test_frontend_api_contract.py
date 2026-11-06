@@ -58,20 +58,8 @@ PENDING: dict[Route, str] = {
     ("POST", "/api/v1/pii/unmask"): "W2-2 matching #10",
     ("PUT", "/api/v1/candidates/{}/identity"): "W2-1 ingestion",
     ("PUT", "/api/v1/demands/{}/requirements"): "W2-1 ingestion",
-    ("PUT", "/api/v1/occ/bench-statuses"): (
-        "MISMATCH: merged OCC router only updates /occ/bench-statuses/{code}"
-    ),
-    ("PUT", "/api/v1/occ/internal-domains"): (
-        "MISMATCH: merged OCC router has no collection PUT operation"
-    ),
     ("PUT", "/api/v1/occ/demands/{}"): "W2-1 ingestion: OCC approvals",
-    ("PUT", "/api/v1/occ/resource-team"): (
-        "MISMATCH: merged OCC router only updates /occ/resource-team/{target}"
-    ),
     ("PUT", "/api/v1/occ/resources/{}"): "W2-1 ingestion: OCC approvals",
-    ("PUT", "/api/v1/occ/status-map"): (
-        "MISMATCH: merged OCC router only updates /occ/status-map/{source}"
-    ),
 }
 
 
