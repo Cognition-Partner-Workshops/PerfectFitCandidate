@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from collections import defaultdict
 from datetime import datetime
 from typing import Any, Literal, Self
 
@@ -86,7 +87,44 @@ def _paging(limit: int | None, offset: int) -> None:
         raise ValueError("limit must be 1..5000 and offset nonnegative")
 
 
+def active_overrides(db: sqlite3.Connection, run_id: int) -> dict[int, list[dict[str, Any]]]:
+    grouped: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for row in db.execute(
+        "SELECT o.* FROM overrides o JOIN match_results m USING(result_id) "
+        "WHERE m.run_id=? AND o.revoked_at IS NULL ORDER BY o.override_id",
+        (run_id,),
+    ):
+        grouped[row["result_id"]].append(dict(row))
+    return grouped
+
+
+def apply_overrides(row: dict[str, Any], overrides: list[dict[str, Any]]) -> None:
+    row.update(
+        overridden=bool(overrides),
+        effective_band=row["band"],
+        effective_shortlisted=bool(row.get("shortlisted")),
+        effective_excluded=False,
+    )
+    for override in overrides:
+        action = override["action"]
+        if action == "adjust_band":
+            row["effective_band"] = override["new_band"]
+        elif action in {"pin", "include", "unpin"}:
+            row["effective_shortlisted"] = action != "unpin"
+            if action == "include":
+                row["effective_excluded"] = False
+        elif action == "exclude":
+            row["effective_excluded"] = True
+    if row["effective_excluded"]:
+        row["effective_shortlisted"] = False
+    row["effective_email_preselected"] = (
+        bool(row.get("email_preselected")) and row["effective_shortlisted"]
+    )
+    row["display_band"] = "Weak Match" if row["effective_band"] == "Weak" else row["effective_band"]
+
+
 def _rows(db: sqlite3.Connection, run_id: int) -> list[dict[str, Any]]:
+    overrides_by_result = active_overrides(db, run_id)
     rows = db.execute(
         "SELECT m.*,d.code_requisition AS requisition,d.position_start_date AS start_date,"
         "d.account_name AS account,d.demand_request_name AS role,d.bu,"
@@ -108,38 +146,7 @@ def _rows(db: sqlite3.Connection, run_id: int) -> list[dict[str, Any]]:
         scored = json.loads(row.pop("scored_inputs") or "{}")
         row.update(scored.get("display_facts", {}))
         row["person_email"] = _mask_email(row["person_email"])
-        overrides = [
-            dict(o)
-            for o in db.execute(
-                "SELECT * FROM overrides WHERE result_id=? AND revoked_at IS NULL "
-                "ORDER BY override_id",
-                (row["result_id"],),
-            )
-        ]
-        row.update(
-            overridden=bool(overrides),
-            effective_band=row["band"],
-            effective_shortlisted=bool(row["shortlisted"]),
-            effective_excluded=False,
-        )
-        for override in overrides:
-            action = override["action"]
-            if action == "adjust_band":
-                row["effective_band"] = override["new_band"]
-            elif action in {"pin", "include", "unpin"}:
-                row["effective_shortlisted"] = action != "unpin"
-                if action == "include":
-                    row["effective_excluded"] = False
-            elif action == "exclude":
-                row["effective_excluded"] = True
-        if row["effective_excluded"]:
-            row["effective_shortlisted"] = False
-        row["effective_email_preselected"] = (
-            bool(row["email_preselected"]) and row["effective_shortlisted"]
-        )
-        row["display_band"] = (
-            "Weak Match" if row["effective_band"] == "Weak" else row["effective_band"]
-        )
+        apply_overrides(row, overrides_by_result.get(row["result_id"], []))
         result.append(row)
     return result
 

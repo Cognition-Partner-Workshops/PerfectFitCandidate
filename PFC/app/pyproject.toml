@@ -72,5 +72,6 @@ disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-m 'not perf'"
 markers = ["perf: synthetic ingestion API and offline 500 by 500 NFR-01 performance regressions (select with -m perf)"]

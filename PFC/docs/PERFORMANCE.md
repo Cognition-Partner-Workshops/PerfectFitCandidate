@@ -40,42 +40,71 @@ response and population size is checked. No browser rendering is measured.
 
 ## Measurements — Linux CI/VM, not target laptop
 
-| Operation | Seconds |
-|---|---:|
-| Full 500 × 500 matching, 60,455 scored grade-compatible pairs | 23.302 |
-| GET /analytics/summary, median of 3 | 4.631 |
-| GET /analytics/demand, median of 3 | 4.789 |
-| GET /analytics/bench, median of 3 | 4.949 |
-| GET /analytics/match, median of 3 | 6.598 |
+Seconds; analytics are medians of three warm requests. Every run scores **60,455**
+grade-compatible pairs from the same 500 × 500 population.
 
-Provenance: Linux-6.8.0-1060-aws-x86_64-with-glibc2.35; Python **3.12.16**;
-**Intel(R) Xeon(R) Processor**, **8 logical CPUs**; OS-reported RAM
-**33,655,369,728 bytes** (~31.34 GiB). No cgroup CPU/memory limits were reported.
-Measurement source SHA: `8ec55a7080dfe213b451b15c0ef3e3b422091f96`, with
-uncommitted benchmark/configuration files. This SHA includes main's merged PR #22
-state; merging that state changed ancestry only, not the measured application code.
-The test prints raw samples, hardware, Python, current Git SHA/dirty state,
-population counts and limits as a single `NFR01_RESULT=` JSON line.
+| Operation | VM before | VM after | GitHub before | GitHub after |
+|---|---:|---:|---:|---:|
+| Full matching | 23.302 | 25.070 | 45.008 | 43.365 |
+| GET /analytics/summary | 4.631 | 0.079 | 13.933 | 0.118 |
+| GET /analytics/demand | 4.789 | 0.054 | 9.498 | 0.076 |
+| GET /analytics/bench | 4.949 | 0.075 | 7.812 | 0.114 |
+| GET /analytics/match | 6.598 | 0.557 | 15.503 | 0.810 |
+
+Provenance (all counts are logical CPUs; RAM is OS-reported):
+- **VM before/after:** Linux-6.8.0-1060-aws-x86_64-with-glibc2.35,
+  Python 3.12.16, Intel(R) Xeon(R) Processor, 8 CPUs,
+  33,655,369,728 bytes RAM (~31.34 GiB). Before: SHA
+  `8ec55a7080dfe213b451b15c0ef3e3b422091f96`, benchmark files uncommitted.
+  After: SHA `26dc675c72955858c2eaee70241a1654b4188cf9`, with the
+  tighter perf guards and documentation uncommitted at measurement.
+- **GitHub before:** PR #29 backend job `127749979209`, SHA
+  `770320c0ca91cd28875a52c47107f375a68a342a`, clean tree;
+  Ubuntu 26.04.1, Linux-7.0.0-1019-azure-x86_64-with-glibc2.43,
+  Python 3.13.18, AMD EPYC 7763 64-Core Processor, 4 CPUs,
+  16,759,439,360 bytes RAM (~15.61 GiB).
+- **GitHub after:** push backend job `127760671435`, SHA
+  `3ea2348f0e3e535a0f702143be1510a35c6446f3`, clean tree;
+  Ubuntu 26.04.1, same Linux/glibc/Python versions as GitHub before,
+  AMD EPYC 7763 64-Core Processor, 4 CPUs, 16,759,439,360 bytes RAM.
+  The reported CPU class matches before, but hosted load is not controlled.
+
+No cgroup CPU/memory limits were reported. Raw samples, hardware, Python, current
+Git SHA/dirty state, counts and thresholds print as `NFR01_RESULT=` JSON.
 Generated data/results are not committed.
 
-**Interpretation:** matching is below both the 120 s budget and 60 s aspiration
-here. All four analytics medians exceed the 2 s interaction budget (and the
-500 ms API aspiration). NFR-01 is therefore **not demonstrated overall**.
-The fake cached vectors, CT-only skill bases, unloaded single-client VM and
-absence of browser timings cannot establish target-laptop acceptance. Benchmark
-the Windows 11 Phase 0 laptop with real cached embeddings/CVs before sign-off.
-This task measures the gap; it does not optimize production code.
+**Profiling and equivalence:** 500 × 500 cProfile attributed 3.27 s to demand
+loading (a repeated scan of 60k results per demand), 2.14 s to full result loading
+and 2.61 s to match validation; the match profile executed 183,874 SQL statements.
+Lazy request-local projections, grouped SQL counts, batched JD/CV/status/override
+reads and joined validation remove these repeated operations. EXPLAIN also showed
+validation choosing the resource index; using the demand index improves locality.
+No cross-request cache or invalidation machinery was added.
+
+Before production changes, exact JSON goldens were committed for nine filter
+combinations on both the existing fixture and a seeded 20 × 20 real match run
+with overrides and exclusions, under Analyst and Admin sessions. A separate,
+uncommitted 500 × 500 capture compares all four endpoints with latest and explicit
+run selection: **8/8 complete JSON responses identical** before and after.
+
+**Interpretation:** all measured APIs now meet 2 s on GitHub; summary, demand and
+bench also meet the 500 ms aspiration. Match still exceeds 500 ms. Matching remains
+below 120 s. Fake cached vectors, CT-only bases, different hosted CPUs and absent
+browser timings cannot establish target-laptop acceptance: benchmark the Windows
+11 Phase 0 laptop with real cached embeddings/CVs before sign-off.
 
 ## Regression limits and rerunning
 
-Limits: **180 s** full matching (~7.7× this measurement; never tighter than
-120 s) and **35 s** per analytics median (~5.3× the slowest measurement; never
-tighter than 2 s). These are generous CI regression guards, **not NFR pass criteria**.
+Limits: **180 s** full matching (unchanged), and **2 s each** for summary, demand,
+bench and match medians. Each analytics limit is at least twice its measured
+GitHub median: 0.236 / 0.153 / 0.229 / 1.620 s respectively round up to 2 s.
+These API regression guards do not establish full target-laptop NFR acceptance.
 Matching also has a 180 s cancellation timeout.
 
 The `perf` marker is excluded from ordinary `pytest`. CI explicitly runs it
 **once on Linux** after the ordinary backend suite; Windows runs the ordinary
-suite only to avoid duplicating this ~109 s benchmark. The standard-library
+suite only to avoid duplicating this ~49 s benchmark on the measured GitHub runner.
+The standard-library
 provenance collector also supports manual Windows runs. CI uses Python 3.13;
 these recorded VM measurements use 3.12.16.
 
