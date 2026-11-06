@@ -165,6 +165,7 @@ def test_jd_extraction_metadata_contract(tmp_path: Path) -> None:
     assert properties["extractionMethod"]["anyOf"][0]["enum"] == ["llm", "rule_based_fallback"]
     assert properties["fallbackReason"]["anyOf"][0]["type"] == "string"
     assert properties["warnings"]["items"]["type"] == "string"
+    assert properties["items"]["items"]["$ref"] == "#/components/schemas/JdItemSource"
     assert JdRequirements(demand_id=1).extraction_method is None
 
 

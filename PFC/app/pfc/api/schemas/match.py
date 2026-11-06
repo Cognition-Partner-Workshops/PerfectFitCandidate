@@ -37,6 +37,12 @@ class RunRequest(WireModel):
         return self
 
 
+class JdItemSource(WireModel):
+    kind: Literal["mandatory_skill", "preferred_skill", "experience", "qualification", "domain"]
+    text: str
+    jd_req_id: int | None = Field(default=None, strict=True)
+
+
 class JdRequirements(WireModel):
     demand_id: int = Field(gt=0)
     mandatory_skills: list[str] = Field(default_factory=list)
@@ -56,6 +62,7 @@ class JdRequirements(WireModel):
     fallback_reason: str | None = None
     confirmed_at: str | None = None
     jd_req_id: int | None = None
+    items: list[JdItemSource] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def nonblank_skills(self) -> Self:
@@ -92,7 +99,7 @@ class JdRequirements(WireModel):
                 for item in experience:
                     if item.get("years") is not None and item["years"] > years:
                         item["years"] = years
-        return {
+        result: dict[str, Any] = {
             "mandatory_skills": [{"text": term} for term in self.mandatory_skills],
             "preferred_skills": [{"text": term} for term in self.preferred_skills],
             "experience": experience,
@@ -105,6 +112,21 @@ class JdRequirements(WireModel):
             "location": self.location,
             "onsite_required": self.mandatory_onsite,
         }
+        sources: dict[tuple[str, str], list[int | None]] = {}
+        for source in self.items:
+            sources.setdefault((source.kind, source.text), []).append(source.jd_req_id)
+        for field, kind in (
+            ("mandatory_skills", "mandatory_skill"),
+            ("preferred_skills", "preferred_skill"),
+            ("experience", "experience"),
+            ("qualifications", "qualification"),
+            ("domain", "domain"),
+        ):
+            for entry in result[field]:
+                ids = sources.get((kind, entry["text"]), [])
+                if ids:
+                    entry["jdReqId"] = ids.pop(0)
+        return result
 
 
 def requirements_view(demand_id: int, row: dict[str, Any]) -> JdRequirements:
@@ -137,6 +159,10 @@ def requirements_view(demand_id: int, row: dict[str, Any]) -> JdRequirements:
         fallback_reason=row.get("fallback_reason"),
         confirmed_at=row["confirmed_at"],
         jd_req_id=row["jd_req_id"],
+        items=[
+            JdItemSource(kind=item["kind"], text=item["text"], jd_req_id=item["item_id"])
+            for item in row["items"]
+        ],
     )
 
 
