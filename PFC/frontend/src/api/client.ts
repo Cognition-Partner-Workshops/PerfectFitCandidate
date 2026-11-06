@@ -51,6 +51,7 @@ import type {
   Synonym,
   UploadPreview,
   UserStatus,
+  SystemHealth,
 } from './types'
 
 /** Error carrying an RFC 9457 problem document. */
@@ -268,6 +269,9 @@ export interface ApiClient {
 
   /** GET /occ/audit-log */
   auditLog(query: AuditQuery): Promise<AuditEvent[]>
+
+  /** GET /health — liveness plus the data volume's BitLocker status (REQ-AUTH-06) */
+  getHealth(): Promise<SystemHealth>
 
   /** GET /occ/settings */
   getAdminSettings(): Promise<AdminSettings>

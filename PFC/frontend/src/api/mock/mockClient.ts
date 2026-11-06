@@ -1018,6 +1018,10 @@ export class MockApiClient implements ApiClient {
     return this.done(this.state.adminSettings)
   }
 
+  async getHealth() {
+    return this.done({ status: 'ok', dataVolumeEncryption: 'Unknown' as const })
+  }
+
   async saveAdminSettings(next: AdminSettings) {
     this.requireAdmin()
     const errors: string[] = []

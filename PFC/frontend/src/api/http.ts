@@ -47,7 +47,9 @@ import {
   toEmailTemplate,
   type EmailTemplateRow,
 } from './mappers'
-import type { BenchStatus, CurrentUser, InternalDomain, PersonalSettings, ProblemDetails, ResourceTeamMember, StatusMapEntry } from './types'
+import type { BenchStatus, CurrentUser, InternalDomain, PersonalSettings, ProblemDetails, ResourceTeamMember, StatusMapEntry,
+  VolumeEncryption,
+} from './types'
 
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
@@ -482,4 +484,8 @@ export class HttpApiClient implements ApiClient {
     toAdminSettings(await this.request('GET', '/occ/settings'), ADMIN_SETTINGS)
   saveAdminSettings: ApiClient['saveAdminSettings'] = async (s) =>
     toAdminSettings(await this.request('PUT', '/occ/settings', fromAdminSettings(s)), ADMIN_SETTINGS)
+  getHealth: ApiClient['getHealth'] = async () => {
+    const r = await this.request<{ status: string; details?: { dataVolumeEncryption?: VolumeEncryption } }>('GET', '/health')
+    return { status: r.status, dataVolumeEncryption: r.details?.dataVolumeEncryption ?? 'Unknown' }
+  }
 }

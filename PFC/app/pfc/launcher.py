@@ -24,6 +24,7 @@ from pfc.db.connection import database
 from pfc.db.migrate import migrate
 from pfc.db.users import count_admins
 from pfc.main import create_app
+from pfc.security.data_dir import bitlocker_status, prepare_data_dir
 from pfc.security.setup import generate_setup_code
 
 
@@ -119,10 +120,12 @@ def launch(
     run_server: Callable[..., Any] = uvicorn.run,
     open_browser: Callable[[str], Any] = webbrowser.open,
     ready: Callable[[int, threading.Event], bool] = wait_for_health,
+    prepare: Callable[[Settings], None] = prepare_data_dir,
 ) -> int:
     """REQ-AUTH-03/07: bootstrap locally and never bind an external interface."""
     if settings.host not in {"127.0.0.1", "localhost"}:
         raise ValueError("host must be loopback")
+    prepare(settings)
     for directory in ("db", "run", "logs", "backups"):
         (settings.data_dir / directory).mkdir(parents=True, exist_ok=True)
     lock = acquire_lock(settings.data_dir / "run" / "pfc.lock", settings.port)
@@ -153,7 +156,9 @@ def launch(
 
             browser_thread = threading.Thread(target=browse, daemon=True, name="pfc-browser")
             browser_thread.start()
-        run_server(create_app(settings), host="127.0.0.1", port=port, workers=1, access_log=False)
+        app = create_app(settings)
+        app.state.volume_probe = bitlocker_status
+        run_server(app, host="127.0.0.1", port=port, workers=1, access_log=False)
         return 0
     finally:
         stop.set()
