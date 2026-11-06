@@ -63,6 +63,7 @@ def supervisor(
     mode: str = "ready",
     *,
     restart_backoff_s: tuple[float, float, float] = (10, 60, 180),
+    restart_reset_window_s: float = 600,
 ) -> LlamaServerSupervisor:
     script = tmp_path / "fake_server.py"
     script.write_text(SCRIPT)
@@ -85,6 +86,7 @@ def supervisor(
         poll_interval_s=0.01,
         app_state=State(),
         restart_backoff_s=restart_backoff_s,
+        restart_reset_window_s=restart_reset_window_s,
     )
 
 
@@ -237,7 +239,12 @@ def test_crash_restart_budget_exhausted(
     settings: Settings, tmp_path: Path, startup_fails: bool
 ) -> None:
     async def scenario() -> None:
-        service = supervisor(settings, tmp_path, restart_backoff_s=(0.01, 0.01, 0.01))
+        service = supervisor(
+            settings,
+            tmp_path,
+            restart_backoff_s=(0.01, 0.01, 0.01),
+            restart_reset_window_s=0.3,
+        )
         try:
             await service.start("one", settings.models_dir / "one.gguf")
             if startup_fails:
@@ -261,6 +268,86 @@ def test_crash_restart_budget_exhausted(
             assert service.app_state.llm_provider is None
             assert service._restart_attempts == 3
             assert service.proc is not None and service.proc.poll() is not None
+        finally:
+            await service.stop()
+
+    asyncio.run(scenario())
+
+
+def test_healthy_window_refills_restart_budget(settings: Settings, tmp_path: Path) -> None:
+    async def crash_and_recover(service: LlamaServerSupervisor) -> None:
+        proc = service.proc
+        assert proc is not None
+        proc.kill()
+        await asyncio.to_thread(proc.wait)
+        async with asyncio.timeout(5):
+            while service.proc is proc or service.check().status != "ok":
+                await asyncio.sleep(0.001)
+
+    async def scenario() -> None:
+        service = supervisor(
+            settings,
+            tmp_path,
+            restart_backoff_s=(0.01, 0.01, 0.01),
+            restart_reset_window_s=0.2,
+        )
+        try:
+            await service.start("one", settings.models_dir / "one.gguf")
+            await crash_and_recover(service)
+            assert service._restart_attempts == 1
+            async with asyncio.timeout(5):
+                while service._restart_attempts != 0:
+                    assert service.check().status == "ok"
+                    await asyncio.sleep(0.01)
+            for attempt in range(1, 4):
+                await crash_and_recover(service)
+                assert service._restart_attempts == attempt
+            assert service.proc is not None
+            service.proc.kill()
+            await asyncio.to_thread(service.proc.wait)
+            async with asyncio.timeout(5):
+                while service.state != "unavailable":
+                    await asyncio.sleep(0.001)
+            assert service.check().detail == "llama-server exited; restart attempts exhausted"
+            assert service.app_state.llm_provider is None
+        finally:
+            await service.stop()
+
+    asyncio.run(scenario())
+
+
+def test_healthy_exit_between_polls_refills_restart_budget(
+    settings: Settings, tmp_path: Path
+) -> None:
+    async def crash_and_recover(service: LlamaServerSupervisor) -> None:
+        proc = service.proc
+        assert proc is not None
+        proc.kill()
+        await asyncio.to_thread(proc.wait)
+        async with asyncio.timeout(5):
+            while service.proc is proc or service.check().status != "ok":
+                assert service.check().detail != "llama-server exited; restart attempts exhausted"
+                await asyncio.sleep(0.001)
+
+    async def scenario() -> None:
+        service = supervisor(
+            settings,
+            tmp_path,
+            restart_backoff_s=(0.01, 0.01, 0.01),
+            restart_reset_window_s=0.1,
+        )
+        try:
+            await service.start("one", settings.models_dir / "one.gguf")
+            for attempt in range(1, 4):
+                await crash_and_recover(service)
+                assert service._restart_attempts == attempt
+            service.poll_interval_s = 0.5
+            await asyncio.sleep(0.15)
+            assert service._restart_attempts == 3
+            service.poll_interval_s = 0.01
+            for attempt in range(1, 4):
+                await crash_and_recover(service)
+                assert service._restart_attempts == attempt
         finally:
             await service.stop()
 
