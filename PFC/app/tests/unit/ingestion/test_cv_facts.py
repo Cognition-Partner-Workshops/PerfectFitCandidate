@@ -20,7 +20,7 @@ from pfc.services.ingestion.cv_facts import (
     rule_facts,
     validate_facts,
 )
-from pfc.services.ingestion.masking import mask_phone
+from pfc.services.ingestion.masking import mask_phone, phone_matches
 
 TEXT = normalise_text(
     "Name: Alex Border\nPhone: +44 (0)20 7946 0958\nAlEx@example.com\n"
@@ -95,6 +95,28 @@ def test_req_in_23_rule_spans() -> None:
 def test_req_in_23_phone_formats(phone: str) -> None:
     found = rule_facts(f"Contact\n{phone}").phone
     assert found is not None and found.value == phone
+
+
+@pytest.mark.parametrize(
+    "years",
+    [
+        "2015 - 2019",
+        "2015–2019",
+        "2015 — 2019",
+        "1995 / 2001",
+        "2015-2019",
+        "Jan 2015 - Dec 2019",
+        "January 2015 – December 2019",
+    ],
+)
+def test_req_in_23_year_ranges_are_not_phone_facts(years: str) -> None:
+    text = f"Experience\n{years} at Acme"
+    assert list(phone_matches(text)) == []
+    assert rule_facts(text).phone is None
+    candidate = {"value": years, "evidence": years, "span": [0, len(years)], "source": "llm"}
+    assert validate_facts(years, {"phone": candidate}).phone is None
+    phone = rule_facts(f"{text}\nPhone: +44 123456789").phone
+    assert phone is not None and phone.value == "+44 123456789"
 
 
 @pytest.mark.parametrize(
