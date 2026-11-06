@@ -61,12 +61,14 @@ def test_manual_revision_does_not_inherit_future_analysis_or_another_jd_version(
         historical = get_requirements(db, demand, jd_req_id=manual.json()["jdReqId"])
         assert historical is not None and historical["extraction_method"] is None
         db.execute(
-            "INSERT INTO demand_versions(demand_id,version_no,jd_text_raw,jd_text_norm,jd_sha256,created_at) "
+            "INSERT INTO demand_versions(demand_id,version_no,jd_text_raw,jd_text_norm,"
+            "jd_sha256,created_at) "
             "VALUES (?,2,'New JD','New JD','new','2026-11-06')",
             (demand,),
         )
         db.execute(
-            "UPDATE demands SET current_version_id=(SELECT MAX(demand_version_id) FROM demand_versions) "
+            "UPDATE demands SET current_version_id="
+            "(SELECT MAX(demand_version_id) FROM demand_versions) "
             "WHERE demand_id=?",
             (demand,),
         )
