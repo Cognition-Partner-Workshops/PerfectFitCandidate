@@ -91,6 +91,26 @@ def login(
     return result.json()["csrf_token"]
 
 
+def test_public_setup_status(client: TestClient) -> None:
+    """REQ-AUTH-03: bootstrap status exposes only an Admin-exists boolean."""
+    response = client.get("/api/v1/setup/status")
+    assert response.status_code == 200
+    assert response.json() == {"admin_exists": False}
+    assert set(response.json()) == {"admin_exists"}
+    setup(client)
+    assert not client.cookies
+    response = client.get("/api/v1/setup/status")
+    assert response.status_code == 200
+    assert response.json() == {"admin_exists": True}
+    assert set(response.json()) == {"admin_exists"}
+    with database(client.app.state.settings) as db:
+        db.execute("UPDATE users SET must_change_password=1")
+    login(client)
+    assert client.get("/api/v1/setup/status").json() == {"admin_exists": True}
+    client.cookies.clear()
+    assert client.get("/api/v1/setup/status").json() == {"admin_exists": True}
+
+
 def test_setup_login_logout(client: TestClient) -> None:
     body = {
         "setup_code": "bad",
