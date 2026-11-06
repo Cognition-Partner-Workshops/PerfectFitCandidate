@@ -20,7 +20,7 @@ def settings(tmp_path: Path) -> Settings:
 
 
 def test_schema_and_pragmas(settings: Settings) -> None:
-    assert migrate(settings) == ["0001", "0002", "0003"]
+    assert migrate(settings) == ["0001", "0002", "0003", "0004"]
     assert migrate(settings) == []
     assert len(list((settings.data_dir / "backups").glob("*-pre-0002.db"))) == 1
     sql = Path("pfc/db/migrations/0001_initial.sql").read_text()
@@ -166,22 +166,106 @@ def test_backup_restore(settings: Settings, tmp_path: Path) -> None:
     migrate(settings)
     directory = tmp_path / "migrations"
     directory.mkdir()
-    (directory / "0004_bad.sql").write_text(
+    (directory / "0005_bad.sql").write_text(
         "CREATE TABLE should_rollback(id INTEGER);\nINSERT INTO missing VALUES(1);\n"
     )
     with pytest.raises(sqlite3.OperationalError):
         migrate(settings, directory)
-    backups = list((settings.data_dir / "backups").glob("pfc-*-pre-0004.db"))
+    backups = list((settings.data_dir / "backups").glob("pfc-*-pre-0005.db"))
     assert len(backups) == 1
     with database(settings) as db:
-        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 3
+        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 4
         assert (
             db.execute("SELECT 1 FROM sqlite_master WHERE name='should_rollback'").fetchone()
             is None
         )
-    (directory / "0004_bad.sql").write_text("CREATE TABLE success(id INTEGER);\n")
-    assert migrate(settings, directory) == ["0004"]
+    (directory / "0005_bad.sql").write_text("CREATE TABLE success(id INTEGER);\n")
+    assert migrate(settings, directory) == ["0005"]
     assert migrate(settings, directory) == []
+
+
+def test_item_ancestry_upgrade(settings: Settings, tmp_path: Path) -> None:
+    directory = tmp_path / "old_migrations"
+    directory.mkdir()
+    for name in ("0001_initial.sql", "0002_occ_approvals.sql"):
+        (directory / name).write_text((Path("pfc/db/migrations") / name).read_text())
+    assert migrate(settings, directory) == ["0001", "0002"]
+    with database(settings) as db:
+        db.execute(
+            "INSERT INTO demands(demand_id,code_requisition,id_format_ok,row_hash,created_at,"
+            "updated_at) VALUES (1,'T1TEST',1,'hash',?,?)",
+            (NOW, NOW),
+        )
+        db.execute(
+            "INSERT INTO demand_versions(demand_version_id,demand_id,version_no,jd_text_raw,"
+            "jd_text_norm,jd_sha256,created_at) VALUES (1,1,1,'SQL','SQL','hash',?)",
+            (NOW,),
+        )
+        db.execute(
+            "INSERT INTO jd_requirements(jd_req_id,demand_version_id,revision,status,created_at) "
+            "VALUES (1,1,1,'draft',?)",
+            (NOW,),
+        )
+        db.execute(
+            "INSERT INTO jd_requirement_items(item_id,jd_req_id,kind,text,position) "
+            "VALUES (1,1,'mandatory_skill','SQL',0)"
+        )
+    assert migrate(settings) == ["0003", "0004"]
+    assert migrate(settings) == []
+    with database(settings) as db:
+        row = db.execute("SELECT text,source_jd_req_id FROM jd_requirement_items").fetchone()
+        assert tuple(row) == ("SQL", None)
+        db.execute(
+            "INSERT INTO jd_requirement_items(jd_req_id,kind,text,position,source_jd_req_id) "
+            "VALUES (1,'mandatory_skill','Edited SQL',1,1)"
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            db.execute("UPDATE jd_requirement_items SET source_jd_req_id=999 WHERE item_id=2")
+        db.execute("DELETE FROM jd_requirement_items WHERE item_id=1")
+        assert (
+            db.execute(
+                "SELECT source_jd_req_id FROM jd_requirement_items WHERE item_id=2"
+            ).fetchone()[0]
+            is None
+        )
+
+
+def test_synonym_upgrade_after_published_jd_migration(settings: Settings, tmp_path: Path) -> None:
+    directory = tmp_path / "main_migrations"
+    directory.mkdir()
+    for name in ("0001_initial.sql", "0002_occ_approvals.sql", "0003_jd_item_ancestry.sql"):
+        (directory / name).write_text((Path("pfc/db/migrations") / name).read_text())
+    assert migrate(settings, directory) == ["0001", "0002", "0003"]
+    with database(settings) as db:
+        db.execute("INSERT INTO skills(skill_id,name,created_by) VALUES (7,'Python','seed')")
+        db.execute("INSERT INTO skills(skill_id,name,created_by) VALUES (8,'SQL','seed')")
+        db.execute(
+            "INSERT INTO skill_synonyms VALUES "
+            "(42,7,'Data','data','related',0.6,'approved',NULL,?)",
+            (NOW,),
+        )
+    assert migrate(settings) == ["0004"]
+    assert migrate(settings) == []
+    with database(settings) as db:
+        assert tuple(db.execute("SELECT * FROM skill_synonyms").fetchone()) == (
+            42,
+            7,
+            "Data",
+            "data",
+            "related",
+            0.6,
+            "approved",
+            None,
+            NOW,
+        )
+        db.execute(
+            "INSERT INTO skill_synonyms VALUES "
+            "(43,8,'Data','data','related',0.6,'approved',NULL,?)",
+            (NOW,),
+        )
+        assert "source_jd_req_id" in {
+            row["name"] for row in db.execute("PRAGMA table_info(jd_requirement_items)")
+        }
 
 
 def test_jobs_use_separate_connections(settings: Settings) -> None:

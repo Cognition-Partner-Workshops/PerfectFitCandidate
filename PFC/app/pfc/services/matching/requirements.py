@@ -6,7 +6,7 @@ import sqlite3
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from pfc.domain.config_loader import DomainConfig
 from pfc.domain.normalise import normalise_term
@@ -14,6 +14,10 @@ from pfc.services.occ.domain import occ_domain_config
 
 from .common import atomic, audit, dumps, timestamp
 from .ports import MatchingPorts
+
+
+class ExtractionFailure(RuntimeError):
+    pass
 
 
 class ExtractedItem(BaseModel):
@@ -118,6 +122,34 @@ def get_requirements(
     if row is None:
         return None
     result = dict(row)
+    event = db.execute(
+        "WITH RECURSIVE ancestors(item_id,jd_req_id,source_jd_req_id) AS ("
+        "SELECT item_id,jd_req_id,source_jd_req_id FROM jd_requirement_items WHERE jd_req_id=? "
+        "UNION SELECT i.item_id,i.jd_req_id,i.source_jd_req_id "
+        "FROM jd_requirement_items i JOIN ancestors p ON i.item_id=p.source_jd_req_id "
+        "JOIN jd_requirements r ON r.jd_req_id=i.jd_req_id WHERE r.demand_version_id=?"
+        ") SELECT a.details_json,r.extracted_by FROM jd_requirements r JOIN audit_log a "
+        "ON a.entity_id=CAST(r.jd_req_id AS TEXT) "
+        "AND a.action='jd.analyze' AND a.entity_type='jd_requirements' "
+        "WHERE r.jd_req_id=? OR r.jd_req_id IN (SELECT jd_req_id FROM ancestors) "
+        "ORDER BY r.revision DESC,a.audit_id DESC LIMIT 1",
+        (row["jd_req_id"], row["demand_version_id"], row["jd_req_id"]),
+    ).fetchone()
+    extracted_by = event["extracted_by"] if event else None
+    method = (
+        "rule_based_fallback"
+        if extracted_by == "rule_based"
+        else None
+        if extracted_by in {"manual", None}
+        else "llm"
+    )
+    metadata = json.loads(event[0] or "{}") if event else {}
+    result["extraction_method"] = metadata.get("extraction_method", method)
+    result["fallback_reason"] = (
+        metadata.get("fallback_reason") or "reason_not_recorded"
+        if result["extraction_method"] == "rule_based_fallback"
+        else None
+    )
     result["extraction"] = json.loads(result.pop("extraction_json") or "{}")
     result["items"] = [
         dict(item)
@@ -138,6 +170,8 @@ def _write(
     extracted_by: str,
     now: datetime,
     config: DomainConfig,
+    *,
+    source_ids: dict[tuple[str, int], int] | None = None,
 ) -> int:
     revision = db.execute(
         "SELECT COALESCE(MAX(revision),0)+1 FROM jd_requirements WHERE demand_version_id=?",
@@ -167,7 +201,7 @@ def _write(
     req_id = int(cursor.lastrowid or 0)
     position = 0
     for field, kind in KINDS.items():
-        for item in getattr(data, field):
+        for index, item in enumerate(getattr(data, field)):
             canonical = config.synonyms.resolve(item.text)
             if canonical:
                 db.execute(
@@ -178,10 +212,29 @@ def _write(
                 "SELECT skill_id FROM skills WHERE name=? COLLATE NOCASE AND is_active=1",
                 (canonical or item.text,),
             ).fetchone()
+            source_id = (source_ids or {}).get((kind, index))
+            source = (
+                db.execute(
+                    "SELECT i.item_id FROM jd_requirement_items i JOIN jd_requirements r "
+                    "ON r.jd_req_id=i.jd_req_id WHERE i.item_id=? "
+                    "AND r.demand_version_id=? AND r.jd_req_id<>?",
+                    (source_id, version_id, req_id),
+                ).fetchone()
+                if source_id is not None
+                else None
+            )
             db.execute(
                 "INSERT INTO jd_requirement_items(jd_req_id,kind,text,canonical_skill_id,"
-                "source_span,position) VALUES (?,?,?,?,?,?)",
-                (req_id, kind, item.text, skill[0] if skill else None, item.evidence, position),
+                "source_span,position,source_jd_req_id) VALUES (?,?,?,?,?,?,?)",
+                (
+                    req_id,
+                    kind,
+                    item.text,
+                    skill[0] if skill else None,
+                    item.evidence,
+                    position,
+                    source[0] if source else None,
+                ),
             )
             position += 1
     return req_id
@@ -201,12 +254,20 @@ def analyze_jd(
         raise ValueError("JD text is blank")
     config = occ_domain_config(db)
     extracted_by = "rule_based"
+    fallback_reason = None
     try:
         if ports.llm is None:
-            raise ValueError("No LLM configured")
+            raise ExtractionFailure("provider_unavailable")
         data = Requirements.model_validate(ports.llm.extract_jd(text))
         extracted_by = ports.llm.model
-    except Exception:
+    except Exception as exc:
+        fallback_reason = (
+            str(exc)
+            if isinstance(exc, ExtractionFailure)
+            else "schema_invalid"
+            if isinstance(exc, ValidationError)
+            else "provider_error"
+        )
         data = _fallback(text, config)
     with atomic(db):
         if _current(db, demand_id)["demand_version_id"] != version["demand_version_id"]:
@@ -221,6 +282,8 @@ def analyze_jd(
             now,
             demand_id=demand_id,
             extracted_by=extracted_by,
+            extraction_method="rule_based_fallback" if fallback_reason is not None else "llm",
+            fallback_reason=fallback_reason,
         )
     result = get_requirements(db, demand_id)
     assert result is not None
@@ -234,11 +297,27 @@ def save_draft(
     user_id: int,
     now: datetime,
 ) -> dict[str, Any]:
-    data = Requirements.model_validate(edited_requirements)
+    cleaned = dict(edited_requirements)
+    sources: dict[tuple[str, int], int] = {}
+    for field, kind in KINDS.items():
+        if not isinstance(cleaned.get(field), list):
+            continue
+        items = []
+        for index, item in enumerate(cleaned[field]):
+            if isinstance(item, dict):
+                item = dict(item)
+                source_id = item.pop("jdReqId", None)
+                if type(source_id) is int:
+                    sources[(kind, index)] = source_id
+            items.append(item)
+        cleaned[field] = items
+    data = Requirements.model_validate(cleaned)
     config = occ_domain_config(db)
     with atomic(db):
         version = _current(db, demand_id)
-        req_id = _write(db, version["demand_version_id"], data, "manual", now, config)
+        req_id = _write(
+            db, version["demand_version_id"], data, "manual", now, config, source_ids=sources
+        )
         audit(db, "jd.edit", "jd_requirements", req_id, user_id, now, demand_id=demand_id)
     result = get_requirements(db, demand_id)
     assert result is not None
