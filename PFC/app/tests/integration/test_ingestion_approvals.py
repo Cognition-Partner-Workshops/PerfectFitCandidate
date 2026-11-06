@@ -509,6 +509,29 @@ def test_req_in_25_identity_validation_conflicts_and_csrf(client):
     assert client.get("/api/v1/candidates/1").status_code == 401
 
 
+def test_identity_resolution_reclassifies_both_email_owners(client):
+    client.post("/api/v1/occ/internal-domains", json={"domain": "example.com"})
+    ingest(client, "ct", [{"Email Address": None}, {}])
+    with database(client.app.state.settings) as db:
+        assert [
+            row[0]
+            for row in db.execute("SELECT classification FROM candidates ORDER BY candidate_id")
+        ] == ["Unknown", "Internal"]
+    response = client.put(
+        "/api/v1/candidates/1/identity",
+        json={"action": "select_ct_record", "resourceId": 2},
+    )
+    assert response.status_code == 200, response.text
+    with database(client.app.state.settings) as db:
+        assert [
+            row[0]
+            for row in db.execute("SELECT classification FROM candidates ORDER BY candidate_id")
+        ] == ["Internal", "Unknown"]
+        assert tuple(
+            db.execute("SELECT candidate_id,confirmed FROM candidate_emails").fetchone()
+        ) == (1, 1)
+
+
 def test_req_in_23_unlinked_and_standalone_candidate(client):
     ingest(client, "ct", [{}])
     with database(client.app.state.settings) as db:
