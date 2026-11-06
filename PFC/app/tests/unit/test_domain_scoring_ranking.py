@@ -197,6 +197,19 @@ def test_req_in_24_latest_cv_wins_equal_ct_score():
     assert result.demands[0].rows[0].best.basis_id == "cv2"
 
 
+def test_req_in_24_scorable_cv_beats_higher_insufficient_ct():
+    config, resource, demand = fixture()
+    person = replace(resource, ct_skills="SQL")
+    cv = SkillBasis("cv", "CV v1", build_ct_basis(resource, config).skills)
+    semantics = {("D", "CT:r"): SemanticInput(1), ("D", "cv"): SemanticInput(0.5)}
+    result = run_match([demand], [person], {"r": [cv]}, semantics, config, AS_OF)
+    row = result.demands[0].shortlist[0]
+    assert row.best.basis_id == "cv"
+    assert row.best.band != "Insufficient data"
+    ct = next(basis for basis in row.per_basis if basis.label == "CT")
+    assert ct.band == "Insufficient data" and ct.score > row.best.score
+
+
 def test_req_mat_03_uniqueness_keeps_highest_score():
     config, resource, demand = fixture()
     first = replace(resource, resource_id="a", candidate_id="same")

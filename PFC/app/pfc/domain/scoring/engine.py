@@ -409,7 +409,15 @@ def run_match(
                     )
                     for basis in bases
                 )
-                best = min(scores, key=lambda b: (-b.score, -b.is_latest, b.basis_id))
+                best = min(
+                    scores,
+                    key=lambda b: (
+                        b.band == "Insufficient data",
+                        -b.score,
+                        -b.is_latest,
+                        b.basis_id,
+                    ),
+                )
                 status = config.bench_statuses.resolve(resource.bench_status or "")
                 priority = (
                     status.priority if status and status.priority else t.unmapped_status_priority
