@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '../api'
-import type { CandidateDetail, CvFact, CvFacts, CvVersion, IdentityResolution } from '../api/types'
+import { api, ApiError } from '../api'
+import type { CandidateDetail, CvFact, CvFacts, CvVersion, IdentityResolution, SkillFact } from '../api/types'
 import { BandChip, Banner, Chip, EligibilityBadge, ErrorState, MaskedValue, MatchDoughnut, Modal, Spinner } from '../components/ui'
 import { SummaryCard } from '../components/SummaryCard'
 import { formatDate, formatDateTime, initials, orNotRecorded } from '../lib/format'
@@ -12,11 +12,12 @@ type Tab = 'overview' | 'cv' | 'skills' | 'matches' | 'activity'
 
 const NOT_FOUND = <span className="muted">Not found in CV</span>
 
-function FactItem({ fact }: { fact: CvFact }) {
+function FactItem({ fact }: { fact: CvFact | SkillFact }) {
   return (
     <div className="stack" style={{ gap: 2 }}>
       <span>
-        {fact.value} <Chip tone={fact.source === 'llm' ? 'info' : 'neutral'}>{fact.source === 'llm' ? 'Local AI' : 'Rule'}</Chip>
+        {fact.value}{'canonical' in fact && fact.canonical && fact.canonical !== fact.value && <span> → {fact.canonical}</span>}{' '}
+        <Chip tone={fact.source === 'llm' ? 'info' : 'neutral'}>{fact.source === 'llm' ? 'Local AI' : 'Rule'}</Chip>
       </span>
       <details className="small muted">
         <summary>Evidence</summary>
@@ -46,24 +47,30 @@ function CvFactsCard({ cv, facts }: { cv: CvVersion; facts: CvFacts }) {
         CV facts — {cv.fileName} <span className="small muted mono">CV-{cv.cvVersionId}</span>
       </h3>
       {single('Name', facts.name)}
+      {facts.warnings.map((warning) => <Banner key={warning.code} tone="warning">{warning.message}</Banner>)}
       {single('Phone (masked)', facts.phone)}
       {list('Experience', facts.experience)}
       {list('Qualifications', facts.qualifications)}
       {list('Projects', facts.projects)}
+      {list('Skills', facts.skills)}
     </section>
   )
 }
 
 /**
  * Incomplete Candidate Information prompt (REQ-IN-23/25, GUI_OCC_DESIGN.md §12.3). Default is
- * "Generate internal ID and continue"; emails may only be selected from CT records (GQ-06).
+ * "Generate internal ID and continue"; manual entry accepts a name only (GQ-06).
  */
 export function IncompleteIdentityDialog({ detail, onClose }: { detail: CandidateDetail; onClose: () => void }) {
   const qc = useQueryClient()
   const [action, setAction] = useState<IdentityResolution['action']>('generate_internal_id')
   const [resourceId, setResourceId] = useState<number | undefined>(undefined)
+  const [name, setName] = useState('')
   const m = useMutation({
-    mutationFn: () => api.resolveIdentity(detail.candidateId, { action, resourceId }),
+    mutationFn: () => api.resolveIdentity(detail.candidateId,
+      action === 'manual_entry'
+        ? { action, name: name.trim() }
+        : action === 'select_ct_record' ? { action, resourceId } : { action }),
     onSuccess: () => {
       void qc.invalidateQueries()
       onClose()
@@ -78,14 +85,14 @@ export function IncompleteIdentityDialog({ detail, onClose }: { detail: Candidat
           <button className="btn" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn btn-primary" disabled={action === 'select_ct_record' && !resourceId} onClick={() => m.mutate()}>
+          <button className="btn btn-primary" disabled={m.isPending || (action === 'select_ct_record' && !resourceId) || (action === 'manual_entry' && !name.trim())} onClick={() => m.mutate()}>
             Continue
           </button>
         </>
       }
     >
       <p>
-        The CV for “{orNotRecorded(detail.resource.name)}” has no confirmed email address
+        Candidate information for “{orNotRecorded(detail.resource.name)}” is incomplete or ambiguous
         {detail.ctEmailOptions.length > 0 && `, and the name matches ${detail.ctEmailOptions.length} other candidate(s) in the Candidate Tracker`}.
       </p>
       <fieldset className="stack" style={{ border: 'none', padding: 0 }}>
@@ -105,6 +112,17 @@ export function IncompleteIdentityDialog({ detail, onClose }: { detail: Candidat
           </div>
         )}
         <label className="row">
+          <input type="radio" name="identity" checked={action === 'manual_entry'} onChange={() => setAction('manual_entry')} />
+          Manual entry
+        </label>
+        {action === 'manual_entry' && (
+          <div className="stack" style={{ paddingLeft: 24 }}>
+            <label className="stack">Name (required)
+              <input required maxLength={200} value={name} onChange={(e) => setName(e.target.value)} />
+            </label>
+          </div>
+        )}
+        <label className="row">
           <input type="radio" name="identity" checked={action === 'generate_internal_id'} onChange={() => setAction('generate_internal_id')} />
           Generate internal ID and continue (default)
         </label>
@@ -113,7 +131,8 @@ export function IncompleteIdentityDialog({ detail, onClose }: { detail: Candidat
           Review later
         </label>
       </fieldset>
-      {m.isError && <ErrorState error={m.error} />}
+      {m.isError && (m.error instanceof ApiError && m.error.problem.detail
+        ? <Banner tone="danger">{m.error.problem.detail}</Banner> : <ErrorState error={m.error} />)}
     </Modal>
   )
 }
@@ -160,9 +179,11 @@ export function CandidateProfilePage() {
   const d = detail.data
   const r = d.resource
   const incomplete = d.identityStatus === 'ambiguous' || d.identityStatus === 'incomplete'
-  const showPrompt = prompt ?? d.identityStatus === 'ambiguous'
+  const showPrompt = prompt ?? incomplete
+  const phoneWarning = d.cvVersions[0]?.facts?.warnings.find((warning) => warning.code === 'PHONE_NOT_FOUND')
   return (
     <div className="page">
+      {phoneWarning && <Banner tone="warning">Latest CV: {phoneWarning.message}</Banner>}
       <div className="card row" style={{ alignItems: 'flex-start' }}>
         <span className="avatar" style={{ width: 48, height: 48, fontSize: 16 }}>
           {initials(r.name ?? r.shortName)}

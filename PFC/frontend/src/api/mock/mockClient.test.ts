@@ -44,6 +44,68 @@ describe('mock auth (REQ-AUTH-01..04)', () => {
   })
 })
 
+describe('mock manual identity resolution (REQ-IN-23)', () => {
+  beforeEach(async () => {
+    await api.login({ role: 'Admin', email: ADMIN.email, password: ADMIN.password })
+  })
+
+  it.each([1, 10])('sets a name without changing CT data, emails or classification for candidate %s', async (candidateId) => {
+    const rawBefore = structuredClone(api.state.raws.find((r) => r.resourceId === candidateId))
+    const emailsBefore = structuredClone(api.state.candidates[candidateId].emails)
+    const benchBefore = api.resources().find((r) => r.resourceId === candidateId)
+    const profileBefore = await api.getCandidate(candidateId)
+    const detail = await api.resolveIdentity(candidateId, { action: 'manual_entry', name: '  Morgan Synthetic  ' })
+    expect(detail.resource.name).toBe('Morgan Synthetic')
+    expect(detail.identityStatus).toBe('complete')
+    expect(api.state.candidates[candidateId].emails).toEqual(emailsBefore)
+    expect(api.state.raws.find((r) => r.resourceId === candidateId)).toEqual(rawBefore)
+    const benchAfter = api.resources().find((r) => r.resourceId === candidateId)
+    expect(benchAfter?.emailAddressMasked).toBe(benchBefore?.emailAddressMasked)
+    expect(benchAfter?.candidateType).toBe(benchBefore?.candidateType)
+    expect(detail.classification).toEqual(profileBefore.classification)
+    if (candidateId === 10) {
+      expect(emailsBefore).toEqual([])
+      expect(await code(api.unmask('candidate', candidateId, 'email'))).toBe('NOT_FOUND')
+    }
+    const audit = JSON.stringify(await api.auditLog({}))
+    expect(audit).not.toContain('Morgan Synthetic')
+  })
+
+  it('keeps match-result names CT-derived after manual entry', async () => {
+    api.state.raws = api.state.raws.filter((r) => r.resourceId === 10)
+    const rawBefore = structuredClone(api.state.raws[0])
+    const before = api.computeResults()
+    expect(before.length).toBeGreaterThan(0)
+    const detail = await api.resolveIdentity(10, { action: 'manual_entry', name: 'Morgan Synthetic' })
+    expect(detail.resource.name).toBe('Morgan Synthetic')
+    const after = api.computeResults()
+    expect(after.map((r) => r.personName)).toEqual(before.map((r) => r.personName))
+    expect(after.every((r) => r.personName === rawBefore.name)).toBe(true)
+    expect(api.state.raws[0]).toEqual(rawBefore)
+  })
+
+  it('unmasks nonblank candidate emails by confirmation then email key without reordering state', async () => {
+    const candidate = api.state.candidates[10]
+    candidate.emails = [
+      { email: 'Zulu@example.com', emailKey: 'zulu@example.com', source: 'CT', confirmed: true },
+      { email: 'A@example.com', emailKey: 'a@example.com', source: 'CV', confirmed: false },
+      { email: ' \t ', emailKey: '0@example.com', source: 'CV', confirmed: true },
+      { email: 'Beta@example.com', emailKey: 'beta@example.com', source: 'CV', confirmed: true },
+    ]
+    const before = structuredClone(candidate.emails)
+    expect(await api.unmask('candidate', 10, 'email')).toBe('Beta@example.com')
+    expect(candidate.emails).toEqual(before)
+    candidate.emails.forEach((e) => { e.confirmed = false })
+    expect(await api.unmask('candidate', 10, 'email')).toBe('A@example.com')
+  })
+
+  it('rejects missing/blank/overlong names and typed email payloads', async () => {
+    for (const fields of [{}, { name: ' ' }, { name: 'x'.repeat(201) }, { name: 'Morgan', email: 'typed@example.com' }, { name: 'Morgan', email: null }]) {
+      expect(await code(api.resolveIdentity(10, { action: 'manual_entry', ...fields }))).toBe('VALIDATION_ERROR')
+    }
+  })
+})
+
 describe('mock reading-only summaries', () => {
   it('stores a candidate summary and marks it stale when its CV source is removed', async () => {
     await api.login({ role: 'Admin', email: ADMIN.email, password: ADMIN.password })

@@ -271,7 +271,8 @@ def test_removed_extraction_restores_structured_facts(
 ) -> None:
     text = (
         "Name: Alex Border\nPhone: +44 123456789\nalex@example.com\nWork Experience\n"
-        "Engineer at Example\nEducation\nBSc Computing\nProjects\nAtlas: SQL Python"
+        "Engineer at Example\nEducation\nBSc Computing\nProjects\nAtlas: SQL Python\n"
+        "Technical Skills\nSQL, Python"
     )
     _, versions = prepare(client, tmp_path, text)
     candidate = min(versions)
@@ -284,7 +285,7 @@ def test_removed_extraction_restores_structured_facts(
             ).fetchone()
         )
     original_facts = json.loads(original["facts_json"])
-    assert original_facts["facts_schema"] == 1
+    assert original_facts["facts_schema"] == 2
     assert original_facts["facts"]["name"]["value"] == "Alex Border"
     assert original_facts["facts"]["phone"]["value"] == "+44 123456789"
     assert all(
@@ -293,6 +294,7 @@ def test_removed_extraction_restores_structured_facts(
             "experience",
             "qualifications",
             "projects",
+            "skills",
         )
     )
     response = client.delete(f"/api/v1/occ/candidates/{candidate}/cv-extractions")

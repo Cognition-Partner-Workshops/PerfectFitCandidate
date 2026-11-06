@@ -11,15 +11,105 @@ from test_ingestion import client as client
 from test_ingestion import commit, configure_resume_root, resume_docx, upload, wait_cv_job
 
 from pfc.adapters.llm.providers import FakeProvider, GenerateResult, PromptRequest
+from pfc.adapters.sources.resume_folder import CandidateLookup, ResumeFolderSource
 from pfc.db.audit import verify_chain
 from pfc.db.connection import database
 from pfc.domain.normalise.text import normalise_text
+from pfc.services.ingestion import cv_sync
+from pfc.services.ingestion.cv_facts import ExtractedFacts, rule_facts
 
 TEXT = (
     "Name: Alex Border\nPhone: +44 123456789\nalex@example.com\nWork Experience\n"
     "Engineer at Example\nEducation\nBSc Computing\nProjects\n"
-    "Atlas: contact alex@example.com on +44 123456789"
+    "Atlas: contact alex@example.com on +44 123456789\nSkills\nSQL; Unlisted"
 )
+
+
+def test_req_in_23_nameless_cv_without_ct_link_keeps_profile_incomplete(
+    client: TestClient, tmp_path: Path
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    resume_docx(root, "known.docx", "Experience\nEngineer\nSkills\nSQL")
+    settings = client.app.state.settings
+    with database(settings) as db:
+        candidate = db.execute(
+            "INSERT INTO candidates(internal_ref,identity_status,created_at,updated_at) "
+            "VALUES ('PFC-C-STANDALONE','incomplete','2026-11-06','2026-11-06')"
+        ).lastrowid
+    source = ResumeFolderSource(root, work_dir=tmp_path / "extraction")
+    result = source.scan(
+        [CandidateLookup(candidate_id=str(candidate), source_paths=["known.docx"])]
+    )
+    assert len(result[0].versions) == 1
+    version = result[0].versions[0]
+    assert version.identity_match == "manual"
+    facts = rule_facts(version.text_norm)
+    assert facts.name is None
+    with database(settings) as db:
+        cv_sync._persist(db, candidate, version, "2026-11-06", root, ExtractedFacts(facts))
+        assert not db.execute(
+            "SELECT 1 FROM resources WHERE candidate_id=?", (candidate,)
+        ).fetchone()
+        assert not db.execute(
+            "SELECT 1 FROM candidate_emails WHERE candidate_id=?", (candidate,)
+        ).fetchone()
+    response = client.get(f"/api/v1/candidates/{candidate}")
+    assert response.status_code == 200, response.text
+    profile = response.json()
+    assert profile["identityStatus"] == profile["resource"]["identityStatus"] == "incomplete"
+    assert profile["resource"]["name"] is None and profile["resource"]["resourceId"] == 0
+    assert profile["cvVersions"][0]["facts"]["name"] is None
+    assert profile["ctEmailOptions"] == []
+
+
+def test_req_in_21_23_skills_use_one_approved_snapshot(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(client, upload(client, "ct", [{}]))
+    resume_docx(root, "Alex.docx", "alex@example.com\nKey Skills\nPFC alias, Unknown, Pending")
+    resume_docx(root, "Other.docx", "alex@example.com\nTechnical Skills\nPFC alias, Unknown")
+    settings = client.app.state.settings
+    with database(settings) as db:
+        skill_id = db.execute(
+            "INSERT INTO skills(name,created_by) VALUES ('PFC Canonical','admin')"
+        ).lastrowid
+        for term, status in [("PFC alias", "approved"), ("Pending", "suggested")]:
+            db.execute(
+                "INSERT INTO skill_synonyms(skill_id,term,term_norm,relation,status,updated_at) "
+                "VALUES (?,?,?,'equivalent',?,'2026-11-06')",
+                (skill_id, term, term.casefold(), status),
+            )
+    calls = 0
+    original = cv_sync.valid_synonym_table
+
+    def snapshot(db: Any) -> Any:
+        nonlocal calls
+        assert not db.in_transaction
+        calls += 1
+        return original(db)
+
+    monkeypatch.setattr(cv_sync, "valid_synonym_table", snapshot)
+    result = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert result["new_versions"] == 2 and calls == 1
+    with database(settings) as db:
+        for row in db.execute("SELECT text_norm,facts_json,candidate_id FROM cv_versions"):
+            data = json.loads(row["facts_json"])
+            assert data["facts_schema"] == 2
+            skills = data["facts"]["skills"]
+            assert skills[0]["canonical"] == "PFC Canonical"
+            assert all(s["canonical"] is None for s in skills[1:])
+            for s in skills:
+                assert row["text_norm"][slice(*s["span"])] == s["value"] == s["evidence"]
+            response = client.get(f"/api/v1/candidates/{row['candidate_id']}")
+            assert response.status_code == 200, response.text
+            facts = response.json()["cvVersions"][0]["facts"]
+            assert facts["warnings"][0]["code"] == "PHONE_NOT_FOUND"
+        assert not db.execute("SELECT 1 FROM resource_skills").fetchone()
+        assert db.execute("SELECT phone FROM candidates").fetchone()[0] is None
 
 
 def payload() -> str:
@@ -34,6 +124,7 @@ def payload() -> str:
             ],
             "qualifications": [],
             "projects": [{"value": "Invented project", "evidence": "Not in this CV"}],
+            "skills": [],
         }
     )
 
@@ -80,7 +171,7 @@ def test_req_in_21_23_sync_persists_only_grounded_facts(
         candidate = version["candidate_id"]
         saved = json.loads(version["facts_json"])
         assert saved["emails"] == ["alex@example.com", "alex@example.com"]
-        assert saved["facts_schema"] == 1
+        assert saved["facts_schema"] == 2
         assert version["text_norm"] == normalise_text(TEXT)
         assert saved["facts"]["name"]["value"] == "Alex Border"
         assert saved["facts"]["phone"]["value"] == "+44 123456789"
@@ -101,7 +192,7 @@ def test_req_in_21_23_sync_persists_only_grounded_facts(
         assert version["extracted_by"] == (
             "llm:fake:fake-v1" if mode == "healthy" else "rule_based"
         )
-        assert version["prompt_version"] == ("cv_extract_v1" if mode == "healthy" else None)
+        assert version["prompt_version"] == ("cv_extract_v2" if mode == "healthy" else None)
         for key, value in saved["facts"].items():
             for fact in (
                 [value]
@@ -133,8 +224,9 @@ def test_req_in_21_23_sync_persists_only_grounded_facts(
         assert items[0]["facts"]["phone"]["evidence"] == "***89"
 
 
+@pytest.mark.parametrize("schema", [0, 1])
 def test_req_in_23_backfill_preserves_emails_and_version(
-    client: TestClient, tmp_path: Path
+    client: TestClient, tmp_path: Path, schema: int
 ) -> None:
     root = tmp_path / "resumes"
     root.mkdir()
@@ -146,7 +238,15 @@ def test_req_in_23_backfill_preserves_emails_and_version(
         version = db.execute("SELECT cv_version_id FROM cv_versions").fetchone()[0]
         db.execute(
             "UPDATE cv_versions SET facts_json=?,extracted_by='legacy',prompt_version=NULL",
-            (json.dumps({"emails": ["MiXeD@example.com"], "legacy": True}),),
+            (
+                json.dumps(
+                    {
+                        "emails": ["MiXeD@example.com"],
+                        "legacy": True,
+                        **({"facts_schema": schema, "facts": {}} if schema else {}),
+                    }
+                ),
+            ),
         )
     result = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
     assert result["new_versions"] == 0 and result["unchanged"] == 1
@@ -157,7 +257,8 @@ def test_req_in_23_backfill_preserves_emails_and_version(
         assert len(rows) == 1 and rows[0][0] == version
         data: dict[str, Any] = json.loads(rows[0][1])
         assert data["emails"] == ["MiXeD@example.com"] and data["legacy"] is True
-        assert data["facts_schema"] == 1 and data["facts"]["name"]["value"] == "Alex Border"
+        assert data["facts_schema"] == 2 and data["facts"]["name"]["value"] == "Alex Border"
+        assert [s["value"] for s in data["facts"]["skills"]] == ["SQL", "Unlisted"]
         assert rows[0][2] == "rule_based"
     client.app.state.llm_provider = FakeProvider("invalid JSON")
     repeat = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
