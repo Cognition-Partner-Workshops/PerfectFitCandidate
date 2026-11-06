@@ -25,6 +25,7 @@ from pfc.services.embeddings.chunking import OwnerType
 from pfc.services.embeddings.reembed import ReembedCounts, embed_owners
 from pfc.services.embeddings.runtime import EmbeddingModelUnavailable, create_embedder
 
+from .cv_facts import ExtractedFacts, LLMBridge, extract_facts, public_facts, validate_facts
 from .limits import positive_setting
 
 EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?![\w-])")
@@ -72,12 +73,12 @@ def versions(settings: Settings, candidate_id: int) -> list[CVVersionItem]:
             raise Problem(404, "CANDIDATE_NOT_FOUND", "Candidate not found")
         rows = db.execute(
             "SELECT v.cv_version_id,v.version_no,r.file_name,r.source_path,r.file_mtime,"
-            "v.identity_match,v.is_latest,v.extracted_at FROM cv_versions v "
+            "v.identity_match,v.is_latest,v.extracted_at,v.facts_json FROM cv_versions v "
             "JOIN resumes r ON r.resume_id=v.resume_id WHERE v.candidate_id=? "
             "ORDER BY v.version_no DESC",
             (candidate_id,),
         ).fetchall()
-        return [CVVersionItem(**dict(r)) for r in rows]
+        return [CVVersionItem(**dict(r), facts=public_facts(r["facts_json"])) for r in rows]
 
 
 def _lookups(settings: Settings, ids: list[int]) -> list[CandidateLookup]:
@@ -164,6 +165,7 @@ def _persist(
     version: CVVersion,
     now: str,
     root: Path,
+    extracted: ExtractedFacts | None,
 ) -> tuple[int, bool]:
     path = Path(version.source_path)
     db.execute(
@@ -203,22 +205,54 @@ def _persist(
     text = normalise_text(version.text_norm)
     digest = hashlib.sha256(text.encode()).hexdigest()
     existing = db.execute(
-        "SELECT cv_version_id,candidate_id,extraction_removed_at FROM cv_versions "
+        "SELECT cv_version_id,candidate_id,text_norm,facts_json,extraction_removed_at "
+        "FROM cv_versions "
         "WHERE resume_id=? AND text_sha256=?",
         (resume_id, digest),
     ).fetchone()
     if existing:
         if existing["extraction_removed_at"] is not None:
+            assert extracted is not None
             db.execute(
                 "UPDATE cv_versions SET text_norm=?,sections_json=NULL,facts_json=?,"
-                "extraction_removed_at=NULL,extracted_at=? WHERE cv_version_id=?",
+                "extracted_by=?,prompt_version=?,extraction_removed_at=NULL,extracted_at=? "
+                "WHERE cv_version_id=?",
                 (
                     text,
-                    json.dumps({"emails": EMAIL.findall(version.text_norm)}),
+                    json.dumps(
+                        {
+                            "emails": EMAIL.findall(version.text_norm),
+                            "facts_schema": 1,
+                            "facts": validate_facts(
+                                text, extracted.facts.model_dump()
+                            ).model_dump(),
+                        }
+                    ),
+                    extracted.extracted_by,
+                    extracted.prompt_version,
                     now,
                     existing["cv_version_id"],
                 ),
             )
+        else:
+            saved = json.loads(existing["facts_json"] or "{}")
+            if "facts_schema" not in saved and extracted is not None:
+                saved.update(
+                    facts=validate_facts(
+                        existing["text_norm"], extracted.facts.model_dump()
+                    ).model_dump(),
+                    facts_schema=1,
+                )
+                db.execute(
+                    "UPDATE cv_versions SET facts_json=?,extracted_by=?,prompt_version=? "
+                    "WHERE cv_version_id=?",
+                    (
+                        json.dumps(saved),
+                        extracted.extracted_by,
+                        extracted.prompt_version,
+                        existing["cv_version_id"],
+                    ),
+                )
         if existing["candidate_id"] is None and candidate_id is not None:
             number = db.execute(
                 "SELECT coalesce(max(version_no),0)+1 FROM cv_versions WHERE candidate_id=?",
@@ -238,17 +272,26 @@ def _persist(
         "SELECT coalesce(max(version_no),0)+1 FROM cv_versions WHERE candidate_id IS ?",
         (candidate_id,),
     ).fetchone()[0]
+    assert extracted is not None
     cursor = db.execute(
         "INSERT INTO cv_versions(resume_id,candidate_id,version_no,text_sha256,text_norm,"
-        "facts_json,extracted_by,identity_match,is_latest,extracted_at) "
-        "VALUES (?,?,?,?,?,?,'rule_based',?,0,?)",
+        "facts_json,extracted_by,prompt_version,identity_match,is_latest,extracted_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?,0,?)",
         (
             resume_id,
             candidate_id,
             number,
             digest,
             text,
-            json.dumps({"emails": EMAIL.findall(version.text_norm)}),
+            json.dumps(
+                {
+                    "emails": EMAIL.findall(version.text_norm),
+                    "facts_schema": 1,
+                    "facts": validate_facts(text, extracted.facts.model_dump()).model_dump(),
+                }
+            ),
+            extracted.extracted_by,
+            extracted.prompt_version,
             version.identity_match,
             now,
         ),
@@ -281,6 +324,7 @@ def sync(
     ids: list[int],
     user_id: int,
     embedder: Embedder | None = None,
+    facts_bridge: LLMBridge | None = None,
 ) -> None:
     context.raise_if_cancelled()
     lookups = _lookups(settings, ids)
@@ -291,6 +335,7 @@ def sync(
             inventory.add(path.relative_to(root.resolve()).as_posix())
     counts = CVSyncCounts(scanned=len(inventory))
     with database(settings) as db:
+        facts_timeout = positive_setting(db, "cv.llm_timeout_s", 180)
         source = ResumeFolderSource(
             root,
             work_dir=settings.data_dir / "work" / "cv-extraction",
@@ -365,8 +410,33 @@ def sync(
             counts.warnings += 1
             continue
         groups[candidate_id].append(version)
+    facts_cache: dict[str, ExtractedFacts] = {}
     for index, (candidate_id, found) in enumerate(groups.items()):
         context.raise_if_cancelled()
+        prepared: dict[str, ExtractedFacts] = {}
+        for version in found:
+            text = normalise_text(version.text_norm)
+            text_digest = hashlib.sha256(text.encode()).hexdigest()
+            with database(settings) as db:
+                previous = db.execute(
+                    "SELECT v.facts_json,v.extraction_removed_at FROM cv_versions v "
+                    "JOIN resumes r USING(resume_id) "
+                    "WHERE r.file_sha256=? AND v.text_sha256=?",
+                    (version.file_sha256, text_digest),
+                ).fetchone()
+            if (
+                previous is None
+                or previous["extraction_removed_at"] is not None
+                or "facts_schema" not in json.loads(previous["facts_json"] or "{}")
+            ):
+                if text_digest not in facts_cache:
+                    facts_cache[text_digest] = extract_facts(
+                        text, facts_bridge, facts_timeout, context
+                    )
+                extracted = facts_cache[text_digest]
+                prepared[version.source_path] = extracted
+                counts.facts_llm_timeout += int(extracted.failure == "timeout")
+                counts.facts_llm_failed += int(extracted.failure == "error")
         with database(settings) as db:
             db.execute("BEGIN IMMEDIATE")
             affected = (
@@ -386,7 +456,9 @@ def sync(
             now = stamp(datetime.now(UTC))
             for version in sorted(found, key=lambda v: (v.file_mtime, v.source_path)):
                 context.raise_if_cancelled()
-                _, inserted = _persist(db, candidate_id, version, now, root)
+                _, inserted = _persist(
+                    db, candidate_id, version, now, root, prepared.get(version.source_path)
+                )
                 counts.new_versions += int(inserted)
                 counts.unchanged += int(not inserted)
             if candidate_id is not None:

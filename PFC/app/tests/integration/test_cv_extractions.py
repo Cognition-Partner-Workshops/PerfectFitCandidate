@@ -25,7 +25,11 @@ from pfc.services.embeddings.matching_bridge import MatchingVectorStore
 from pfc.services.matching.ports import ChunkOwner
 
 
-def prepare(client: TestClient, tmp_path: Path) -> tuple[Path, dict[int, int]]:
+def prepare(
+    client: TestClient,
+    tmp_path: Path,
+    cv_text: str = "SQL Python alex@example.com",
+) -> tuple[Path, dict[int, int]]:
     root = tmp_path / "resumes"
     root.mkdir()
     configure_resume_root(client, root)
@@ -40,7 +44,7 @@ def prepare(client: TestClient, tmp_path: Path) -> tuple[Path, dict[int, int]]:
             ],
         ),
     )
-    resume_docx(root, "Alex.docx", "SQL Python alex@example.com")
+    resume_docx(root, "Alex.docx", cv_text)
     resume_docx(root, "Taylor.docx", "AWS taylor@example.com")
     client.app.state.embedder = FakeEmbedder(8)
     with database(client.app.state.settings) as db:
@@ -179,6 +183,66 @@ def test_removal_is_scoped_and_sync_restores_unchanged_file(
         assert row["sections_json"] is None and row["extraction_removed_at"] is None
         assert db.execute("SELECT count(*) FROM cv_versions").fetchone()[0] == 2
         assert db.execute("SELECT count(*) FROM embedding_chunks").fetchone()[0] == 2
+
+
+@pytest.mark.parametrize("preserved_schema", [False, True])
+def test_removed_extraction_restores_structured_facts(
+    client: TestClient,
+    tmp_path: Path,
+    preserved_schema: bool,
+) -> None:
+    text = (
+        "Name: Alex Border\nPhone: +44 123456789\nalex@example.com\nWork Experience\n"
+        "Engineer at Example\nEducation\nBSc Computing\nProjects\nAtlas: SQL Python"
+    )
+    _, versions = prepare(client, tmp_path, text)
+    candidate = min(versions)
+    settings = client.app.state.settings
+    with database(settings) as db:
+        original = dict(
+            db.execute(
+                "SELECT * FROM cv_versions WHERE cv_version_id=?",
+                (versions[candidate],),
+            ).fetchone()
+        )
+    original_facts = json.loads(original["facts_json"])
+    assert original_facts["facts_schema"] == 1
+    assert original_facts["facts"]["name"]["value"] == "Alex Border"
+    assert original_facts["facts"]["phone"]["value"] == "+44 123456789"
+    assert all(
+        original_facts["facts"][key]
+        for key in (
+            "experience",
+            "qualifications",
+            "projects",
+        )
+    )
+    response = client.delete(f"/api/v1/occ/candidates/{candidate}/cv-extractions")
+    assert response.status_code == 200
+    with database(settings) as db:
+        db.execute(
+            "UPDATE cv_versions SET facts_json=?,extracted_by='legacy',prompt_version='stale' "
+            "WHERE cv_version_id=?",
+            (original["facts_json"] if preserved_schema else "{}", versions[candidate]),
+        )
+    result = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert result["new_versions"] == 0 and result["embedded"] == 1
+    with database(settings) as db:
+        restored = dict(
+            db.execute(
+                "SELECT * FROM cv_versions WHERE cv_version_id=?",
+                (versions[candidate],),
+            ).fetchone()
+        )
+        assert restored["text_norm"] == original["text_norm"]
+        assert json.loads(restored["facts_json"]) == original_facts
+        assert restored["extraction_removed_at"] is None
+        assert restored["extracted_by"] == original["extracted_by"]
+        assert restored["prompt_version"] == original["prompt_version"]
+        for key in ("cv_version_id", "resume_id", "version_no", "text_sha256", "is_latest"):
+            assert restored[key] == original[key]
+    repeated = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert repeated["new_versions"] == 0 and repeated["embedded"] == 0
 
 
 def test_extraction_filenames_are_masked(client: TestClient, tmp_path: Path) -> None:

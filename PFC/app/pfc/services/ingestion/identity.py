@@ -19,6 +19,8 @@ from pfc.security.problems import Problem
 from pfc.services.candidates.classification import reclassify_candidate
 
 from .browse import _mask
+from .cv_facts import public_facts
+from .masking import mask_phone
 
 
 def _candidate(db: sqlite3.Connection, candidate_id: int) -> sqlite3.Row:
@@ -191,6 +193,7 @@ def detail(db: sqlite3.Connection, candidate_id: int) -> CandidateDetail:
             modified_at=r["file_mtime"] or r["extracted_at"],
             extracted_at=r["extracted_at"],
             is_best=(r["cv_version_id"] == best[0]) if best else bool(r["is_latest"]),
+            facts=public_facts(r["facts_json"]),
         )
         for r in db.execute(
             "SELECT v.*,r.file_name,r.source_path,r.file_mtime FROM cv_versions v "
@@ -204,9 +207,7 @@ def detail(db: sqlite3.Connection, candidate_id: int) -> CandidateDetail:
         candidate_id=candidate_id,
         internal_ref=candidate["internal_ref"],
         resource=_resource(db, candidate, len(versions)),
-        phone_masked=("***" + phone[-2:])
-        if phone and len(phone) > 2
-        else ("***" if phone else None),
+        phone_masked=mask_phone(phone),
         emails=[
             masked
             for r in db.execute(
