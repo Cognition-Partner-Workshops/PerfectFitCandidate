@@ -626,6 +626,10 @@ export class MockApiClient implements ApiClient {
         demandId,
         mandatorySkills: d.mandatorySkills,
         preferredSkills: d.preferredSkills,
+        items: [
+          ...d.mandatorySkills.map((text, index) => ({ kind: 'mandatory_skill' as const, text, evidence: null, evidenceUnverified: demandId !== 2 && index === 0 })),
+          ...d.preferredSkills.map((text) => ({ kind: 'preferred_skill' as const, text, evidence: null, evidenceUnverified: false })),
+        ],
         experienceYears: 5,
         qualifications: '',
         domain: d.bu === 'INS' ? 'Insurance' : d.bu === 'BCM' ? 'Banking' : '',
