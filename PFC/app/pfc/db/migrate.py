@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 from importlib.resources import files
 from pathlib import Path
@@ -35,7 +36,7 @@ def migrate(settings: Settings, migrations_dir: Path | None = None) -> list[str]
                 backup_dir.mkdir(parents=True, exist_ok=True)
                 stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
                 backup_path = backup_dir / f"pfc-{stamp}-pre-{version}.db"
-                with sqlite3.connect(backup_path) as backup:
+                with closing(sqlite3.connect(backup_path)) as backup:
                     connection.backup(backup)
             try:
                 connection.execute("BEGIN IMMEDIATE")
@@ -58,7 +59,7 @@ def migrate(settings: Settings, migrations_dir: Path | None = None) -> list[str]
             except BaseException:
                 connection.rollback()
                 if backup_path is not None:
-                    with sqlite3.connect(backup_path) as backup:
+                    with closing(sqlite3.connect(backup_path)) as backup:
                         backup.backup(connection)
                 raise
             applied.append(version)

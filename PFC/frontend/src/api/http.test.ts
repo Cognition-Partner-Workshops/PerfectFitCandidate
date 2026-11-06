@@ -359,6 +359,16 @@ describe('HttpApiClient — ingestion wiring', () => {
   })
 })
 
+describe('HttpApiClient — health (REQ-AUTH-06)', () => {
+  it('reads the data volume encryption status and defaults to Unknown', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(json({ status: 'ok', details: { dataVolumeEncryption: 'Encrypted' } })).mockResolvedValueOnce(json({ status: 'ok' }))
+    expect(await api.getHealth()).toEqual({ status: 'ok', dataVolumeEncryption: 'Encrypted' })
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe('/api/v1/health')
+    expect(await api.getHealth()).toEqual({ status: 'ok', dataVolumeEncryption: 'Unknown' })
+  })
+})
+
 describe('HttpApiClient — analytics and export wiring (REQ-OUT-04..09)', () => {
   it('sends only backend DashboardFilters keys, with the demand grade as grade', () => {
     expect(
