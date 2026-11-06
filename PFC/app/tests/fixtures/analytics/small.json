@@ -1498,13 +1498,13 @@
         {
           "detail": "0 pending-review unparseable end dates; scored inputs checked.",
           "id": "bench-end",
-          "label": "Bench End is blank or unparseable",
+          "label": "Bench End is blank or unparseable with pending review",
           "passed": true
         },
         {
-          "detail": "Structural check: Available Capacity is not a scoring input.",
+          "detail": "Structural Resource fields and persisted score-breakdown input keys checked.",
           "id": "capacity",
-          "label": "Available Capacity is not used for scoring",
+          "label": "Available Capacity is not a matching/filter input",
           "passed": true
         },
         {
@@ -1514,9 +1514,15 @@
           "passed": true
         },
         {
-          "detail": "Checks current CT values (resources.email_address), not historical email equality.",
+          "detail": "Masked scoring snapshot compared exactly with the mask of resources.email_address; legacy rows use live CT serialization. Raw historical email bytes are not persisted, so equality of hidden characters cannot be proven.",
           "id": "email-copy",
-          "label": "Every result has a CT email",
+          "label": "Result email agrees with the CT source (masked snapshot)",
+          "passed": true
+        },
+        {
+          "detail": "Serialized export column order and REQ-OUT-03 mask checked against CT source.",
+          "id": "masked-email",
+          "label": "Masked email immediately follows the person's name",
           "passed": true
         },
         {
@@ -1526,13 +1532,13 @@
           "passed": true
         },
         {
-          "detail": "Persisted numeric scores checked before percentage formatting.",
+          "detail": "Persisted scores and the CSV serializer's formatted percentage checked.",
           "id": "score",
-          "label": "Match percentage is between 0 and 100",
+          "label": "Match percentage is percentage-formatted and within 0\u2013100",
           "passed": true
         },
         {
-          "detail": "Scored display Start Dates checked (current values for legacy rows).",
+          "detail": "Scored Start Dates and ISO serializer checked (current values for legacy rows).",
           "id": "start-date",
           "label": "Start Date is ISO or null",
           "passed": true
@@ -2445,13 +2451,13 @@
         {
           "detail": "0 pending-review unparseable end dates; scored inputs checked.",
           "id": "bench-end",
-          "label": "Bench End is blank or unparseable",
+          "label": "Bench End is blank or unparseable with pending review",
           "passed": true
         },
         {
-          "detail": "Structural check: Available Capacity is not a scoring input.",
+          "detail": "Structural Resource fields and persisted score-breakdown input keys checked.",
           "id": "capacity",
-          "label": "Available Capacity is not used for scoring",
+          "label": "Available Capacity is not a matching/filter input",
           "passed": true
         },
         {
@@ -2461,9 +2467,15 @@
           "passed": true
         },
         {
-          "detail": "Checks current CT values (resources.email_address), not historical email equality.",
+          "detail": "Masked scoring snapshot compared exactly with the mask of resources.email_address; legacy rows use live CT serialization. Raw historical email bytes are not persisted, so equality of hidden characters cannot be proven.",
           "id": "email-copy",
-          "label": "Every result has a CT email",
+          "label": "Result email agrees with the CT source (masked snapshot)",
+          "passed": true
+        },
+        {
+          "detail": "Serialized export column order and REQ-OUT-03 mask checked against CT source.",
+          "id": "masked-email",
+          "label": "Masked email immediately follows the person's name",
           "passed": true
         },
         {
@@ -2473,13 +2485,13 @@
           "passed": true
         },
         {
-          "detail": "Persisted numeric scores checked before percentage formatting.",
+          "detail": "Persisted scores and the CSV serializer's formatted percentage checked.",
           "id": "score",
-          "label": "Match percentage is between 0 and 100",
+          "label": "Match percentage is percentage-formatted and within 0\u2013100",
           "passed": true
         },
         {
-          "detail": "Scored display Start Dates checked (current values for legacy rows).",
+          "detail": "Scored Start Dates and ISO serializer checked (current values for legacy rows).",
           "id": "start-date",
           "label": "Start Date is ISO or null",
           "passed": true
@@ -3392,13 +3404,13 @@
         {
           "detail": "0 pending-review unparseable end dates; scored inputs checked.",
           "id": "bench-end",
-          "label": "Bench End is blank or unparseable",
+          "label": "Bench End is blank or unparseable with pending review",
           "passed": true
         },
         {
-          "detail": "Structural check: Available Capacity is not a scoring input.",
+          "detail": "Structural Resource fields and persisted score-breakdown input keys checked.",
           "id": "capacity",
-          "label": "Available Capacity is not used for scoring",
+          "label": "Available Capacity is not a matching/filter input",
           "passed": true
         },
         {
@@ -3408,9 +3420,15 @@
           "passed": true
         },
         {
-          "detail": "Checks current CT values (resources.email_address), not historical email equality.",
+          "detail": "Masked scoring snapshot compared exactly with the mask of resources.email_address; legacy rows use live CT serialization. Raw historical email bytes are not persisted, so equality of hidden characters cannot be proven.",
           "id": "email-copy",
-          "label": "Every result has a CT email",
+          "label": "Result email agrees with the CT source (masked snapshot)",
+          "passed": true
+        },
+        {
+          "detail": "Serialized export column order and REQ-OUT-03 mask checked against CT source.",
+          "id": "masked-email",
+          "label": "Masked email immediately follows the person's name",
           "passed": true
         },
         {
@@ -3420,13 +3438,13 @@
           "passed": true
         },
         {
-          "detail": "Persisted numeric scores checked before percentage formatting.",
+          "detail": "Persisted scores and the CSV serializer's formatted percentage checked.",
           "id": "score",
-          "label": "Match percentage is between 0 and 100",
+          "label": "Match percentage is percentage-formatted and within 0\u2013100",
           "passed": true
         },
         {
-          "detail": "Scored display Start Dates checked (current values for legacy rows).",
+          "detail": "Scored Start Dates and ISO serializer checked (current values for legacy rows).",
           "id": "start-date",
           "label": "Start Date is ISO or null",
           "passed": true
@@ -4959,13 +4977,13 @@
         {
           "detail": "0 pending-review unparseable end dates; scored inputs checked.",
           "id": "bench-end",
-          "label": "Bench End is blank or unparseable",
+          "label": "Bench End is blank or unparseable with pending review",
           "passed": true
         },
         {
-          "detail": "Structural check: Available Capacity is not a scoring input.",
+          "detail": "Structural Resource fields and persisted score-breakdown input keys checked.",
           "id": "capacity",
-          "label": "Available Capacity is not used for scoring",
+          "label": "Available Capacity is not a matching/filter input",
           "passed": true
         },
         {
@@ -4975,9 +4993,15 @@
           "passed": true
         },
         {
-          "detail": "Checks current CT values (resources.email_address), not historical email equality.",
+          "detail": "Masked scoring snapshot compared exactly with the mask of resources.email_address; legacy rows use live CT serialization. Raw historical email bytes are not persisted, so equality of hidden characters cannot be proven.",
           "id": "email-copy",
-          "label": "Every result has a CT email",
+          "label": "Result email agrees with the CT source (masked snapshot)",
+          "passed": true
+        },
+        {
+          "detail": "Serialized export column order and REQ-OUT-03 mask checked against CT source.",
+          "id": "masked-email",
+          "label": "Masked email immediately follows the person's name",
           "passed": true
         },
         {
@@ -4987,13 +5011,13 @@
           "passed": true
         },
         {
-          "detail": "Persisted numeric scores checked before percentage formatting.",
+          "detail": "Persisted scores and the CSV serializer's formatted percentage checked.",
           "id": "score",
-          "label": "Match percentage is between 0 and 100",
+          "label": "Match percentage is percentage-formatted and within 0\u2013100",
           "passed": true
         },
         {
-          "detail": "Scored display Start Dates checked (current values for legacy rows).",
+          "detail": "Scored Start Dates and ISO serializer checked (current values for legacy rows).",
           "id": "start-date",
           "label": "Start Date is ISO or null",
           "passed": true
@@ -6526,13 +6550,13 @@
         {
           "detail": "0 pending-review unparseable end dates; scored inputs checked.",
           "id": "bench-end",
-          "label": "Bench End is blank or unparseable",
+          "label": "Bench End is blank or unparseable with pending review",
           "passed": true
         },
         {
-          "detail": "Structural check: Available Capacity is not a scoring input.",
+          "detail": "Structural Resource fields and persisted score-breakdown input keys checked.",
           "id": "capacity",
-          "label": "Available Capacity is not used for scoring",
+          "label": "Available Capacity is not a matching/filter input",
           "passed": true
         },
         {
@@ -6542,9 +6566,15 @@
           "passed": true
         },
         {
-          "detail": "Checks current CT values (resources.email_address), not historical email equality.",
+          "detail": "Masked scoring snapshot compared exactly with the mask of resources.email_address; legacy rows use live CT serialization. Raw historical email bytes are not persisted, so equality of hidden characters cannot be proven.",
           "id": "email-copy",
-          "label": "Every result has a CT email",
+          "label": "Result email agrees with the CT source (masked snapshot)",
+          "passed": true
+        },
+        {
+          "detail": "Serialized export column order and REQ-OUT-03 mask checked against CT source.",
+          "id": "masked-email",
+          "label": "Masked email immediately follows the person's name",
           "passed": true
         },
         {
@@ -6554,13 +6584,13 @@
           "passed": true
         },
         {
-          "detail": "Persisted numeric scores checked before percentage formatting.",
+          "detail": "Persisted scores and the CSV serializer's formatted percentage checked.",
           "id": "score",
-          "label": "Match percentage is between 0 and 100",
+          "label": "Match percentage is percentage-formatted and within 0\u2013100",
           "passed": true
         },
         {
-          "detail": "Scored display Start Dates checked (current values for legacy rows).",
+          "detail": "Scored Start Dates and ISO serializer checked (current values for legacy rows).",
           "id": "start-date",
           "label": "Start Date is ISO or null",
           "passed": true
@@ -8093,13 +8123,13 @@
         {
           "detail": "0 pending-review unparseable end dates; scored inputs checked.",
           "id": "bench-end",
-          "label": "Bench End is blank or unparseable",
+          "label": "Bench End is blank or unparseable with pending review",
           "passed": true
         },
         {
-          "detail": "Structural check: Available Capacity is not a scoring input.",
+          "detail": "Structural Resource fields and persisted score-breakdown input keys checked.",
           "id": "capacity",
-          "label": "Available Capacity is not used for scoring",
+          "label": "Available Capacity is not a matching/filter input",
           "passed": true
         },
         {
@@ -8109,9 +8139,15 @@
           "passed": true
         },
         {
-          "detail": "Checks current CT values (resources.email_address), not historical email equality.",
+          "detail": "Masked scoring snapshot compared exactly with the mask of resources.email_address; legacy rows use live CT serialization. Raw historical email bytes are not persisted, so equality of hidden characters cannot be proven.",
           "id": "email-copy",
-          "label": "Every result has a CT email",
+          "label": "Result email agrees with the CT source (masked snapshot)",
+          "passed": true
+        },
+        {
+          "detail": "Serialized export column order and REQ-OUT-03 mask checked against CT source.",
+          "id": "masked-email",
+          "label": "Masked email immediately follows the person's name",
           "passed": true
         },
         {
@@ -8121,13 +8157,13 @@
           "passed": true
         },
         {
-          "detail": "Persisted numeric scores checked before percentage formatting.",
+          "detail": "Persisted scores and the CSV serializer's formatted percentage checked.",
           "id": "score",
-          "label": "Match percentage is between 0 and 100",
+          "label": "Match percentage is percentage-formatted and within 0\u2013100",
           "passed": true
         },
         {
-          "detail": "Scored display Start Dates checked (current values for legacy rows).",
+          "detail": "Scored Start Dates and ISO serializer checked (current values for legacy rows).",
           "id": "start-date",
           "label": "Start Date is ISO or null",
           "passed": true
@@ -9660,13 +9696,13 @@
         {
           "detail": "0 pending-review unparseable end dates; scored inputs checked.",
           "id": "bench-end",
-          "label": "Bench End is blank or unparseable",
+          "label": "Bench End is blank or unparseable with pending review",
           "passed": true
         },
         {
-          "detail": "Structural check: Available Capacity is not a scoring input.",
+          "detail": "Structural Resource fields and persisted score-breakdown input keys checked.",
           "id": "capacity",
-          "label": "Available Capacity is not used for scoring",
+          "label": "Available Capacity is not a matching/filter input",
           "passed": true
         },
         {
@@ -9676,9 +9712,15 @@
           "passed": true
         },
         {
-          "detail": "Checks current CT values (resources.email_address), not historical email equality.",
+          "detail": "Masked scoring snapshot compared exactly with the mask of resources.email_address; legacy rows use live CT serialization. Raw historical email bytes are not persisted, so equality of hidden characters cannot be proven.",
           "id": "email-copy",
-          "label": "Every result has a CT email",
+          "label": "Result email agrees with the CT source (masked snapshot)",
+          "passed": true
+        },
+        {
+          "detail": "Serialized export column order and REQ-OUT-03 mask checked against CT source.",
+          "id": "masked-email",
+          "label": "Masked email immediately follows the person's name",
           "passed": true
         },
         {
@@ -9688,13 +9730,13 @@
           "passed": true
         },
         {
-          "detail": "Persisted numeric scores checked before percentage formatting.",
+          "detail": "Persisted scores and the CSV serializer's formatted percentage checked.",
           "id": "score",
-          "label": "Match percentage is between 0 and 100",
+          "label": "Match percentage is percentage-formatted and within 0\u2013100",
           "passed": true
         },
         {
-          "detail": "Scored display Start Dates checked (current values for legacy rows).",
+          "detail": "Scored Start Dates and ISO serializer checked (current values for legacy rows).",
           "id": "start-date",
           "label": "Start Date is ISO or null",
           "passed": true
@@ -10633,13 +10675,13 @@
         {
           "detail": "0 pending-review unparseable end dates; scored inputs checked.",
           "id": "bench-end",
-          "label": "Bench End is blank or unparseable",
+          "label": "Bench End is blank or unparseable with pending review",
           "passed": true
         },
         {
-          "detail": "Structural check: Available Capacity is not a scoring input.",
+          "detail": "Structural Resource fields and persisted score-breakdown input keys checked.",
           "id": "capacity",
-          "label": "Available Capacity is not used for scoring",
+          "label": "Available Capacity is not a matching/filter input",
           "passed": true
         },
         {
@@ -10649,9 +10691,15 @@
           "passed": true
         },
         {
-          "detail": "Checks current CT values (resources.email_address), not historical email equality.",
+          "detail": "Masked scoring snapshot compared exactly with the mask of resources.email_address; legacy rows use live CT serialization. Raw historical email bytes are not persisted, so equality of hidden characters cannot be proven.",
           "id": "email-copy",
-          "label": "Every result has a CT email",
+          "label": "Result email agrees with the CT source (masked snapshot)",
+          "passed": true
+        },
+        {
+          "detail": "Serialized export column order and REQ-OUT-03 mask checked against CT source.",
+          "id": "masked-email",
+          "label": "Masked email immediately follows the person's name",
           "passed": true
         },
         {
@@ -10661,13 +10709,13 @@
           "passed": true
         },
         {
-          "detail": "Persisted numeric scores checked before percentage formatting.",
+          "detail": "Persisted scores and the CSV serializer's formatted percentage checked.",
           "id": "score",
-          "label": "Match percentage is between 0 and 100",
+          "label": "Match percentage is percentage-formatted and within 0\u2013100",
           "passed": true
         },
         {
-          "detail": "Scored display Start Dates checked (current values for legacy rows).",
+          "detail": "Scored Start Dates and ISO serializer checked (current values for legacy rows).",
           "id": "start-date",
           "label": "Start Date is ISO or null",
           "passed": true
@@ -12200,13 +12248,13 @@
         {
           "detail": "0 pending-review unparseable end dates; scored inputs checked.",
           "id": "bench-end",
-          "label": "Bench End is blank or unparseable",
+          "label": "Bench End is blank or unparseable with pending review",
           "passed": true
         },
         {
-          "detail": "Structural check: Available Capacity is not a scoring input.",
+          "detail": "Structural Resource fields and persisted score-breakdown input keys checked.",
           "id": "capacity",
-          "label": "Available Capacity is not used for scoring",
+          "label": "Available Capacity is not a matching/filter input",
           "passed": true
         },
         {
@@ -12216,9 +12264,15 @@
           "passed": true
         },
         {
-          "detail": "Checks current CT values (resources.email_address), not historical email equality.",
+          "detail": "Masked scoring snapshot compared exactly with the mask of resources.email_address; legacy rows use live CT serialization. Raw historical email bytes are not persisted, so equality of hidden characters cannot be proven.",
           "id": "email-copy",
-          "label": "Every result has a CT email",
+          "label": "Result email agrees with the CT source (masked snapshot)",
+          "passed": true
+        },
+        {
+          "detail": "Serialized export column order and REQ-OUT-03 mask checked against CT source.",
+          "id": "masked-email",
+          "label": "Masked email immediately follows the person's name",
           "passed": true
         },
         {
@@ -12228,13 +12282,13 @@
           "passed": true
         },
         {
-          "detail": "Persisted numeric scores checked before percentage formatting.",
+          "detail": "Persisted scores and the CSV serializer's formatted percentage checked.",
           "id": "score",
-          "label": "Match percentage is between 0 and 100",
+          "label": "Match percentage is percentage-formatted and within 0\u2013100",
           "passed": true
         },
         {
-          "detail": "Scored display Start Dates checked (current values for legacy rows).",
+          "detail": "Scored Start Dates and ISO serializer checked (current values for legacy rows).",
           "id": "start-date",
           "label": "Start Date is ISO or null",
           "passed": true

@@ -48,6 +48,19 @@ def evidence(value: str) -> str:
     return "; ".join(part for part in value.split("; ") if part.strip())
 
 
+def display_percentage(score: float) -> str:
+    """REQ-OUT-01/10: CSV percentage display shared with the validation panel."""
+    return f"{score:.1f}%"
+
+
+def display_start_date(value: str | None) -> str:
+    """REQ-OUT-02/10: consistent genuine dates in serialized output."""
+    try:
+        return date.fromisoformat(value).isoformat() if value else ""
+    except ValueError as exc:
+        raise Problem(422, "INVALID_RESULT_DATE", "Result Start Date is not ISO") from exc
+
+
 def export_results(
     db: sqlite3.Connection,
     run_id: int,
@@ -79,10 +92,7 @@ def export_results(
             email = db.execute(
                 "SELECT email_address FROM resources WHERE resource_id=?", (row["resource_id"],)
             ).fetchone()[0]
-        try:
-            start = date.fromisoformat(row["start_date"]).isoformat() if row["start_date"] else ""
-        except ValueError as exc:
-            raise Problem(422, "INVALID_RESULT_DATE", "Result Start Date is not ISO") from exc
+        start = display_start_date(row["start_date"])
         rows.append(
             [
                 row["requisition"],
@@ -95,7 +105,7 @@ def export_results(
                 email or "",
                 row["person_grade"] or "",
                 row["person_location"] or "",
-                f"{row['score']:.1f}%" if format == "csv" else row["score"] / 100,
+                display_percentage(row["score"]) if format == "csv" else row["score"] / 100,
                 row["effective_band"],
                 row["location_assessment"],
                 evidence(row["matching_evidence"]),

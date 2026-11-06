@@ -10,10 +10,14 @@ import pytest
 from openpyxl import load_workbook
 from test_matching_api import Api
 from test_matching_api import api as api
-from test_matching_service import NOW, seed_demand, seed_resource
+from test_matching_service import NOW, seed_demand, seed_resource, wait_done
 
+from pfc.api.schemas.analytics import DashboardFilters
 from pfc.db.audit import verify_chain
 from pfc.db.connection import database
+from pfc.services.analytics.dashboard import validation
+from pfc.services.analytics.population import Population
+from pfc.services.matching import export
 from pfc.services.matching.export import DISCLAIMER, HEADERS
 from pfc.services.pii import ANALYST_UNMASK_KEY
 
@@ -437,6 +441,11 @@ def test_overrides_filters_and_explicit_run(populated: tuple[Api, dict[str, Any]
         ),
         ("email-copy", "UPDATE resources SET email_address=NULL"),
         ("evidence", "UPDATE match_results SET gaps_checks=''"),
+        (
+            "capacity",
+            'UPDATE score_breakdowns SET inputs_json=\'{"available_capacity":"N"}\' '
+            "WHERE component='skills'",
+        ),
         ("score", "UPDATE match_results SET score=101"),
         ("start-date", "UPDATE demands SET position_start_date='not a date'"),
     ],
@@ -444,24 +453,152 @@ def test_overrides_filters_and_explicit_run(populated: tuple[Api, dict[str, Any]
 def test_validation_failures(
     populated: tuple[Api, dict[str, Any]], check: str, statement: str
 ) -> None:
+    """REQ-OUT-10: each persisted-input quality check rejects a violating result."""
     api, _ = populated
     with database(api[0].app.state.settings) as db:
         db.execute("PRAGMA ignore_check_constraints=ON")
         db.execute(statement)
     checks = {row["id"]: row for row in get(api, "/analytics/match")["validation"]}
     assert checks[check]["passed"] is False
-    assert checks["capacity"]["passed"] and "Structural" in checks["capacity"]["detail"]
+    assert "Structural" in checks["capacity"]["detail"]
 
 
 def test_unparseable_pending_review(populated: tuple[Api, dict[str, Any]]) -> None:
+    """P1-EX-04 / REQ-OUT-10: unparseable dates need the engine's persisted review flag."""
     api, ids = populated
     with database(api[0].app.state.settings) as db:
         db.execute(
             "UPDATE score_breakdowns SET inputs_json=? WHERE component='bench_end' AND result_id=?",
             (json.dumps({"parse_status": "unparseable"}), ids["results"][0]),
         )
+    assert get(api, "/analytics/match")["validation"][0]["passed"] is False
+    with database(api[0].app.state.settings) as db:
+        db.execute(
+            "UPDATE match_results SET gaps_checks='Bench End Date unparseable — pending review' "
+            "WHERE result_id=?",
+            (ids["results"][0],),
+        )
     check = get(api, "/analytics/match")["validation"][0]
     assert check["passed"] and check["detail"].startswith("1 pending-review")
+
+
+@pytest.mark.parametrize("check", ["masked-email", "mask-format", "score", "start-date"])
+def test_req_out_10_serializer_validation(
+    populated: tuple[Api, dict[str, Any]], monkeypatch: pytest.MonkeyPatch, check: str
+) -> None:
+    """REQ-OUT-01/02/03/10: validate actual display formatting and column layout."""
+    api, _ = populated
+    if check == "masked-email":
+        columns = list(export.HEADERS)
+        columns[6], columns[7] = columns[7], columns[6]
+        monkeypatch.setattr(export, "HEADERS", tuple(columns))
+    elif check == "mask-format":
+
+        def unmasked(value: str | None) -> str | None:
+            return value
+
+        monkeypatch.setattr("pfc.services.matching.results._mask_email", unmasked)
+    elif check == "score":
+        monkeypatch.setattr(export, "display_percentage", lambda score: str(score))
+    else:
+        monkeypatch.setattr(export, "display_start_date", lambda value: "06/11/2026")
+    checks = {row["id"]: row for row in get(api, "/analytics/match")["validation"]}
+    assert checks["masked-email" if check == "mask-format" else check]["passed"] is False
+
+
+def test_req_out_10_empty_filtered_population(populated: tuple[Api, dict[str, Any]]) -> None:
+    """REQ-OUT-10: a completed run with no selected matches retains all check entries."""
+    api, _ = populated
+    checks = get(api, "/analytics/match?scoreMin=99")["validation"]
+    assert len(checks) == 8
+    assert all(row["passed"] for row in checks)
+
+
+def test_req_out_10_validation_uses_cached_batched_projections(
+    populated: tuple[Api, dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """REQ-OUT-10 / NFR-01: validation never hydrates full results or queries per row."""
+    api, ids = populated
+
+    def no_full_results(self: Population) -> None:
+        pytest.fail("Validation must use its narrow projection, not hydrate full results")
+
+    monkeypatch.setattr(Population, "results", property(no_full_results), raising=False)
+    with database(api[0].app.state.settings) as db:
+        population = Population(db, DashboardFilters(run_id=ids["run"]), NOW.date())
+        queries: list[str] = []
+        db.set_trace_callback(queries.append)
+        assert all(row["passed"] for row in validation(population))
+        assert len(queries) <= 4, queries
+        assert not any("WHERE result_id=" in query for query in queries)
+        count = len(queries)
+        validation(population)
+        assert len(queries) == count
+
+
+@pytest.mark.parametrize("changed", [False, True])
+def test_req_out_02_email_snapshot_case_is_not_normalized(
+    populated: tuple[Api, dict[str, Any]], changed: bool
+) -> None:
+    """REQ-OUT-02/03/10: preserve mixed case; reject a case-changed masked copy."""
+    api, ids = populated
+    with database(api[0].app.state.settings) as db:
+        db.execute("UPDATE resources SET email_address='AlexBorder@Example.COM'")
+        db.execute(
+            "UPDATE score_breakdowns SET inputs_json=? WHERE component='skills'",
+            (json.dumps({"display_facts": {"person_email": "Al******er@Example.COM"}}),),
+        )
+        if changed:
+            db.execute(
+                "UPDATE score_breakdowns SET inputs_json=? "
+                "WHERE component='skills' AND result_id=?",
+                (
+                    json.dumps({"display_facts": {"person_email": "al******er@example.com"}}),
+                    ids["results"][0],
+                ),
+            )
+    checks = {row["id"]: row for row in get(api, "/analytics/match")["validation"]}
+    assert checks["email-copy"]["passed"] is (not changed)
+    assert checks["masked-email"]["passed"] is (not changed)
+    assert "cannot be proven" in checks["email-copy"]["detail"]
+
+
+def test_p1_ex_04_uat_quality_panel(api: Api) -> None:
+    """P1-EX-04 / REQ-OUT-01/02/03/10: real engine eligibility, ±1 grade and masking."""
+    client, headers = api
+    with database(client.app.state.settings) as db:
+        seed_demand(db, grade="C1")
+        included = [
+            seed_resource(db, "Exact", grade="C1", email="AlexBorder@Example.COM"),
+            seed_resource(db, "Above", grade="C2", email="AbovePerson@Example.COM"),
+            seed_resource(db, "Below", grade="B2", email="BelowPerson@Example.COM"),
+            seed_resource(
+                db,
+                "Review",
+                end="unknown",
+                end_status="unparseable",
+                email="ReviewPerson@Example.COM",
+            ),
+        ]
+        ended = seed_resource(
+            db, "Ended", end="2026-11-06", end_status="valid", email="EndedPerson@example.com"
+        )
+        distant = seed_resource(db, "Distant", grade="E1", email="DistantPerson@example.com")
+        db.execute("UPDATE resources SET available_capacity='N'")
+    response = client.post(PREFIX + "/match-runs", json={"scope": "full"}, headers=headers)
+    assert response.status_code == 202, response.text
+    assert wait_done(client.app.state.job_runner, response.json()["jobId"]).status == "completed"
+    checks = get(api, "/analytics/match")["validation"]
+    assert len(checks) == 8
+    assert all(row["passed"] for row in checks), checks
+    with database(client.app.state.settings) as db:
+        actual = {row[0] for row in db.execute("SELECT resource_id FROM match_results")}
+        assert actual == set(included)
+        assert ended not in actual and distant not in actual
+        review = db.execute(
+            "SELECT gaps_checks FROM match_results WHERE resource_id=?", (included[-1],)
+        ).fetchone()[0]
+        assert "Bench End Date unparseable — pending review" in review
 
 
 @pytest.mark.parametrize("format", ["csv", "xlsx"])
