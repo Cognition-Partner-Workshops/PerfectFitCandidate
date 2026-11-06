@@ -1,0 +1,34 @@
+canonical,term,relation,credit,status
+Business Analysis,Business Analysis,equivalent,1.0,approved
+Business Analysis,Business Analyst,equivalent,1.0,approved
+Business Analysis,BA,abbreviation,1.0,approved
+Project Management,Project Management,equivalent,1.0,approved
+Project Management,Project Manager,equivalent,1.0,approved
+Project Management,PM,abbreviation,1.0,approved
+Data Analysis,Data Analysis,equivalent,1.0,approved
+Data Analysis,Data Analyst,equivalent,1.0,approved
+Data Analysis,DA,abbreviation,1.0,approved
+Databricks,Databricks,equivalent,1.0,approved
+Databricks,DataBricks,equivalent,1.0,approved
+GenAI,GenAI,abbreviation,1.0,approved
+GenAI,Generative AI,equivalent,1.0,approved
+GenAI,AI,abbreviation,1.0,approved
+Data migration,Data migration,equivalent,1.0,approved
+Data migration,data mapping,equivalent,1.0,approved
+Data migration,reconciliation,equivalent,1.0,approved
+Data migration,profiling,equivalent,1.0,approved
+Data migration,data quality,equivalent,1.0,approved
+Delivery Lead,Delivery Lead,equivalent,1.0,approved
+Program Manager,Program Manager,equivalent,1.0,approved
+Spark,Spark,equivalent,1.0,approved
+Spark,Pyspark,equivalent,1.0,approved
+Spark,PySpark,equivalent,1.0,approved
+SQL,SQL,equivalent,1.0,approved
+Python,Python,equivalent,1.0,approved
+AWS,AWS,equivalent,1.0,approved
+Azure,Azure,equivalent,1.0,approved
+Business Analysis,Bussiness Analysis,misspelling,1.0,approved
+Delivery Lead,Program Manager,related,0.6,approved
+Delivery Lead,Project Manager,related,0.6,approved
+Program Manager,Delivery Lead,related,0.6,approved
+Project Management,Delivery Lead,related,0.6,approved

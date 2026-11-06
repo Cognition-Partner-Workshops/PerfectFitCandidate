@@ -1,1 +1,57 @@
-"""Scoring domain."""
+"""Pure Phase 1 scoring API (REQ-MAT-03, REQ-SCR-04, REQ-ELIG-08)."""
+
+from .engine import (
+    ENGINE_VERSION,
+    assess_location,
+    assign_band,
+    build_ct_basis,
+    eligibility,
+    normalise_cosine,
+    ranking_key,
+    round_score,
+    run_match,
+    score_basis,
+)
+from .models import (
+    BasisResult,
+    Component,
+    Demand,
+    DemandResult,
+    Exclusion,
+    ExclusionReason,
+    ItemResult,
+    MatchRun,
+    PersonResult,
+    RequirementItem,
+    Resource,
+    SemanticInput,
+    SkillBasis,
+    SkillEvidence,
+)
+
+__all__ = [
+    "ENGINE_VERSION",
+    "assess_location",
+    "assign_band",
+    "build_ct_basis",
+    "eligibility",
+    "normalise_cosine",
+    "ranking_key",
+    "round_score",
+    "run_match",
+    "score_basis",
+    "BasisResult",
+    "Component",
+    "Demand",
+    "DemandResult",
+    "Exclusion",
+    "ExclusionReason",
+    "ItemResult",
+    "MatchRun",
+    "PersonResult",
+    "RequirementItem",
+    "Resource",
+    "SemanticInput",
+    "SkillBasis",
+    "SkillEvidence",
+]

@@ -1,0 +1,15 @@
+# REQ-LOC-01: slash-separated locations are split by the scoring consumer.
+aliases:
+  Remote: remote
+  Any: remote
+  UK Remote: remote
+  WFH: remote
+  Anywhere: remote
+  Edinbugh: edinburgh
+  Manchster: manchester
+  London UK: london
+travel_clusters:
+  uk-north-west: [manchester, liverpool]
+  scotland: [edinburgh, glasgow]
+  london-south-east: [london, reading, slough, guildford]
+  midlands: [birmingham, coventry, leicester, northampton]

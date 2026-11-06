@@ -1,0 +1,82 @@
+[
+  {
+    "code": "AVAILABLE",
+    "label": "Available",
+    "is_excluded": false,
+    "priority": 1,
+    "flag_in_gaps": false,
+    "available_from_bench_start": false
+  },
+  {
+    "code": "UPSKILLING",
+    "label": "Overall upskilling (New bench)",
+    "is_excluded": false,
+    "priority": 2,
+    "flag_in_gaps": false,
+    "available_from_bench_start": false
+  },
+  {
+    "code": "DEMAND_PROPOSED",
+    "label": "CV with client - Demand Proposed",
+    "is_excluded": false,
+    "priority": 3,
+    "flag_in_gaps": true,
+    "available_from_bench_start": false
+  },
+  {
+    "code": "PROACTIVE_PROPOSED",
+    "label": "CV with client - Proactive Proposed",
+    "is_excluded": false,
+    "priority": 3,
+    "flag_in_gaps": true,
+    "available_from_bench_start": false
+  },
+  {
+    "code": "EXPECTED",
+    "label": "Expected on Bench Soon",
+    "is_excluded": false,
+    "priority": 4,
+    "flag_in_gaps": false,
+    "available_from_bench_start": true
+  },
+  {
+    "code": "STATUS_X",
+    "label": "Status - x",
+    "is_excluded": false,
+    "priority": 5,
+    "flag_in_gaps": false,
+    "available_from_bench_start": false
+  },
+  {
+    "code": "STATUS_Y",
+    "label": "Status - y",
+    "is_excluded": false,
+    "priority": 6,
+    "flag_in_gaps": false,
+    "available_from_bench_start": false
+  },
+  {
+    "code": "SELECTED",
+    "label": "Selected",
+    "is_excluded": true,
+    "priority": null,
+    "flag_in_gaps": false,
+    "available_from_bench_start": false
+  },
+  {
+    "code": "UNKNOWN",
+    "label": "Unknown",
+    "is_excluded": true,
+    "priority": null,
+    "flag_in_gaps": false,
+    "available_from_bench_start": false
+  },
+  {
+    "code": "SOLD_PENDING",
+    "label": "CV with Client - Sold - Pending Allocation",
+    "is_excluded": true,
+    "priority": null,
+    "flag_in_gaps": false,
+    "available_from_bench_start": false
+  }
+]
