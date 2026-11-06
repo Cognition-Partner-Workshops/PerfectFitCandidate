@@ -140,12 +140,19 @@ def set_override(
             "reason": re.sub(r"[\w.+-]+@[\w.-]+", "[REDACTED]", body.reason),
         },
     )
+    return get_classification(db, candidate_id)
+
+
+def get_classification(db: sqlite3.Connection, candidate_id: int) -> CandidateClassification:
+    after = _candidate(db, candidate_id)
     return CandidateClassification(
         candidate_id=candidate_id,
         effective_classification=_effective(after),
         computed_classification=_computed(db, candidate_id, domain_set(db)),
         classification_override=after["classification_override"],
-        override_reason=after["override_reason"],
+        override_reason=re.sub(r"[\w.+-]+@[\w.-]+", "[REDACTED]", after["override_reason"])
+        if after["override_reason"] is not None
+        else None,
         override_by=after["override_by"],
         override_at=after["override_at"],
     )
