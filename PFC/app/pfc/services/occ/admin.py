@@ -23,7 +23,7 @@ _MISSING = object()
 
 
 def _restore_redacted(value: Any, previous: Any, key: str, settings: Settings) -> Any:
-    def existing_at(path: tuple[str | int, ...]) -> Any:
+    def existing_at(path: tuple[Any, ...]) -> Any:
         nonlocal previous
         if isinstance(previous, str) and previous.startswith(PREFIX):
             try:
@@ -36,22 +36,48 @@ def _restore_redacted(value: Any, previous: Any, key: str, settings: Settings) -
         for part in path:
             if isinstance(old, dict) and isinstance(part, str):
                 old = old.get(part, _MISSING)
-            elif isinstance(old, list) and isinstance(part, int) and part < len(old):
-                old = old[part]
+            elif isinstance(old, list) and isinstance(part, tuple):
+                identity, expected = part
+                matches = [
+                    item
+                    for item in old
+                    if isinstance(item, dict)
+                    and identity in item
+                    and type(item[identity]) is type(expected)
+                    and item[identity] == expected
+                ]
+                if len(matches) != 1:
+                    return _MISSING
+                old = matches[0]
             else:
                 return _MISSING
         return old
 
-    def restore(node: Any, path: tuple[str | int, ...], sensitive: bool) -> Any:
+    def restore(node: Any, path: tuple[Any, ...], sensitive: bool) -> Any:
         if isinstance(node, dict):
             return {
                 k: restore(v, (*path, k), sensitive or sensitive_key(str(k)))
                 for k, v in node.items()
             }
         if isinstance(node, list):
-            return [restore(v, (*path, i), sensitive) for i, v in enumerate(node)]
+            result = []
+            for item in node:
+                identity = next(
+                    (
+                        (name, item[name])
+                        for name in ("id", "name", "key", "provider")
+                        if isinstance(item, dict) and name in item
+                    ),
+                    None,
+                )
+                result.append(restore(item, (*path, identity), sensitive))
+            return result
         if node == "[REDACTED]":
             old = existing_at(path)
+            if None in path or (old is _MISSING and any(isinstance(p, tuple) for p in path)):
+                raise Problem(
+                    422, "VALIDATION_ERROR", "Re-enter the credential; no unique identity match"
+                )
             if sensitive or (isinstance(old, str) and old.startswith(PREFIX)):
                 if old is _MISSING:
                     raise Problem(
@@ -185,14 +211,15 @@ def settings_put(
     except (ValueError, TypeError) as exc:
         raise Problem(422, "VALIDATION_ERROR", "Settings values must be JSON") from exc
     for key, value in values.items():
-        if key in before and before[key] == value:
-            continue
         previous = db.execute(
             "SELECT value_json FROM settings WHERE scope='system' AND user_id IS NULL AND key=?",
             (key,),
         ).fetchone()
         previous_value = json.loads(previous[0]) if previous else _MISSING
-        value = _restore_redacted(value, previous_value, key, settings)
+        restored = _restore_redacted(value, previous_value, key, settings)
+        if key in before and before[key] == value:
+            continue
+        value = restored
         encoded[key] = json.dumps(value, allow_nan=False)
         secret = sensitive_setting(key, value)
         encrypted_audit = secret or (

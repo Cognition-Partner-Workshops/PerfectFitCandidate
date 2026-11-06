@@ -227,14 +227,14 @@ def test_secret_settings_encrypted_and_write_only(client: TestClient) -> None:
     secrets = {
         "smtp.password": "SensitiveSMTPPassword",
         "llm.api_key": "SensitiveProviderKey",
-        "provider.options": {"auth": [{"access_token": "SensitiveNestedToken"}]},
+        "provider.options": {"auth": {"access_token": "SensitiveNestedToken"}},
     }
     response = client.put("/api/v1/occ/settings", json=secrets)
     assert response.status_code == 200
     assert response.json() == {
         "smtp.password": "[REDACTED]",
         "llm.api_key": "[REDACTED]",
-        "provider.options": {"auth": [{"access_token": "[REDACTED]"}]},
+        "provider.options": {"auth": {"access_token": "[REDACTED]"}},
     }
     assert client.get("/api/v1/occ/settings").json() == response.json()
     with database(client.app.state.settings) as db:
@@ -527,10 +527,10 @@ def test_redacted_credentials_survive_metadata_edits_and_explicit_replacement(
     login(client)
     options = {
         "providers": [
-            {"headers": {"Authorization": "FirstSecret"}, "enabled": True},
-            {"auth": {"tokens": ["SecondSecret", "ThirdSecret"]}, "max_tokens": 64},
+            {"id": "first", "headers": {"Authorization": "FirstSecret"}, "enabled": True},
+            {"id": "second", "auth": {"token": "SecondSecret"}, "max_tokens": 64},
         ],
-        "tokens": [None, ""],
+        "tokens": {"empty": "", "unset": None},
     }
     response = client.put("/api/v1/occ/settings", json={"provider.options": options})
     assert response.status_code == 200
@@ -565,6 +565,39 @@ def test_redacted_credentials_survive_metadata_edits_and_explicit_replacement(
         )
 
 
+@pytest.mark.parametrize("identity", ["id", "name", "key", "provider"])
+def test_reordered_providers_keep_their_credentials(client: TestClient, identity: str) -> None:
+    setup(client)
+    login(client)
+    providers = [
+        {identity: "first", "headers": {"Authorization": "FirstSecret"}, "enabled": True},
+        {identity: "second", "headers": {"Authorization": "SecondSecret"}, "enabled": True},
+    ]
+    assert (
+        client.put(
+            "/api/v1/occ/settings",
+            json={
+                "provider.options": {"providers": providers},
+            },
+        ).status_code
+        == 200
+    )
+    updated = client.get("/api/v1/occ/settings").json()
+    updated["provider.options"]["providers"].reverse()
+    updated["provider.options"]["providers"][0]["enabled"] = False
+    response = client.put("/api/v1/occ/settings", json=updated)
+    assert response.status_code == 200
+    providers.reverse()
+    providers[0]["enabled"] = False
+    with database(client.app.state.settings) as db:
+        stored = json.loads(
+            db.execute("SELECT value_json FROM settings WHERE key='provider.options'").fetchone()[0]
+        )
+        assert json.loads(SecretStore(client.app.state.settings.data_dir).decrypt(stored)) == {
+            "providers": providers,
+        }
+
+
 @pytest.mark.parametrize(
     "existing,incoming",
     [
@@ -573,6 +606,21 @@ def test_redacted_credentials_survive_metadata_edits_and_explicit_replacement(
         ({"tokens": []}, {"tokens": ["[REDACTED]"]}),
         ({"tokens": ["FirstSecret"]}, {"tokens": ["[REDACTED]", "[REDACTED]"]}),
         ({"auth": []}, {"auth": {"token": "[REDACTED]"}}),
+        ({"tokens": ["FirstSecret"]}, {"tokens": ["[REDACTED]"]}),
+        ({"items": [{"token": "FirstSecret"}]}, {"items": [{"token": "[REDACTED]"}]}),
+        (
+            {"items": [{"id": 1, "token": "FirstSecret"}]},
+            {"items": [{"id": 2, "token": "[REDACTED]"}]},
+        ),
+        (
+            {"items": [{"id": 1, "name": "same", "token": "FirstSecret"}]},
+            {"items": [{"id": 2, "name": "same", "token": "[REDACTED]"}]},
+        ),
+        (
+            {"items": [{"id": 1, "token": "FirstSecret"}, {"id": 1, "token": "SecondSecret"}]},
+            {"items": [{"id": 1, "token": "[REDACTED]"}]},
+        ),
+        ({"items": [{"id": 1, "enabled": True}]}, {"items": [{"id": 1, "token": "[REDACTED]"}]}),
     ],
 )
 def test_redacted_credential_requires_existing_path(
