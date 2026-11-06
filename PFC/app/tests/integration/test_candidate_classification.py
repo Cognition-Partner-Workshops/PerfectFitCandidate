@@ -137,6 +137,26 @@ def test_classification_rules(client: TestClient, emails: list, expected: str) -
     assert stored(client, candidate_id)["classification"] == expected
 
 
+def test_override_response_computes_live_after_domain_change(client: TestClient) -> None:
+    candidate_id = seed_candidate(client, [("private@example.com", "CT", 0)])
+    login(client)
+    path = f"/api/v1/candidates/{candidate_id}/classification"
+    body = {"classification": "Unknown", "reason": "Manual review"}
+    initial = client.put(path, json=body)
+    assert initial.status_code == 200
+    assert initial.json()["computedClassification"] == "External"
+    assert (
+        client.post("/api/v1/occ/internal-domains", json={"domain": "example.com"}).status_code
+        == 201
+    )
+    response = client.put(path, json=body)
+    assert response.status_code == 200
+    assert response.json()["effectiveClassification"] == "Unknown"
+    assert response.json()["computedClassification"] == "Internal"
+    assert stored(client, candidate_id)["classification"] == "External"
+    assert stored(client, candidate_id)["classification_override"] == "Unknown"
+
+
 def test_override_is_preserved_and_clear_recomputes(client: TestClient) -> None:
     candidate_id = seed_candidate(client, [("private@example.com", "CV", 1)])
     login(client)

@@ -143,7 +143,7 @@ def set_override(
     return CandidateClassification(
         candidate_id=candidate_id,
         effective_classification=_effective(after),
-        computed_classification=after["classification"] or "Unknown",
+        computed_classification=_computed(db, candidate_id, domain_set(db)),
         classification_override=after["classification_override"],
         override_reason=after["override_reason"],
         override_by=after["override_by"],
