@@ -31,8 +31,18 @@ import type {
   StatusMapEntry,
   ValidationCheck,
   ResultFilters,
+  AdminSettings,
+  ApprovalDecision,
+  ApprovalEntry,
+  AuditEvent,
+  AuditQuery,
+  Grade,
+  LlmModel as OccLlmModel,
 } from '../types'
 import {
+  ADMIN_SETTINGS,
+  APPROVALS,
+  GRADE_SEED,
   BENCH_STATUSES,
   DEFAULT_EMAIL_TEMPLATE,
   DEMANDS,
@@ -52,7 +62,7 @@ import { formatPct } from '../../lib/format'
 import { maskEmail, maskPhone } from '../../lib/mask'
 
 // Bump when persisted mock shapes or IDs change so stale state is discarded.
-const STORAGE_KEY = 'pfc.mock.v2'
+const STORAGE_KEY = 'pfc.mock.v3'
 const LOCKOUT_ATTEMPTS = 5
 const LOCKOUT_MINUTES = 15
 
@@ -61,6 +71,17 @@ interface MockUser extends OccUser {
   mustChangePassword: boolean
   failures: number
   lockedUntil: number | null
+}
+
+interface MockAuditEntry {
+  at: string
+  summary: string
+  candidateId?: number
+  user?: string
+  role?: AuditEvent['role']
+  action?: string
+  entity?: string
+  details?: string
 }
 
 interface MockState {
@@ -83,7 +104,11 @@ interface MockState {
   packageHistory: PackageImportRecord[]
   previews: PackagePreview[]
   lastExport: SettingsPackageInfo | null
-  audit: { at: string; summary: string; candidateId?: number }[]
+  audit: MockAuditEntry[]
+  approvals: ApprovalEntry[]
+  grades: Grade[]
+  models: OccLlmModel[]
+  adminSettings: AdminSettings
   nextId: number
 }
 
@@ -164,7 +189,15 @@ function initialState(): MockState {
     ],
     previews: [],
     lastExport: null,
-    audit: [],
+    audit: [
+      { at: '2026-11-03T16:40:00Z', summary: 'Scoring template v3 published', user: 'OCC Admin', role: 'Admin', action: 'publish', entity: 'scoring_template' },
+      { at: '2026-11-01T09:00:00Z', summary: 'Settings package v6 imported', user: 'OCC Admin', role: 'Admin', action: 'import', entity: 'settings_package' },
+      { at: '2026-10-30T08:15:00Z', summary: 'Nightly backup completed', user: 'System', role: 'System', action: 'backup', entity: 'system' },
+    ],
+    approvals: structuredClone(APPROVALS),
+    grades: structuredClone(GRADE_SEED),
+    models: structuredClone(MODELS),
+    adminSettings: { ...ADMIN_SETTINGS },
     nextId: 1000,
   }
   return state
@@ -232,8 +265,9 @@ export class MockApiClient implements ApiClient {
     return structuredClone(value)
   }
 
-  private audit(summary: string, candidateId?: number): void {
-    this.state.audit.unshift({ at: iso(), summary, candidateId })
+  private audit(summary: string, candidateId?: number, meta: { action?: string; entity?: string; details?: string } = {}): void {
+    const u = this.state.users.find((x) => x.userId === this.state.sessionUserId)
+    this.state.audit.unshift({ at: iso(), summary, candidateId, user: u?.fullName ?? 'System', role: u?.role ?? 'System', ...meta })
   }
 
   private nextId(): number {
@@ -304,7 +338,7 @@ export class MockApiClient implements ApiClient {
       runId: 1,
       status: 'completed',
       finishedAt: '2026-11-04T14:32:00Z',
-      llmModel: MODELS.find((m) => m.id === this.state.settings.activeModel)?.name ?? 'local model',
+      llmModel: this.state.models.find((m) => m.id === this.state.settings.activeModel)?.name ?? 'local model',
       templateVersion: this.activeTemplate().version,
       demandsAssessed: scored.length,
       pairsScored: results.length,
@@ -768,7 +802,7 @@ export class MockApiClient implements ApiClient {
 
   async saveMySettings(s: PersonalSettings) {
     this.currentUser()
-    const model = MODELS.find((m) => m.id === s.activeModel)
+    const model = this.state.models.find((m) => m.id === s.activeModel)
     if (!model?.approved) fail(422, 'Choose a model from the approved list', 'MODEL_NOT_APPROVED')
     this.state.settings = { ...s, autoSyncDl: { ...s.autoSyncDl, enabled: false }, autoSyncCt: { ...s.autoSyncCt, enabled: false } }
     this.audit('Personal settings saved')
@@ -777,7 +811,109 @@ export class MockApiClient implements ApiClient {
 
   async listModels() {
     this.currentUser()
-    return this.done(MODELS)
+    return this.done(this.state.models)
+  }
+
+  // ---- OCC: DL/CT approvals (§16.4), grades (§16.8), models (§16.10), audit (§16.12), admin settings (§16.14)
+
+  async listApprovals() {
+    this.requireAdmin()
+    return this.done(this.state.approvals)
+  }
+
+  async decideApproval(entryId: number, d: ApprovalDecision) {
+    this.requireAdmin()
+    const e = this.state.approvals.find((x) => x.entryId === entryId)
+    if (!e) fail(404, 'Entry not found', 'NOT_FOUND')
+    if (e.state !== 'Pending') fail(409, 'This entry has already been decided', 'ALREADY_DECIDED')
+    const comment = d.comment?.trim()
+    if ((d.action === 'modify' || d.action === 'revert') && !comment) fail(422, 'A reason is required', 'REASON_REQUIRED')
+    if (d.action === 'modify') {
+      const values = d.values ?? {}
+      if (!Object.keys(values).length) fail(422, 'Enter at least one corrected value', 'NO_CHANGES')
+      e.fields = e.fields.map((f) => (f.field in values ? { ...f, after: values[f.field] } : f))
+    }
+    e.state = d.action === 'approve' ? 'Approved' : d.action === 'modify' ? 'Modified' : 'Reverted'
+    e.comment = comment
+    this.audit(`${e.source} ${e.key}: ${e.state}${comment ? ` — ${comment}` : ''}`, undefined, { action: d.action, entity: e.source === 'DL' ? 'demand' : 'resource', details: JSON.stringify(e.fields) })
+    return this.done(e)
+  }
+
+  async listGrades() {
+    this.requireAdmin()
+    return this.done(this.state.grades)
+  }
+
+  async saveGrades(grades: Grade[]) {
+    this.requireAdmin()
+    const codes = grades.map((g) => g.code.trim().toUpperCase())
+    if (codes.some((c) => !/^[A-Z]\d$/.test(c))) fail(422, 'Grade codes must be a letter followed by a digit (e.g. C2)', 'GRADE_FORMAT')
+    if (new Set(codes).size !== codes.length) fail(422, 'Grade codes must be unique', 'GRADE_DUPLICATE')
+    if (!grades.some((g) => !g.retired)) fail(422, 'At least one active grade is required', 'GRADE_EMPTY')
+    this.state.grades = grades.map((g, i) => ({ code: codes[i], order: i + 1, retired: g.retired }))
+    this.audit(`Grade list saved: ${this.state.grades.filter((g) => !g.retired).map((g) => g.code).join(' < ')}`, undefined, { action: 'update', entity: 'grade_list' })
+    return this.done(this.state.grades)
+  }
+
+  async listOccModels() {
+    this.requireAdmin()
+    return this.done(this.state.models)
+  }
+
+  async updateOccModel(id: string, patch: Partial<Pick<OccLlmModel, 'approved' | 'isDefault'>>) {
+    this.requireAdmin()
+    const m = this.state.models.find((x) => x.id === id)
+    if (!m) fail(404, 'Model not found', 'NOT_FOUND')
+    if (patch.approved === false && m.isDefault) fail(409, 'Choose another default before revoking approval', 'MODEL_IS_DEFAULT')
+    if (patch.isDefault && !(patch.approved ?? m.approved)) fail(422, 'Only an approved model can be the default', 'MODEL_NOT_APPROVED')
+    if (patch.approved !== undefined) m.approved = patch.approved
+    if (patch.isDefault) for (const x of this.state.models) if (x.purpose === m.purpose) x.isDefault = x.id === m.id
+    this.audit(`Model ${m.name}: ${patch.isDefault ? 'set as default' : m.approved ? 'approved' : 'approval revoked'}`, undefined, { action: 'update', entity: 'llm_model' })
+    return this.done(this.state.models)
+  }
+
+  async auditLog(q: AuditQuery) {
+    this.requireAdmin()
+    const user = q.user?.trim().toLowerCase()
+    const rows: AuditEvent[] = this.state.audit
+      .map((a, i) => ({
+        auditId: this.state.audit.length - i,
+        at: a.at,
+        user: a.user ?? 'System',
+        role: a.role ?? 'System',
+        action: a.action ?? 'event',
+        entity: a.entity ?? (a.candidateId ? 'candidate' : 'system'),
+        summary: a.summary,
+        detailsJson: a.details,
+      }))
+      .filter((a) => (!q.from || a.at.slice(0, 10) >= q.from) && (!q.to || a.at.slice(0, 10) <= q.to))
+      .filter((a) => (!user || a.user.toLowerCase().includes(user)) && (!q.action || a.action === q.action) && (!q.entity || a.entity === q.entity))
+    return this.done(rows)
+  }
+
+  async getAdminSettings() {
+    this.requireAdmin()
+    return this.done(this.state.adminSettings)
+  }
+
+  async saveAdminSettings(next: AdminSettings) {
+    this.requireAdmin()
+    const errors: string[] = []
+    if (next.analystMinPasswordLength < 10) errors.push('Analyst minimum password length cannot be below 10 (TDD §9.2)')
+    if (next.adminMinPasswordLength < 14) errors.push('Admin minimum password length cannot be below 14 (TDD §9.2)')
+    if (next.lockoutAttempts < 3 || next.lockoutAttempts > 10) errors.push('Lockout attempts must be 3–10')
+    if (next.lockoutMinutes < 5 || next.lockoutMinutes > 120) errors.push('Lockout duration must be 5–120 minutes')
+    if (next.idleTimeoutMinutes < 5 || next.idleTimeoutMinutes > 480) errors.push('Idle timeout must be 5–480 minutes')
+    if (next.maskKeep !== 2 || next.maskCount !== 6) errors.push('Masking rule is fixed at keep 2 / mask 6 (REQ-OUT-03)')
+    if (next.topN !== 5) errors.push('Shortlist size is fixed at 5 per requisition (REQ-MAT-03)')
+    if (next.emailsPreselected < 1 || next.emailsPreselected > next.topN) errors.push(`Pre-selected emails must be 1–${next.topN}`)
+    if (next.allowExternalProviders) errors.push('External providers are configuration placeholders until Phase 3 (REQ-LLM-03)')
+    if (errors.length) fail(422, errors.join('; '), 'VALIDATION')
+    const before = this.state.adminSettings
+    const changed = (Object.keys(next) as (keyof AdminSettings)[]).filter((k) => next[k] !== before[k])
+    this.state.adminSettings = { ...next }
+    this.audit(`Admin settings saved (${changed.join(', ') || 'no changes'})`, undefined, { action: 'update', entity: 'admin_settings', details: JSON.stringify(Object.fromEntries(changed.map((k) => [k, { from: before[k], to: next[k] }]))) })
+    return this.done(this.state.adminSettings)
   }
 
   async previewPackage(file: File) {
@@ -1044,7 +1180,7 @@ export class MockApiClient implements ApiClient {
         { label: 'Grades', count: 9 },
         { label: 'Resource-team recipients', count: s.resourceTeam.length },
         { label: 'Internal domains', count: s.domains.length },
-        { label: 'Approved models', count: MODELS.filter((m) => m.approved).length },
+        { label: 'Approved models', count: this.state.models.filter((m) => m.approved).length },
         { label: 'Analyst accounts', count: s.users.filter((u) => u.role === 'Analyst').length },
       ],
     }

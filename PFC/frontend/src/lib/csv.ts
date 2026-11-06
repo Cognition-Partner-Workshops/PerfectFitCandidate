@@ -1,4 +1,4 @@
-import type { MatchResult } from '../api/types'
+import type { AuditEvent, MatchResult } from '../api/types'
 import { bandLabel } from './bands'
 import { formatDate, roleLocation } from './format'
 
@@ -57,4 +57,13 @@ export function resultsToCsv(rows: MatchResult[], meta: string): string {
     )
   }
   return lines.join('\n')
+}
+
+export const AUDIT_COLUMNS = ['Timestamp (UTC)', 'User', 'Role', 'Action', 'Entity', 'Summary'] as const
+
+/** Audit-log CSV of the current filtered view (REQ-AUTH-05, GUI_OCC_DESIGN.md §16.12). */
+export function auditToCsv(rows: AuditEvent[]): string {
+  const lines = [AUDIT_COLUMNS.join(',')]
+  for (const a of rows) lines.push([a.at, a.user, a.role, a.action, a.entity, a.summary].map(cell).join(','))
+  return lines.join('\n') + '\n'
 }

@@ -1,4 +1,10 @@
 import type {
+  AdminSettings,
+  ApprovalDecision,
+  ApprovalEntry,
+  AuditEvent,
+  AuditQuery,
+  Grade,
   AnalyticsSummary,
   BenchAnalytics,
   BenchStatus,
@@ -209,4 +215,27 @@ export interface ApiClient {
   lastExportedPackage(): Promise<SettingsPackageInfo | null>
   /** POST /occ/settings-package/export */
   exportPackage(): Promise<SettingsPackageInfo>
+
+  /** GET /occ/approvals (DL/CT entries pending OCC review) */
+  listApprovals(): Promise<ApprovalEntry[]>
+  /** PUT /occ/demands/{id} or /occ/resources/{id} — approve, modify (reason required) or revert */
+  decideApproval(entryId: number, decision: ApprovalDecision): Promise<ApprovalEntry>
+
+  /** GET /occ/grades */
+  listGrades(): Promise<Grade[]>
+  /** PUT /occ/grades */
+  saveGrades(grades: Grade[]): Promise<Grade[]>
+
+  /** GET /occ/llm-models */
+  listOccModels(): Promise<LlmModel[]>
+  /** PUT /occ/llm-models/{id} */
+  updateOccModel(id: string, patch: Partial<Pick<LlmModel, 'approved' | 'isDefault'>>): Promise<LlmModel[]>
+
+  /** GET /occ/audit-log */
+  auditLog(query: AuditQuery): Promise<AuditEvent[]>
+
+  /** GET /occ/settings */
+  getAdminSettings(): Promise<AdminSettings>
+  /** PUT /occ/settings */
+  saveAdminSettings(settings: AdminSettings): Promise<AdminSettings>
 }

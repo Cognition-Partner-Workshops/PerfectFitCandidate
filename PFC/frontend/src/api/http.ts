@@ -1,11 +1,30 @@
 import { ApiError, type ApiClient } from './client'
-import type { CurrentUser, ProblemDetails } from './types'
+import type { CurrentUser, PackageImportRecord, ProblemDetails } from './types'
 
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
 /**
  * Real backend client: cookie session + `X-CSRF-Token` on writes, RFC 9457 errors (TDD.md §9.3, §12).
  */
+interface HistoryRow {
+  version: number
+  applied_at: string
+  applied_by: string
+  status: string
+  current: boolean
+  file_name?: string
+}
+
+export function toImportRecord(r: HistoryRow): PackageImportRecord {
+  return {
+    version: r.version,
+    importedAt: r.applied_at,
+    importedBy: r.applied_by,
+    fileName: r.file_name ?? `v${r.version}`,
+    canRollback: !r.current && r.status === 'applied',
+  }
+}
+
 export class HttpApiClient implements ApiClient {
   private csrfToken: string | null = null
   private readonly base: string
@@ -53,7 +72,11 @@ export class HttpApiClient implements ApiClient {
     return this.request<T>('POST', path, form)
   }
 
-  getSetupStatus: ApiClient['getSetupStatus'] = () => this.request('GET', '/setup/status')
+  /** Backend returns `{admin_exists}` (snake_case). */
+  getSetupStatus: ApiClient['getSetupStatus'] = async () => {
+    const r = await this.request<{ admin_exists?: boolean; adminExists?: boolean }>('GET', '/setup/status')
+    return { adminExists: r.admin_exists ?? r.adminExists ?? false }
+  }
   setupAdmin: ApiClient['setupAdmin'] = (req) => this.request('POST', '/setup/admin', req)
   login: ApiClient['login'] = async (req) => this.remember(await this.request('POST', '/auth/login', req))
   logout: ApiClient['logout'] = async () => {
@@ -122,7 +145,11 @@ export class HttpApiClient implements ApiClient {
   importPackage: ApiClient['importPackage'] = (previewId) =>
     this.request('POST', '/settings/settings-package/import', { previewId })
   rollbackPackage: ApiClient['rollbackPackage'] = () => this.request('POST', '/settings/settings-package/rollback')
-  packageHistory: ApiClient['packageHistory'] = () => this.request('GET', '/settings/settings-package/history')
+  /** Backend rows: `{version, applied_at, applied_by, status, current}`; any non-current applied version can be rolled back to. */
+  packageHistory: ApiClient['packageHistory'] = async () => {
+    const rows = await this.request<HistoryRow[]>('GET', '/settings/settings-package/history')
+    return rows.map(toImportRecord)
+  }
 
   listUsers: ApiClient['listUsers'] = () => this.request('GET', '/occ/users')
   createUser: ApiClient['createUser'] = (req) => this.request('POST', '/occ/users', req)
@@ -156,4 +183,19 @@ export class HttpApiClient implements ApiClient {
 
   lastExportedPackage: ApiClient['lastExportedPackage'] = () => this.request('GET', '/occ/settings-package')
   exportPackage: ApiClient['exportPackage'] = () => this.request('POST', '/occ/settings-package/export')
+
+  listApprovals: ApiClient['listApprovals'] = () => this.request('GET', '/occ/approvals')
+  decideApproval: ApiClient['decideApproval'] = async (id, d) => {
+    const entries = await this.listApprovals()
+    const e = entries.find((x) => x.entryId === id)
+    const base = e?.source === 'CT' ? '/occ/resources' : '/occ/demands'
+    return this.request('PUT', `${base}/${id}`, d)
+  }
+  listGrades: ApiClient['listGrades'] = () => this.request('GET', '/occ/grades')
+  saveGrades: ApiClient['saveGrades'] = (g) => this.request('PUT', '/occ/grades', g)
+  listOccModels: ApiClient['listOccModels'] = () => this.request('GET', '/occ/llm-models')
+  updateOccModel: ApiClient['updateOccModel'] = (id, p) => this.request('PUT', `/occ/llm-models/${encodeURIComponent(id)}`, p)
+  auditLog: ApiClient['auditLog'] = (q) => this.request('GET', `/occ/audit-log${this.qs(q)}`)
+  getAdminSettings: ApiClient['getAdminSettings'] = () => this.request('GET', '/occ/settings')
+  saveAdminSettings: ApiClient['saveAdminSettings'] = (s) => this.request('PUT', '/occ/settings', s)
 }

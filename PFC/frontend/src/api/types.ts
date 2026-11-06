@@ -480,3 +480,68 @@ export interface UploadPreview {
   warnings: string[]
   alreadyImported: boolean
 }
+
+/** DL/CT approval queue entry (GUI_OCC_DESIGN.md §16.4, REQ-ROLE-03, REQ-ING-03). */
+export interface ApprovalEntry {
+  entryId: number
+  source: 'DL' | 'CT'
+  /** Code Requisition (DL) or ShortName + masked email (CT). */
+  key: string
+  change: 'New' | 'Updated' | 'Removed'
+  uploadedBy: string
+  uploadedAt: string
+  state: 'Pending' | 'Approved' | 'Modified' | 'Reverted'
+  conflict: boolean
+  fields: { field: string; before: string | null; after: string | null; adminValue?: string | null }[]
+  comment?: string
+}
+
+export interface ApprovalDecision {
+  action: 'approve' | 'modify' | 'revert'
+  comment?: string
+  values?: Record<string, string>
+}
+
+/** Ordered grade sequence (REQ-GRD-01, §16.8). */
+export interface Grade {
+  code: string
+  order: number
+  retired: boolean
+}
+
+/** Append-only audit event (REQ-AUTH-05, §16.12). */
+export interface AuditEvent {
+  auditId: number
+  at: string
+  user: string
+  role: Role | 'System'
+  action: string
+  entity: string
+  summary: string
+  detailsJson?: string
+}
+
+export interface AuditQuery {
+  from?: string
+  to?: string
+  user?: string
+  action?: string
+  entity?: string
+}
+
+/** Admin settings (§16.14). Defaults per TDD §9.2 / GQ-03 / O-07. */
+export interface AdminSettings {
+  analystMinPasswordLength: number
+  adminMinPasswordLength: number
+  lockoutAttempts: number
+  lockoutMinutes: number
+  idleTimeoutMinutes: number
+  maskKeep: number
+  maskCount: number
+  analystsMayUnmask: boolean
+  topN: number
+  emailsPreselected: number
+  staleDataDays: number
+  emailTurnaroundHours: number
+  allowExternalProviders: boolean
+}
