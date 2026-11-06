@@ -20,8 +20,10 @@ from pfc.adapters.llm.providers import (
     ProviderError,
 )
 from pfc.api.schemas.cv import CVFacts
+from pfc.domain.config_loader import DomainConfig, load_domain_config
 from pfc.jobs.runner import JobContext
 from pfc.services.ingestion.cv_facts import KEYS, SCHEMA, LLMBridge, extract_facts
+from pfc.services.matching.requirements import Requirements, _canonicalize_skills
 from scripts import validate_llm_extraction as validation
 from scripts.validate_llm_extraction import (
     FIXTURES,
@@ -122,6 +124,32 @@ class RawFake(FakeProvider):
         self, request: PromptRequest, *, api_version: str | None = None
     ) -> GenerateResult:
         return GenerateResult(self.text, "fake", "fake-v1")
+
+
+@pytest.mark.parametrize("valid", [True, False])
+def test_harness_calls_production_canonicalizer_only_on_llm_path(
+    valid: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = load_domain_config()
+    calls = []
+
+    def canonicalize(data: Requirements, actual: DomainConfig) -> Requirements:
+        assert actual is config
+        calls.append(data)
+        return _canonicalize_skills(data, actual)
+
+    monkeypatch.setattr(validation, "_canonicalize_skills", canonicalize)
+
+    async def probe() -> dict[str, Any]:
+        raw = '{"mandatory_skills":[{"text":"Use Python"}]}' if valid else "not json"
+        provider = RecordingProvider(RawFake(raw))
+        return await anyio.to_thread.run_sync(run_jd, provider, "Required: Python", config)
+
+    result = anyio.run(probe)
+    assert len(calls) == int(valid)
+    item = result["requirements"]["mandatory_skills"][0]
+    assert item["text"] == "Python"
+    assert item["canonicalized_from"] == ("Use Python" if valid else None)
 
 
 @pytest.mark.parametrize(
