@@ -158,6 +158,7 @@ class ResultRow(WireModel):
     email_preselected: bool
     breakdown: list[BreakdownView]
     override: OverrideView | None
+    active_overrides: list[OverrideView]
     effective_band: Band
     effective_shortlisted: bool
     shortlisted: bool

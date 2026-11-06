@@ -460,6 +460,51 @@ def test_experience_survives_flat_requirement_edits(api: Api) -> None:
         ),
         409,
     )
+
+
+def test_band_adjustment_remains_visible_after_pin(api: Api) -> None:
+    client, headers = api
+    with database(client.app.state.settings) as db:
+        seed_demand(db)
+        seed_resource(db)
+    run_id = finish(client, client.post("/api/v1/match-runs", headers=headers, json={}))
+    rows_url = f"/api/v1/match-runs/{run_id}/results"
+    row = client.get(rows_url).json()[0]
+    assert row["activeOverrides"] == []
+    endpoint = f"/api/v1/match-results/{row['resultId']}/overrides"
+    adjusted = client.post(
+        endpoint,
+        headers=headers,
+        json={
+            "action": "adjust_band",
+            "newBand": "Avg",
+            "reason": "Reviewed band",
+        },
+    )
+    assert adjusted.status_code == 201
+    pinned = client.post(
+        endpoint, headers=headers, json={"action": "pin", "reason": "Reviewed pin"}
+    )
+    assert pinned.status_code == 201
+    for response in (
+        pinned.json(),
+        client.get(rows_url).json()[0],
+        client.get(f"/api/v1/match-results/{row['resultId']}").json(),
+    ):
+        assert response["override"]["action"] == "adjust_band"
+        assert response["override"]["newBand"] == "Avg"
+        assert [value["action"] for value in response["activeOverrides"]] == ["adjust_band", "pin"]
+    revoked = client.request(
+        "DELETE",
+        endpoint,
+        headers=headers,
+        params={
+            "overrideId": adjusted.json()["override"]["overrideId"],
+            "reason": "Undo band",
+        },
+    )
+    assert revoked.status_code == 200 and revoked.json()["override"]["action"] == "pin"
+    assert [value["action"] for value in revoked.json()["activeOverrides"]] == ["pin"]
     problem(
         client.put(
             url,

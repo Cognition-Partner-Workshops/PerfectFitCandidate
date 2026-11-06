@@ -66,6 +66,7 @@ def result_view(db: sqlite3.Connection, row: dict[str, Any], *, detail: bool = F
         ]
     overrides = override_views(db, row["result_id"])
     active = [value for value in overrides if value.revoked_at is None]
+    adjustments = [value for value in active if value.action == "adjust_band"]
     fields = {
         key: row[key]
         for key in (
@@ -110,7 +111,8 @@ def result_view(db: sqlite3.Connection, row: dict[str, Any], *, detail: bool = F
             )
             for value in components
         ],
-        override=active[-1] if active else None,
+        override=adjustments[-1] if adjustments else active[-1] if active else None,
+        active_overrides=active,
     )
     for key in ("matching_evidence", "gaps_checks", "eligibility_evidence"):
         fields[key] = [part.strip() for part in row[key].split("; ") if part.strip()]
