@@ -121,7 +121,8 @@ def rule_facts(text: str) -> CVFacts:
 
     lines = list(re.finditer(r"[^\n]+", text))
     for line in lines:
-        if line[0].strip().rstrip(":").casefold() in HEADINGS:
+        heading = line[0].strip().rstrip(":").casefold()
+        if heading in HEADINGS and heading not in {"contact", "personal details"}:
             break
         label = re.fullmatch(r"Name:\s*(.+)", line[0], re.IGNORECASE)
         if label and not re.search(r"[\d@]", label[1]):

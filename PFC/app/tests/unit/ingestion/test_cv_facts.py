@@ -160,6 +160,20 @@ def test_req_in_23_name_labels_only_in_header(heading: str) -> None:
     assert labelled is not None and labelled.value == "Alex Border"
 
 
+@pytest.mark.parametrize(
+    "heading", ["Contact", "Personal Details", "CONTACT:", "personal details:"]
+)
+def test_req_in_23_contact_sections_are_name_headers(heading: str) -> None:
+    text = f"{heading}\nName: Alex Border\nReferences\nName: Pat Referee"
+    name = rule_facts(text).name
+    assert name is not None and name.value == "Alex Border"
+    assert text[slice(*name.span)] == name.evidence == "Name: Alex Border"
+    assert rule_facts(f"References\n{heading}\nName: Pat Referee").name is None
+    assert rule_facts(f"Experience\n{heading}\nName: Pat Referee").name is None
+    combined = rule_facts(f"Contact\n{heading}\nPersonal Details\nName: Alex Border").name
+    assert combined is not None and combined.value == "Alex Border"
+
+
 @pytest.mark.parametrize("title", ["Curriculum Vitae", "CV", "Resume", "Résumé", "Profile"])
 @pytest.mark.parametrize("suffix", ["", " Of Alex", " - Alex"])
 def test_req_in_23_document_titles_are_not_names(title: str, suffix: str) -> None:
