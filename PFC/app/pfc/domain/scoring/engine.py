@@ -24,6 +24,7 @@ from .models import (
     SkillBasis,
     SkillEvidence,
 )
+from .selection import RankingInput, input_key, select_scored_rows
 
 ENGINE_VERSION = "1.0.0"
 
@@ -345,16 +346,7 @@ def score_basis(
 
 def ranking_key(row: PersonResult) -> tuple[float, int, int, date, int, str, str]:
     """FR-MAT-10/60: deterministic ranking, using rounded score."""
-    start = row.resource.bench_start
-    return (
-        -row.best.score,
-        row.status_priority,
-        row.grade_distance,
-        start.value if start.status == "valid" and start.value else date.max,
-        row.best.mandatory_missing,
-        row.resource.short_name.casefold(),
-        row.resource.resource_id,
-    )
+    return input_key(RankingInput.from_result(row))
 
 
 def run_match(
@@ -438,37 +430,18 @@ def run_match(
                 )
                 rows.append(PersonResult(resource, best, scores, priority, distance))
                 pairs_scored += 1
-        unique: dict[str | None, PersonResult] = {}
-        for row in sorted(rows, key=ranking_key):
-            unique.setdefault(row.resource.candidate_id, row)
-        ranked = tuple(unique.values())
-        sufficient = tuple(row for row in ranked if row.best.band != "Insufficient data")
-        insufficient = tuple(row for row in ranked if row.best.band == "Insufficient data")
-        suitable = [row for row in sufficient if row.best.band in {"Strong", "Potential", "Avg"}]
-        shortlist = suitable[: t.top_n]
-        strong = any(row.best.band == "Strong" for row in sufficient)
-        weak = t.weak_inclusion
-        if weak.enabled and (not weak.requires_no_strong or not strong):
-            for row in sufficient:
-                transferable = any(i.kind == "mandatory" and i.credit > 0 for i in row.best.items)
-                threshold = weak.min_transferable_semantic
-                if (
-                    row.best.band == "Weak"
-                    and transferable
-                    and (threshold is None or row.best.semantic >= threshold)
-                    and len(shortlist) < t.top_n
-                ):
-                    shortlist.append(row)
+        selected = select_scored_rows((RankingInput.from_result(row) for row in rows), t)
+        by_id = {row.resource.resource_id: row for row in rows}
         results.append(
             DemandResult(
                 demand,
-                sufficient,
-                insufficient,
-                tuple(shortlist),
-                tuple(shortlist[: t.email_preselect_n]),
+                tuple(by_id[row.resource.resource_id] for row in selected.sufficient),
+                tuple(by_id[row.resource.resource_id] for row in selected.insufficient),
+                tuple(by_id[row.resource.resource_id] for row in selected.shortlist),
+                tuple(by_id[row.resource.resource_id] for row in selected.emails),
                 tuple(flags),
-                not suitable,
-                bool(shortlist) and all(row.best.band == "Weak" for row in shortlist),
+                selected.no_suitable,
+                selected.weak_only,
             )
         )
     return MatchRun(
