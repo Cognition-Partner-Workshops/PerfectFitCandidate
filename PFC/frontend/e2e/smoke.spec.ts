@@ -4,7 +4,8 @@ import { expect, test } from '@playwright/test'
 
 /**
  * End-to-end smoke test against the real backend (REQ-AUTH-01/02, REQ-ING-01..03, REQ-OUT-03..07, REQ-EML-03).
- * `e2e/serve.py` starts FastAPI on a fresh data dir with synthetic DL/CT workbooks.
+ * `e2e/serve.py` starts FastAPI on a fresh data dir with synthetic DL/CT workbooks and the
+ * backend tests' tiny stand-in ONNX embedder as the active model, so a match run completes.
  */
 const data = fileURLToPath(new URL('./.data/', import.meta.url))
 const EMAIL = 'e2e.owner@example.com'
@@ -18,6 +19,19 @@ async function upload(page: import('@playwright/test').Page, button: string, lab
   await expect(page.getByText('Rows read 2')).toBeVisible()
   await commit.click()
   await expect(commit).toBeHidden()
+}
+
+/** Waits on the run's own status (no fixed sleeps): queued/running → completed. */
+async function waitForCompletedRun(page: import('@playwright/test').Page) {
+  await expect
+    .poll(
+      async () => {
+        const runs = (await (await page.request.get('/api/v1/match-runs')).json()) as { status: string }[]
+        return runs[0]?.status
+      },
+      { timeout: 30_000, intervals: [250, 500, 1000] },
+    )
+    .toBe('completed')
 }
 
 test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({ page }) => {
@@ -67,6 +81,32 @@ test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({
   await expect(page.getByText('Requisitions assessed')).toBeVisible()
   await expect(page.getByText('Not Found')).toHaveCount(0)
 
+  // Analyze JD → Confirm & Start → completed run (REQ-MAT-02/08), then Match Results (REQ-OUT-01/03/07, REQ-ELIG-08).
+  await page.goto('/#/demands')
+  await page.getByRole('row', { name: /T10001/ }).getByRole('button', { name: 'Analyze JD' }).click()
+  const start = page.getByRole('button', { name: /Confirm & Start/ })
+  await expect(start).toBeEnabled()
+  await start.click()
+  await expect(start).toBeHidden()
+  await waitForCompletedRun(page)
+
+  await page.goto('/#/matches')
+  const result = page.getByRole('row', { name: /SmokeAlex/ })
+  await expect(result.getByRole('img', { name: /^Match \d+ percent, / })).toBeVisible()
+  // No CV is synced, so the band is usually "Insufficient data"; any band label proves the column renders.
+  await expect(result.locator('.chip').filter({ hasText: /^(Strong|Potential|Avg\.|Weak Match|Insufficient data)$/ })).toBeVisible()
+  await expect(result).toContainText(/SmokeAlex\s*a[a-z]*\*+@example\.com/)
+  await expect(result).not.toContainText('alex@example.com')
+
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export CSV' }).click()
+  const csv = readFileSync(await (await download).path(), 'utf8')
+  expect(csv).toMatch(/a[a-z]*\*+@example\.com/)
+  expect(csv).not.toContain('alex@example.com')
+
+  await page.getByRole('tab', { name: /^Excluded from matching/ }).click()
+  await expect(page.getByRole('table', { name: 'Excluded from matching' }).getByText('SmokeTaylor')).toBeVisible()
+
   // OCC email templates (REQ-EML-03): create v1 and make it the default against the real routes.
   await page.goto('/#/occ/email-templates')
   await page.getByRole('button', { name: 'New template' }).click()
@@ -77,4 +117,12 @@ test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({
   await expect(page.getByText('smoke_template v1 saved.', { exact: false })).toBeVisible()
   await page.getByRole('button', { name: 'Set smoke_template v1 as default' }).click()
   await expect(page.getByText('smoke_template v1 is now the default template.')).toBeVisible()
+
+  // A DL/CT commit after the run flags it as stale (REQ-MAT-08).
+  await page.goto('/#/bench')
+  await upload(page, 'Upload CT', 'Candidate Tracker workbook', 'ct-update.xlsx')
+  await page.goto('/#/matches')
+  await page.reload()
+  await expect(page.getByText('Data changed since this run')).toBeVisible()
+  await expect(page.getByText(/DL\/CT committed/)).toBeVisible()
 })

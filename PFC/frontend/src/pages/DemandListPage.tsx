@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Upload, X } from 'lucide-react'
@@ -44,7 +44,19 @@ function SkillChips({ label, skills, onChange }: { label: string; skills: string
 /** JD review drawer: Analyze JD → review requirements → Confirm & Start (REQ-MAT-02, §9.3). */
 function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) {
   const qc = useQueryClient()
-  const req = useQuery({ queryKey: ['requirements', demand.demandId], queryFn: () => api.getRequirements(demand.demandId) })
+  // A never-analysed demand has no requirements draft yet (GET → 404), so extract one first, once per review:
+  // each analysis stores a new draft revision, and the refetch after Save/Confirm must not add another.
+  const analyzed = useRef(demand.jdStatus !== 'Not analysed')
+  const req = useQuery({
+    queryKey: ['requirements', demand.demandId],
+    queryFn: async () => {
+      if (!analyzed.current) {
+        await api.analyzeDemands([demand.demandId])
+        analyzed.current = true
+      }
+      return api.getRequirements(demand.demandId)
+    },
+  })
   const [edit, setEdit] = useState<JdRequirements | null>(null)
   const value = edit ?? req.data
   const done = () => {
