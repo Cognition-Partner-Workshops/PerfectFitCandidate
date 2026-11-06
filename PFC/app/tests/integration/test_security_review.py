@@ -6,6 +6,7 @@ import re
 import threading
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from argon2 import Type
@@ -517,6 +518,136 @@ def test_unclassified_legacy_ciphertext_stays_redacted(client: TestClient) -> No
     response = client.get("/api/v1/occ/settings")
     assert response.json()["tokenizer.options"] == "[REDACTED]"
     assert "LegacyPrivateToken" not in response.text
+
+
+def test_redacted_credentials_survive_metadata_edits_and_explicit_replacement(
+    client: TestClient,
+) -> None:
+    setup(client)
+    login(client)
+    options = {
+        "providers": [
+            {"headers": {"Authorization": "FirstSecret"}, "enabled": True},
+            {"auth": {"tokens": ["SecondSecret", "ThirdSecret"]}, "max_tokens": 64},
+        ],
+        "tokens": [None, ""],
+    }
+    response = client.put("/api/v1/occ/settings", json={"provider.options": options})
+    assert response.status_code == 200
+    updated = client.get("/api/v1/occ/settings").json()
+    updated["provider.options"]["providers"][0]["enabled"] = False
+    updated["provider.options"]["providers"][1]["max_tokens"] = 128
+    assert client.put("/api/v1/occ/settings", json=updated).status_code == 200
+    options["providers"][0]["enabled"] = False
+    options["providers"][1]["max_tokens"] = 128
+    with database(client.app.state.settings) as db:
+        stored = json.loads(
+            db.execute("SELECT value_json FROM settings WHERE key='provider.options'").fetchone()[0]
+        )
+        assert (
+            json.loads(SecretStore(client.app.state.settings.data_dir).decrypt(stored)) == options
+        )
+    updated["provider.options"]["providers"][0]["headers"]["Authorization"] = "ReplacementSecret"
+    assert client.put("/api/v1/occ/settings", json=updated).status_code == 200
+    options["providers"][0]["headers"]["Authorization"] = "ReplacementSecret"
+    with database(client.app.state.settings) as db:
+        stored = json.loads(
+            db.execute("SELECT value_json FROM settings WHERE key='provider.options'").fetchone()[0]
+        )
+        assert (
+            json.loads(SecretStore(client.app.state.settings.data_dir).decrypt(stored)) == options
+        )
+        assert all(
+            "ReplacementSecret" not in row[0]
+            for row in db.execute(
+                "SELECT details_json FROM audit_log WHERE details_json IS NOT NULL"
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "existing,incoming",
+    [
+        (None, {"token": "[REDACTED]"}),
+        ({}, {"auth": {"tokens": ["[REDACTED]"]}}),
+        ({"tokens": []}, {"tokens": ["[REDACTED]"]}),
+        ({"tokens": ["FirstSecret"]}, {"tokens": ["[REDACTED]", "[REDACTED]"]}),
+        ({"auth": []}, {"auth": {"token": "[REDACTED]"}}),
+    ],
+)
+def test_redacted_credential_requires_existing_path(
+    client: TestClient, existing: Any, incoming: Any
+) -> None:
+    setup(client)
+    login(client)
+    if existing is not None:
+        assert (
+            client.put("/api/v1/occ/settings", json={"provider.options": existing}).status_code
+            == 200
+        )
+    with database(client.app.state.settings) as db:
+        before = [tuple(row) for row in db.execute("SELECT * FROM settings")]
+        audits = db.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0]
+    response = client.put(
+        "/api/v1/occ/settings",
+        json={
+            "matching.top_n": 77,
+            "provider.options": incoming,
+        },
+    )
+    assert response.status_code == 422
+    assert response.headers["content-type"] == "application/problem+json"
+    with database(client.app.state.settings) as db:
+        assert [tuple(row) for row in db.execute("SELECT * FROM settings")] == before
+        assert db.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0] == audits
+
+
+def test_marker_restore_requires_decryption_but_explicit_replacement_does_not(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup(client)
+    login(client)
+    assert (
+        client.put(
+            "/api/v1/occ/settings",
+            json={
+                "provider.options": {"token": "OriginalSecret", "enabled": True},
+            },
+        ).status_code
+        == 200
+    )
+
+    def unavailable(self: SecretStore, value: str) -> bytes:
+        raise SecretStoreError("unavailable")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(SecretStore, "decrypt", unavailable)
+        response = client.put(
+            "/api/v1/occ/settings",
+            json={
+                "provider.options": {"token": "[REDACTED]", "enabled": False},
+            },
+        )
+        assert response.status_code == 503
+        assert response.json()["code"] == "SECRET_STORE_UNAVAILABLE"
+        assert (
+            client.put(
+                "/api/v1/occ/settings",
+                json={
+                    "provider.options": {"token": "ReplacementSecret", "enabled": False},
+                },
+            ).status_code
+            == 200
+        )
+    with database(client.app.state.settings) as db:
+        stored = json.loads(
+            db.execute("SELECT value_json FROM settings WHERE key='provider.options'").fetchone()[0]
+        )
+        assert json.loads(SecretStore(client.app.state.settings.data_dir).decrypt(stored)) == {
+            "token": "ReplacementSecret",
+            "enabled": False,
+        }
 
 
 def test_secret_setting_failure_is_atomic(

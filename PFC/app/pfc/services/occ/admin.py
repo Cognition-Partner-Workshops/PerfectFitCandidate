@@ -14,9 +14,53 @@ from pfc.security.secrets_store import (
     SecretStore,
     SecretStoreError,
     redact_sensitive,
+    sensitive_key,
     sensitive_setting,
 )
 from pfc.services.occ.common import audit_write, get_row, now
+
+_MISSING = object()
+
+
+def _restore_redacted(value: Any, previous: Any, key: str, settings: Settings) -> Any:
+    def existing_at(path: tuple[str | int, ...]) -> Any:
+        nonlocal previous
+        if isinstance(previous, str) and previous.startswith(PREFIX):
+            try:
+                previous = json.loads(SecretStore(settings.data_dir).decrypt(previous))
+            except (SecretStoreError, ValueError, UnicodeError) as exc:
+                raise Problem(
+                    503, "SECRET_STORE_UNAVAILABLE", "Secret storage unavailable"
+                ) from exc
+        old = previous
+        for part in path:
+            if isinstance(old, dict) and isinstance(part, str):
+                old = old.get(part, _MISSING)
+            elif isinstance(old, list) and isinstance(part, int) and part < len(old):
+                old = old[part]
+            else:
+                return _MISSING
+        return old
+
+    def restore(node: Any, path: tuple[str | int, ...], sensitive: bool) -> Any:
+        if isinstance(node, dict):
+            return {
+                k: restore(v, (*path, k), sensitive or sensitive_key(str(k)))
+                for k, v in node.items()
+            }
+        if isinstance(node, list):
+            return [restore(v, (*path, i), sensitive) for i, v in enumerate(node)]
+        if node == "[REDACTED]":
+            old = existing_at(path)
+            if sensitive or (isinstance(old, str) and old.startswith(PREFIX)):
+                if old is _MISSING:
+                    raise Problem(
+                        422, "VALIDATION_ERROR", "Redacted credential has no existing value"
+                    )
+                return old
+        return node
+
+    return restore(value, (), sensitive_key(key))
 
 
 def recipients(db: sqlite3.Connection, user_id: int) -> list[dict[str, Any]]:
@@ -143,12 +187,14 @@ def settings_put(
     for key, value in values.items():
         if key in before and before[key] == value:
             continue
-        secret = sensitive_setting(key, value)
         previous = db.execute(
             "SELECT value_json FROM settings WHERE scope='system' AND user_id IS NULL AND key=?",
             (key,),
         ).fetchone()
-        previous_value = json.loads(previous[0]) if previous else None
+        previous_value = json.loads(previous[0]) if previous else _MISSING
+        value = _restore_redacted(value, previous_value, key, settings)
+        encoded[key] = json.dumps(value, allow_nan=False)
+        secret = sensitive_setting(key, value)
         encrypted_audit = secret or (
             isinstance(previous_value, str) and previous_value.startswith(PREFIX)
         )
