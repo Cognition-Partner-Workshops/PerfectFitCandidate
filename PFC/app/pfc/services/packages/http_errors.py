@@ -70,7 +70,8 @@ ERRORS: dict[str, tuple[int, str, str]] = {
     "model_installed_pending": (
         409,
         "PACKAGE_MODEL_INSTALLED_PENDING",
-        "Model already installed; re-embedding pending. Use POST /occ/embedding-models/{version}/reembed",
+        "Model already installed; re-embedding pending. "
+        "Use POST /occ/embedding-models/{version}/reembed",
     ),
     "not_pending": (404, "PACKAGE_NOT_PENDING", "Pending package not found"),
     "inbox_path": (422, "PACKAGE_INBOX_PATH", "Invalid inbox item path"),

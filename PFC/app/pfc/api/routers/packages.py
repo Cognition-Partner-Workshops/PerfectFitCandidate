@@ -158,6 +158,7 @@ def _export_info(request: Request, path: Path) -> PackageInfo:
             stream,
             trusted_keys=[SigningKeys(request.app.state.settings).get_public_key()],
             app_version=manifest.min_app_version or manifest.max_app_version or app_version(),
+            current_version=0,
         )
     return PackageInfo(
         file_name=path.name,
