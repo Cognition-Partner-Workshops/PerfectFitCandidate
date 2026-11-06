@@ -46,7 +46,9 @@ def submit_incremental_embed(
             try:
                 ctx.raise_if_cancelled()
                 embedder = create_embedder(settings, embedding_model_id=model_id)
-                store = create_vector_store(connection, dimensions=embedder.dimensions)
+                with connection:
+                    connection.execute("BEGIN IMMEDIATE")
+                    store = create_vector_store(connection, dimensions=embedder.dimensions)
                 counts = embed_owners(
                     settings,
                     ctx,
