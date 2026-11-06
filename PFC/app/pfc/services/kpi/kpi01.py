@@ -172,7 +172,7 @@ def measure(
         persisted_suitable = effective_suitable = False
         for row in rows:
             profile = _profile(row["profile_candidate_id"], row["resource_id"])
-            if 1 <= row["rank"] <= 5 and len(persisted) < 5:
+            if row["shortlisted"] == 1 and len(persisted) < 5:
                 persisted.add(profile)
             persisted_suitable |= row["band"] in {"Strong", "Potential"}
             apply_overrides(row, overrides.get(row["result_id"], []))

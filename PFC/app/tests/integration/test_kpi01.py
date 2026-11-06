@@ -323,6 +323,69 @@ def test_no_suitable_overrides_and_unresolved_second(sample: tuple[Settings, int
     assert report["splits"]["holdout"]["analyst_b"]["hit_rate_at_5"] is None
 
 
+def test_no_overrides_variants_identical(sample: tuple[Settings, int]) -> None:
+    settings, run = sample
+    with database(settings) as db:
+        db.execute(
+            "DELETE FROM overrides WHERE result_id IN "
+            "(SELECT result_id FROM match_results WHERE run_id=?)",
+            (run,),
+        )
+        db.execute("UPDATE match_results SET shortlisted=1 WHERE run_id=? AND rank=6", (run,))
+        db.execute(
+            "UPDATE match_results SET shortlisted=0 WHERE run_id=? AND band='Weak'",
+            (run,),
+        )
+        db.execute(
+            "UPDATE match_results SET band='Insufficient data',shortlisted=0 "
+            "WHERE run_id=? AND rank=2",
+            (run,),
+        )
+    report = evaluate(sample)
+    for demand in report["demands"]:
+        assert demand["variants"]["persisted"] == demand["variants"]["after_overrides"]
+    for split in report["splits"].values():
+        assert split["persisted"] == split["after_overrides"]
+    tune = next(row for row in report["demands"] if row["requisition"] == "TUNE")
+    assert tune["variants"]["persisted"]["s_size"] == 2
+    assert tune["variants"]["persisted"]["precision"] == 0.5
+
+
+def test_unshortlisted_weak_results_are_not_candidates(sample: tuple[Settings, int]) -> None:
+    settings, run = sample
+    with database(settings) as db:
+        source = db.execute(
+            "SELECT * FROM match_results WHERE run_id=? AND demand_id="
+            "(SELECT demand_id FROM demands WHERE code_requisition='PERF')",
+            (run,),
+        ).fetchone()
+        db.execute("UPDATE match_results SET band='Avg' WHERE result_id=?", (source["result_id"],))
+        for rank in range(2, 6):
+            resource = seed_resource(db, f"Mixed {rank}", email=f"mixed{rank}@example.com")
+            db.execute(
+                "INSERT INTO match_results(run_id,demand_id,demand_version_id,jd_req_id,"
+                "resource_id,score,band,rank,shortlisted,grade_relation,location_assessment,"
+                "matching_evidence,gaps_checks,eligibility_evidence) "
+                "VALUES (?,?,?,?,?,60,?,?,?,'exact','Aligned','E','G','E')",
+                (
+                    run,
+                    source["demand_id"],
+                    source["demand_version_id"],
+                    source["jd_req_id"],
+                    resource,
+                    "Avg" if rank == 2 else "Weak",
+                    rank,
+                    int(rank == 2),
+                ),
+            )
+    report = evaluate(sample, "code_requisition,email,split\nPERF,mixed3@example.com,\n", None)
+    value = report["demands"][0]["variants"]["persisted"]
+    assert value["s_size"] == 2
+    assert value["hits"] == 0
+    assert value["precision"] == 0
+    assert report["splits"]["holdout"]["persisted"]["hit_rate_at_5"] == 0
+
+
 def test_five_profile_cap(sample: tuple[Settings, int]) -> None:
     settings, run = sample
     with database(settings) as db:

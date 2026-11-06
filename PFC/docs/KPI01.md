@@ -39,8 +39,10 @@ CT `resources.email_address` only: no inferred addresses or substring matching.
 - Only a **completed** run is accepted. Assessed demands are the union of
   `dq_summary_json.demands` and demands with persisted results. Labelled codes
   outside that union are issues and excluded, even if the demand exists in CT/DL.
-- **Persisted S:** unique profiles among results with ranks **1–5**, ignoring
-  overrides. Duplicate profiles do not backfill from rank 6.
+- **Persisted S:** results with persisted `shortlisted=1`, in rank order,
+  deduplicated by profile and capped at five, ignoring overrides. Unshortlisted
+  results do not count, even at ranks 1–5. Shortlisted results below rank five
+  may count when earlier ranks contain unshortlisted or duplicate profiles.
 - **After overrides S:** use shared `active_overrides` / `apply_overrides`, keep
   effectively shortlisted, non-excluded results in rank order, deduplicate and
   cap at five. A pin may therefore introduce a result ranked below five.
