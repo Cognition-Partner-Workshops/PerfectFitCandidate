@@ -8,6 +8,7 @@ from pfc.api.schemas.occ_approvals import CamelModel
 from pfc.config import Settings
 from pfc.db.audit import append_audit
 from pfc.security.problems import Problem
+from pfc.services.ingestion.identity import _masked_text
 
 
 class ExtractionItem(CamelModel):
@@ -39,7 +40,7 @@ def list_extractions(db: sqlite3.Connection, candidate_id: int) -> list[Extracti
     return [
         ExtractionItem(
             cv_version_id=row["cv_version_id"],
-            file_name=row["file_name"],
+            file_name=_masked_text(row["file_name"]),
             version_no=row["version_no"],
             extracted_at=row["extracted_at"],
             removed=row["extraction_removed_at"] is not None,

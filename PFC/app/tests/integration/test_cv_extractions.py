@@ -181,6 +181,22 @@ def test_removal_is_scoped_and_sync_restores_unchanged_file(
         assert db.execute("SELECT count(*) FROM embedding_chunks").fetchone()[0] == 2
 
 
+def test_extraction_filenames_are_masked(client: TestClient, tmp_path: Path) -> None:
+    _, versions = prepare(client, tmp_path)
+    candidate = min(versions)
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "UPDATE resumes SET file_name='alex@example.com.docx' WHERE candidate_id=?",
+            (candidate,),
+        )
+    response = client.get(f"/api/v1/occ/candidates/{candidate}/cv-extractions")
+    assert response.status_code == 200
+    assert "alex@example.com" not in response.text
+    detail = client.get(f"/api/v1/candidates/{candidate}")
+    assert detail.status_code == 200
+    assert response.json()[0]["fileName"] == detail.json()["cvVersions"][0]["fileName"]
+
+
 def test_remove_all_empty_repeat_and_audit(client: TestClient, tmp_path: Path) -> None:
     _, versions = prepare(client, tmp_path)
     cache, owners = matching_cache(client, versions)
