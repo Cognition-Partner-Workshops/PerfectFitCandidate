@@ -129,6 +129,20 @@ def test_running_old_instance_blocks_the_move(tmp_path: Path) -> None:
     assert migrate_legacy_data_dir(legacy, tmp_path / "profile" / "data") is True
 
 
+def test_read_only_legacy_lock_does_not_block_the_move(tmp_path: Path) -> None:
+    legacy = legacy_dir(tmp_path)
+    lock = legacy / "run" / "pfc.lock"
+    lock.parent.mkdir()
+    lock.write_text("", encoding="utf-8")
+    lock.chmod(stat.S_IREAD)
+    try:
+        assert migrate_legacy_data_dir(legacy, tmp_path / "profile" / "data") is True
+    finally:
+        legacy.with_name("data.migrated").joinpath("run", "pfc.lock").chmod(
+            stat.S_IWRITE | stat.S_IREAD
+        )
+
+
 def test_prepare_moves_only_the_default_location(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

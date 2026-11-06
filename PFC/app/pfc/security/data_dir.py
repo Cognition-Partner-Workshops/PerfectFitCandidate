@@ -87,7 +87,10 @@ def _ensure_not_running(legacy: Path) -> None:
     lock_path = legacy / "run" / "pfc.lock"
     if not lock_path.exists():
         return
-    lock = acquire_lock(lock_path, 0)
+    try:
+        lock = acquire_lock(lock_path, 0)
+    except OSError:
+        return  # a lock file nobody can open for writing cannot be held by a running instance
     lock.close()
     if not lock.acquired:
         logger.error("Data directory %s is in use; close the running PFC first", legacy.name)
