@@ -787,25 +787,33 @@ def test_req_mat_08_cancellation_during_persistence_rolls_back(
             assert db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
 
 
-def test_req_mat_08_late_job_cancellation_overrides_completion(
+def test_req_mat_08_late_job_cancellation_preserves_completion(
     settings: Settings,
     runner: JobRunner,
 ) -> None:
     with database(settings) as db:
         demand_id = seed_demand(db)
         seed_resource(db)
-    earlier = execute(settings, runner)
-    cancelled = execute(settings, runner)
+    execute(settings, runner)
+    completed = execute(settings, runner)
     with database(settings) as db:
-        job_id = json.loads(get_run(db, cancelled)["scope_json"])["job_id"]
+        original = get_run(db, completed)
+        original_results = list_results(db, completed)
+        assert original_results["items"]
+        job_id = json.loads(original["scope_json"])["job_id"]
         db.execute(
             "UPDATE jobs SET status='cancelled',finished_at=? WHERE job_id=?",
-            (STAMP, job_id),
+            ("2026-11-07T00:00:00+00:00", job_id),
         )
-        assert list_results(db)["run_id"] == earlier
-        assert demand_matches(db, demand_id)["run_id"] == earlier
-        row = get_run(db, cancelled)
-        assert row["status"] == "cancelled" and row["finished_at"] == STAMP
+        assert list_results(db) == original_results
+        matches = demand_matches(db, demand_id)
+        assert matches["run_id"] == completed
+        assert matches["items"] == original_results["items"]
+        assert get_run(db, completed) == original
+        assert list_runs(db)[0] == original
+        assert db.execute("SELECT status FROM jobs WHERE job_id=?", (job_id,)).fetchone()[0] == (
+            "cancelled"
+        )
 
 
 def test_req_mat_08_submission_failure(settings: Settings, runner: JobRunner) -> None:

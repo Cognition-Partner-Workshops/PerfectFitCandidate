@@ -166,9 +166,7 @@ def list_results(
     if run_id is None:
         reconcile_runs(db)
         latest = db.execute(
-            "SELECT run_id FROM match_runs WHERE status='completed' AND NOT EXISTS "
-            "(SELECT 1 FROM jobs WHERE job_id=json_extract(match_runs.scope_json,'$.job_id') "
-            "AND jobs.status='cancelled') ORDER BY run_id DESC LIMIT 1"
+            "SELECT run_id FROM match_runs WHERE status='completed' ORDER BY run_id DESC LIMIT 1"
         ).fetchone()
         run_id = latest[0] if latest else None
     if run_id is None:
@@ -230,8 +228,6 @@ def demand_matches(db: sqlite3.Connection, demand_id: int) -> dict[str, Any]:
     reconcile_runs(db)
     for row in db.execute(
         "SELECT run_id,dq_summary_json FROM match_runs WHERE status='completed' "
-        "AND NOT EXISTS (SELECT 1 FROM jobs WHERE "
-        "job_id=json_extract(match_runs.scope_json,'$.job_id') AND jobs.status='cancelled') "
         "ORDER BY run_id DESC"
     ):
         summary = json.loads(row["dq_summary_json"] or "{}").get("demands", {})
