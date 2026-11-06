@@ -79,6 +79,7 @@ export function LoginPage() {
             </Banner>
           )}
           {signedOutReason === 'timeout' && <Banner tone="info">You were signed out after inactivity.</Banner>}
+          {signedOutReason === 'expired' && <Banner tone="info">Your session ended. Sign in again to continue.</Banner>}
           {error && <Banner tone="danger">{error}</Banner>}
           {locked && <Banner tone="warning">Too many attempts. Try again in {mmss(lockedFor)}.</Banner>}
           <label className="field">

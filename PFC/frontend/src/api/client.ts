@@ -17,6 +17,7 @@ import type {
   DemandAnalytics,
   EmailDraft,
   EmailTransportStatus,
+  ExportedPackage,
   IdentityResolution,
   InternalDomain,
   JdRequirements,
@@ -31,9 +32,12 @@ import type {
   OneTimePassword,
   PackageImportRecord,
   PackagePreview,
+  PackageSource,
+  PendingPackage,
   PersonalSettings,
   ProblemDetails,
   Resource,
+  ResultFilters,
   ResourceTeamMember,
   Role,
   ScoringTemplate,
@@ -63,6 +67,13 @@ export class ApiError extends Error {
   get code(): string | undefined {
     return this.problem.code
   }
+}
+
+export type ExportFormat = 'csv' | 'xlsx'
+
+export interface ExportedFile {
+  blob: Blob
+  fileName: string
 }
 
 export interface EmailList {
@@ -125,6 +136,8 @@ export interface ApiClient {
 
   /** GET /match-runs */
   listMatchRuns(): Promise<MatchRun[]>
+  /** GET /match-runs/{id} — polled while a run is queued or running */
+  getMatchRun(runId: number): Promise<MatchRun>
   /** GET /match-runs/{id}/results */
   getResults(runId: number): Promise<MatchResult[]>
   /** POST /match-results/{id}/overrides */
@@ -132,6 +145,8 @@ export interface ApiClient {
   /** POST /pii/unmask — audited (REQ-OUT-03, REQ-AUTH-05) */
   unmask(entity: 'resource' | 'candidate' | 'occ_user', id: number, field: 'email' | 'phone'): Promise<string>
 
+  /** GET /match-runs/{id}/export?format=csv|xlsx — emails masked unless includeEmails (REQ-OUT-09). */
+  exportResults(runId: number, filters: ResultFilters, format: ExportFormat, includeEmails: boolean): Promise<ExportedFile>
   /** GET /analytics/summary */
   analyticsSummary(filters: DashboardFilters): Promise<AnalyticsSummary>
   /** GET /analytics/demand */
@@ -142,7 +157,7 @@ export interface ApiClient {
   analyticsMatch(filters: DashboardFilters): Promise<MatchAnalytics>
 
   /** POST /emails/drafts */
-  createDrafts(resultIds: number[]): Promise<EmailDraft[]>
+  createDrafts(resultIds: number[], runId?: number): Promise<EmailDraft[]>
   /** GET /emails */
   listEmails(): Promise<EmailList>
   /** PUT /emails/{id} */
@@ -161,7 +176,9 @@ export interface ApiClient {
   /** POST /settings/settings-package/preview */
   previewPackage(file: File): Promise<PackagePreview>
   /** POST /settings/settings-package/import */
-  importPackage(previewId: string): Promise<PackageImportRecord[]>
+  importPackage(source: PackageSource): Promise<PackageImportRecord[]>
+  /** GET /settings/settings-package/pending */
+  pendingPackages(): Promise<PendingPackage[]>
   /** POST /settings/settings-package/rollback */
   rollbackPackage(): Promise<PackageImportRecord[]>
   /** GET /settings/settings-package/history */
@@ -214,7 +231,7 @@ export interface ApiClient {
   /** GET /occ/settings-package */
   lastExportedPackage(): Promise<SettingsPackageInfo | null>
   /** POST /occ/settings-package/export */
-  exportPackage(): Promise<SettingsPackageInfo>
+  exportPackage(passphrase: string): Promise<ExportedPackage>
 
   /** GET /occ/approvals (DL/CT entries pending OCC review) */
   listApprovals(): Promise<ApprovalEntry[]>

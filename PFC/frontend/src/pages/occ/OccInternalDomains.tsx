@@ -13,13 +13,14 @@ export function OccInternalDomains() {
   const [input, setInput] = useState('')
   const domains = draft ?? list.data ?? []
   const preview = useQuery({ queryKey: ['occ', 'domains-preview', domains], queryFn: () => api.previewClassification(domains), enabled: !!list.data })
-  const save = useMutation({ mutationFn: (d: InternalDomain[]) => api.saveInternalDomains(d), onSuccess: () => { setDraft(null); void qc.invalidateQueries() } })
+  const save = useMutation({ mutationFn: (d: InternalDomain[]) => api.saveInternalDomains(d), onSettled: () => { setDraft(null); void qc.invalidateQueries({ queryKey: ['occ'] }) } })
   if (list.isLoading) return <Spinner />
   if (list.isError) return <ErrorState error={list.error} />
   const norm = normaliseDomain(input)
   return (
     <section className="card stack" aria-label="Internal email domains">
       <h2>Internal email domains</h2>
+      {save.isError && <ErrorState error={save.error} />}
       <Banner tone="info">Domain is a heuristic, not proof of employment. Exact-match semantics.</Banner>
       <div className="row">
         {domains.map((d) => (

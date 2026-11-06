@@ -7,6 +7,7 @@ import zipfile
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 import httpx
@@ -20,6 +21,7 @@ from pfc.db.users import create_user
 from pfc.main import create_app
 from pfc.security import package_signing as signing
 from pfc.security.passwords import hasher
+from pfc.services.packages import models as model_service
 from pfc.services.packages import staging
 from pfc.services.packages.importer import SettingsImporter
 from pfc.services.packages.inbox import PackageInbox
@@ -682,10 +684,24 @@ def test_admin_reembedding_retry(
     target.cookies.clear()
     problem(target.post(endpoint), 401, "AUTH_REQUIRED")
     csrf = login(target)
-    response = target.post(endpoint, headers={"X-CSRF-Token": csrf})
-    assert response.status_code == 200, response.text
-    assert response.json()["version"] == 1 and response.json()["jobId"] > 0
-    assert target.post(endpoint, headers={"X-CSRF-Token": csrf}).json() == response.json()
+    entered, release = Event(), Event()
+    factory = model_service.create_embedder
+
+    def blocked(*args: Any, **kwargs: Any) -> Any:
+        entered.set()
+        assert release.wait(10)
+        return factory(*args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(model_service, "create_embedder", blocked)
+        try:
+            response = target.post(endpoint, headers={"X-CSRF-Token": csrf})
+            assert response.status_code == 200, response.text
+            assert response.json()["version"] == 1 and response.json()["jobId"] > 0
+            assert entered.wait(10)
+            assert target.post(endpoint, headers={"X-CSRF-Token": csrf}).json() == response.json()
+        finally:
+            release.set()
     problem(
         target.post(f"{PREFIX}/occ/embedding-models/99/reembed", headers={"X-CSRF-Token": csrf}),
         404,

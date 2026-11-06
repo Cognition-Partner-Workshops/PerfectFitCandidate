@@ -5,6 +5,7 @@
  * Argon2id (TDD.md §9.2).
  */
 import { ApiError, type ApiClient, type EmailList, type StatusMapData } from '../client'
+import { applyChanges } from '../crud'
 import type {
   CandidateDetail,
   CurrentUser,
@@ -18,6 +19,8 @@ import type {
   OccUser,
   PackageImportRecord,
   PackagePreview,
+  PackageSource,
+  PendingPackage,
   PersonalSettings,
   ProblemDetails,
   Resource,
@@ -57,12 +60,13 @@ import {
 import { classify, scoreAll, toResource } from './scorer'
 import { benchAnalytics, demandAnalytics, matchAnalytics, summarise } from '../../lib/analytics'
 import { applyResultFilters } from '../../lib/filters'
+import { resultsToCsv } from '../../lib/csv'
 import { checkPassword } from '../../lib/password'
 import { formatPct } from '../../lib/format'
 import { maskEmail, maskPhone } from '../../lib/mask'
 
 // Bump when persisted mock shapes or IDs change so stale state is discarded.
-const STORAGE_KEY = 'pfc.mock.v3'
+const STORAGE_KEY = 'pfc.mock.v4'
 
 interface MockUser extends OccUser {
   passwordHash: string
@@ -183,7 +187,7 @@ function initialState(): MockState {
     },
     installedPackageVersion: 6,
     packageHistory: [
-      { version: 6, importedAt: '2026-11-01T09:00:00Z', importedBy: 'OCC Admin', fileName: 'PFC-settings-v6.pfcpkg', canRollback: false },
+      { version: 6, importedAt: '2026-11-01T09:00:00Z', importedBy: 'OCC Admin', fileName: 'PFC-settings-v6.pfcpkg', canRollback: false, status: 'applied', isCurrent: true },
     ],
     previews: [],
     lastExport: null,
@@ -650,6 +654,12 @@ export class MockApiClient implements ApiClient {
     return this.done([this.run()])
   }
 
+  async getMatchRun(runId: number) {
+    this.currentUser()
+    if (runId !== 1) fail(404, 'Run not found', 'NOT_FOUND')
+    return this.done(this.run())
+  }
+
   async getResults(runId: number) {
     this.currentUser()
     if (runId !== 1) fail(404, 'Run not found', 'NOT_FOUND')
@@ -722,6 +732,22 @@ export class MockApiClient implements ApiClient {
       { id: 'capacity', label: 'Available Capacity not used for availability', passed: true },
       { id: 'unparseable', label: 'Unparseable dates stay eligible (pending review)', passed: true },
     ]
+  }
+
+  async exportResults(runId: number, f: ResultFilters, format: 'csv' | 'xlsx', includeEmails: boolean) {
+    const me = this.currentUser()
+    if (includeEmails && me.role === 'Analyst' && !this.policy().analystsMayUnmask) fail(403, 'Unmasking is disabled for Analysts', 'UNMASK_DISABLED')
+    if (format === 'xlsx') fail(501, 'XLSX export needs the backend', 'NOT_IMPLEMENTED')
+    const rows0 = applyResultFilters(await this.getResults(runId), f)
+    const details = `run ${runId} · ${format} · rows ${rows0.length}`
+    if (includeEmails) this.audit('Unmasked emails in results export', undefined, { action: 'unmask', entity: 'match_run', details })
+    this.audit(`Exported results for run ${runId}`, undefined, { action: 'export_results', entity: 'match_run', details })
+    const raw = new Map(this.state.raws.map((r) => [r.resourceId, r.email]))
+    const rows = rows0.map((r) =>
+      includeEmails ? { ...r, personEmailMasked: raw.get(r.resourceId) ?? r.personEmailMasked } : r,
+    )
+    this.save()
+    return { blob: new Blob([resultsToCsv(rows, `Run ${runId}`)], { type: 'text/csv;charset=utf-8' }), fileName: `PFC-results-run${runId}.csv` }
   }
 
   async analyticsSummary(f: DashboardFilters) {
@@ -964,14 +990,14 @@ export class MockApiClient implements ApiClient {
     return this.done(preview)
   }
 
-  async importPackage(previewId: string) {
+  async importPackage(source: PackageSource) {
     const u = this.currentUser()
-    const p = this.state.previews.find((x) => x.previewId === previewId)
+    const p = 'previewId' in source ? this.state.previews.find((x) => x.previewId === source.previewId) : undefined
     if (!p) fail(404, 'Preview expired — choose the file again', 'PACKAGE_PREVIEW_EXPIRED')
     if (p.errors.length) fail(422, `Package not applied: ${p.errors[0]}. Current settings are unchanged.`, 'PACKAGE_INVALID')
     this.state.packageHistory = [
-      { version: p.packageVersion, importedAt: iso(), importedBy: u.fullName, fileName: p.fileName, canRollback: true },
-      ...this.state.packageHistory.map((h) => ({ ...h, canRollback: false })),
+      { version: p.packageVersion, importedAt: iso(), importedBy: u.fullName, fileName: p.fileName, canRollback: true, status: 'applied', isCurrent: true },
+      ...this.state.packageHistory.map((h) => ({ ...h, canRollback: false, isCurrent: false })),
     ]
     this.state.installedPackageVersion = p.packageVersion
     this.state.previews = []
@@ -981,12 +1007,21 @@ export class MockApiClient implements ApiClient {
 
   async rollbackPackage() {
     this.currentUser()
-    const [latest, previous, ...rest] = this.state.packageHistory
+    const h = this.state.packageHistory
+    const latest = h.find((x) => x.isCurrent)
+    const previous = h.find((x) => x !== latest && x.status === 'applied' && latest && x.version < latest.version)
     if (!latest?.canRollback || !previous) fail(409, 'Nothing to roll back', 'PACKAGE_NO_ROLLBACK')
-    this.state.packageHistory = [previous, ...rest]
+    this.state.packageHistory = h.map((x) =>
+      x === latest ? { ...x, status: 'rolled_back', isCurrent: false, canRollback: false } : x === previous ? { ...x, isCurrent: true, canRollback: h.some((y) => y.status === 'applied' && y.version < previous.version) } : x,
+    )
     this.state.installedPackageVersion = previous.version
     this.audit(`Settings package rolled back to v${previous.version}`)
     return this.done(this.state.packageHistory)
+  }
+
+  async pendingPackages() {
+    this.currentUser()
+    return this.done<PendingPackage[]>([])
   }
 
   async packageHistory() {
@@ -1068,11 +1103,25 @@ export class MockApiClient implements ApiClient {
     return this.done(this.state.statuses)
   }
 
+  /** Per-item like the backend: deleting a status still referenced by the map is a 409. */
   async saveBenchStatuses(statuses: BenchStatus[]) {
     this.requireAdmin()
-    this.state.statuses = statuses
-    this.audit('Status list saved (new version)')
-    return this.done(statuses)
+    const s = this.state
+    try {
+      await applyChanges(s.statuses, statuses, (x) => x.code, (a, b) => JSON.stringify(a) === JSON.stringify(b), {
+        create: async (x) => void (s.statuses = [...s.statuses, x]),
+        update: async (x) => void (s.statuses = s.statuses.map((y) => (y.code === x.code ? x : y))),
+        remove: async (x) => {
+          if (s.statusMap.some((m) => m.canonicalCode === x.code)) fail(409, 'Status is referenced by status_map', 'CONFLICT')
+          s.statuses = s.statuses.filter((y) => y.code !== x.code)
+        },
+      })
+      s.statuses = statuses
+    } finally {
+      this.audit('Status list saved')
+      this.save()
+    }
+    return this.done(s.statuses)
   }
 
   private statusMapData(): StatusMapData {
@@ -1090,8 +1139,21 @@ export class MockApiClient implements ApiClient {
 
   async saveStatusMap(entries: StatusMapEntry[]) {
     this.requireAdmin()
-    this.state.statusMap = entries
-    this.audit('Source-status mapping saved')
+    const s = this.state
+    const put = async (e: StatusMapEntry) => {
+      if (e.canonicalCode && !s.statuses.some((x) => x.code === e.canonicalCode)) fail(422, 'Unknown canonical status', 'VALIDATION_ERROR')
+      s.statusMap = [...s.statusMap.filter((m) => m.sourceText !== e.sourceText), e]
+    }
+    try {
+      await applyChanges(s.statusMap, entries, (e) => e.sourceText, (a, b) => a.canonicalCode === b.canonicalCode, {
+        create: put,
+        update: put,
+        remove: async (e) => void (s.statusMap = s.statusMap.filter((m) => m.sourceText !== e.sourceText)),
+      })
+    } finally {
+      this.audit('Source-status mapping saved')
+      this.save()
+    }
     return this.done(this.statusMapData())
   }
 
@@ -1145,9 +1207,19 @@ export class MockApiClient implements ApiClient {
 
   async saveResourceTeam(members: ResourceTeamMember[]) {
     this.requireAdmin()
-    this.state.resourceTeam = members
-    this.audit('Resource-team list saved')
-    return this.done(members)
+    const s = this.state
+    const key = (m: ResourceTeamMember) => m.email.toLowerCase()
+    try {
+      await applyChanges(s.resourceTeam, members, key, (a, b) => a.displayName === b.displayName && a.active === b.active, {
+        create: async (m) => void (s.resourceTeam = [...s.resourceTeam, m]),
+        update: async (m) => void (s.resourceTeam = s.resourceTeam.map((x) => (key(x) === key(m) ? m : x))),
+        remove: async (m) => void (s.resourceTeam = s.resourceTeam.filter((x) => key(x) !== key(m))),
+      })
+    } finally {
+      this.audit('Resource-team list saved')
+      this.save()
+    }
+    return this.done(s.resourceTeam)
   }
 
   async listInternalDomains() {
@@ -1157,9 +1229,18 @@ export class MockApiClient implements ApiClient {
 
   async saveInternalDomains(domains: { domain: string }[]) {
     this.requireAdmin()
-    this.state.domains = domains.map((d) => d.domain)
-    this.audit('Internal email domains saved; classification re-evaluated')
-    return this.done(domains)
+    const s = this.state
+    try {
+      await applyChanges(s.domains.map((domain) => ({ domain })), domains, (d) => d.domain, () => true, {
+        create: async (d) => void (s.domains = [...s.domains, d.domain]),
+        update: async () => undefined,
+        remove: async (d) => void (s.domains = s.domains.filter((x) => x !== d.domain)),
+      })
+    } finally {
+      this.audit('Internal email domains saved; classification re-evaluated')
+      this.save()
+    }
+    return this.done(s.domains.map((domain) => ({ domain })))
   }
 
   async previewClassification(domains: { domain: string }[]) {
@@ -1178,8 +1259,9 @@ export class MockApiClient implements ApiClient {
     return this.done(this.state.lastExport)
   }
 
-  async exportPackage() {
+  async exportPackage(passphrase: string) {
     this.requireAdmin()
+    if (!passphrase) fail(422, 'Enter the signing-key passphrase to export', 'PASSPHRASE_REQUIRED')
     const version = Math.max(this.state.lastExport?.version ?? 0, this.state.installedPackageVersion) + 1
     const s = this.state
     const info: SettingsPackageInfo = {
@@ -1201,6 +1283,6 @@ export class MockApiClient implements ApiClient {
     }
     s.lastExport = info
     this.audit(`Settings package v${version} exported`)
-    return this.done(info)
+    return this.done({ ...info, contentBase64: btoa(`mock package v${version}`), oneTimePasswords: [] })
   }
 }
