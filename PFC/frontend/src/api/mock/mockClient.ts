@@ -13,6 +13,7 @@ import type {
   CurrentUser,
   DashboardFilters,
   Demand,
+  JdStatus,
   EmailDraft,
   JdRequirements,
   MatchOverride,
@@ -257,6 +258,10 @@ function mockCvFacts(shortName: string, skills: string[], phoneMasked: string | 
   }
 }
 
+
+/** No requirements exist for the demand's current JD version (backend: no draft or confirmed row). */
+const needsAnalysis = (d: { jdStatus: JdStatus }) => d.jdStatus === 'Not analysed' || d.jdStatus === 'JD changed'
+
 export class MockApiClient implements ApiClient {
   state: MockState
   private readonly persist: boolean
@@ -381,7 +386,7 @@ export class MockApiClient implements ApiClient {
 
   private run(): MatchRun {
     const results = this.computeResults()
-    const scored = this.state.demands.filter((d) => d.jdStatus === 'Scored')
+    const scored = this.state.demands.filter((d) => d.jdStatus === 'Confirmed')
     const without = scored.filter((d) => !results.some((r) => r.demandId === d.demandId && r.band !== 'Weak')).length
     return {
       runId: 1,
@@ -535,7 +540,7 @@ export class MockApiClient implements ApiClient {
   async analyzeDemands(ids: number[]) {
     this.currentUser()
     for (const d of this.state.demands) {
-      if (ids.includes(d.demandId) && d.jdStatus === 'Not analysed') d.jdStatus = 'Analysed — awaiting confirmation'
+      if (ids.includes(d.demandId) && needsAnalysis(d)) d.jdStatus = 'Draft'
     }
     return this.done(undefined)
   }
@@ -550,7 +555,7 @@ export class MockApiClient implements ApiClient {
     const d = this.state.demands.find((x) => x.demandId === demandId)
     if (!d) fail(404, 'Demand not found', 'NOT_FOUND')
     const saved = this.state.requirements[demandId]
-    if (!saved && d.jdStatus === 'Not analysed') fail(404, 'Requirements not found', 'REQUIREMENTS_NOT_FOUND')
+    if (!saved && needsAnalysis(d)) fail(404, 'Requirements not found', 'REQUIREMENTS_NOT_FOUND')
     return this.done(
       saved ?? {
         demandId,
@@ -577,7 +582,7 @@ export class MockApiClient implements ApiClient {
     if (d) {
       d.mandatorySkills = req.mandatorySkills
       d.preferredSkills = req.preferredSkills
-      if (d.jdStatus === 'Not analysed') d.jdStatus = 'Analysed — awaiting confirmation'
+      d.jdStatus = 'Draft'
     }
     return this.done(req)
   }
@@ -586,7 +591,7 @@ export class MockApiClient implements ApiClient {
     this.currentUser()
     const d = this.state.demands.find((x) => x.demandId === demandId)
     if (!d) fail(404, 'Demand not found', 'NOT_FOUND')
-    d.jdStatus = 'Scored'
+    d.jdStatus = 'Confirmed'
     this.noteDataChange('JD confirmed')
     this.audit(`JD requirements confirmed for ${d.codeRequisition}; scoring queued`)
     return this.done(undefined)
