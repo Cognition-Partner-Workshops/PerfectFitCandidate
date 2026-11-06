@@ -50,14 +50,23 @@ describe('mock manual identity resolution (REQ-IN-23)', () => {
   })
 
   it('sets the name, replaces manual emails and keeps the email when omitted', async () => {
+    const rawBefore = structuredClone(api.state.raws.find((r) => r.resourceId === 10))
+    const benchBefore = api.resources().find((r) => r.resourceId === 10)
     const detail = await api.resolveIdentity(10, { action: 'manual_entry', name: '  Morgan Synthetic  ', email: ' A@example.com ' })
     expect(detail.resource.name).toBe('Morgan Synthetic')
     expect(detail.identityStatus).toBe('complete')
-    const raw = api.state.raws.find((r) => r.resourceId === 10)
-    expect(raw).toMatchObject({ email: 'A@example.com', emailSource: 'manual', emailConfirmed: true })
+    const candidate = api.state.candidates[10]
+    expect(candidate.emails).toEqual([{ email: 'A@example.com', emailKey: 'a@example.com', source: 'manual', confirmed: true }])
     await api.resolveIdentity(10, { action: 'manual_entry', name: 'Morgan Synthetic', email: 'B@example.com' })
     await api.resolveIdentity(10, { action: 'manual_entry', name: 'Morgan Renamed' })
-    expect(raw).toMatchObject({ name: 'Morgan Renamed', email: 'B@example.com', emailSource: 'manual', identityStatus: 'complete' })
+    expect(candidate).toMatchObject({ displayName: 'Morgan Renamed', identityStatus: 'complete' })
+    expect(candidate.emails).toEqual([{ email: 'B@example.com', emailKey: 'b@example.com', source: 'manual', confirmed: true }])
+    expect(api.state.raws.find((r) => r.resourceId === 10)).toEqual(rawBefore)
+    const benchAfter = api.resources().find((r) => r.resourceId === 10)
+    expect(benchAfter?.emailAddressMasked).toBeNull()
+    expect(benchAfter?.candidateType).toBe(benchBefore?.candidateType)
+    expect(detail.resource.emailAddressMasked).toBeNull()
+    expect(detail.resource.candidateType).toBe(benchBefore?.candidateType)
     const audit = JSON.stringify(await api.auditLog({}))
     expect(audit).not.toContain('Morgan Synthetic')
     expect(audit).not.toContain('B@example.com')
@@ -67,14 +76,14 @@ describe('mock manual identity resolution (REQ-IN-23)', () => {
     const detail = await api.resolveIdentity(10, { action: 'manual_entry', name: 'Morgan Synthetic' })
     expect(detail.identityStatus).toBe('complete')
     expect(api.state.raws.find((r) => r.resourceId === 10)?.email).toBeNull()
+    expect(api.state.candidates[10].emails).toEqual([])
   })
 
   it('refuses CT authority and confirmed-email conflicts without changing the candidate', async () => {
     expect(await code(api.resolveIdentity(1, { action: 'manual_entry', name: 'Other' }))).toBe('IDENTITY_CT_AUTHORITATIVE')
-    const target = api.state.raws.find((r) => r.resourceId === 10)
-    const other = api.state.raws.find((r) => r.resourceId === 1)
-    if (!other?.email) throw new Error('missing CT fixture')
-    other.emailConfirmed = true
+    const target = api.state.candidates[10]
+    const other = api.state.candidates[1].emails[0]
+    other.confirmed = true
     const before = structuredClone(target)
     expect(await code(api.resolveIdentity(10, { action: 'manual_entry', name: 'Other', email: ` ${other.email.toUpperCase()} ` }))).toBe('IDENTITY_CONFLICT')
     expect(target).toEqual(before)

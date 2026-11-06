@@ -72,11 +72,12 @@ import { formatPct } from '../../lib/format'
 import { maskEmail, maskPhone } from '../../lib/mask'
 
 // Bump when persisted mock shapes or IDs change so stale state is discarded.
-const STORAGE_KEY = 'pfc.mock.v5'
+const STORAGE_KEY = 'pfc.mock.v6'
 
-interface MockResource extends RawResource {
-  emailSource?: 'CT' | 'CV' | 'manual'
-  emailConfirmed?: boolean
+interface MockCandidate {
+  displayName: string | null
+  identityStatus: RawResource['identityStatus']
+  emails: { email: string; emailKey: string; source: 'CT' | 'CV' | 'manual'; confirmed: boolean }[]
 }
 
 interface MockUser extends OccUser {
@@ -105,7 +106,8 @@ interface MockState {
   setupCode: string
   demands: DemandSeed[]
   requirements: Record<number, JdRequirements>
-  raws: MockResource[]
+  raws: RawResource[]
+  candidates: Record<number, MockCandidate>
   statuses: BenchStatus[]
   statusMap: StatusMapEntry[]
   synonyms: Synonym[]
@@ -178,6 +180,11 @@ function initialState(): MockState {
     demands: structuredClone(DEMANDS),
     requirements: {},
     raws: structuredClone(RESOURCES),
+    candidates: Object.fromEntries(RESOURCES.map((r) => [r.resourceId, {
+      displayName: r.name,
+      identityStatus: r.identityStatus,
+      emails: r.email ? [{ email: r.email, emailKey: r.email.trim().toLowerCase(), source: 'CT' as const, confirmed: false }] : [],
+    }])),
     statuses: structuredClone(BENCH_STATUSES),
     statusMap: structuredClone(STATUS_MAP),
     synonyms: structuredClone(SYNONYMS),
@@ -366,8 +373,8 @@ export class MockApiClient implements ApiClient {
   }
 
   resources(): Resource[] {
-    const { raws, statuses, statusMap, domains } = this.state
-    return raws.map((r) => toResource(r, statuses, statusMap, domains))
+    const { raws, candidates, statuses, statusMap, domains } = this.state
+    return raws.map((r) => ({ ...toResource(r, statuses, statusMap, domains), identityStatus: candidates[r.resourceId].identityStatus }))
   }
 
   computeResults(): MatchResult[] {
@@ -669,16 +676,17 @@ export class MockApiClient implements ApiClient {
     const raw = this.state.raws.find((r) => r.resourceId === candidateId)
     const resource = this.resources().find((r) => r.candidateId === candidateId)
     if (!raw || !resource) fail(404, 'Candidate not found', 'NOT_FOUND')
+    const candidate = this.state.candidates[candidateId]
     const surname = (raw.name ?? '').split(' ').pop()?.toLowerCase() ?? ''
     const ctEmailOptions = this.state.raws
-      .filter((r) => r.resourceId !== raw.resourceId && r.email && (r.emailSource ?? 'CT') === 'CT' && (r.name ?? '').toLowerCase().endsWith(surname))
+      .filter((r) => r.resourceId !== raw.resourceId && r.email && (r.name ?? '').toLowerCase().endsWith(surname))
       .map((r) => ({ resourceId: r.resourceId, label: `${r.name} · ${r.shortName} · ${r.grade ?? '—'}`, emailMasked: maskEmail(r.email) ?? '' }))
     const detail: CandidateDetail = {
       candidateId,
       internalRef: `PFC-C-${String(candidateId).padStart(6, '0')}`,
-      resource,
+      resource: { ...resource, name: candidate.displayName },
       phoneMasked: maskPhone(raw.phone),
-      identityStatus: raw.identityStatus,
+      identityStatus: candidate.identityStatus,
       ctEmailOptions,
       cvVersions: Array.from({ length: raw.cvCount }, (_, i) => ({
         cvVersionId: candidateId * 10 + i,
@@ -701,35 +709,41 @@ export class MockApiClient implements ApiClient {
     this.currentUser()
     const raw = this.state.raws.find((r) => r.resourceId === candidateId)
     if (!raw) fail(404, 'Candidate not found', 'NOT_FOUND')
+    const candidate = this.state.candidates[candidateId]
     if (resolution.action === 'manual_entry') {
       const name = resolution.name?.trim()
       const email = resolution.email?.trim()
       if (!name || name.length > 200) fail(422, 'Enter a name of 1 to 200 characters', 'VALIDATION_ERROR')
       if (email !== undefined && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(422, 'Enter a valid email', 'VALIDATION_ERROR')
-      if (raw.email && (raw.emailSource ?? 'CT') === 'CT') fail(409, 'CT email remains authoritative', 'IDENTITY_CT_AUTHORITATIVE')
-      if (email !== undefined && this.state.raws.some((r) => r.resourceId !== candidateId && r.emailConfirmed && r.email?.trim().toLowerCase() === email.toLowerCase())) {
+      if (candidate.emails.some((e) => e.source === 'CT')) fail(409, 'CT email remains authoritative', 'IDENTITY_CT_AUTHORITATIVE')
+      if (email !== undefined && Object.entries(this.state.candidates).some(([id, c]) => Number(id) !== candidateId && c.emails.some((e) => e.confirmed && e.emailKey === email.toLowerCase()))) {
         fail(409, 'Email is confirmed for another candidate', 'IDENTITY_CONFLICT')
       }
-      raw.name = name
+      candidate.displayName = name
       if (email !== undefined) {
-        raw.email = email
-        raw.emailSource = 'manual'
-        raw.emailConfirmed = true
+        const emailKey = email.toLowerCase()
+        candidate.emails = candidate.emails.filter((e) => e.source !== 'manual' && e.emailKey !== emailKey)
+        candidate.emails.push({ email, emailKey, source: 'manual', confirmed: true })
       }
-      raw.identityStatus = 'complete'
+      candidate.identityStatus = 'complete'
     } else if (resolution.action === 'select_ct_record') {
       const source = this.state.raws.find((r) => r.resourceId === resolution.resourceId)
       // Emails are copied from an existing CT record, never typed or constructed (REQ-IN-14, GQ-06).
-      if (!source?.email || (source.emailSource ?? 'CT') !== 'CT') fail(422, 'Select a Candidate Tracker record with an email', 'IDENTITY_EMAIL_REQUIRED')
+      if (!source?.email) fail(422, 'Select a Candidate Tracker record with an email', 'IDENTITY_EMAIL_REQUIRED')
       raw.email = source.email
-      raw.emailSource = 'CT'
-      raw.emailConfirmed = true
       raw.name = source.name
       raw.identityStatus = 'complete'
+      candidate.displayName = source.name
+      const emailKey = source.email.trim().toLowerCase()
+      candidate.emails = candidate.emails.filter((e) => e.emailKey !== emailKey)
+      candidate.emails.push({ email: source.email, emailKey, source: 'CT', confirmed: true })
+      candidate.identityStatus = 'complete'
     } else if (resolution.action === 'generate_internal_id') {
       raw.identityStatus = 'incomplete'
+      candidate.identityStatus = 'incomplete'
     } else {
       raw.identityStatus = 'review_later'
+      candidate.identityStatus = 'review_later'
     }
     this.audit(`Identity resolution: ${resolution.action}`, candidateId)
     this.save()
