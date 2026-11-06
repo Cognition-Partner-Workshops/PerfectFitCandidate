@@ -26,6 +26,7 @@ def populated(api: Api) -> tuple[Api, dict[str, Any]]:
     client, _ = api
     settings = client.app.state.settings
     stamp = NOW.isoformat()
+    before_run = (NOW - timedelta(seconds=1)).isoformat()
     with database(settings) as db:
         ingestions = []
         for kind in ("DL", "DL", "CT"):
@@ -33,7 +34,7 @@ def populated(api: Api) -> tuple[Api, dict[str, Any]]:
                 "INSERT INTO ingestion_runs(kind,source,file_name,file_sha256,file_size,"
                 "status,started_at,committed_at) "
                 "VALUES (?,'manual_upload','data.xlsx',?,1,'committed',?,?)",
-                (kind, str(len(ingestions)), stamp, stamp),
+                (kind, str(len(ingestions)), before_run, before_run),
             )
             ingestions.append(cursor.lastrowid)
         for ingestion, severity in (
@@ -50,6 +51,7 @@ def populated(api: Api) -> tuple[Api, dict[str, Any]]:
                 (ingestion, severity),
             )
         demands = [seed_demand(db, f"T1{i:04d}", preferred=("SQL", "Python")) for i in range(4)]
+        db.execute("UPDATE jd_requirements SET confirmed_at=?", (before_run,))
         db.execute("UPDATE demands SET lifecycle='closed' WHERE demand_id=?", (demands[3],))
         db.execute("UPDATE demands SET first_ingestion_id=?,bu='Data'", (ingestions[1],))
         db.execute(

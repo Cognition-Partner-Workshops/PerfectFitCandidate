@@ -89,14 +89,60 @@ def test_approval_audit_actions(populated: Populated, action: str) -> None:
 
 @pytest.mark.parametrize("reason", REASONS)
 @pytest.mark.parametrize("delta", [-1, 0, 0.000001])
-def test_only_strictly_later_events_count(populated: Populated, reason: str, delta: float) -> None:
+@pytest.mark.parametrize("precision", ["seconds", "microseconds"])
+def test_event_boundaries_respect_stored_precision(
+    populated: Populated, reason: str, delta: float, precision: str
+) -> None:
     (client, _), ids = populated
     with database(client.app.state.settings) as db:
-        add_event(db, reason, (NOW + timedelta(seconds=delta)).isoformat())
+        add_event(db, reason, (NOW + timedelta(seconds=delta)).isoformat(timespec=precision))
         run = get_run(db, ids["run"])
         assert run is not None
-        assert run["data_changed_since_run"] == (delta > 0)
-        assert run["data_changed_reasons"] == ([reason] if delta > 0 else [])
+        expected = delta >= 0 if precision == "seconds" else delta > 0
+        assert run["data_changed_since_run"] == expected
+        assert run["data_changed_reasons"] == ([reason] if expected else [])
+
+
+@pytest.mark.parametrize("reason", REASONS)
+@pytest.mark.parametrize("edit_microsecond", [100000, 900000])
+def test_same_second_coarse_events_are_conservatively_flagged(
+    populated: Populated, reason: str, edit_microsecond: int
+) -> None:
+    (client, _), ids = populated
+    finished = NOW.replace(hour=10, microsecond=500000)
+    edited = finished.replace(microsecond=edit_microsecond)
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "UPDATE match_runs SET finished_at=? WHERE run_id=?", (finished.isoformat(), ids["run"])
+        )
+        add_event(db, reason, edited.isoformat(timespec="seconds").replace("+00:00", "Z"))
+        run = get_run(db, ids["run"])
+        assert run is not None and run["data_changed_since_run"]
+        assert run["data_changed_reasons"] == [reason]
+
+
+@pytest.mark.parametrize("reason", REASONS)
+def test_coarse_event_is_not_hidden_by_later_precise_timestamp(
+    populated: Populated, reason: str
+) -> None:
+    (client, _), ids = populated
+    finished = NOW.replace(hour=10, microsecond=500000)
+    coarse = finished.isoformat(timespec="seconds")
+    precise = finished.replace(microsecond=400000).isoformat()
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "UPDATE match_runs SET finished_at=? WHERE run_id=?", (finished.isoformat(), ids["run"])
+        )
+        add_event(db, reason, coarse)
+        if reason == "JD confirmed":
+            db.execute(
+                "UPDATE jd_requirements SET confirmed_at=? WHERE jd_req_id="
+                "(SELECT MIN(jd_req_id) FROM jd_requirements)",
+                (coarse,),
+            )
+        add_event(db, reason, precise)
+        run = get_run(db, ids["run"])
+        assert run is not None and run["data_changed_reasons"] == [reason]
 
 
 def test_new_run_is_unflagged_old_run_stays_flagged(populated: Populated) -> None:
@@ -153,15 +199,17 @@ def test_unrelated_events_and_incomplete_syncs_do_not_flag(populated: Populated)
 
 
 @pytest.mark.parametrize("delta", [0, 1])
+@pytest.mark.parametrize("precision", ["seconds", "microseconds"])
 def test_event_offsets_compare_instants_not_timestamp_strings(
-    populated: Populated, delta: int
+    populated: Populated, delta: int, precision: str
 ) -> None:
     (client, _), ids = populated
     with database(client.app.state.settings) as db:
         at = (NOW + timedelta(seconds=delta)).astimezone(timezone(timedelta(hours=5, minutes=30)))
-        add_event(db, "CV synced", at.isoformat())
+        add_event(db, "CV synced", at.isoformat(timespec=precision))
         run = get_run(db, ids["run"])
-        assert run is not None and run["data_changed_since_run"] == bool(delta)
+        expected = precision == "seconds" or delta > 0
+        assert run is not None and run["data_changed_since_run"] == expected
 
 
 @pytest.mark.parametrize("format", ["csv", "xlsx"])

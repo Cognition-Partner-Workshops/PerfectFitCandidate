@@ -1,7 +1,8 @@
 """Global post-run change metadata, computed without modifying stored runs."""
 
+import re
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 SOURCES = (
@@ -33,6 +34,14 @@ def _time(value: str) -> datetime:
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
 
 
+def _event_boundary(value: str) -> datetime:
+    """Whole-second stamps cover their entire second under the strict comparison."""
+    at = _time(value)
+    if re.search(r"[T ]\d{2}:\d{2}:\d{2}[.,]\d+", value):
+        return at
+    return at + timedelta(seconds=1)
+
+
 def annotate_data_changes(db: sqlite3.Connection, runs: list[dict[str, Any]]) -> None:
     finished = []
     for run in runs:
@@ -41,9 +50,12 @@ def annotate_data_changes(db: sqlite3.Connection, runs: list[dict[str, Any]]) ->
             finished.append((run, _time(run["finished_at"])))
     if not finished:
         return
-    cutoff = min(at for _, at in finished).isoformat()
+    cutoff = min(at for _, at in finished).replace(microsecond=0).isoformat()
     latest = [
-        (reason, max((_time(row[0]) for row in db.execute(query, (cutoff,))), default=None))
+        (
+            reason,
+            max((_event_boundary(row[0]) for row in db.execute(query, (cutoff,))), default=None),
+        )
         for reason, query in SOURCES
     ]
     for run, at in finished:
