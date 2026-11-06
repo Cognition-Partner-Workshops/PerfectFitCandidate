@@ -16,7 +16,7 @@ merged PR, code/test evidence, status and remaining work.
   CV versioning, identity review, candidate detail and CV-status links. Structured
   CV extraction is incomplete, as detailed below.
 - Deterministic hybrid scoring, seeded synonyms, cached local ONNX embeddings,
-  explicit JD analyze/review/edit/confirm workflow (rule-based by default),
+  explicit local-LLM JD analyze/review/edit/confirm workflow (visible rule fallback),
   grade/eligibility/location checks, ranked profile shortlists, component evidence,
   persisted run metadata and audited overrides.
 - Demand/bench/match dashboards, filters, run exclusions/reasons, validation panel,
@@ -32,6 +32,11 @@ merged PR, code/test evidence, status and remaining work.
 - [KPI-01 CLI](KPI01.md): holdout/tune metrics, persisted and after-overrides
   shortlist variants, second analyst and masked issue reports. It does not supply
   analyst labels or establish achieved accuracy.
+
+REQ-MAT-02 is now Implemented+tested: merged #58 adds qualifications and extracted
+location/mandatory-onsite review/edit controls, saved and persisted through
+Confirm & Start. DL region is labelled separately. This closes the review UI
+gap, not extraction-quality or laptop/UAT acceptance.
 
 ## Deliverable inventory — PHASES §5.4
 
@@ -58,32 +63,35 @@ standard account and synthetic re-embed data. It explicitly starts the locked GG
 with a small context for a tiny generation; production approval defaults remain
 unchanged. GitHub's `windows-latest` is not the locked-down corporate laptop.
 
+REQ-PKG-02 is Implemented+tested for the bundling criteria. #49's
+model-complete/offline-first-run dispatch
+[42203458140 passed](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/actions/runs/42203458140)
+at implementation `e6596e1`: ZIP 2,718,697,267 bytes, startup 0.548344 s, sampled
+aggregate peak RSS 4,716,417,024 bytes. PR artifacts intentionally remain
+model-free. This historical Windows CI evidence is not target-laptop UAT or a
+fresh-head dispatch. Before a fresh dispatch, the packaging owner must adapt
+`offline_smoke.py`'s exact health-JSON assertion to #56's added health details.
+
 ## Known limitations and release gates
 
 All Partial and UAT-only requirements below remain visible release work. None is
 silently accepted/deferred by these notes. The matrix has no Not started rows.
 
-- **REQ-IN-21/23, REQ-MAT-02/06 and Phase 1 REQ-LLM-02:** resume sync persists
+- **REQ-IN-21/23 and Phase 1 REQ-LLM-02:** resume sync persists
   normalized text and email facts, not the complete structured contact/experience/
-  qualifications/projects/evidence model. Default JD analysis keeps an empty LLM
-  matching port and falls back to rules. A running email-drafting provider does
-  not wire local-LLM JD/CV extraction or establish grounded extraction quality.
-- **REQ-MAT-07:** CV/vector reuse exists, but matching exposes full/demand scopes
-  rather than dirty-pair incremental scoring/copy-forward. No verified OCC
-  cached-CV-removal route was found.
-- **REQ-CLS-02:** classification fields/display and domain-preview counts exist;
-  domain changes do not implement candidate reclassification or an audited
-  classification-override workflow.
+  qualifications/projects/evidence model. MAT-02's completed JD review workflow
+  does not close these requirements' separate extraction/grounding gaps.
+- **REQ-MAT-06:** merged #63 adds score-neutral experience-duration checks over
+  grounded CV facts and JD evidence-grounding flags retained through review and
+  confirmation. It remains Partial: quote presence does not prove an extracted
+  item's value/meaning, and qualitative specialist experience without explicit
+  years is not separately grounded. These targeted guards do not establish
+  blanket end-to-end no-invention.
 - **REQ-AUTH-06:** encrypted/write-only credential settings are not whole-DB or
   CV-cache encryption. Legacy plaintext needs resave/migration; native DPAPI/
   storage controls, real child logs and residual decisions remain in
   [SECURITY_REVIEW.md](SECURITY_REVIEW.md). That review did not perform enterprise
   SonarQube SAST.
-- **REQ-PKG-02:** PR packages remain model-free. Dispatch/tag packaging builds a
-  separate model-complete artifact and runs an offline standard-user Windows smoke.
-  [Dispatch 42203458140 passed](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/actions/runs/42203458140)
-  at implementation `e6596e1`: ZIP 2,718,697,267 bytes, startup 0.548344 s, sampled
-  aggregate peak RSS 4,716,417,024 bytes. This is Windows CI, not target-laptop UAT.
 - **REQ-LLM-01, REQ-PKG-01 and Phase 1 REQ-EML-04:** real bundled GGUF quality/RAM,
   locked-down launch, and corporate Outlook approval/send/reconciliation need
   Phase 0 laptop UAT. **REQ-OUT-11** professional-look acceptance is also UAT-only;
