@@ -59,11 +59,6 @@ silently accepted/deferred by these notes. The matrix has no Not started rows.
 - **REQ-CLS-02:** classification fields/display and domain-preview counts exist;
   domain changes do not implement candidate reclassification or an audited
   classification-override workflow.
-- **REQ-OUT-03:** resource/result/analytics masking now shares the baseline
-  backend rule, including AlexBorder → Al******er. OCC user-list email policy
-  still needs a decision. Candidate detail routes now exist (#18), making
-  the older security-review statement that they are absent stale. Frontend-only
-  short-local-part fallback masking remains different; no frontend change is made.
 - **REQ-AUTH-06:** encrypted/write-only credential settings are not whole-DB or
   CV-cache encryption. Legacy plaintext needs resave/migration; native DPAPI/
   storage controls, real child logs and residual decisions remain in
