@@ -48,6 +48,8 @@ def apps(tmp_path: Path) -> Iterator[tuple[TestClient, TestClient]]:
             settings = client.app.state.settings
             now = datetime.now(UTC).isoformat()
             with database(settings) as db:
+                db.execute("DELETE FROM skill_synonyms")
+                db.execute("DELETE FROM skills")
                 for email, role_id, display in [
                     ("owner@example.com", 1, "Owner"),
                     ("worker@example.com", 2, "Worker"),
