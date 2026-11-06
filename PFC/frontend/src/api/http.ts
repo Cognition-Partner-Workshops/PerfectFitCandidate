@@ -212,9 +212,10 @@ export class HttpApiClient implements ApiClient {
   analyticsMatch: ApiClient['analyticsMatch'] = (f) => this.request('GET', `/analytics/match${this.qs(f)}`)
 
   /** POST /emails/drafts needs run_id|demand_id; the latest run is used until matching (#10) exposes it per result. */
-  createDrafts: ApiClient['createDrafts'] = async (ids) => {
-    const [run] = await this.listMatchRuns()
-    const r = await this.request<{ drafts: EmailRow[] }>('POST', '/emails/drafts', { run_id: run?.runId, result_ids: ids })
+  /** Drafts come from the run on screen; by default the newest completed one, since a queued/running run is rejected. */
+  createDrafts: ApiClient['createDrafts'] = async (ids, runId) => {
+    const run_id = runId ?? (await this.listMatchRuns()).find((r) => r.status === 'completed')?.runId
+    const r = await this.request<{ drafts: EmailRow[] }>('POST', '/emails/drafts', { run_id, result_ids: ids })
     return r.drafts.map(toEmailDraft)
   }
   listEmails: ApiClient['listEmails'] = async () => {

@@ -196,7 +196,7 @@ export function MatchResultsPage() {
   const results = useQuery({ queryKey: ['results', run?.runId], queryFn: () => api.getResults(run?.runId ?? 0), enabled: !!run })
   const [selection, setSelection] = useState<Set<number> | null>(null)
   const send = useMutation({
-    mutationFn: (ids: number[]) => api.createDrafts(ids),
+    mutationFn: (ids: number[]) => api.createDrafts(ids, run?.runId),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['emails'] })
       navigate('/email')
