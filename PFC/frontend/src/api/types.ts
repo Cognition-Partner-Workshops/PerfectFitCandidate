@@ -1,3 +1,12 @@
+export interface DocumentSummary {
+  sentences: { text: string; evidence: string }[]
+  model: string
+  createdAt: string
+  stale: boolean
+  droppedUngrounded: number
+  sourceVersionId: number
+}
+
 /**
  * DTOs for the `/api/v1` surface (TDD.md §12). Field names follow the SQLite data model
  * (TDD.md §4) in camelCase so the generated OpenAPI client can replace these by name.

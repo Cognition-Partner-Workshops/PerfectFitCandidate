@@ -17,6 +17,8 @@ Merge re-check: merged `origin/main` **a81110a** includes #63; `gh api`
 confirms it is merged. MAT-06 now takes main's Partial row and #63 evidence.
 Our other six audited rows and verdicts remain unchanged; all other rows,
 including Implemented+tested CLS-02/MAT-07 and every UAT-only row, follow main.
+This branch adds REQ-LLM-02 summaries and promotes only that row to
+Implemented+tested; live-model summary quality remains UAT only.
 The counts below are recomputed from the status column, not inferred from PRs.
 
 ## Summary and gates
@@ -24,8 +26,8 @@ The counts below are recomputed from the status column, not inferred from PRs.
 | Scope | Implemented+tested | Implemented, UAT only | Partial | Not started | Deferred |
 |---|---:|---:|---:|---:|---:|
 | Delivery Phase 1 | 74 | 3 | 4 | 0 | 0 |
-| Earlier Phase 1 increments | 6 | 1 | 1 | 0 | 0 |
-| Total | 80 | 4 | 5 | 0 | 0 |
+| Earlier Phase 1 increments | 7 | 1 | 0 | 0 | 0 |
+| Total | 81 | 4 | 4 | 0 | 0 |
 
 The actual §10 table assigns **81 IDs** to delivery Phase 1; its prose summary says
 79 and is stale. Eight additional IDs explicitly have a Phase 1 earlier increment;
@@ -43,7 +45,6 @@ PHASES priority column (notably REQ-OCC-03). Titles reproduce the requirement te
 - **REQ-LLM-01** — Implemented, UAT only: Supervisor/selection/memory-limit contracts are tested with fakes; real bundled GGUF quality, RAM and child-log behavior on the 16 GB laptop remain unvalidated.
 - **REQ-PKG-01** — Implemented, UAT only: Portable build/helper and hosted-Windows dependency smoke evidence exists; no locked-down Windows 11 Phase 0 laptop unzip/run approval.
 - **REQ-EML-04** — Implemented, UAT only: Phase 1 Outlook COM code and fake-COM tests exist; actual corporate Outlook approval/send/reconciliation needs laptop UAT. SMTP is Phase 2.
-- **REQ-LLM-02** — Partial: JD extraction and CV-fact parsing use the shared local provider; email drafting uses it too, and scoring makes zero LLM calls. #52 supplies real-model Linux VM validation documented in [LLM_VALIDATION.md](LLM_VALIDATION.md) and [PERFORMANCE.md](PERFORMANCE.md#live-llm-extraction-linux-vm); this is not target-laptop/UAT acceptance. Summarisation is the only missing Phase 1 clause: no separate feature exists. Chat is Phase 2.
 
 ### Laptop, UAT and pilot evidence still required
 
@@ -159,7 +160,7 @@ scheduled there; it is not being newly deferred by this inventory.
 | REQ-OUT-07 | Match/communication analytics: match coverage (demands with ≥1 Strong/Potential match), band distribution, email status counts. Further charts per [DASHBOARD_RESEARCH.md](DASHBOARD_RESEARCH.md). | S | [#22](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/22), [#26](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/26), [#33](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/33) | `app/pfc/services/analytics/dashboard.py`; `app/pfc/services/analytics/population.py`; `frontend/src/pages/DashboardPage.tsx` | `app/tests/integration/test_analytics_export.py`; `app/tests/integration/test_analytics_equivalence.py`; `frontend/src/App.test.tsx` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
 | REQ-OUT-09 | **PDF report download** of dashboard/analytics and match results; Excel/CSV export of match results. | S | [#22](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/22), [#26](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/26), [#27](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/27) | `app/pfc/services/matching/export.py`; `frontend/src/pages/MatchResultsPage.tsx` | `app/tests/integration/test_analytics_export.py` | Implemented+tested | Phase 1 CSV/XLSX only; PDF is Phase 2 (PHASES §10). |
 | REQ-EML-04 | Transport: **Outlook COM automation (primary)**, SMTP optional (configurable). | M (COM) / S (SMTP) | [#4](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/4), [#13](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/13) | `app/pfc/adapters/email/transports.py`; `app/pfc/main.py` | `app/tests/unit/adapters/email/test_transports.py`; `app/tests/integration/email/test_email_api.py` | Implemented, UAT only | Phase 1 Outlook COM code and fake-COM tests exist; actual corporate Outlook approval/send/reconciliation needs laptop UAT. SMTP is Phase 2. |
-| REQ-LLM-02 | LLM powers: JD parsing, CV parsing, summarisation, email drafting, and chat-with-data Q&A (chat in Phase 2). Scoring itself is deterministic and does not depend on free-form LLM output. | M | [#4](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/4), [#10](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/10), [#13](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/13), [#15](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/15), [#42](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/42), [#43](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/43), [#46](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/46), [#48](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/48), [#50](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/50), [#52](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/52) | `app/pfc/services/matching/llm_bridge.py`; `app/pfc/services/ingestion/cv_facts.py`; `app/pfc/services/email/service.py`; `app/pfc/domain/scoring/engine.py`; `app/scripts/validate_llm_extraction.py`; `docs/LLM_VALIDATION.md` | `app/tests/integration/test_jd_llm_extract.py::test_shared_provider_extraction`; `app/tests/integration/test_cv_structured_facts.py::test_req_in_21_23_sync_persists_only_grounded_facts`; `app/tests/integration/email/test_email_api.py::test_llm_failure_uses_deterministic_template`; `app/tests/unit/test_llm_validation.py::test_req_in_23_grounding_drops_are_not_rule_precedence`; `app/tests/unit/test_llm_validation.py::test_req_mat_02_real_jd_bridge_in_anyio_worker` | Partial | JD extraction and CV-fact parsing use the shared local provider; email drafting uses it too, and scoring makes zero LLM calls. #52 supplies real-model Linux VM validation documented in [LLM_VALIDATION.md](LLM_VALIDATION.md) and [PERFORMANCE.md](PERFORMANCE.md#live-llm-extraction-linux-vm); this is not target-laptop/UAT acceptance. Summarisation is the only missing Phase 1 clause: no separate feature exists. Chat is Phase 2. See clause audit. |
+| REQ-LLM-02 | LLM powers: JD parsing, CV parsing, summarisation, email drafting, and chat-with-data Q&A (chat in Phase 2). Scoring itself is deterministic and does not depend on free-form LLM output. | M | [#4](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/4), [#10](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/10), [#13](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/13), [#15](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/15), [#42](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/42), [#43](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/43), [#46](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/46), [#48](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/48), [#50](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/50), [#52](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/52) | `app/pfc/services/matching/llm_bridge.py`; `app/pfc/services/ingestion/cv_facts.py`; `app/pfc/services/email/service.py`; `app/pfc/domain/scoring/engine.py`; `app/scripts/validate_llm_extraction.py`; `docs/LLM_VALIDATION.md`; `app/pfc/services/summaries.py`; `app/pfc/api/routers/{candidates,demands}.py`; `app/pfc/api/schemas/summaries.py`; `app/pfc/db/migrations/0008_summaries.sql`; `frontend/src/components/SummaryCard.tsx` | `app/tests/integration/test_jd_llm_extract.py::test_shared_provider_extraction`; `app/tests/integration/test_cv_structured_facts.py::test_req_in_21_23_sync_persists_only_grounded_facts`; `app/tests/integration/email/test_email_api.py::test_llm_failure_uses_deterministic_template`; `app/tests/unit/test_llm_validation.py::test_req_in_23_grounding_drops_are_not_rule_precedence`; `app/tests/unit/test_llm_validation.py::test_req_mat_02_real_jd_bridge_in_anyio_worker`; `app/tests/integration/test_summaries.py`; `app/tests/unit/test_db.py`; `app/tests/contract/test_frontend_api_contract.py`; `frontend/src/components/SummaryCard.test.tsx`; `frontend/src/api/http.test.ts` | Implemented+tested | Phase 1 JD/CV parsing, email drafting and dedicated CV/JD summaries use the shared supervised local provider. Summaries have strict structured output, normalized quote grounding, PII masking before persistence, version staleness, read-only UI evidence and no fallback. Static dependency and score-invariance tests isolate matching/scoring. #52's Linux real-model extraction validation remains credited. Live-model summary quality and laptop acceptance are UAT only, not claimed automated passes. Chat-with-data is Phase 2. |
 | REQ-LLM-03 | Settings allow **external providers** (e.g. Devin, ChatGPT/OpenAI) with a **user-supplied token**; placeholder plugin configuration in Phase 1, implementation in Phase 3. | M (config) / S (impl) | [#4](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/4), [#9](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/9) | `app/pfc/adapters/llm/providers.py`; `app/pfc/services/occ/settings.py` | `app/tests/unit/adapters/llm/test_providers.py`; `app/tests/integration/test_occ.py` | Implemented+tested | Phase 1 disabled external-provider placeholder only; implementation is Phase 3 (PHASES §10). |
 | REQ-LLM-06 | Admin benchmarks models (extraction accuracy, latency, RAM) and publishes an approved model list; users choose from it, with approximate disk/RAM shown. Model licences must permit internal distribution. | S | [#9](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/9), [#15](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/15), [#23](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/23) | `app/pfc/services/occ/llm.py`; `frontend/src/pages/occ/OccModels.tsx` | `app/tests/integration/test_occ.py`; `frontend/src/pages/occ/occScreens.test.tsx` | Implemented+tested | Phase 1 static approved-model list only; benchmark lab is Phase 3 (PHASES §10). |
 
@@ -194,8 +195,8 @@ Merged automated harness tests in `app/tests/unit/test_llm_validation.py` includ
 The script's `summarize` aggregates validation metrics; it is not an LLM
 summarisation feature. #52 itself did not close the JD review UI gap; merged
 #58 now closes it, as audited below. IN-21, IN-23 and MAT-06 retain their prior
-verdicts. REQ-LLM-02's real-model evidence gap is closed and its only missing
-Phase 1 clause remains the separate summarisation feature.
+verdicts. REQ-LLM-02 now also has a dedicated summary feature and automated backend/UI
+coverage on this branch; live-model summary quality remains UAT only.
 
 ### REQ-IN-21 — Partial → Partial
 
@@ -477,7 +478,9 @@ Phase 1 clause remains the separate summarisation feature.
   explicit years is not separately grounded. These targeted presentation guards
   do not establish blanket end-to-end no-invention, so the verdict stays Partial.
 
-### REQ-LLM-02 — Partial → Partial
+### REQ-LLM-02 — Partial → Implemented+tested
+
+Summary grounding checks verbatim evidence and numbers only, not whether a sentence follows from its quote.
 
 - **JD parsing:** shared local-provider path and automated
   `test_shared_provider_extraction`/fallback evidence under MAT-02.
@@ -485,16 +488,17 @@ Phase 1 clause remains the separate summarisation feature.
   provider to `app/pfc/services/ingestion/cv_facts.py::LLMBridge`;
   `test_req_in_21_23_sync_persists_only_grounded_facts` covers grounded structured
   facts and fallback. This is no longer email-only extraction.
-- **Summarisation:** **no separate feature found on main**. All production
-  `PromptRequest` call sites in `app/pfc` are `jd_extract` (`matching/llm_bridge.py`),
-  `cv_extract` (`ingestion/cv_facts.py`) and `email_draft` (`email/service.py`).
-  No separate summary prompt, service, API route or UI workflow was found.
-  `frontend/src/lib/analytics.ts::summarise` aggregates dashboard KPIs;
-  `app/pfc/services/analytics/dashboard.py` summaries and matching run summaries
-  are deterministic aggregation, not LLM summarisation. Email analysis/gaps
-  prose is part of email drafting, not an independently available summariser.
-  #52's validation-script `summarize` is also deterministic metrics aggregation.
-  There is no merged automated summarisation feature test to cite.
+- **Summarisation:** `app/pfc/services/summaries.py`, Analyst GET/POST routes in
+  `api/routers/{candidates,demands}.py` and migration `0008_summaries.sql`
+  add stored CV/JD reading aids through the shared supervised local provider
+  and existing event loop, with a ≤60 s generation deadline and no fallback.
+  Strict schemas, normalized quote checks, grounding-drop counts, masking before
+  storage/response, current-source staleness and post-inference immediate writes
+  are covered in `app/tests/integration/test_summaries.py`.
+  `frontend/src/components/SummaryCard.tsx` is mounted on Candidate Profile and
+  the JD review drawer; `SummaryCard.test.tsx` and `api/http.test.ts` cover
+  generation/regeneration, expandable evidence, stale/pending/error states and
+  the four route contracts.
 - **Email drafting:** `app/pfc/services/email/service.py::_draft_sections` calls
   the provider with `purpose="email_draft"` and falls back to a template;
   `app/tests/integration/email/test_email_api.py::test_llm_failure_uses_deterministic_template`
@@ -506,10 +510,11 @@ Phase 1 clause remains the separate summarisation feature.
   `app/pfc/domain/scoring/engine.py::run_match` consumes typed inputs/semantic
   values, not generated prose; the zero-LLM-calls test under MAT-02 proves
   scoring after confirmation makes no generation calls.
-- **Only missing Phase 1 clause:** dedicated summarisation implementation/tests.
-  #52 is merged and its documented supervised real-model Linux VM validation
-  is credited. It is not target-laptop/UAT acceptance; those release gates do
-  not add another missing functional clause to this row.
+- **No missing Phase 1 functional clause:** summary dependency/score-invariance
+  tests explicitly keep generated prose out of scoring. #52's documented
+  supervised real-model Linux VM extraction validation remains credited.
+  Live-model summary quality is UAT only; target-laptop acceptance is not claimed.
+  Chat-with-data remains Phase 2.
 
 ## Verification notes and limitations
 

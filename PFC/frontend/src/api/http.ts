@@ -105,6 +105,10 @@ export async function parseProblem(res: Response): Promise<ProblemDetails> {
 const RESOURCE_LIFECYCLES = ['active', 'off_bench', 'archived'] as const
 
 export class HttpApiClient implements ApiClient {
+  getCandidateSummary: ApiClient['getCandidateSummary'] = (id) => this.request('GET', `/candidates/${id}/summary`)
+  generateCandidateSummary: ApiClient['generateCandidateSummary'] = (id) => this.request('POST', `/candidates/${id}/summary`)
+  getDemandSummary: ApiClient['getDemandSummary'] = (id) => this.request('GET', `/demands/${id}/summary`)
+  generateDemandSummary: ApiClient['generateDemandSummary'] = (id) => this.request('POST', `/demands/${id}/summary`)
   private csrfToken: string | null = null
   private readonly base: string
 

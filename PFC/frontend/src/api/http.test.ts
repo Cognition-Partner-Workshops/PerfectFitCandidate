@@ -32,6 +32,17 @@ afterEach(() => {
 })
 
 describe('HttpApiClient — TDD §9.3 session + CSRF', () => {
+  it('uses the four summary routes and preserves their camelCase response', async () => {
+    const summary = { sentences: [{ text: 'SQL', evidence: 'SQL' }], model: 'local', createdAt: 'now', stale: true, droppedUngrounded: 1, sourceVersionId: 7 }
+    fetchMock.mockImplementation(() => Promise.resolve(json(summary)))
+    const client = new HttpApiClient('/api/v1')
+    expect(await client.getCandidateSummary(3)).toEqual(summary)
+    expect(await client.generateCandidateSummary(3)).toEqual(summary)
+    expect(await client.getDemandSummary(4)).toEqual(summary)
+    expect(await client.generateDemandSummary(4)).toEqual(summary)
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['/api/v1/candidates/3/summary', '/api/v1/candidates/3/summary', '/api/v1/demands/4/summary', '/api/v1/demands/4/summary'])
+    expect(fetchMock.mock.calls.map(([, options]) => options.method)).toEqual(['GET', 'POST', 'GET', 'POST'])
+  })
   it('preserves additive JD evidence flags through requirements review and save', async () => {
     const api = new HttpApiClient('/api/v1')
     const row = { demandId: 1, mandatorySkills: ['SQL'], items: [{ kind: 'mandatory_skill', text: 'SQL', jdReqId: 7, evidence: null, evidenceUnverified: true }] }
