@@ -26,7 +26,11 @@ ERRORS: dict[str, tuple[int, str, str]] = {
     "wrong_kind": (422, "PACKAGE_WRONG_KIND", "Wrong package kind for this operation"),
     "payload_schema": (422, "PACKAGE_PAYLOAD_SCHEMA", "Invalid settings payload schema"),
     "wrong_passphrase": (403, "SIGNING_KEY_PASSPHRASE_INVALID", "Incorrect signing-key passphrase"),
-    "passphrase_required": (422, "SIGNING_KEY_PASSPHRASE_REQUIRED", "Signing passphrase required"),
+    "passphrase_required": (
+        422,
+        "PASSPHRASE_REQUIRED",
+        "Supply the Admin signing-key passphrase in the request body",
+    ),
     "public_key_unavailable": (
         404,
         "SIGNING_KEY_UNAVAILABLE",
@@ -66,7 +70,7 @@ ERRORS: dict[str, tuple[int, str, str]] = {
     "model_installed_pending": (
         409,
         "PACKAGE_MODEL_INSTALLED_PENDING",
-        "Model already installed; re-embedding pending. Use POST /models/addons/{version}/reembed",
+        "Model already installed; re-embedding pending. Use POST /occ/embedding-models/{version}/reembed",
     ),
     "not_pending": (404, "PACKAGE_NOT_PENDING", "Pending package not found"),
     "inbox_path": (422, "PACKAGE_INBOX_PATH", "Invalid inbox item path"),

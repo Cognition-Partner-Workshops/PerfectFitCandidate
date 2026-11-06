@@ -95,17 +95,17 @@ def login(
 
 def export(client: TestClient, csrf: str, **options: Any) -> httpx.Response:
     return client.post(
-        f"{PREFIX}/occ/settings-packages/export",
+        f"{PREFIX}/occ/settings-package/export",
         headers={"X-CSRF-Token": csrf},
         json={"passphrase": PASSPHRASE, **options},
     )
 
 
 def provision(source: TestClient, target: TestClient) -> None:
-    result = source.get(f"{PREFIX}/occ/settings-packages/signing-key")
+    result = source.get(f"{PREFIX}/occ/settings-package/signing-key")
     assert result.status_code == 200, result.text
-    public = base64.b64decode(result.json()["public_key_base64"])
-    assert hashlib.sha256(public).hexdigest() == result.json()["key_id"]
+    public = base64.b64decode(result.json()["publicKeyBase64"])
+    assert hashlib.sha256(public).hexdigest() == result.json()["keyId"]
     directory = target.app.state.settings.data_dir / "keys/trusted"
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "admin.pub").write_bytes(public)
@@ -114,7 +114,7 @@ def provision(source: TestClient, target: TestClient) -> None:
 def preview(
     client: TestClient, csrf: str, package: bytes, *, model: bool = False
 ) -> httpx.Response:
-    endpoint = "/models/addons/preview" if model else "/settings-packages/preview"
+    endpoint = "/occ/embedding-models/preview" if model else "/settings/settings-package/preview"
     return client.post(
         PREFIX + endpoint,
         headers={"X-CSRF-Token": csrf},
@@ -123,8 +123,8 @@ def preview(
 
 
 def apply(client: TestClient, csrf: str, token: str, *, model: bool = False) -> httpx.Response:
-    endpoint = "/models/addons/apply" if model else "/settings-packages/apply"
-    return client.post(PREFIX + endpoint, headers={"X-CSRF-Token": csrf}, json={"token": token})
+    endpoint = "/occ/embedding-models/import" if model else "/settings/settings-package/import"
+    return client.post(PREFIX + endpoint, headers={"X-CSRF-Token": csrf}, json={"previewId": token})
 
 
 def history(client: TestClient) -> list[dict[str, Any]]:
@@ -168,15 +168,16 @@ def problem(response: httpx.Response, status: int, code: str) -> None:
 @pytest.mark.parametrize(
     "method, path, body",
     [
-        ("POST", "/occ/settings-packages/export", {"passphrase": PASSPHRASE}),
-        ("GET", "/occ/settings-packages/signing-key", None),
-        ("POST", "/settings-packages/preview", None),
-        ("POST", "/settings-packages/apply", {"token": "a" * 43}),
-        ("POST", "/settings-packages/rollback", None),
-        ("GET", "/settings-packages/pending", None),
+        ("POST", "/occ/settings-package/export", {"passphrase": PASSPHRASE}),
+        ("GET", "/occ/settings-package/signing-key", None),
+        ("GET", "/occ/settings-package", None),
+        ("POST", "/settings/settings-package/preview", None),
+        ("POST", "/settings/settings-package/import", {"previewId": "a" * 43}),
+        ("POST", "/settings/settings-package/rollback", None),
+        ("GET", "/settings/settings-package/pending", None),
         ("GET", "/settings/settings-package/history", None),
-        ("POST", "/models/addons/preview", None),
-        ("POST", "/models/addons/apply", {"token": "a" * 43}),
+        ("POST", "/occ/embedding-models/preview", None),
+        ("POST", "/occ/embedding-models/import", {"previewId": "a" * 43}),
     ],
 )
 def test_unauthenticated(
@@ -189,12 +190,12 @@ def test_unauthenticated(
 @pytest.mark.parametrize(
     "path, body",
     [
-        ("/occ/settings-packages/export", {"passphrase": PASSPHRASE}),
-        ("/settings-packages/preview", None),
-        ("/settings-packages/apply", {"token": "a" * 43}),
-        ("/settings-packages/rollback", None),
-        ("/models/addons/preview", None),
-        ("/models/addons/apply", {"token": "a" * 43}),
+        ("/occ/settings-package/export", {"passphrase": PASSPHRASE}),
+        ("/settings/settings-package/preview", None),
+        ("/settings/settings-package/import", {"previewId": "a" * 43}),
+        ("/settings/settings-package/rollback", None),
+        ("/occ/embedding-models/preview", None),
+        ("/occ/embedding-models/import", {"previewId": "a" * 43}),
     ],
 )
 def test_csrf(apps: tuple[TestClient, TestClient], path: str, body: dict[str, Any] | None) -> None:
@@ -207,22 +208,58 @@ def test_analyst_rbac_and_empty_states(apps: tuple[TestClient, TestClient]) -> N
     source, target = apps
     csrf = login(target, role="Analyst", email="installer@example.com")
     problem(export(target, csrf), 403, "FORBIDDEN")
-    problem(target.get(f"{PREFIX}/occ/settings-packages/signing-key"), 403, "FORBIDDEN")
+    problem(target.get(f"{PREFIX}/occ/settings-package/signing-key"), 403, "FORBIDDEN")
     problem(preview(target, csrf, b"model", model=True), 403, "FORBIDDEN")
     problem(apply(target, csrf, "a" * 43, model=True), 403, "FORBIDDEN")
     assert history(target) == []
-    assert target.get(f"{PREFIX}/settings-packages/pending").json() == []
+    assert target.get(f"{PREFIX}/settings/settings-package/pending").json() == []
     problem(
-        target.post(f"{PREFIX}/settings-packages/rollback", headers={"X-CSRF-Token": csrf}),
+        target.post(f"{PREFIX}/settings/settings-package/rollback", headers={"X-CSRF-Token": csrf}),
         409,
         "PACKAGE_NO_PREVIOUS_VERSION",
     )
     login(source)
     problem(
-        source.get(f"{PREFIX}/occ/settings-packages/signing-key"), 404, "SIGNING_KEY_UNAVAILABLE"
+        source.get(f"{PREFIX}/occ/settings-package/signing-key"), 404, "SIGNING_KEY_UNAVAILABLE"
     )
     csrf = login(source, role="Analyst")
     problem(export(source, csrf), 403, "FORBIDDEN")
+
+
+@pytest.mark.parametrize("body", [None, {}, {"passphrase": None}])
+def test_export_requires_passphrase(
+    apps: tuple[TestClient, TestClient], body: dict[str, Any] | None
+) -> None:
+    source, _ = apps
+    csrf = login(source)
+    response = source.post(
+        f"{PREFIX}/occ/settings-package/export", json=body, headers={"X-CSRF-Token": csrf}
+    )
+    problem(response, 422, "PASSPHRASE_REQUIRED")
+    assert not (source.app.state.settings.data_dir / "exports").exists()
+
+
+def test_last_export_matches_frontend_without_retrieving_otps(
+    apps: tuple[TestClient, TestClient],
+) -> None:
+    source, _ = apps
+    csrf = login(source)
+    endpoint = f"{PREFIX}/occ/settings-package"
+    assert source.get(endpoint).json() is None
+    created = export(source, csrf)
+    assert created.status_code == 200, created.text
+    latest = source.get(endpoint)
+    assert latest.status_code == 200, latest.text
+    assert latest.json() == {
+        key: created.json()[key]
+        for key in ("version", "fileName", "createdAt", "signed", "contents")
+    }
+    assert latest.json()["signed"] is True
+    assert all(set(row) == {"label", "count"} for row in latest.json()["contents"])
+    assert "oneTimePasswords" not in latest.json()
+    assert "contentBase64" not in latest.json()
+    csrf = login(source, role="Analyst")
+    problem(source.get(endpoint), 403, "FORBIDDEN")
 
 
 def test_otp_roundtrip_password_change_and_no_retrieval(
@@ -233,18 +270,30 @@ def test_otp_roundtrip_password_change_and_no_retrieval(
     result = export(source, source_csrf)
     assert result.status_code == 200, result.text
     assert result.headers["cache-control"] == "no-store"
-    assert result.json()["file_name"] == "PFC-settings-v1.pfcpkg"
-    package = base64.b64decode(result.json()["content_base64"])
-    otp = result.json()["one_time_passwords"][0]["otp"]
+    assert result.json()["fileName"] == "PFC-settings-v1.pfcpkg"
+    package = base64.b64decode(result.json()["contentBase64"])
+    otp = result.json()["oneTimePasswords"][0]["otp"]
     provision(source, target)
     csrf = login(target, role="Analyst", email="installer@example.com")
     before = preview(target, csrf, package)
     assert before.status_code == 200, before.text
-    assert before.json()["diff"]["skills"]["added"] == ["1"]
+    contract = before.json()
+    assert contract["changes"] == [
+        change for change in contract["changes"] if set(change) == {"area", "change", "item"}
+    ]
+    assert {"area": "skills", "change": "added", "item": "1"} in contract["changes"]
+    assert contract["fileName"] == "settings.pfcpkg"
+    assert contract["packageVersion"] == 1 and contract["installedVersion"] == 0
+    assert contract["signatureValid"] and contract["schemaCompatible"] and contract["appCompatible"]
+    assert contract["newer"] and not contract["errors"] and contract["importedAccounts"] == 1
     assert history(target) == []
-    confirmed = apply(target, csrf, before.json()["token"])
-    assert confirmed.status_code == 200 and confirmed.json() == {"version": 1}
-    problem(apply(target, csrf, before.json()["token"]), 404, "PACKAGE_PREVIEW_NOT_FOUND")
+    confirmed = apply(target, csrf, before.json()["previewId"])
+    assert confirmed.status_code == 200 and confirmed.json()[0]["version"] == 1
+    assert {"version", "importedAt", "importedBy", "fileName", "canRollback"} <= confirmed.json()[
+        0
+    ].keys()
+    assert confirmed.json()[0]["canRollback"] is False
+    problem(apply(target, csrf, before.json()["previewId"]), 404, "PACKAGE_PREVIEW_NOT_FOUND")
     csrf = login(target, role="Analyst", email="worker@example.com", password=otp)
     problem(
         target.get(f"{PREFIX}/settings/settings-package/history"), 403, "PASSWORD_CHANGE_REQUIRED"
@@ -256,13 +305,13 @@ def test_otp_roundtrip_password_change_and_no_retrieval(
     )
     assert changed.status_code == 200, changed.text
     assert not changed.json()["must_change_password"]
-    assert history(target)[0]["is_current"] is True
-    assert "one_time_passwords" not in str(history(target))
-    assert "otp" not in source.get(f"{PREFIX}/occ/settings-packages/signing-key").json()
+    assert history(target)[0]["isCurrent"] is True
+    assert "oneTimePasswords" not in str(history(target))
+    assert "otp" not in source.get(f"{PREFIX}/occ/settings-package/signing-key").json()
     next_export = export(source, source_csrf)
     assert next_export.status_code == 200
     assert next_export.json()["version"] == 2
-    assert next_export.json()["one_time_passwords"][0]["otp"] != otp
+    assert next_export.json()["oneTimePasswords"][0]["otp"] != otp
     for client in (source, target):
         for path in client.app.state.settings.data_dir.rglob("*"):
             if path.is_file():
@@ -274,12 +323,12 @@ def test_rollback_does_not_restore_used_otp(apps: tuple[TestClient, TestClient])
     source_csrf, csrf = login(source), login(target)
     first = export(source, source_csrf).json()
     provision(source, target)
-    token = preview(target, csrf, base64.b64decode(first["content_base64"])).json()["token"]
+    token = preview(target, csrf, base64.b64decode(first["contentBase64"])).json()["previewId"]
     assert apply(target, csrf, token).status_code == 200
     second = export(source, source_csrf).json()
-    token = preview(target, csrf, base64.b64decode(second["content_base64"])).json()["token"]
+    token = preview(target, csrf, base64.b64decode(second["contentBase64"])).json()["previewId"]
     assert apply(target, csrf, token).status_code == 200
-    otp = second["one_time_passwords"][0]["otp"]
+    otp = second["oneTimePasswords"][0]["otp"]
     csrf = login(target, role="Analyst", email="worker@example.com", password=otp)
     response = target.post(
         f"{PREFIX}/auth/password",
@@ -290,11 +339,11 @@ def test_rollback_does_not_restore_used_otp(apps: tuple[TestClient, TestClient])
     csrf = login(target)
     assert (
         target.post(
-            f"{PREFIX}/settings-packages/rollback", headers={"X-CSRF-Token": csrf}
+            f"{PREFIX}/settings/settings-package/rollback", headers={"X-CSRF-Token": csrf}
         ).status_code
         == 200
     )
-    for old in (otp, first["one_time_passwords"][0]["otp"]):
+    for old in (otp, first["oneTimePasswords"][0]["otp"]):
         target.cookies.clear()
         response = target.post(
             f"{PREFIX}/auth/login",
@@ -320,7 +369,7 @@ def test_package_problem_codes(
     source, target = apps
     source_csrf = login(source)
     response = export(source, source_csrf)
-    package = base64.b64decode(response.json()["content_base64"])
+    package = base64.b64decode(response.json()["contentBase64"])
     provision(source, target)
     csrf = login(target)
     if failure == "signature":
@@ -335,14 +384,14 @@ def test_package_problem_codes(
                 )
         package = output.getvalue()
     elif failure == "stale":
-        token = preview(target, csrf, package).json()["token"]
+        token = preview(target, csrf, package).json()["previewId"]
         assert apply(target, csrf, token).status_code == 200
     elif failure == "wrong_kind":
         package = model_package(source)
     else:
         package = base64.b64decode(
             export(source, source_csrf, min_app_version="9.0", max_app_version="9.0").json()[
-                "content_base64"
+                "contentBase64"
             ]
         )
     problem(preview(target, csrf, package), status, code)
@@ -356,12 +405,16 @@ def test_atomic_api_apply_rollback_and_history(
     source_csrf, csrf = login(source), login(target)
     first = export(source, source_csrf)
     provision(source, target)
-    token = preview(target, csrf, base64.b64decode(first.json()["content_base64"])).json()["token"]
+    token = preview(target, csrf, base64.b64decode(first.json()["contentBase64"])).json()[
+        "previewId"
+    ]
     assert apply(target, csrf, token).status_code == 200
     with database(source.app.state.settings) as db:
         db.execute("UPDATE skills SET name='Rust'")
     second = export(source, source_csrf)
-    token = preview(target, csrf, base64.b64decode(second.json()["content_base64"])).json()["token"]
+    token = preview(target, csrf, base64.b64decode(second.json()["contentBase64"])).json()[
+        "previewId"
+    ]
 
     def fail() -> None:
         raise RuntimeError("sensitive mid-apply failure details")
@@ -380,22 +433,27 @@ def test_atomic_api_apply_rollback_and_history(
     assert not (target.app.state.settings.data_dir / "packages/v2.pfcpkg").exists()
     assert apply(target, csrf, token).status_code == 200
     rows = history(target)
-    assert [(row["version"], row["status"], row["is_current"]) for row in rows] == [
+    assert [(row["version"], row["status"], row["isCurrent"]) for row in rows] == [
         (2, "applied", True),
         (1, "applied", False),
     ]
-    assert all(row["applied_by"] == "Owner" and row["applied_at"] for row in rows)
+    assert all(row["importedBy"] == "Owner" and row["importedAt"] for row in rows)
     with monkeypatch.context() as patch:
         patch.setattr(packages, "SettingsImporter", importer)
         problem(
-            target.post(f"{PREFIX}/settings-packages/rollback", headers={"X-CSRF-Token": csrf}),
+            target.post(
+                f"{PREFIX}/settings/settings-package/rollback", headers={"X-CSRF-Token": csrf}
+            ),
             500,
             "PACKAGE_OPERATION_FAILED",
         )
     assert history(target) == rows
-    response = target.post(f"{PREFIX}/settings-packages/rollback", headers={"X-CSRF-Token": csrf})
-    assert response.status_code == 200 and response.json()["version"] == 1
-    assert [(row["version"], row["status"], row["is_current"]) for row in history(target)] == [
+    response = target.post(
+        f"{PREFIX}/settings/settings-package/rollback", headers={"X-CSRF-Token": csrf}
+    )
+    assert response.status_code == 200
+    assert next(row for row in response.json() if row["isCurrent"])["version"] == 1
+    assert [(row["version"], row["status"], row["isCurrent"]) for row in history(target)] == [
         (2, "rolled_back", False),
         (1, "applied", True),
     ]
@@ -408,24 +466,24 @@ def test_version_high_water_survives_rollback(apps: tuple[TestClient, TestClient
     source_csrf, csrf = login(source), login(target)
     versions = []
     for _ in range(2):
-        package = base64.b64decode(export(source, source_csrf).json()["content_base64"])
+        package = base64.b64decode(export(source, source_csrf).json()["contentBase64"])
         versions.append(package)
         provision(source, target)
-        token = preview(target, csrf, package).json()["token"]
+        token = preview(target, csrf, package).json()["previewId"]
         assert apply(target, csrf, token).status_code == 200
     assert (
         target.post(
-            f"{PREFIX}/settings-packages/rollback", headers={"X-CSRF-Token": csrf}
+            f"{PREFIX}/settings/settings-package/rollback", headers={"X-CSRF-Token": csrf}
         ).status_code
         == 200
     )
     problem(preview(target, csrf, versions[1]), 409, "PACKAGE_STALE_VERSION")
-    third = base64.b64decode(export(source, source_csrf).json()["content_base64"])
+    third = base64.b64decode(export(source, source_csrf).json()["contentBase64"])
     response = preview(target, csrf, third)
     assert response.status_code == 200, response.text
-    assert response.json()["version"] == 3
-    assert apply(target, csrf, response.json()["token"]).status_code == 200
-    assert [(row["version"], row["status"], row["is_current"]) for row in history(target)] == [
+    assert response.json()["packageVersion"] == 3
+    assert apply(target, csrf, response.json()["previewId"]).status_code == 200
+    assert [(row["version"], row["status"], row["isCurrent"]) for row in history(target)] == [
         (3, "applied", True),
         (2, "rolled_back", False),
         (1, "applied", False),
@@ -443,25 +501,25 @@ def test_token_ownership_expiry_and_tampering(
 ) -> None:
     source, target = apps
     source_csrf, csrf = login(source), login(target)
-    package = base64.b64decode(export(source, source_csrf).json()["content_base64"])
+    package = base64.b64decode(export(source, source_csrf).json()["contentBase64"])
     provision(source, target)
-    token = preview(target, csrf, package).json()["token"]
+    token = preview(target, csrf, package).json()["previewId"]
     csrf = login(target)
     problem(apply(target, csrf, token), 403, "PACKAGE_PREVIEW_FORBIDDEN")
-    token = preview(target, csrf, package).json()["token"]
+    token = preview(target, csrf, package).json()["previewId"]
     path = target.app.state.settings.data_dir / "packages/staged" / f"{token}.upload"
     path.write_bytes(b"changed")
     problem(apply(target, csrf, token), 409, "PACKAGE_PREVIEW_CHANGED")
     monkeypatch.setattr(staging, "PREVIEW_LIFETIME_SECONDS", 1)
-    token = preview(target, csrf, package).json()["token"]
+    token = preview(target, csrf, package).json()["previewId"]
     now = datetime.now(UTC) + timedelta(seconds=3)
     target.app.state.clock = lambda: now
     problem(apply(target, csrf, token), 410, "PACKAGE_PREVIEW_EXPIRED")
     problem(
         target.post(
-            f"{PREFIX}/settings-packages/apply",
+            f"{PREFIX}/settings/settings-package/import",
             headers={"X-CSRF-Token": csrf},
-            json={"token": "../../private"},
+            json={"previewId": "../../private"},
         ),
         422,
         "VALIDATION_ERROR",
@@ -471,16 +529,16 @@ def test_token_ownership_expiry_and_tampering(
 def test_models_and_pending_inbox_apply(apps: tuple[TestClient, TestClient]) -> None:
     source, target = apps
     source_csrf, csrf = login(source), login(target)
-    package = base64.b64decode(export(source, source_csrf).json()["content_base64"])
+    package = base64.b64decode(export(source, source_csrf).json()["contentBase64"])
     provision(source, target)
     model = model_package(source)
     response = preview(target, csrf, model, model=True)
     assert response.status_code == 200, response.text
-    wrong = apply(target, csrf, response.json()["token"])
+    wrong = apply(target, csrf, response.json()["previewId"])
     problem(wrong, 422, "PACKAGE_WRONG_KIND")
-    confirmed = apply(target, csrf, response.json()["token"], model=True)
+    confirmed = apply(target, csrf, response.json()["previewId"], model=True)
     assert confirmed.status_code == 200, confirmed.text
-    assert confirmed.json()["job_id"] > 0
+    assert confirmed.json()["jobId"] > 0
     with database(target.app.state.settings) as db:
         assert db.execute("SELECT count(*) FROM embedding_models").fetchone()[0] == 1
     inbox = target.app.state.settings.data_dir / "inbox"
@@ -488,22 +546,22 @@ def test_models_and_pending_inbox_apply(apps: tuple[TestClient, TestClient]) -> 
     (inbox / "incoming.pfcpkg").write_bytes(package)
     (inbox / "model.pfcmodel").write_bytes(model)
     (inbox / "broken.pfcpkg").write_bytes(b"invalid")
-    pending = target.get(f"{PREFIX}/settings-packages/pending").json()
-    item = next(item for item in pending if item["file_name"] == "incoming.pfcpkg")
+    pending = target.get(f"{PREFIX}/settings/settings-package/pending").json()
+    item = next(item for item in pending if item["fileName"] == "incoming.pfcpkg")
     assert item["valid"] and "path" not in item
     assert history(target) == []
     result = target.post(
-        f"{PREFIX}/settings-packages/apply",
+        f"{PREFIX}/settings/settings-package/import",
         headers={"X-CSRF-Token": csrf},
-        json={"pending_id": item["id"]},
+        json={"pendingId": item["id"]},
     )
     assert result.status_code == 200, result.text
     assert history(target)[0]["version"] == 1
     problem(
         target.post(
-            f"{PREFIX}/settings-packages/apply",
+            f"{PREFIX}/settings/settings-package/import",
             headers={"X-CSRF-Token": csrf},
-            json={"pending_id": "f" * 64},
+            json={"pendingId": "f" * 64},
         ),
         404,
         "PACKAGE_NOT_PENDING",
@@ -519,22 +577,26 @@ def test_pending_model_rbac(apps: tuple[TestClient, TestClient]) -> None:
     inbox.mkdir()
     (inbox / "model.pfcmodel").write_bytes(model_package(source))
     csrf = login(target, role="Analyst", email="installer@example.com")
-    item = target.get(f"{PREFIX}/settings-packages/pending").json()[0]
+    item = target.get(f"{PREFIX}/settings/settings-package/pending").json()[0]
     assert item["valid"] is True
-    body = {"pending_id": item["id"]}
+    body = {"pendingId": item["id"]}
     problem(
-        target.post(f"{PREFIX}/settings-packages/apply", json=body, headers={"X-CSRF-Token": csrf}),
+        target.post(
+            f"{PREFIX}/settings/settings-package/import", json=body, headers={"X-CSRF-Token": csrf}
+        ),
         422,
         "PACKAGE_WRONG_KIND",
     )
     problem(
-        target.post(f"{PREFIX}/models/addons/apply", json=body, headers={"X-CSRF-Token": csrf}),
+        target.post(
+            f"{PREFIX}/occ/embedding-models/import", json=body, headers={"X-CSRF-Token": csrf}
+        ),
         403,
         "FORBIDDEN",
     )
     csrf = login(target)
     response = target.post(
-        f"{PREFIX}/models/addons/apply", json=body, headers={"X-CSRF-Token": csrf}
+        f"{PREFIX}/occ/embedding-models/import", json=body, headers={"X-CSRF-Token": csrf}
     )
     assert response.status_code == 200, response.text
 
@@ -547,7 +609,7 @@ def test_admin_reembedding_retry(
     assert export(source, source_csrf).status_code == 200
     provision(source, target)
     package = model_package(source)
-    token = preview(target, csrf, package, model=True).json()["token"]
+    token = preview(target, csrf, package, model=True).json()["previewId"]
 
     def fail(*args: Any, **kwargs: Any) -> int:
         raise RuntimeError("queue unavailable")
@@ -558,7 +620,7 @@ def test_admin_reembedding_retry(
     response = preview(target, csrf, package, model=True)
     problem(response, 409, "PACKAGE_MODEL_INSTALLED_PENDING")
     assert "reembed" in response.json()["detail"]
-    endpoint = f"{PREFIX}/models/addons/1/reembed"
+    endpoint = f"{PREFIX}/occ/embedding-models/1/reembed"
     problem(target.post(endpoint), 403, "CSRF_INVALID")
     csrf = login(target, role="Analyst", email="installer@example.com")
     problem(target.post(endpoint, headers={"X-CSRF-Token": csrf}), 403, "FORBIDDEN")
@@ -567,10 +629,10 @@ def test_admin_reembedding_retry(
     csrf = login(target)
     response = target.post(endpoint, headers={"X-CSRF-Token": csrf})
     assert response.status_code == 200, response.text
-    assert response.json()["version"] == 1 and response.json()["job_id"] > 0
+    assert response.json()["version"] == 1 and response.json()["jobId"] > 0
     assert target.post(endpoint, headers={"X-CSRF-Token": csrf}).json() == response.json()
     problem(
-        target.post(f"{PREFIX}/models/addons/99/reembed", headers={"X-CSRF-Token": csrf}),
+        target.post(f"{PREFIX}/occ/embedding-models/99/reembed", headers={"X-CSRF-Token": csrf}),
         404,
         "PACKAGE_NOT_FOUND",
     )
@@ -586,7 +648,7 @@ def test_body_limits_and_invalid_multipart(
     headers = {"X-CSRF-Token": csrf}
     limit = staging.upload_limit("settings")
     response = target.post(
-        f"{PREFIX}/settings-packages/preview",
+        f"{PREFIX}/settings/settings-package/preview",
         content=b"tiny",
         headers={
             **headers,
@@ -603,19 +665,21 @@ def test_body_limits_and_invalid_multipart(
         yield b"\r\n--b--\r\n"
 
     response = target.post(
-        f"{PREFIX}/settings-packages/preview",
+        f"{PREFIX}/settings/settings-package/preview",
         content=chunks(),
         headers={**headers, "Content-Type": "multipart/form-data; boundary=b"},
     )
     problem(response, 413, "PACKAGE_TOO_LARGE")
     problem(
-        target.post(f"{PREFIX}/settings-packages/preview", json={}, headers=headers),
+        target.post(f"{PREFIX}/settings/settings-package/preview", json={}, headers=headers),
         415,
         "PACKAGE_UPLOAD_MEDIA_TYPE",
     )
     problem(
         target.post(
-            f"{PREFIX}/settings-packages/preview", files={"wrong": ("a", b"x")}, headers=headers
+            f"{PREFIX}/settings/settings-package/preview",
+            files={"wrong": ("a", b"x")},
+            headers=headers,
         ),
         400,
         "PACKAGE_INVALID_UPLOAD",

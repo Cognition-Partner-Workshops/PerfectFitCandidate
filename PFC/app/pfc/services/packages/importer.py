@@ -36,6 +36,7 @@ from pfc.services.packages.payloads import (
 class SettingsPreview:
     manifest: signing.Manifest
     changes: dict[str, PayloadDiff]
+    imported_accounts: int
 
 
 def _latest_version(db: sqlite3.Connection) -> int:
@@ -61,8 +62,9 @@ class SettingsImporter:
                 app_version=app_version(),
                 current_version=_latest_version(db),
             )
+            data = decode_snapshot(verified.settings_payloads)
             return SettingsPreview(
-                verified.manifest, diff(snapshot(db), decode_snapshot(verified.settings_payloads))
+                verified.manifest, diff(snapshot(db), data), len(data["analysts"])
             )
 
     def apply(self, source: Path | bytes, *, actor_id: int) -> SettingsPreview:
@@ -80,7 +82,9 @@ class SettingsImporter:
                     current_version=_latest_version(db),
                 )
                 data = decode_snapshot(verified.settings_payloads)
-                preview = SettingsPreview(verified.manifest, diff(snapshot(db), data))
+                preview = SettingsPreview(
+                    verified.manifest, diff(snapshot(db), data), len(data["analysts"])
+                )
                 if path.exists() and path.read_bytes() != package:
                     raise PackageServiceError(
                         "version_collision", "Retained package version already exists"
@@ -153,7 +157,9 @@ class SettingsImporter:
                 current_version=0,
             )
             data = decode_snapshot(verified.settings_payloads)
-            preview = SettingsPreview(verified.manifest, diff(snapshot(db), data))
+            preview = SettingsPreview(
+                verified.manifest, diff(snapshot(db), data), len(data["analysts"])
+            )
             now = timestamp()
             replace_snapshot(db, data, actor_id=actor_id, now=now, preserve_credentials=True)
             if self.failure_hook:
