@@ -254,6 +254,8 @@ function mockCvFacts(shortName: string, skills: string[], phoneMasked: string | 
     experience: skill ? [fact(`5 years ${skill}`, `5 years of hands-on ${skill} delivery for financial-services clients.`, 80, 'llm')] : [],
     qualifications: [],
     projects: skill ? [fact(`${skill} platform migration`, `Led the ${skill} platform migration for a retail bank.`, 200, 'llm')] : [],
+    skills: [],
+    warnings: phoneMasked ? [] : [{ code: 'PHONE_NOT_FOUND', message: 'Phone not found in CV.' }],
   }
 }
 

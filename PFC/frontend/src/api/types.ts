@@ -306,12 +306,23 @@ export interface CvFact {
   source: 'rule' | 'llm'
 }
 
+export interface SkillFact extends CvFact {
+  canonical: string | null
+}
+
+export interface CvWarning {
+  code: 'PHONE_NOT_FOUND'
+  message: string
+}
+
 export interface CvFacts {
   name: CvFact | null
   phone: CvFact | null
   experience: CvFact[]
   qualifications: CvFact[]
   projects: CvFact[]
+  skills: SkillFact[]
+  warnings: CvWarning[]
 }
 
 export interface CandidateDetail {
@@ -320,7 +331,7 @@ export interface CandidateDetail {
   resource: Resource
   phoneMasked: string | null
   identityStatus: IdentityStatus
-  /** CT emails that may be selected when resolving identity — free entry is disabled (GQ-06). */
+  /** CT emails available for selection; manual entry cannot override an existing CT email. */
   ctEmailOptions: { resourceId: number; label: string; emailMasked: string }[]
   cvVersions: CvVersion[]
   matches: MatchResult[]
@@ -328,8 +339,11 @@ export interface CandidateDetail {
 }
 
 export interface IdentityResolution {
-  action: 'generate_internal_id' | 'select_ct_record' | 'review_later'
+  action: 'generate_internal_id' | 'select_ct_record' | 'review_later' | 'manual_entry'
   resourceId?: number
+  /** Required and nonblank for manual_entry only. */
+  name?: string
+  email?: string
 }
 
 export interface EmailDraft {

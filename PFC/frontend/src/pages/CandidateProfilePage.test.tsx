@@ -17,6 +17,8 @@ describe('Candidate Profile CV facts', () => {
     experience: [{ value: '6 years SQL', evidence: '6 years SQL across retail banking', span: [60, 93], source: 'llm' }],
     qualifications: [],
     projects: [],
+    skills: [],
+    warnings: [],
   }
 
   const open = async (detail: (d: CandidateDetail) => CandidateDetail) => {
