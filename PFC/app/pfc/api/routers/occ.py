@@ -27,9 +27,11 @@ from pfc.api.schemas.occ import (
 from pfc.db.connection import database
 from pfc.security.dependencies import Principal, require_role
 from pfc.security.problems import Problem
+from pfc.security.sessions import stamp
 from pfc.services.occ import admin as administration
 from pfc.services.occ import llm, reference, synonyms, templates, users
 from pfc.services.occ.common import get_row
+from pfc.services.occ.cv_extractions import ExtractionItem, RemovalCounts, list_extractions, remove
 
 Admin = Annotated[Principal, Depends(require_role("Admin"))]
 router = APIRouter(prefix="/occ", dependencies=[Depends(require_role("Admin"))])
@@ -46,6 +48,37 @@ def connection(request: Request) -> Iterator[sqlite3.Connection]:
 
 
 DB = Annotated[sqlite3.Connection, Depends(connection)]
+
+
+@router.get("/candidates/{candidate_id}/cv-extractions")
+def cv_extractions_list(candidate_id: int, db: DB, admin: Admin) -> list[ExtractionItem]:
+    return list_extractions(db, candidate_id)
+
+
+@router.delete("/candidates/{candidate_id}/cv-extractions")
+def cv_extractions_remove(
+    candidate_id: int,
+    request: Request,
+    db: DB,
+    admin: Admin,
+) -> RemovalCounts:
+    return remove(
+        db,
+        request.app.state.settings,
+        admin.user.user_id,
+        stamp(request.app.state.clock()),
+        candidate_id,
+    )
+
+
+@router.delete("/cv-extractions")
+def cv_extractions_remove_all(request: Request, db: DB, admin: Admin) -> RemovalCounts:
+    return remove(
+        db,
+        request.app.state.settings,
+        admin.user.user_id,
+        stamp(request.app.state.clock()),
+    )
 
 
 @router.get("/users")
