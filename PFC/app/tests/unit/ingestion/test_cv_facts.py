@@ -148,6 +148,17 @@ def test_req_in_23_leading_name_and_headings() -> None:
 
 
 @pytest.mark.parametrize(
+    "heading", ["References", "Work Experience", "Education", "Projects", "Skills"]
+)
+def test_req_in_23_name_labels_only_in_header(heading: str) -> None:
+    assert rule_facts(f"{heading}\nName: Pat Referee").name is None
+    leading = rule_facts(f"Alex Border\n{heading}\nName: Pat Referee").name
+    assert leading is not None and leading.value == "Alex Border"
+    labelled = rule_facts(f"Name: Alex Border\n{heading}\nName: Pat Referee").name
+    assert labelled is not None and labelled.value == "Alex Border"
+
+
+@pytest.mark.parametrize(
     "update",
     [
         {"span": [-1, 4]},
