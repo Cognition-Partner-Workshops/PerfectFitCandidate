@@ -1,15 +1,21 @@
 """REQ-IN-20..25 / REQ-ING-05: local resume discovery, not identity confirmation."""
 
 import hashlib
+import multiprocessing
 import re
+from collections.abc import Callable
+from multiprocessing.connection import Connection
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Literal
 
 from docx import Document
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
 
-from pfc.services.ingestion.models import file_sha256
+from pfc.config import Settings
+
+from .resume_paths import confined_path, read_resume, resume_files
 
 
 class CandidateLookup(BaseModel):
@@ -61,11 +67,81 @@ def _tokens(text: str) -> set[str]:
     return set(re.findall(r"[^\W_]+", text.lower()))
 
 
+def _extract_worker(path: Path, extractor: Callable[[Path], str], sender: Connection) -> None:
+    try:
+        sender.send((True, extractor(path)))
+    except BaseException as exc:
+        sender.send((False, type(exc).__name__))
+    finally:
+        sender.close()
+
+
+def bounded_extract(
+    path: Path,
+    extractor: Callable[[Path], str],
+    timeout: float,
+    *,
+    content: bytes,
+    work_dir: Path,
+) -> tuple[str, list[str]]:
+    work_dir.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(prefix="pfc-cv-", dir=work_dir) as directory:
+        snapshot = Path(directory) / path.name
+        snapshot.write_bytes(content)
+        return _run_extractor(snapshot, extractor, timeout)
+
+
+def _run_extractor(
+    path: Path, extractor: Callable[[Path], str], timeout: float
+) -> tuple[str, list[str]]:
+    context = multiprocessing.get_context("spawn")
+    receiver, sender = context.Pipe(duplex=False)
+    worker = context.Process(target=_extract_worker, args=(path, extractor, sender), daemon=True)
+    try:
+        worker.start()
+        sender.close()
+        if not receiver.poll(timeout):
+            return "", ["extraction_timeout"]
+        success, value = receiver.recv()
+        if not success:
+            return "", [f"extraction failed: {value}"]
+        return value, [] if value else ["no extractable text"]
+    except (EOFError, OSError) as exc:
+        return "", [f"extraction failed: {type(exc).__name__}"]
+    finally:
+        receiver.close()
+        sender.close()
+        if worker.pid is not None:
+            worker.join(timeout=0.1)
+            if worker.is_alive():
+                worker.terminate()
+                worker.join(timeout=1)
+            if worker.is_alive():
+                worker.kill()
+                worker.join()
+            worker.close()
+
+
 class ResumeFolderSource:
     """REQ-IN-21/22/24/25: scan only selected candidates; retain all matching versions."""
 
-    def __init__(self, root: Path) -> None:
-        self.root = root
+    def __init__(
+        self,
+        root: Path,
+        *,
+        max_file_bytes: int = 20 * 1024 * 1024,
+        extract_timeout_s: float = 30,
+        extractor: Callable[[Path], str] | None = None,
+        work_dir: Path | None = None,
+    ) -> None:
+        self.root = root.resolve()
+        self.max_file_bytes = max_file_bytes
+        self.extract_timeout_s = extract_timeout_s
+        self.extractor = extractor or extract_text
+        self.work_dir = (
+            work_dir if work_dir is not None else Settings().data_dir / "work" / "cv-extraction"
+        )
+        self._extracted: dict[tuple[str, str], tuple[str, list[str]]] = {}
 
     def scan(self, candidates: list[CandidateLookup]) -> list[ResumeResult]:
         if not self.root.is_dir():
@@ -73,22 +149,36 @@ class ResumeFolderSource:
         results = [ResumeResult(candidate_id=c.candidate_id) for c in candidates]
         if not candidates:
             return results
-        for path in sorted(self.root.rglob("*")):
-            if (
-                not path.is_file()
-                or path.name.startswith("~$")
-                or path.suffix.lower() not in {".txt", ".docx", ".pdf"}
-            ):
-                continue
+        cached = [
+            {
+                safe.relative_to(self.root).as_posix()
+                for stored in candidate.source_paths
+                if (safe := confined_path(self.root, stored)) is not None
+            }
+            for candidate in candidates
+        ]
+        for path in sorted(resume_files(self.root)):
             relative = path.relative_to(self.root).as_posix()
-            flags: list[str] = []
             try:
-                text = extract_text(path)
-                if not text:
-                    flags.append("no extractable text")
-            except Exception as exc:
-                text = ""
-                flags.append(f"extraction failed: {type(exc).__name__}")
+                content, stat = read_resume(self.root, relative, self.max_file_bytes)
+                digest = hashlib.sha256(content).hexdigest() if content is not None else ""
+                if content is None:
+                    text, flags = "", ["too_large"]
+                else:
+                    cache_key = (digest, path.suffix.lower())
+                    if cache_key not in self._extracted:
+                        self._extracted[cache_key] = bounded_extract(
+                            path,
+                            self.extractor,
+                            self.extract_timeout_s,
+                            content=content,
+                            work_dir=self.work_dir,
+                        )
+                    text, flags = self._extracted[cache_key]
+            except OSError as exc:
+                for result in results:
+                    result.checks.append(f"{relative}: unreadable ({type(exc).__name__})")
+                continue
             text_lower = text.lower()
             filename_lower = path.stem.lower()
             matches: list[tuple[int, Literal["email_exact", "manual", "name_fuzzy"]]] = []
@@ -106,18 +196,11 @@ class ResumeFolderSource:
                     email_pattern.search(filename_lower) or email_pattern.search(text_lower)
                 ):
                     matches.append((index, "email_exact"))
-                elif relative in candidate.source_paths:
+                elif relative in cached[index]:
                     matches.append((index, "manual"))
                 elif any(tokens and tokens <= _tokens(path.stem) for tokens in names):
                     matches.append((index, "name_fuzzy"))
             if not matches:
-                continue
-            try:
-                stat = path.stat()
-                digest = file_sha256(path)
-            except OSError as exc:
-                for index, _ in matches:
-                    results[index].checks.append(f"{relative}: unreadable ({type(exc).__name__})")
                 continue
             for index, method in matches:
                 version = CVVersion(

@@ -17,26 +17,41 @@ from pfc.security.problems import Problem
 
 from . import repository as repo
 from .apply import apply_preview
+from .limits import positive_setting
 from .models import file_sha256
+from .workbook_safety import WorkbookError
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 logger = logging.getLogger(__name__)
 
 
+def upload_limit(settings: Settings) -> int:
+    with database(settings) as db:
+        return max(
+            1,
+            int(
+                positive_setting(db, "ingestion.max_upload_mb", MAX_UPLOAD_BYTES / 1024**2)
+                * 1024**2
+            ),
+        )
+
+
 def upload(
     settings: Settings, kind: Literal["DL", "CT"], name: str, data: bytes, user_id: int, now: str
 ) -> IngestionRun:
-    if len(data) > MAX_UPLOAD_BYTES:
-        raise Problem(413, "UPLOAD_TOO_LARGE", "Workbook exceeds 20 MB limit")
     if Path(name).suffix.lower() != ".xlsx":
         raise Problem(422, "INVALID_WORKBOOK", "Only .xlsx workbooks are supported")
     digest = hashlib.sha256(data).hexdigest()
     directory = settings.data_dir / "uploads"
     directory.mkdir(parents=True, exist_ok=True)
-    failed = False
+    failure = (
+        Problem(413, "UPLOAD_TOO_LARGE", "Workbook exceeds the upload size limit")
+        if len(data) > upload_limit(settings)
+        else None
+    )
     with database(settings) as db:
         db.execute("BEGIN IMMEDIATE")
-        no_op = (
+        no_op = failure is None and (
             db.execute(
                 "SELECT 1 FROM ingestion_runs WHERE kind=? AND file_sha256=? "
                 "AND status='committed'",
@@ -61,18 +76,26 @@ def upload(
         run_id = cursor.lastrowid
         path = repo.upload_path(settings, run_id)
         if not no_op:
-            path.write_bytes(data)
             try:
+                if failure is not None:
+                    raise WorkbookError(
+                        "UPLOAD_TOO_LARGE", "Workbook exceeds the upload limit", 413
+                    )
+                path.write_bytes(data)
                 preview = repo.parse(db, path, kind)
                 repo.save_review(db, settings, run_id, preview)
-            except (ValueError, BadZipFile, InvalidFileException):
-                failed = True
+            except (ValueError, KeyError, TypeError, BadZipFile, InvalidFileException) as exc:
+                failure = Problem(
+                    exc.status if isinstance(exc, WorkbookError) else 422,
+                    exc.code if isinstance(exc, WorkbookError) else "WORKBOOK_INVALID",
+                    f"Workbook could not be parsed (run {run_id})",
+                )
                 db.execute(
                     "UPDATE ingestion_runs SET status='failed', error_summary=? "
                     "WHERE ingestion_run_id=?",
                     ("Workbook could not be parsed", run_id),
                 )
-        if not failed:
+        if failure is None:
             append_audit(
                 db,
                 ts=now,
@@ -83,10 +106,10 @@ def upload(
                 details={"run_id": run_id, "kind": kind},
             )
         result = repo.run_response(db, settings, run_id)
-    if failed:
+    if failure is not None:
         path.unlink(missing_ok=True)
         repo.snapshot_path(settings, run_id).unlink(missing_ok=True)
-        raise Problem(422, "INVALID_WORKBOOK", f"Workbook could not be parsed (run {run_id})")
+        raise failure
     return result
 
 
@@ -103,9 +126,11 @@ def commit(settings: Settings, run_id: int, user_id: int, now: str) -> Ingestion
                 raise Problem(409, "UPLOAD_HASH_MISMATCH", "Stored workbook is missing or changed")
             try:
                 preview = repo.parse(db, path, run["kind"])
-            except (ValueError, BadZipFile, InvalidFileException) as exc:
+            except (ValueError, KeyError, TypeError, BadZipFile, InvalidFileException) as exc:
                 raise Problem(
-                    422, "INVALID_WORKBOOK", "Stored workbook could not be parsed"
+                    422,
+                    exc.code if isinstance(exc, WorkbookError) else "WORKBOOK_INVALID",
+                    "Stored workbook could not be parsed",
                 ) from exc
             snapshot = repo.build_review(db, preview)
             staged.write_text(snapshot.model_dump_json(), encoding="utf-8")

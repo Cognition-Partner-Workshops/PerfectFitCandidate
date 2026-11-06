@@ -9,7 +9,6 @@ from pfc.api.schemas.ingestion import IngestionRun, IssuePage, RunPage
 from pfc.config import Settings
 from pfc.db.connection import database
 from pfc.security.dependencies import Principal, require_role
-from pfc.security.problems import Problem
 from pfc.security.sessions import stamp
 from pfc.services.embeddings.chunking import OwnerType
 from pfc.services.embeddings.incremental import submit_incremental_embed
@@ -31,9 +30,7 @@ async def upload(
     file: Annotated[UploadFile, File()],
 ) -> IngestionRun:
     try:
-        data = await file.read(service.MAX_UPLOAD_BYTES + 1)
-        if len(data) > service.MAX_UPLOAD_BYTES:
-            raise Problem(413, "UPLOAD_TOO_LARGE", "Workbook exceeds 20 MB limit")
+        data = await file.read(service.upload_limit(request.app.state.settings) + 1)
         return service.upload(
             request.app.state.settings,
             "DL" if kind == "dl" else "CT",

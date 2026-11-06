@@ -1018,6 +1018,8 @@ def test_req_in_21_24_cv_sync_versions_and_metadata(client: TestClient, tmp_path
         "ambiguous": 0,
         "unmatched": 0,
         "extraction_failed": 0,
+        "extraction_timeout": 0,
+        "too_large": 0,
         "embedded": 0,
         "warnings": 0,
         "embedding_counts": {"embedded": 0, "reused": 0, "skipped": 0, "deleted": 0},

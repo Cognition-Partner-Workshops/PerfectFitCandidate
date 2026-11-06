@@ -17,6 +17,7 @@ from pfc.domain.config_loader import (
 from pfc.domain.normalise import normalise_term
 from pfc.security.problems import Problem
 
+from .limits import WorkbookLimits
 from .models import Diff, Preview, RowIssue, RowKey
 from .workbooks import parse_workbook
 
@@ -90,6 +91,7 @@ def parse(db: sqlite3.Connection, path: Path, kind: Literal["DL", "CT"]) -> Prev
         kind,
         grades=frozenset(r[0] for r in db.execute("SELECT code FROM grades")),
         known_statuses=frozenset(config.bench_statuses.status_map),
+        limits=WorkbookLimits.read(db),
     )
 
 
