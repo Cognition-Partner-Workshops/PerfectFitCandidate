@@ -4,7 +4,7 @@ import json
 import re
 import sqlite3
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
@@ -25,6 +25,7 @@ class ExtractedItem(BaseModel):
     text: str = Field(min_length=1)
     evidence: str | None = None
     years: float | None = Field(default=None, ge=0)
+    classification_reason: Literal["classification_adjusted"] | None = None
 
     @field_validator("text")
     @classmethod
@@ -59,6 +60,30 @@ KINDS = {
     "qualifications": "qualification",
     "domain": "domain",
 }
+
+
+def _classification_reason(
+    extraction: dict[str, Any], position: int
+) -> Literal["classification_adjusted"] | None:
+    items = [item for field in KINDS for item in extraction.get(field, [])]
+    if (
+        0 <= position < len(items)
+        and isinstance(items[position], dict)
+        and items[position].get("classification_reason") == "classification_adjusted"
+    ):
+        return "classification_adjusted"
+    return None
+
+
+def _extraction_json(data: Requirements) -> str:
+    value = data.model_dump()
+    for field in KINDS:
+        for item in value[field]:
+            if item.get("classification_reason") is None:
+                item.pop("classification_reason", None)
+    return dumps(value)
+
+
 PREFERRED = re.compile(r"\b(desirable|preferred|nice to have|bonus)\b", re.I)
 MANDATORY = re.compile(r"\b(mandatory|required|essential|must have)\b", re.I)
 
@@ -152,7 +177,10 @@ def get_requirements(
     )
     result["extraction"] = json.loads(result.pop("extraction_json") or "{}")
     result["items"] = [
-        dict(item)
+        {
+            **dict(item),
+            "classification_reason": _classification_reason(result["extraction"], item["position"]),
+        }
         for item in db.execute(
             "SELECT i.*,s.name AS canonical FROM jd_requirement_items i "
             "LEFT JOIN skills s ON s.skill_id=i.canonical_skill_id "
@@ -173,6 +201,10 @@ def _write(
     *,
     source_ids: dict[tuple[str, int], int] | None = None,
 ) -> int:
+    if extracted_by == "manual":
+        for field in KINDS:
+            for item in getattr(data, field):
+                item.classification_reason = None
     revision = db.execute(
         "SELECT COALESCE(MAX(revision),0)+1 FROM jd_requirements WHERE demand_version_id=?",
         (version_id,),
@@ -191,7 +223,7 @@ def _write(
             version_id,
             revision,
             extracted_by,
-            dumps(data.model_dump()),
+            _extraction_json(data),
             normalise_term(data.location) if data.location else None,
             data.onsite_required,
             max(years) if years else None,
@@ -215,7 +247,8 @@ def _write(
             source_id = (source_ids or {}).get((kind, index))
             source = (
                 db.execute(
-                    "SELECT i.item_id FROM jd_requirement_items i JOIN jd_requirements r "
+                    "SELECT i.item_id,i.position,r.extraction_json "
+                    "FROM jd_requirement_items i JOIN jd_requirements r "
                     "ON r.jd_req_id=i.jd_req_id WHERE i.item_id=? "
                     "AND r.demand_version_id=? AND r.jd_req_id<>?",
                     (source_id, version_id, req_id),
@@ -223,6 +256,10 @@ def _write(
                 if source_id is not None
                 else None
             )
+            if source is not None:
+                item.classification_reason = _classification_reason(
+                    json.loads(source["extraction_json"]), source["position"]
+                )
             db.execute(
                 "INSERT INTO jd_requirement_items(jd_req_id,kind,text,canonical_skill_id,"
                 "source_span,position,source_jd_req_id) VALUES (?,?,?,?,?,?,?)",
@@ -237,6 +274,11 @@ def _write(
                 ),
             )
             position += 1
+    if extracted_by == "manual":
+        db.execute(
+            "UPDATE jd_requirements SET extraction_json=? WHERE jd_req_id=?",
+            (_extraction_json(data), req_id),
+        )
     return req_id
 
 
