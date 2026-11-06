@@ -137,5 +137,8 @@ describe('mock export (REQ-OUT-09)', () => {
     const full = await text((await api.exportResults(run.runId, {}, 'csv', true)).blob)
     expect(masked.includes(email)).toBe(false)
     expect(full.includes(email)).toBe(true)
+    const log = JSON.stringify(await api.auditLog({}))
+    expect(log.includes('Unmasked emails in results export')).toBe(true)
+    expect(log.includes(`Exported results for run ${run.runId}`)).toBe(true)
   })
 })
