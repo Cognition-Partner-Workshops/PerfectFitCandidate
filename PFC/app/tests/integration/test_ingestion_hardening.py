@@ -201,6 +201,7 @@ def test_cv_job_skips_timeout_and_oversize_and_continues(
     assert summary["too_large"] == 1
     assert summary["extraction_failed"] == 0
     assert summary["new_versions"] == 1
+    assert list((client.app.state.settings.data_dir / "work" / "cv-extraction").iterdir()) == []
     with database(client.app.state.settings) as db:
         assert db.execute("SELECT file_name FROM resumes").fetchall()[0][0] == "Alex good.docx"
         assert db.execute("SELECT count(*) FROM resumes").fetchone()[0] == 1

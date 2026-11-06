@@ -132,8 +132,11 @@ def test_descriptor_rejects_symlink_swap(
         return original_open(name, flags, *args, **kwargs)
 
     monkeypatch.setattr(os, "open", swapped_open)
-    with pytest.raises(OSError):
-        read_resume(root, "nested/Alex.txt", 1024)
+    (result,) = ResumeFolderSource(root).scan(
+        [CandidateLookup(candidate_id="1", short_name="Alex")]
+    )
+    assert result.versions == []
+    assert any("nested/Alex.txt: unreadable" in check for check in result.checks)
 
 
 def test_descriptor_rejects_regular_file_replacement(
@@ -162,9 +165,9 @@ def test_hash_and_extraction_use_the_same_opened_snapshot(
     path.write_bytes(content)
     extract = resume_folder.bounded_extract
 
-    def replace_before_extract(source, extractor, timeout, *, content):
+    def replace_before_extract(source, extractor, timeout, *, content, work_dir):
         source.write_text("outside other@example.com", encoding="utf-8")
-        return extract(source, extractor, timeout, content=content)
+        return extract(source, extractor, timeout, content=content, work_dir=work_dir)
 
     monkeypatch.setattr(resume_folder, "bounded_extract", replace_before_extract)
     (result,) = ResumeFolderSource(tmp_path).scan(

@@ -68,13 +68,19 @@ def read_resume(root: Path, relative: str, max_bytes: int) -> tuple[bytes | None
     flags |= getattr(os, "O_NONBLOCK", 0)
     with os.fdopen(os.open(path, flags), "rb") as source:
         opened = os.fstat(source.fileno())
+        if not stat.S_ISREG(opened.st_mode):
+            raise OSError("Opened resume is not a regular file")
         identity = (opened.st_dev, opened.st_ino)
         if identity != (checked.st_dev, checked.st_ino):
             raise OSError("Resume changed before opening")
         if confined_path(root, relative) != path:
             raise OSError("Resume escaped its root")
         current = checked_stat()
-        if identity != (current.st_dev, current.st_ino):
+        real_stat = os.stat(path, follow_symlinks=False)
+        if identity != (current.st_dev, current.st_ino) or identity != (
+            real_stat.st_dev,
+            real_stat.st_ino,
+        ):
             raise OSError("Resume path no longer matches its descriptor")
         if opened.st_size > max_bytes:
             return None, opened

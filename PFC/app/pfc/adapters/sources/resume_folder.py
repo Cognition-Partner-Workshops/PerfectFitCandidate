@@ -13,6 +13,8 @@ from docx import Document
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
 
+from pfc.config import Settings
+
 from .resume_paths import confined_path, read_resume, resume_files
 
 
@@ -75,9 +77,15 @@ def _extract_worker(path: Path, extractor: Callable[[Path], str], sender: Connec
 
 
 def bounded_extract(
-    path: Path, extractor: Callable[[Path], str], timeout: float, *, content: bytes
+    path: Path,
+    extractor: Callable[[Path], str],
+    timeout: float,
+    *,
+    content: bytes,
+    work_dir: Path,
 ) -> tuple[str, list[str]]:
-    with TemporaryDirectory(prefix="pfc-cv-") as directory:
+    work_dir.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(prefix="pfc-cv-", dir=work_dir) as directory:
         snapshot = Path(directory) / path.name
         snapshot.write_bytes(content)
         return _run_extractor(snapshot, extractor, timeout)
@@ -124,12 +132,16 @@ class ResumeFolderSource:
         max_file_bytes: int = 20 * 1024 * 1024,
         extract_timeout_s: float = 30,
         extractor: Callable[[Path], str] | None = None,
+        work_dir: Path | None = None,
     ) -> None:
         self.root = root.resolve()
         self.max_file_bytes = max_file_bytes
         self.extract_timeout_s = extract_timeout_s
         self.extractor = extractor or extract_text
-        self._extracted: dict[tuple[Path, str], tuple[str, list[str]]] = {}
+        self.work_dir = (
+            work_dir if work_dir is not None else Settings().data_dir / "work" / "cv-extraction"
+        )
+        self._extracted: dict[str, tuple[str, list[str]]] = {}
 
     def scan(self, candidates: list[CandidateLookup]) -> list[ResumeResult]:
         if not self.root.is_dir():
@@ -150,16 +162,18 @@ class ResumeFolderSource:
             try:
                 content, stat = read_resume(self.root, relative, self.max_file_bytes)
                 digest = hashlib.sha256(content).hexdigest() if content is not None else ""
-                cache_key = (path, digest)
-                if cache_key not in self._extracted:
-                    self._extracted[cache_key] = (
-                        ("", ["too_large"])
-                        if content is None
-                        else bounded_extract(
-                            path, self.extractor, self.extract_timeout_s, content=content
+                if content is None:
+                    text, flags = "", ["too_large"]
+                else:
+                    if digest not in self._extracted:
+                        self._extracted[digest] = bounded_extract(
+                            path,
+                            self.extractor,
+                            self.extract_timeout_s,
+                            content=content,
+                            work_dir=self.work_dir,
                         )
-                    )
-                text, flags = self._extracted[cache_key]
+                    text, flags = self._extracted[digest]
             except OSError as exc:
                 for result in results:
                     result.checks.append(f"{relative}: unreadable ({type(exc).__name__})")

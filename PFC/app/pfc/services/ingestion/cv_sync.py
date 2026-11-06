@@ -293,6 +293,7 @@ def sync(
     with database(settings) as db:
         source = ResumeFolderSource(
             root,
+            work_dir=settings.data_dir / "work" / "cv-extraction",
             max_file_bytes=max(1, int(positive_setting(db, "cv.max_file_mb", 20) * 1024**2)),
             extract_timeout_s=positive_setting(db, "cv.extract_timeout_s", 30),
         )

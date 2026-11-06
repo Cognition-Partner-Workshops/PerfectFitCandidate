@@ -32,13 +32,15 @@ def test_timeout_terminates_worker_and_flags_result(tmp_path: Path) -> None:
     (tmp_path / "Alex.pdf").write_bytes(b"synthetic")
     before = {p.pid for p in multiprocessing.active_children()}
     started = time.monotonic()
-    (result,) = ResumeFolderSource(tmp_path, extractor=slow_extract, extract_timeout_s=0.2).scan(
-        [CandidateLookup(candidate_id="1", short_name="Alex")]
-    )
+    work = tmp_path / "work"
+    (result,) = ResumeFolderSource(
+        tmp_path, extractor=slow_extract, extract_timeout_s=0.2, work_dir=work
+    ).scan([CandidateLookup(candidate_id="1", short_name="Alex")])
     assert time.monotonic() - started < 4
     assert {p.pid for p in multiprocessing.active_children()} == before
     assert result.versions[0].flags == ["extraction_timeout"]
     assert result.versions[0].text_norm == ""
+    assert list(work.iterdir()) == []
 
 
 def test_injected_extractor_is_picklable_under_spawn(tmp_path: Path) -> None:
@@ -95,9 +97,9 @@ def test_changed_bytes_refresh_identity_even_when_mtime_and_size_are_unchanged(
     extracted: list[bytes] = []
     extract = resume_folder.bounded_extract
 
-    def tracked_extract(path, extractor, timeout, *, content):
+    def tracked_extract(path, extractor, timeout, *, content, work_dir):
         extracted.append(content)
-        return extract(path, extractor, timeout, content=content)
+        return extract(path, extractor, timeout, content=content, work_dir=work_dir)
 
     monkeypatch.setattr(resume_folder, "bounded_extract", tracked_extract)
     alex, jane = source.scan(candidates)
@@ -115,6 +117,11 @@ def test_changed_bytes_refresh_identity_even_when_mtime_and_size_are_unchanged(
     assert jane.versions[0].identity_match == "email_exact"
     assert jane.versions[0].flags == []
     assert source.scan(candidates) == [alex, jane]
+    (tmp_path / "copy.txt").write_bytes(changed)
+    alex, jane = source.scan(candidates)
+    assert alex.versions == []
+    assert len(jane.versions) == 2
+    assert all(v.text_norm == changed.decode() for v in jane.versions)
     assert extracted == [first, changed]
 
 
@@ -139,3 +146,40 @@ def test_changed_file_clears_cached_failure_flags(
     assert after.versions[0].flags == []
     assert after.versions[0].text_norm == "usable"
     assert after.versions[0].file_sha256 == hashlib.sha256(b"usable").hexdigest()
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_private_snapshot_is_in_app_work_directory_and_deleted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: bool
+) -> None:
+    work = tmp_path / "app" / "work"
+    snapshots = []
+
+    def checked_extract(path, extractor, timeout):
+        assert path.is_relative_to(work)
+        assert path.read_bytes() == b"verified bytes"
+        snapshots.append(path)
+        if fail:
+            raise OSError("Synthetic startup failure")
+        return "extracted", []
+
+    monkeypatch.setattr(resume_folder, "_run_extractor", checked_extract)
+    if fail:
+        with pytest.raises(OSError, match="startup failure"):
+            resume_folder.bounded_extract(
+                tmp_path / "original.pdf",
+                injected_extract,
+                30,
+                content=b"verified bytes",
+                work_dir=work,
+            )
+    else:
+        assert resume_folder.bounded_extract(
+            tmp_path / "original.pdf",
+            injected_extract,
+            30,
+            content=b"verified bytes",
+            work_dir=work,
+        ) == ("extracted", [])
+    assert snapshots and all(not path.exists() for path in snapshots)
+    assert list(work.iterdir()) == []
