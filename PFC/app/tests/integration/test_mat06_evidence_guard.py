@@ -294,7 +294,7 @@ def test_sql_ten_years_keeps_score_and_adds_validation_gap(
         assert values[0][1].count(DURATION_GAP) == int(cv not in {"grounded", "quote_only"})
 
 
-@pytest.mark.parametrize("quote", ["Required: SQL", "Not in JD", None])
+@pytest.mark.parametrize("quote", ["Required: SQL", "Not in JD", None, "", " ", "\t", "\n"])
 @pytest.mark.parametrize("legacy", [False, True])
 def test_jd_quote_flag_survives_review_and_confirmation(
     api: Api, quote: str | None, legacy: bool

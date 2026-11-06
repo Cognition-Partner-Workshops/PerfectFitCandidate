@@ -276,7 +276,9 @@ def analyze_jd(
         data = Requirements.model_validate(ports.llm.extract_jd(text))
         for field in KINDS:
             for item in getattr(data, field):
-                item.evidence_unverified = not item.evidence or item.evidence not in text
+                item.evidence_unverified = (
+                    not item.evidence or not item.evidence.strip() or item.evidence not in text
+                )
                 if item.evidence_unverified:
                     item.evidence = None
         extracted_by = ports.llm.model
