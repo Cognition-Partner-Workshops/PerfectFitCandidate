@@ -38,7 +38,7 @@ export function summarise(
 ): AnalyticsSummary {
   const byReq = new Map<string, MatchResult[]>()
   results.forEach((r) => byReq.set(r.codeRequisition, [...(byReq.get(r.codeRequisition) ?? []), r]))
-  const scoredReqs = demands.filter((d) => d.jdStatus === 'Scored')
+  const scoredReqs = demands.filter((d) => d.jdStatus === 'Confirmed')
   let noSuitable = 0
   let weakOnly = 0
   let covered = 0

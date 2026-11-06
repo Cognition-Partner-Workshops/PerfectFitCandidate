@@ -120,7 +120,7 @@ export function scoreAll(
 ): MatchResult[] {
   const w = template.weights
   const out: MatchResult[] = []
-  for (const d of demands.filter((x) => x.jdStatus === 'Scored')) {
+  for (const d of demands.filter((x) => x.jdStatus === 'Confirmed')) {
     const rows: MatchResult[] = []
     for (const res of resources) {
       if (res.eligibility !== 'eligible' && res.eligibility !== 'eligible_caveat') continue

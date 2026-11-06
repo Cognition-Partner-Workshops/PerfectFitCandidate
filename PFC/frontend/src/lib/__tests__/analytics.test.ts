@@ -10,7 +10,7 @@ const results = client.computeResults()
 describe('dashboard analytics (REQ-OUT-04..07)', () => {
   it('summarises the header and counts Weak-only requisitions as no suitable candidate (GQ-01)', () => {
     const s = summarise(demands, resources, results, client.state.emails, null)
-    expect(s.requisitionsAssessed).toBe(demands.filter((d) => d.jdStatus === 'Scored').length)
+    expect(s.requisitionsAssessed).toBe(demands.filter((d) => d.jdStatus === 'Confirmed').length)
     expect(s.roleToPersonCombinations).toBe(results.length)
     expect(s.eligibleBench + s.excludedBench).toBe(resources.length)
     expect(s.rolesWithNoSuitableCandidate).toBeGreaterThanOrEqual(s.weakOnlyRequisitions)
