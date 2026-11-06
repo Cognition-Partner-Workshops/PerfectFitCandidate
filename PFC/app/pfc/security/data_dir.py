@@ -93,14 +93,29 @@ def _rename_with_retry(source: Path, destination: Path, attempts: int = 10) -> N
             time.sleep(0.1 * (attempt + 1))
 
 
+def _ensure_not_running(legacy: Path) -> None:
+    """Refuse to copy while an old instance holds its lock; it would keep writing the original."""
+    from pfc.launcher import acquire_lock  # the launcher imports this module
+
+    lock_path = legacy / "run" / "pfc.lock"
+    if not lock_path.exists():
+        return
+    lock = acquire_lock(lock_path, 0)
+    lock.close()
+    if not lock.acquired:
+        logger.error("Data directory %s is in use; close the running PFC first", legacy.name)
+        raise DataDirMigrationError("The old data directory is in use by a running instance")
+
+
 def migrate_legacy_data_dir(legacy: Path, target: Path) -> bool:
     """Copy an old package-relative data dir to the profile dir, verify it, keep the original.
 
     The original is renamed to ``*.migrated`` and never deleted. Logs carry basenames only,
     because profile paths can contain the user's name or email address.
     """
-    if target.exists() or not legacy.is_dir():
-        return False
+    if target.exists() or not (legacy / DB).is_file():
+        return False  # nothing to keep: an empty data/ shipped with a fresh package is ignored
+    _ensure_not_running(legacy)
     target.parent.mkdir(parents=True, exist_ok=True)
     staging = target.with_name(target.name + ".migrating")
     if staging.exists():
@@ -155,7 +170,7 @@ def restrict_acl(path: Path, *, run: Runner = subprocess.run, platform: str = sy
         logger.warning("Data directory permissions not restricted: current user unknown")
         return False
     account = f"{domain}\\{user}" if domain else user
-    # /reset drops explicit grants to other accounts (here and below); /grant:r alone would keep them.
+    # /reset drops explicit grants to other accounts; /grant:r alone would keep them.
     commands = [
         ["icacls", str(path), "/reset", "/T", "/C", "/Q"],
         [

@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from pfc import config
 from pfc.config import Settings, default_data_dir
 from pfc.db.migrate import migrate
+from pfc.launcher import acquire_lock
 from pfc.main import create_app
 from pfc.security import data_dir
 from pfc.security.data_dir import (
@@ -105,6 +106,27 @@ def test_failed_verification_leaves_the_original_untouched(
     assert legacy.is_dir() and not target.exists()
     assert not target.with_name("data.migrating").exists()
     assert not legacy.with_name("data.migrated").exists()
+
+
+def test_empty_legacy_dir_is_not_migrated(tmp_path: Path) -> None:
+    legacy = tmp_path / "package" / "data"
+    (legacy / "logs").mkdir(parents=True)
+    target = tmp_path / "profile" / "data"
+    assert migrate_legacy_data_dir(legacy, target) is False
+    assert legacy.is_dir() and not target.exists()
+
+
+def test_running_old_instance_blocks_the_move(tmp_path: Path) -> None:
+    legacy = legacy_dir(tmp_path)
+    held = acquire_lock(legacy / "run" / "pfc.lock", 8765)
+    try:
+        assert held.acquired
+        with pytest.raises(DataDirMigrationError):
+            migrate_legacy_data_dir(legacy, tmp_path / "profile" / "data")
+    finally:
+        held.close()
+    assert legacy.is_dir() and not (tmp_path / "profile" / "data").exists()
+    assert migrate_legacy_data_dir(legacy, tmp_path / "profile" / "data") is True
 
 
 def test_prepare_moves_only_the_default_location(
