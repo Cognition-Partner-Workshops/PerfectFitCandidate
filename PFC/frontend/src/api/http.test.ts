@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveApiMode } from '../config'
 import { ApiError } from './client'
 import { HttpApiClient, setUnauthorizedHandler } from './http'
-import { fromGrades, toCurrentUser, toGrade } from './mappers'
+import { fromGrades, toCurrentUser, toEmailDraft, toGrade } from './mappers'
 
 const AUTH = {
   user: { user_id: 1, email: 'admin@example.com', display_name: 'OCC Admin', role: 'Admin', must_change_password: false },
@@ -124,7 +124,49 @@ describe('HttpApiClient — 401 handling', () => {
   })
 })
 
+describe('HttpApiClient — review fixes', () => {
+  it('posts one synonym row per variant', async () => {
+    const api = new HttpApiClient('/api/v1')
+    const row = (id: number, term: string) => json({ synonym_id: id, canonical: 'Java', term, relation: 'equivalent', status: 'approved', created_by: 1 })
+    fetchMock.mockResolvedValueOnce(row(1, 'J2EE')).mockResolvedValueOnce(row(2, 'JEE'))
+    const s = await api.createSynonym({ canonical: 'Java', variants: ['J2EE', 'JEE'], relation: 'Exact synonym' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(s.variants).toEqual(['J2EE', 'JEE'])
+  })
+
+  it('keeps local-only settings per user and only after the server accepts the save', async () => {
+    localStorage.clear()
+    const api = new HttpApiClient('/api/v1')
+    const row = { resume_root_path: null, watch: { dl: { enabled: false, path: null, pattern: 'DL_*.xlsx' }, ct: { enabled: false, path: null, pattern: 'CT_*.xlsx' } }, active_model_id: null, density: 'comfortable' }
+    fetchMock.mockResolvedValueOnce(json(AUTH))
+    await api.login({ role: 'Admin', email: 'admin@example.com', password: 'x' })
+    fetchMock.mockResolvedValueOnce(json(row))
+    const s = await api.getMySettings()
+    fetchMock.mockResolvedValueOnce(problem(422, 'VALIDATION_ERROR', 'Invalid request'))
+    await expect(api.saveMySettings({ ...s, spoc1: 'Rejected SPOC' })).rejects.toBeInstanceOf(ApiError)
+    expect(localStorage.getItem('pfc.personal.local.1')).toBeNull()
+    fetchMock.mockResolvedValueOnce(json(row))
+    expect((await api.saveMySettings({ ...s, spoc1: 'SPOC A' })).spoc1).toBe('SPOC A')
+    fetchMock.mockResolvedValueOnce(json({ ...AUTH, user: { ...AUTH.user, user_id: 2 } })).mockResolvedValueOnce(json(row))
+    await api.login({ role: 'Analyst', email: 'b@example.com', password: 'x' })
+    expect((await api.getMySettings()).spoc1).toBe('')
+  })
+
+  it('sends the export passphrase and the pending-package source', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(json({})).mockResolvedValueOnce(json([]))
+    await api.exportPackage('pass-1')
+    await api.importPackage({ pendingId: 'a'.repeat(64) })
+    expect(JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)).toEqual({ passphrase: 'pass-1' })
+    expect(JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string)).toEqual({ pendingId: 'a'.repeat(64) })
+  })
+})
+
 describe('mappers', () => {
+  it('masks the draft recipient email', () => {
+    const d = toEmailDraft({ message_id: 1, demand_id: 1, resource_id: 1, result_id: 1, rank: 1, selected: true, to_address: 'jane.doe@example.com', cc: [], subject: 's', body_html: 'b', status: 'Draft', created_at: 'x', sent_at: null, last_error: null })
+    expect(d.toMasked).not.toContain('jane.doe')
+  })
   it('flattens AuthView using the role chosen at login', () => {
     expect(toCurrentUser({ ...AUTH, role_at_login: 'Analyst' }).role).toBe('Analyst')
   })

@@ -17,6 +17,7 @@ import type {
   Role,
   Synonym,
 } from './types'
+import { maskEmail } from '../lib/mask'
 
 type Flag = boolean | 0 | 1
 const b = (v: Flag | null | undefined): boolean => Boolean(v)
@@ -137,7 +138,7 @@ export const toEmailDraft = (e: EmailRow): EmailDraft => ({
   rank: e.rank ?? 0,
   score: 0,
   band: 'Insufficient data',
-  toMasked: e.to_address,
+  toMasked: maskEmail(e.to_address),
   cc: e.cc,
   subject: e.subject,
   body: e.body_html,

@@ -27,7 +27,7 @@ import {
   type SynonymRow,
   type UserRow,
 } from './mappers'
-import type { CurrentUser, PackageImportRecord, PersonalSettings, ProblemDetails } from './types'
+import type { CurrentUser, PersonalSettings, ProblemDetails } from './types'
 
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
@@ -78,26 +78,6 @@ export async function parseProblem(res: Response): Promise<ProblemDetails> {
 /**
  * Real backend client: cookie session + `X-CSRF-Token` on writes, RFC 9457 errors (TDD.md §9.3, §12).
  */
-interface HistoryRow {
-  version: number
-  applied_at: string
-  applied_by: string
-  status: string
-  current: boolean
-  file_name?: string
-}
-
-/** Rollback reverts the current package to the previous applied one, so only the current row offers it. */
-export function toImportRecords(rows: HistoryRow[]): PackageImportRecord[] {
-  const hasPrevious = rows.some((r) => !r.current && r.status === 'applied')
-  return rows.map((r) => ({
-    version: r.version,
-    importedAt: r.applied_at,
-    importedBy: r.applied_by,
-    fileName: r.file_name ?? `v${r.version}`,
-    canRollback: r.current && r.status === 'applied' && hasPrevious,
-  }))
-}
 
 export class HttpApiClient implements ApiClient {
   private csrfToken: string | null = null
@@ -137,6 +117,7 @@ export class HttpApiClient implements ApiClient {
   private remember(view: AuthView): CurrentUser {
     const user = toCurrentUser(view)
     this.csrfToken = user.csrfToken
+    this.userId = user.userId
     return user
   }
 
@@ -223,7 +204,7 @@ export class HttpApiClient implements ApiClient {
     return r.drafts.map(toEmailDraft)
   }
   listEmails: ApiClient['listEmails'] = async () => {
-    const r = await this.request<{ drafts: EmailRow[] }>('GET', '/emails')
+    const r = await this.request<{ drafts: EmailRow[] }>('GET', '/emails?limit=500')
     return { items: r.drafts.map(toEmailDraft), transport: { transport: 'Outlook COM', outlookDetected: true } }
   }
   updateEmail: ApiClient['updateEmail'] = async (id, patch) =>
@@ -235,12 +216,14 @@ export class HttpApiClient implements ApiClient {
     return toEmailDraft(await this.request('GET', `/emails/${id}`))
   }
 
-  /** Fields the backend does not store yet (SPOCs, personal email template) are kept locally. */
+  private userId: number | null = null
+  private personalKey = () => `pfc.personal.local.${this.userId ?? 'anon'}`
+  /** Fields the backend does not store yet (SPOCs, personal email template) are kept locally, per user. */
   private localPersonal(): PersonalSettings {
     const empty = { enabled: false, watchPath: '', pattern: '' }
     const base: PersonalSettings = { resumeFolderPath: '', autoSyncDl: empty, autoSyncCt: empty, activeModel: '', spoc1: '', spoc2: '', emailTemplate: '', density: 'Comfortable' }
     try {
-      return { ...base, ...(JSON.parse(localStorage.getItem('pfc.personal.local') ?? '{}') as Partial<PersonalSettings>) }
+      return { ...base, ...(JSON.parse(localStorage.getItem(this.personalKey()) ?? '{}') as Partial<PersonalSettings>) }
     } catch {
       return base
     }
@@ -248,19 +231,17 @@ export class HttpApiClient implements ApiClient {
   getMySettings: ApiClient['getMySettings'] = async () =>
     toPersonal(await this.request<PersonalRow>('GET', '/settings/me'), this.localPersonal())
   saveMySettings: ApiClient['saveMySettings'] = async (s) => {
-    localStorage.setItem('pfc.personal.local', JSON.stringify({ spoc1: s.spoc1, spoc2: s.spoc2, emailTemplate: s.emailTemplate }))
-    return toPersonal(await this.request<PersonalRow>('PUT', '/settings/me', fromPersonal(s)), this.localPersonal())
+    const saved = await this.request<PersonalRow>('PUT', '/settings/me', fromPersonal(s))
+    localStorage.setItem(this.personalKey(), JSON.stringify({ spoc1: s.spoc1, spoc2: s.spoc2, emailTemplate: s.emailTemplate }))
+    return toPersonal(saved, this.localPersonal())
   }
   listModels: ApiClient['listModels'] = async () => (await this.request<ModelRow[]>('GET', '/llm/models')).map(toLlmModel)
   previewPackage: ApiClient['previewPackage'] = (file) => this.upload('/settings/settings-package/preview', file)
-  importPackage: ApiClient['importPackage'] = (previewId) =>
-    this.request('POST', '/settings/settings-package/import', { previewId })
+  importPackage: ApiClient['importPackage'] = (source) => this.request('POST', '/settings/settings-package/import', source)
+  pendingPackages: ApiClient['pendingPackages'] = () => this.request('GET', '/settings/settings-package/pending')
   rollbackPackage: ApiClient['rollbackPackage'] = () => this.request('POST', '/settings/settings-package/rollback')
   /** Backend rows: `{version, applied_at, applied_by, status, current}`; any non-current applied version can be rolled back to. */
-  packageHistory: ApiClient['packageHistory'] = async () => {
-    const rows = await this.request<HistoryRow[]>('GET', '/settings/settings-package/history')
-    return toImportRecords(rows)
-  }
+  packageHistory: ApiClient['packageHistory'] = () => this.request('GET', '/settings/settings-package/history')
 
   listUsers: ApiClient['listUsers'] = async () => (await this.request<UserRow[]>('GET', '/occ/users')).map(toOccUser)
   createUser: ApiClient['createUser'] = async (req) => {
@@ -291,17 +272,21 @@ export class HttpApiClient implements ApiClient {
   saveStatusMap: ApiClient['saveStatusMap'] = (e) => this.request('PUT', '/occ/status-map', e)
 
   listSynonyms: ApiClient['listSynonyms'] = async () => (await this.request<SynonymRow[]>('GET', '/occ/synonyms')).map(toSynonym)
-  /** The backend stores one term per row; the first variant is sent (REQ-MAT-05). */
-  createSynonym: ApiClient['createSynonym'] = async (s) =>
-    toSynonym(
-      await this.request('POST', '/occ/synonyms', {
-        canonical: s.canonical,
-        term: s.variants[0] ?? s.canonical,
-        relation: fromSynonymRelation(s.relation),
-        credit: s.relation === 'Related' ? 0.6 : 1,
-        status: 'approved',
-      }),
-    )
+  /** The backend stores one term per row, so each variant is posted separately (REQ-MAT-05). */
+  createSynonym: ApiClient['createSynonym'] = async (s) => {
+    const rows: SynonymRow[] = []
+    for (const term of s.variants.length ? s.variants : [s.canonical])
+      rows.push(
+        await this.request('POST', '/occ/synonyms', {
+          canonical: s.canonical,
+          term,
+          relation: fromSynonymRelation(s.relation),
+          credit: s.relation === 'Related' ? 0.6 : 1,
+          status: 'approved',
+        }),
+      )
+    return { ...toSynonym(rows[0]), variants: rows.map((r) => r.term) }
+  }
   updateSynonym: ApiClient['updateSynonym'] = async (id, p) => {
     if (p.status === 'Active') return toSynonym(await this.request('POST', `/occ/synonyms/${id}/approve`))
     if (p.status === 'Rejected') return toSynonym(await this.request('POST', `/occ/synonyms/${id}/reject`))
@@ -336,7 +321,7 @@ export class HttpApiClient implements ApiClient {
     toPreview(await this.request('POST', '/occ/internal-domains/preview', { domains: d.map((x) => x.domain) }))
 
   lastExportedPackage: ApiClient['lastExportedPackage'] = () => this.request('GET', '/occ/settings-package')
-  exportPackage: ApiClient['exportPackage'] = () => this.request('POST', '/occ/settings-package/export')
+  exportPackage: ApiClient['exportPackage'] = (passphrase) => this.request('POST', '/occ/settings-package/export', { passphrase })
 
   listApprovals: ApiClient['listApprovals'] = () => this.request('GET', '/occ/approvals')
   decideApproval: ApiClient['decideApproval'] = (e, d) =>
