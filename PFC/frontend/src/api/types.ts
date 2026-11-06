@@ -289,7 +289,7 @@ export interface CvVersion {
   modifiedAt: string
   extractedAt: string
   isBest: boolean
-  /** Structured facts grounded in the CV text; null for versions synced before fact extraction. */
+  /** Structured facts grounded in the CV text; null when facts have not been extracted yet (e.g. legacy versions). */
   facts?: CvFacts | null
 }
 

@@ -49,7 +49,7 @@ describe('Candidate Profile CV facts', () => {
     }))
     expect(await screen.findByText(/CV facts —/)).toBeTruthy()
     expect(screen.getAllByText('Not found in CV').length).toBe(5)
-    expect(screen.getByText(/CV-999: synced before CV facts were extracted/)).toBeTruthy()
+    expect(screen.getByText(/CV-999: CV facts not extracted yet/)).toBeTruthy()
     expect(base.cvVersions.length).toBeGreaterThan(0)
   })
 

@@ -285,7 +285,7 @@ export function CandidateProfilePage() {
             <CvFactsCard key={c.cvVersionId} cv={c} facts={c.facts} />
           ) : (
             <p key={c.cvVersionId} className="small muted">
-              CV-{c.cvVersionId}: synced before CV facts were extracted, so no facts are shown.
+              CV-{c.cvVersionId}: CV facts not extracted yet.
             </p>
           ),
         )}
