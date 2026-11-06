@@ -10,25 +10,26 @@ describe('Analyze JD', () => {
   })
   afterEach(() => vi.restoreAllMocks())
 
-  it('analyzes a new demand before reading its requirements', async () => {
-    const calls: string[] = []
-    const analyze = vi.spyOn(mock, 'analyzeDemands')
+  it('analyzes a new demand once and shows the draft it returns', async () => {
+    const analyze = vi.spyOn(mock, 'analyzeDemand')
     const get = vi.spyOn(mock, 'getRequirements')
-    analyze.mockImplementation(async () => void calls.push('analyze'))
-    get.mockImplementation(async (id) => {
-      calls.push('get')
-      get.mockRestore()
-      return mock.getRequirements(id)
-    })
     renderApp('/demands')
     fireEvent.click((await screen.findAllByRole('button', { name: 'Analyze JD' }))[0])
     await screen.findByRole('button', { name: /Confirm & Start/ })
-    expect(calls).toEqual(['analyze', 'get'])
     expect(analyze).toHaveBeenCalledTimes(1)
+    expect(get).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows why analysis failed instead of loading forever', async () => {
+    vi.spyOn(mock, 'analyzeDemand').mockRejectedValue(new Error('JD text is blank'))
+    renderApp('/demands')
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Analyze JD' }))[0])
+    await screen.findByText(/JD text is blank/)
+    expect(screen.queryByRole('button', { name: /Confirm & Start/ })).toBeNull()
   })
 
   it('reads an existing draft without re-analyzing', async () => {
-    const analyze = vi.spyOn(mock, 'analyzeDemands')
+    const analyze = vi.spyOn(mock, 'analyzeDemand')
     renderApp('/demands')
     fireEvent.click((await screen.findAllByRole('button', { name: 'Review JD' }))[0])
     await screen.findByRole('button', { name: /Confirm & Start/ })

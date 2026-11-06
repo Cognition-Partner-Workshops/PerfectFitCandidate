@@ -50,11 +50,12 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
   const req = useQuery({
     queryKey: ['requirements', demand.demandId],
     queryFn: async () => {
-      if (!analyzed.current) {
-        await api.analyzeDemands([demand.demandId])
-        analyzed.current = true
-      }
-      return api.getRequirements(demand.demandId)
+      if (analyzed.current) return api.getRequirements(demand.demandId)
+      const draft = await api.analyzeDemand(demand.demandId)
+      analyzed.current = true
+      // The list must show the new status, or reopening this demand would analyze it again.
+      void qc.invalidateQueries({ queryKey: ['demands'] })
+      return draft
     },
   })
   const [edit, setEdit] = useState<JdRequirements | null>(null)
@@ -92,7 +93,9 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
       <span className="muted small">
         {demand.demandRequestName} · {demand.accountName} · {demand.codeLocalGrade} · {roleLocation(demand.region)} · Start {formatDate(demand.positionStartDate)}
       </span>
-      {!value ? (
+      {req.isError && !value ? (
+        <ErrorState error={req.error} />
+      ) : !value ? (
         <Spinner />
       ) : (
         <div className="grid-12">
