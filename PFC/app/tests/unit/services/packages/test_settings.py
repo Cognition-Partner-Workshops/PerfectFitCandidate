@@ -2,7 +2,6 @@
 
 import io
 import json
-import sqlite3
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -291,7 +290,7 @@ def test_export_monotonic_active_version_and_concurrent_calls(
         assert db.execute("SELECT count(*) FROM audit_log").fetchone()[0] == 3
 
 
-def test_deferred_foreign_key_failure_is_atomic(pair: tuple[Settings, Settings]) -> None:
+def test_referenced_absent_rows_are_retained(pair: tuple[Settings, Settings]) -> None:
     source, target = pair
     importer = SettingsImporter(target)
     importer.apply(exported(source).path, actor_id=1)
@@ -300,17 +299,47 @@ def test_deferred_foreign_key_failure_is_atomic(pair: tuple[Settings, Settings])
             "INSERT INTO resource_skills(resource_id, source, skill_raw, skill_norm, "
             "canonical_skill_id) VALUES (1, 'CT', 'Python', 'python', 1)"
         )
-        before = snapshot(db)
+        db.execute("INSERT INTO grades VALUES ('LOCAL', 99, 1)")
+        db.execute("INSERT INTO grades VALUES ('UNUSED', 100, 1)")
+        db.execute("INSERT INTO bench_statuses VALUES ('LOCAL', 'Local', 0, 1, 0, 0)")
+        db.execute("UPDATE resources SET grade='LOCAL', bench_status_code='LOCAL'")
     with database(source) as db:
         db.execute("DELETE FROM skill_synonyms")
         db.execute("DELETE FROM skills")
     package = exported(source)
-    with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
-        importer.apply(package.path, actor_id=1)
+    importer.apply(package.path, actor_id=1)
     with database(target) as db:
-        assert snapshot(db) == before
-        assert db.execute("SELECT count(*) FROM settings_packages").fetchone()[0] == 1
-    assert not (target.data_dir / "packages/v2.pfcpkg").exists()
+        assert db.execute("SELECT is_active FROM skills WHERE skill_id=1").fetchone()[0] == 0
+        assert db.execute("SELECT active FROM grades WHERE code='LOCAL'").fetchone()[0] == 0
+        assert db.execute("SELECT 1 FROM grades WHERE code='UNUSED'").fetchone() is None
+        assert (
+            db.execute("SELECT label FROM bench_statuses WHERE code='LOCAL'").fetchone()[0]
+            == "Local"
+        )
+        assert db.execute("SELECT canonical_skill_id FROM resource_skills").fetchone()[0] == 1
+        assert not db.execute("PRAGMA foreign_key_check").fetchall()
+    assert (target.data_dir / "packages/v2.pfcpkg").exists()
+
+
+def test_natural_keys_preserve_local_ids_and_remap_synonyms(
+    pair: tuple[Settings, Settings],
+) -> None:
+    source, target = pair
+    with database(target) as db:
+        db.execute("INSERT INTO skills VALUES (70, 'Python', 'Local', 'admin', 1)")
+        db.execute(
+            "INSERT INTO resource_skills(resource_id, source, skill_raw, skill_norm, "
+            "canonical_skill_id) VALUES (1, 'CT', 'Python', 'python', 70)"
+        )
+    SettingsImporter(target).apply(exported(source).path, actor_id=1)
+    with database(target) as db:
+        assert db.execute("SELECT skill_id, category FROM skills").fetchone()[:] == (
+            70,
+            "Engineering",
+        )
+        assert db.execute("SELECT skill_id FROM skill_synonyms").fetchone()[0] == 70
+        assert db.execute("SELECT canonical_skill_id FROM resource_skills").fetchone()[0] == 70
+        assert not db.execute("PRAGMA foreign_key_check").fetchall()
 
 
 def test_payload_validation_and_missing_approval_target(pair: tuple[Settings, Settings]) -> None:

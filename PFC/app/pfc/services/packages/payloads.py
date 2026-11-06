@@ -92,6 +92,19 @@ TABLES: dict[str, tuple[str, ...]] = {
 SYSTEM_KEYS = frozenset(
     {"dl.approvals", "ct.approvals", "ingestion.dl.approvals", "ingestion.ct.approvals"}
 )
+NATURAL_KEYS = {
+    "skills": ("name",),
+    "skill_synonyms": ("term_norm",),
+    "scoring_templates": ("name", "version"),
+    "grades": ("code",),
+    "bench_statuses": ("code",),
+    "status_map": ("source_value",),
+    "resource_team_recipients": ("email",),
+    "internal_email_domains": ("domain",),
+    "email_templates": ("name", "version"),
+    "llm_models": ("name",),
+    "llm_providers": ("name",),
+}
 EXTRA_PAYLOADS = {"settings", "analysts", "dl_approvals", "ct_approvals"}
 Row = dict[str, Any]
 Snapshot = dict[str, list[Row]]
@@ -270,6 +283,48 @@ def diff(before: Snapshot, after: Snapshot) -> dict[str, PayloadDiff]:
     return result
 
 
+def _matching_row(db: sqlite3.Connection, table: str, row: Row) -> sqlite3.Row | None:
+    keys = NATURAL_KEYS[table]
+    return db.execute(
+        f"SELECT * FROM {table} WHERE " + " AND ".join(f"{key}=?" for key in keys),
+        [row[key] for key in keys],
+    ).fetchone()
+
+
+def _referenced(db: sqlite3.Connection, table: str, row: sqlite3.Row) -> bool:
+    for child in db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall():
+        name = child["name"].replace('"', '""')
+        for fk in db.execute(f'PRAGMA foreign_key_list("{name}")').fetchall():
+            if fk["table"] != table:
+                continue
+            column = fk["from"].replace('"', '""')
+            target = fk["to"] or TABLES[table][0]
+            if db.execute(
+                f'SELECT 1 FROM "{name}" WHERE "{column}"=? LIMIT 1', (row[target],)
+            ).fetchone():
+                return True
+    return False
+
+
+def _remove_absent(db: sqlite3.Connection, data: Snapshot) -> None:
+    for table, columns in reversed(TABLES.items()):
+        primary = columns[0]
+        retained = {
+            match[primary]
+            for row in data[table]
+            if (match := _matching_row(db, table, row)) is not None
+        }
+        for row in db.execute(f"SELECT * FROM {table}").fetchall():
+            if row[primary] in retained:
+                continue
+            if _referenced(db, table, row):
+                active = next((name for name in ("active", "is_active") if name in columns), None)
+                if active:
+                    db.execute(f"UPDATE {table} SET {active}=0 WHERE {primary}=?", (row[primary],))
+            else:
+                db.execute(f"DELETE FROM {table} WHERE {primary}=?", (row[primary],))
+
+
 def replace_snapshot(
     db: sqlite3.Connection,
     data: Snapshot,
@@ -282,19 +337,47 @@ def replace_snapshot(
         row["name"]: (row["token_blob"], row["owner_user_id"])
         for row in db.execute("SELECT name, token_blob, owner_user_id FROM llm_providers")
     }
-    for table in reversed(TABLES):
-        db.execute(f"DELETE FROM {table}")
+    _remove_absent(db, data)
+    skill_ids: dict[int, int] = {}
     for table, columns in TABLES.items():
-        for row in data[table]:
+        for incoming in data[table]:
+            row = dict(incoming)
+            if table == "skill_synonyms":
+                row["skill_id"] = skill_ids[row["skill_id"]]
+            primary = columns[0]
+            existing = _matching_row(db, table, row)
             names = list(columns)
-            values = [row[name] for name in names]
+            if existing:
+                row[primary] = existing[primary]
+            elif (
+                primary not in NATURAL_KEYS[table]
+                and db.execute(
+                    f"SELECT 1 FROM {table} WHERE {primary}=?", (row[primary],)
+                ).fetchone()
+            ):
+                names.remove(primary)
             if table == "llm_providers":
                 names += ["token_blob", "owner_user_id"]
-                values += list(tokens.get(row["name"], (None, None)))
-            db.execute(
-                f"INSERT INTO {table} ({','.join(names)}) VALUES ({','.join('?' for _ in names)})",
-                values,
-            )
+                row["token_blob"], row["owner_user_id"] = tokens.get(row["name"], (None, None))
+            values = [row[name] for name in names]
+            if existing:
+                updates = [name for name in names if name != primary]
+                db.execute(
+                    f"UPDATE {table} SET "
+                    + ",".join(f"{name}=?" for name in updates)
+                    + f" WHERE {primary}=?",
+                    [row[name] for name in updates] + [existing[primary]],
+                )
+            else:
+                db.execute(
+                    f"INSERT INTO {table} ({','.join(names)}) VALUES ({','.join('?' for _ in names)})",
+                    values,
+                )
+            if table == "skills":
+                matched = _matching_row(db, table, row)
+                assert matched is not None
+                skill_ids[incoming[primary]] = matched[primary]
+    _remove_absent(db, data)
     for key in SYSTEM_KEYS:
         db.execute(
             "DELETE FROM settings WHERE scope='system' AND user_id IS NULL AND key=? "
