@@ -156,9 +156,11 @@ def parse_workbook(
                 and formula_cells[i].startswith("=")
             }
             key_columns = {"code_requisition"} if kind == "DL" else {"short_name", "email_address"}
-            if not key_columns.intersection(uncached) and all(
-                value is None or str(value).strip() == "" for value in cells
-            ):
+            has_cached_business_value = any(
+                value is not None and str(value).strip() != "" for value in raw.values()
+            )
+            has_uncached_key = bool(key_columns.intersection(uncached))
+            if not (has_cached_business_value or has_uncached_key):
                 empty += 1
                 if empty >= empty_row_limit:
                     break

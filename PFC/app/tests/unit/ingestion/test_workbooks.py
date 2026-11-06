@@ -411,3 +411,23 @@ def test_req_ing_06_file_hash_no_op(tmp_path: Path) -> None:
 
 def test_req_in_12_invalid_date() -> None:
     assert parse_date("bad", CALENDAR_WINDOWS_1900) is None
+
+
+@pytest.mark.parametrize("kind", ["DL", "CT"])
+def test_req_ing_02_unmapped_notes_do_not_create_rows(tmp_path: Path, kind: str) -> None:
+    make_row = dl_row if kind == "DL" else ct_row
+    path = workbook(tmp_path, kind, [make_row()])
+    book = load_workbook(path)
+    sheet = book["Unpredictable sheet"]
+    extra_column = sheet.max_column + 1
+    sheet.cell(3, extra_column, "Analyst notes")
+    for number in range(5, 205):
+        sheet.cell(number, extra_column, "Template note")
+    for column, value in enumerate(make_row(), 1):
+        sheet.cell(205, column, value)
+    book.save(path)
+    book.close()
+    preview = parse_workbook(path, kind, empty_row_limit=50)
+    assert preview.rows_read == 1
+    assert preview.rows_rejected == 0
+    assert preview.issues == []
