@@ -423,7 +423,19 @@ def test_req_mat_05_empty_unknown_related(config, resource, demand):
     )
     cfg = replace(config, synonyms=table)
     d = replace(demand, requirements=(RequirementItem("M1", "query", "mandatory"),))
-    assert pair(cfg, resource, d).items[0].credit == 0.4
+    assert pair(cfg, resource, d).items[0].credit == 0.6
+
+
+@pytest.mark.parametrize("credit", [0.0, 0.25, 0.75, 1.0])
+def test_req_mat_05_template_drives_related_credit(config, resource, demand, credit):
+    d = replace(demand, requirements=(RequirementItem("M1", "Delivery Lead", "mandatory"),))
+    r = replace(resource, ct_skills="Project Manager,SQL")
+    template = replace(
+        config.template, skills=replace(config.template.skills, related_synonym_credit=credit)
+    )
+    best = pair(config, r, d, SemanticInput(0), template=template)
+    assert best.items[0].credit == credit
+    assert best.components["skills"].points == pytest.approx(70 * (0.6 * credit + 0.15))
 
 
 def test_req_mat_05_related_aliases(config, resource, demand):

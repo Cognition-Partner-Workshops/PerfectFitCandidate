@@ -10,3 +10,6 @@ Editable domain defaults (REQ-SCR-01, REQ-MAT-05, REQ-ELIG-07):
 - `location_aliases.yaml`: location spelling/remote aliases and travel clusters.
 
 Set `PFC_CONFIG_DIR` to load an edited copy instead of these shipped defaults.
+
+For related synonyms, CSV `credit` is informational for OCC; scoring uses the
+template's `skills.related_synonym_credit` (TDD §7.3, REQ-MAT-05).

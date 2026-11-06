@@ -169,8 +169,8 @@ def _item(
             for target, amount in config.synonyms.related(equivalent)
             if normalise_term(target) == normalise_term(canonical or key)
         ]
-        if related and max(related) > credit:
-            credit, method, source = max(related), "related", skill.raw
+        if related and template.skills.related_synonym_credit > credit:
+            credit, method, source = template.skills.related_synonym_credit, "related", skill.raw
     semantic_credit = min(
         semantic.item_credits.get(item.item_id, 0), template.skills.semantic_item_cap
     )
