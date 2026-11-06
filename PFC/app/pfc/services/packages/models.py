@@ -221,6 +221,15 @@ class ModelImporter:
                             raise PackageServiceError(
                                 "model_hash", "Model changed while being copied"
                             )
+                tokenizer_pin = preview.manifest.payloads.get("tokenizer.json")
+                adjacent = Path(metadata.file).parent / "tokenizer.json"
+                if tokenizer_pin is not None and adjacent != Path("tokenizer.json"):
+                    adjacent_pin = preview.manifest.payloads.get(adjacent.as_posix())
+                    if adjacent_pin is not None and adjacent_pin.sha256 != tokenizer_pin.sha256:
+                        raise PackageServiceError(
+                            "model_tokenizer", "Root and adjacent tokenizers must be identical"
+                        )
+                    atomic_write(staging / adjacent, (staging / "tokenizer.json").read_bytes())
                 if destination.exists() or receipt_path.exists():
                     raise PackageServiceError(
                         "version_collision", "Model bundle version already exists"

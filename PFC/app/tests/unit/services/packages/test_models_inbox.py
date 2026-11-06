@@ -11,13 +11,14 @@ from typing import Any
 
 import pytest
 from embeddings.conftest import jd, tiny_bundle
+from tokenizers import Tokenizer, models, pre_tokenizers
 
 from pfc.config import Settings
 from pfc.db.audit import verify_chain
 from pfc.db.connection import database
 from pfc.jobs.runner import JobContext, JobRunner
 from pfc.security import package_signing as signing
-from pfc.services.embeddings.runtime import EmbeddingModelUnavailable
+from pfc.services.embeddings.runtime import EmbeddingModelUnavailable, create_embedder
 from pfc.services.packages.common import PackageServiceError
 from pfc.services.packages.inbox import PackageInbox, list_pending, scan_inbox
 from pfc.services.packages.keys import SigningKeys
@@ -73,7 +74,7 @@ def test_missing_files_fail_job_not_import(
     target.bundled_models_dir = target.data_dir / "missing-models"
     with running_jobs(target) as runner:
         importer = ModelImporter(target, jobs=runner)
-        result = importer.apply(model_package(source), actor_id=1)
+        result = importer.apply(model_package(source, include_tokenizer=False), actor_id=1)
         job = finished(runner, result.job_id)
         assert job["status"] == "failed"
         assert "tokenizer is missing" in job["message"]
@@ -95,6 +96,7 @@ def test_real_import_and_terminal_retry_are_incremental(
         artifacts={
             "weights/model.onnx": model.read_bytes(),
             "weights/tokenizer.json": (model.parent / "tokenizer.json").read_bytes(),
+            "tokenizer.json": (model.parent / "tokenizer.json").read_bytes(),
         },
     )
     with running_jobs(target) as runner:
@@ -136,6 +138,7 @@ def test_failed_job_resumes_committed_owner(
         artifacts={
             "weights/model.onnx": model.read_bytes(),
             "weights/tokenizer.json": (model.parent / "tokenizer.json").read_bytes(),
+            "tokenizer.json": (model.parent / "tokenizer.json").read_bytes(),
         },
     )
     report = JobContext.report_progress
@@ -194,6 +197,7 @@ def model_package(
     *,
     version: int = 1,
     model_type: str = "embedding",
+    include_tokenizer: bool = True,
     artifacts: dict[str, bytes] | None = None,
     **metadata: Any,
 ) -> bytes:
@@ -212,7 +216,7 @@ def model_package(
             METADATA: signing.canonical_json(values),
             "weights/model.onnx": b"test model weights",
             "weights/external.data": b"external tensors",
-            "tokenizer.json": b"test tokenizer",
+            **({"tokenizer.json": b"test tokenizer"} if include_tokenizer else {}),
             **(artifacts or {}),
         },
         output,
@@ -223,6 +227,57 @@ def model_package(
         created_at=NOW,
     )
     return output.getvalue()
+
+
+@pytest.mark.parametrize("include_tokenizer", [True, False])
+def test_imported_root_tokenizer_precedes_bundled_fallback(
+    pair: tuple[Settings, Settings], tmp_path: Path, include_tokenizer: bool
+) -> None:
+    source, target = pair
+    target.bundled_models_dir = tmp_path / "bundled"
+    bundled = tiny_bundle(target.bundled_models_dir / "nomic-embed-text-v1.5")
+    imported = tiny_bundle(tmp_path / "imported")
+    vocab = Tokenizer.from_file(str(bundled.parent / "tokenizer.json")).get_vocab()
+    vocab["Python"], vocab["Ruby"] = 8, 5
+    tokenizer = Tokenizer(models.WordLevel(vocab, unk_token="[UNK]"))
+    tokenizer.pre_tokenizer = pre_tokenizers.Whitespace()
+    tokenizer.save(str(bundled.parent / "tokenizer.json"))
+    root_tokenizer = (imported.parent / "tokenizer.json").read_bytes()
+    artifacts = {"weights/model.onnx": imported.read_bytes()}
+    if include_tokenizer:
+        artifacts["tokenizer.json"] = root_tokenizer
+    package = model_package(source, dim=8, include_tokenizer=include_tokenizer, artifacts=artifacts)
+    with running_jobs(target) as runner:
+        result = ModelImporter(target, jobs=runner).apply(package, actor_id=1)
+        assert finished(runner, result.job_id)["status"] == "completed"
+    embedder = create_embedder(target, embedding_model_id=result.model_id)
+    adjacent = result.path.parent / "tokenizer.json"
+    if include_tokenizer:
+        assert adjacent.read_bytes() == root_tokenizer
+        assert embedder.tokenizer.encode("Python").ids == [5]
+        assert embedder.tokenizer.encode("Python").ids != tokenizer.encode("Python").ids
+    else:
+        assert not adjacent.exists()
+        assert embedder.tokenizer.encode("Python").ids == tokenizer.encode("Python").ids
+    assert not list((target.data_dir / "models").glob(".pfc-*"))
+
+
+def test_root_tokenizer_signature_hash_and_conflict_validation(
+    pair: tuple[Settings, Settings],
+) -> None:
+    source, target = pair
+    importer = ModelImporter(target, jobs=Jobs(target))
+    package = model_package(source)
+    with pytest.raises(signing.PackageError):
+        importer.apply(rewrite(package, "tokenizer.json", b"tampered tokenizer"), actor_id=1)
+    package = model_package(source, artifacts={"weights/tokenizer.json": b"different tokenizer"})
+    with pytest.raises(PackageServiceError, match="tokenizers must be identical"):
+        importer.apply(package, actor_id=1)
+    with database(target) as db:
+        assert db.execute("SELECT count(*) FROM embedding_models").fetchone()[0] == 0
+    assert not (target.data_dir / "models/v1").exists()
+    assert not (target.data_dir / "models/receipts/v1.json").exists()
+    assert not list((target.data_dir / "models").glob(".pfc-*"))
 
 
 @pytest.mark.parametrize("model_type", ["embedding", "llm"])
