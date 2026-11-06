@@ -422,6 +422,17 @@ def test_version_high_water_survives_rollback(apps: tuple[TestClient, TestClient
     assert response.status_code == 200, response.text
     assert response.json()["version"] == 3
     assert apply(target, csrf, response.json()["token"]).status_code == 200
+    assert [(row["version"], row["status"], row["is_current"]) for row in history(target)] == [
+        (3, "applied", True),
+        (2, "rolled_back", False),
+        (1, "applied", False),
+    ]
+    with database(target.app.state.settings) as db:
+        rollback = db.execute(
+            "SELECT entity_id, details_json FROM audit_log WHERE action='settings_package.rollback'"
+        ).fetchone()
+        assert rollback["entity_id"] == "2"
+        assert '"restored_version":1' in rollback["details_json"]
 
 
 def test_token_ownership_expiry_and_tampering(

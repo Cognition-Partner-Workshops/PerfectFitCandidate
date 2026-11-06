@@ -33,7 +33,7 @@ from pfc.api.schemas.packages import (
 )
 from pfc.security.dependencies import Principal, current_user, require_role
 from pfc.security.package_signing import key_id, serialise_public_key
-from pfc.services.packages.common import PackageServiceError, active_package, readonly_database
+from pfc.services.packages.common import PackageServiceError, readonly_database
 from pfc.services.packages.export import export_settings
 from pfc.services.packages.http_errors import package_errors, problem
 from pfc.services.packages.importer import SettingsImporter, SettingsPreview
@@ -282,16 +282,20 @@ def reembed(
 def history(request: Request, principal: Authenticated) -> list[HistoryResponse]:
     """Current and rolled-away package versions (REQ-OCC-02)."""
     with package_errors(), readonly_database(request.app.state.settings) as db:
-        active = active_package(db)
+        rolled_back = {
+            row["entity_id"]
+            for row in db.execute(
+                "SELECT DISTINCT entity_id FROM audit_log WHERE action='settings_package.rollback' "
+                "AND entity_type='settings_package'"
+            )
+        }
         return [
             HistoryResponse(
                 version=row["package_version"],
                 applied_at=row["imported_at"],
                 applied_by=row["applied_by"],
                 is_current=bool(row["is_active"]),
-                status="rolled_back"
-                if active and row["package_version"] > active["package_version"]
-                else "applied",
+                status="rolled_back" if str(row["package_version"]) in rolled_back else "applied",
             )
             for row in db.execute(
                 "SELECT p.*, COALESCE(NULLIF(u.display_name, ''), u.email) AS applied_by "

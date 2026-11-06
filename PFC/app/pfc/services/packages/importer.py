@@ -139,6 +139,7 @@ class SettingsImporter:
                 raise PackageServiceError(
                     "no_previous_version", "No previous settings package is retained"
                 )
+            assert active is not None
             path = self.settings.data_dir / "packages" / f"v{previous['package_version']}.pfcpkg"
             package = path.read_bytes()
             if hashlib.sha256(package).hexdigest() != previous["package_sha256"]:
@@ -168,6 +169,7 @@ class SettingsImporter:
                 action="settings_package.rollback",
                 user_id=actor_id,
                 entity_type="settings_package",
-                entity_id=str(previous["package_version"]),
+                entity_id=str(active["package_version"]),
+                details={"restored_version": previous["package_version"]},
             )
             return preview
