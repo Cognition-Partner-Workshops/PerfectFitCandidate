@@ -2,9 +2,16 @@
 
 import json
 import math
+import re
 from collections import Counter
+from dataclasses import fields
 from datetime import date, datetime
 from typing import Any
+
+from pfc.domain.scoring.models import Resource
+from pfc.security.problems import Problem
+from pfc.services.matching import export
+from pfc.services.matching.results import _mask_email
 
 from .population import BANDS, Population, capacity, counts
 
@@ -249,7 +256,16 @@ def bench(p: Population) -> dict[str, Any]:
 
 
 def validation(p: Population) -> list[dict[str, Any]]:
+    """REQ-OUT-01/02/03/10, P1-EX-04: inspect scored facts and output serializers."""
     ends, distances = [], []
+    capacity_ok = all("capacity" not in field.name.casefold() for field in fields(Resource))
+    email_ok, masked_ok, score_ok, dates_ok = True, True, True, True
+    headers = export.HEADERS
+    layout_ok = (
+        "Potential Person" in headers
+        and "Person Email" in headers
+        and headers.index("Person Email") == headers.index("Potential Person") + 1
+    )
     for row in p.results:
         inputs = {
             record["component"]: json.loads(record["inputs_json"])
@@ -258,21 +274,56 @@ def validation(p: Population) -> list[dict[str, Any]]:
                 (row["result_id"],),
             )
         }
-        ends.append(inputs.get("bench_end", {}).get("parse_status"))
+        status = inputs.get("bench_end", {}).get("parse_status")
+        flagged = "Bench End Date unparseable — pending review" in row["gaps_checks"]
+        ends.append(status if status != "unparseable" or flagged else "unflagged")
         distances.append(inputs.get("grade", {}).get("distance"))
+        capacity_ok = capacity_ok and not _capacity_input(inputs)
+        source = p.db.execute(
+            "SELECT email_address FROM resources WHERE resource_id=?", (row["resource_id"],)
+        ).fetchone()[0]
+        snapshot = inputs.get("skills", {}).get("display_facts", {}).get("person_email")
+        expected = _mask_email(source)
+        email_ok = (
+            email_ok
+            and bool(source)
+            and (
+                snapshot == expected
+                if "person_email" in inputs.get("skills", {}).get("display_facts", {})
+                else row["person_email"] == expected
+            )
+        )
+        masked_ok = masked_ok and bool(source) and row["person_email"] == _required_mask(source)
+        score = row["score"]
+        score_ok = score_ok and (
+            isinstance(score, (int, float))
+            and math.isfinite(score)
+            and 0 <= score <= 100
+            and re.fullmatch(r"(?:100\.0|\d{1,2}\.\d)%", export.display_percentage(score))
+            is not None
+        )
+        try:
+            displayed = export.display_start_date(row["start_date"])
+            dates_ok = (
+                dates_ok
+                and iso_date(row["start_date"])
+                and (displayed == "" or iso_date(displayed))
+            )
+        except (Problem, TypeError, ValueError):
+            dates_ok = False
     pending = ends.count("unparseable")
     checks = [
         (
             "bench-end",
-            "Bench End is blank or unparseable",
+            "Bench End is blank or unparseable with pending review",
             all(value in {"blank", "unparseable"} for value in ends),
             f"{pending} pending-review unparseable end dates; scored inputs checked.",
         ),
         (
             "capacity",
-            "Available Capacity is not used for scoring",
-            True,
-            "Structural check: Available Capacity is not a scoring input.",
+            "Available Capacity is not a matching/filter input",
+            capacity_ok,
+            "Structural Resource fields and persisted score-breakdown input keys checked.",
         ),
         (
             "grade",
@@ -282,15 +333,17 @@ def validation(p: Population) -> list[dict[str, Any]]:
         ),
         (
             "email-copy",
-            "Every result has a CT email",
-            all(
-                p.db.execute(
-                    "SELECT email_address FROM resources WHERE resource_id=?", (row["resource_id"],)
-                ).fetchone()[0]
-                is not None
-                for row in p.results
-            ),
-            "Checks current CT values (resources.email_address), not historical email equality.",
+            "Result email agrees with the CT source (masked snapshot)",
+            email_ok,
+            "Masked scoring snapshot compared exactly with the mask of resources.email_address; "
+            "legacy rows use live CT serialization. Raw historical email bytes are not persisted, "
+            "so equality of hidden characters cannot be proven.",
+        ),
+        (
+            "masked-email",
+            "Masked email immediately follows the person's name",
+            layout_ok and masked_ok,
+            "Serialized export column order and REQ-OUT-03 mask checked against CT source.",
         ),
         (
             "evidence",
@@ -303,26 +356,44 @@ def validation(p: Population) -> list[dict[str, Any]]:
         ),
         (
             "score",
-            "Match percentage is between 0 and 100",
-            all(
-                isinstance(row["score"], (int, float))
-                and math.isfinite(row["score"])
-                and 0 <= row["score"] <= 100
-                for row in p.results
-            ),
-            "Persisted numeric scores checked before percentage formatting.",
+            "Match percentage is percentage-formatted and within 0–100",
+            score_ok,
+            "Persisted scores and the CSV serializer's formatted percentage checked.",
         ),
         (
             "start-date",
             "Start Date is ISO or null",
-            all(iso_date(row["start_date"]) for row in p.results),
-            "Scored display Start Dates checked (current values for legacy rows).",
+            dates_ok,
+            "Scored Start Dates and ISO serializer checked (current values for legacy rows).",
         ),
     ]
     return [
         {"id": key, "label": label, "passed": passed, "detail": detail}
         for key, label, passed, detail in checks
     ]
+
+
+def _required_mask(value: str) -> str:
+    """REQ-OUT-03: independently verify six masked positions after the first two."""
+    local, separator, domain = value.partition("@")
+    return (
+        (
+            "*" * len(local)
+            if len(local) <= 2
+            else local[:2] + "*" * min(6, len(local) - 2) + local[8:]
+        )
+        + separator
+        + domain
+    )
+
+
+def _capacity_input(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(
+            "capacity" in re.sub(r"[^a-z]", "", str(key).casefold()) or _capacity_input(item)
+            for key, item in value.items()
+        )
+    return isinstance(value, list) and any(_capacity_input(item) for item in value)
 
 
 def _distance_ok(value: Any) -> bool:
