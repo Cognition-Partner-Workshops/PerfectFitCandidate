@@ -136,6 +136,7 @@ def parse_workbook(
         formula_book = load_workbook(path, read_only=True, data_only=False)
         rows: list[ParsedRow] = []
         previous: dict[RowKey, ParsedRow] = {}
+        incomplete: dict[str, list[ParsedRow]] = {}
         empty = 0
         for number, (cells, formula_cells) in enumerate(
             zip(
@@ -255,7 +256,9 @@ def parse_workbook(
                 issues=issues,
                 rejected=key is None,
             )
-            if key is not None:
+            if kind == "CT" and key is not None and not business["email_key"]:
+                incomplete.setdefault(business["short_name_key"], []).append(row)
+            elif key is not None:
                 if key in previous:
                     earlier = previous[key]
                     earlier.superseded = True
@@ -271,6 +274,19 @@ def parse_workbook(
                     )
                 previous[key] = row
             rows.append(row)
+        for identities in incomplete.values():
+            if len(identities) > 1:
+                for row in identities:
+                    row.issues.append(
+                        RowIssue(
+                            severity="warning",
+                            code="AMBIGUOUS_IDENTITY",
+                            row_number=row.row_number,
+                            column="short_name",
+                            raw_value=row.fields["short_name"],
+                            message="Repeated ShortName without email; human confirmation required",
+                        )
+                    )
         return Preview(
             kind=kind,
             file_name=path.name,

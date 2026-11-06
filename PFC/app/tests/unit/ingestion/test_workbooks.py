@@ -268,6 +268,30 @@ def test_req_in_11_missing_shortname_rejects(tmp_path: Path) -> None:
     assert [(i.code, i.severity) for i in row.issues] == [("MISSING_KEY", "error")]
 
 
+def test_req_in_25_missing_email_duplicates_are_ambiguous_not_superseded(tmp_path: Path) -> None:
+    preview = parse_workbook(
+        workbook(
+            tmp_path,
+            "CT",
+            [
+                ct_row(**{"Email Address": None}),
+                ct_row(**{"ShortName": " ALEX ", "Email Address": " "}),
+                ct_row(**{"Email Address": ""}),
+            ],
+        ),
+        "CT",
+    )
+    assert preview.rows_read == 3
+    assert preview.rows_superseded == preview.rows_rejected == 0
+    for row in preview.rows:
+        assert row.key == ("alex", "")
+        assert row.fields["email_address"] is None
+        assert [(i.code, i.severity) for i in row.issues] == [
+            ("MISSING_EMAIL", "warning"),
+            ("AMBIGUOUS_IDENTITY", "warning"),
+        ]
+
+
 @pytest.mark.parametrize("gap,expected", [(2, 2), (4, 1)])
 def test_req_ing_02_bounded_formatted_rows(tmp_path: Path, gap: int, expected: int) -> None:
     path = workbook(tmp_path, "DL", [dl_row()])
