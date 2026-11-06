@@ -1,9 +1,12 @@
 """REQ-IN-23 / REQ-MAT-02 / REQ-LLM-02: offline scoring and real bridge contexts."""
 
+import argparse
 import asyncio
 import json
 import re
 import threading
+from pathlib import Path
+from typing import Any
 
 import anyio
 import httpx
@@ -19,6 +22,7 @@ from pfc.adapters.llm.providers import (
 from pfc.api.schemas.cv import CVFacts
 from pfc.jobs.runner import JobContext
 from pfc.services.ingestion.cv_facts import KEYS, SCHEMA, LLMBridge, extract_facts
+from scripts import validate_llm_extraction as validation
 from scripts.validate_llm_extraction import (
     FIXTURES,
     RecordingProvider,
@@ -32,6 +36,27 @@ from scripts.validate_llm_extraction import (
     score_values,
     summarize,
 )
+
+
+def test_req_llm_02_dotted_output_prefixes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_live(args: argparse.Namespace) -> dict[str, Any]:
+        return summarize([], [], [], load_s=0, peak_bytes=0, hardware={"prefix": str(args.out)})
+
+    monkeypatch.setattr(validation, "live", fake_live)
+    for name in ("validation.run1", "validation.run2"):
+        prefix = tmp_path / name
+        monkeypatch.setattr(
+            "sys.argv",
+            ["validate", "--gguf", "unused.gguf", "--llama-server", "unused", "--out", str(prefix)],
+        )
+        assert validation.main() == 0
+    for name in ("validation.run1", "validation.run2"):
+        prefix = tmp_path / name
+        report = json.loads(Path(f"{prefix}.json").read_text())
+        assert report["hardware"]["prefix"] == str(prefix)
+        assert str(prefix) in Path(f"{prefix}.md").read_text()
+    assert not (tmp_path / "validation.json").exists()
+    assert not (tmp_path / "validation.md").exists()
 
 
 def test_req_llm_02_fixture_sanity() -> None:
