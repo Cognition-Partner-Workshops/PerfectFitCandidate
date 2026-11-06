@@ -3,6 +3,7 @@
 import hashlib
 import os
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -111,11 +112,17 @@ def test_descriptor_rejects_symlink_swap(
     if not nofollow:
         monkeypatch.setattr(os, "O_NOFOLLOW", 0, raising=False)
 
-    def swapped_open(name, flags, *args, **kwargs):
+    def swapped_open(
+        name: str | os.PathLike[str],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
         if Path(name) != path:
-            return original_open(name, flags, *args, **kwargs)
+            return original_open(name, flags, mode, dir_fd=dir_fd)
         if stage == "after_open":
-            fd = original_open(name, flags, *args, **kwargs)
+            fd = original_open(name, flags, mode, dir_fd=dir_fd)
             try:
                 path.unlink()
                 path.symlink_to(external)
@@ -129,7 +136,7 @@ def test_descriptor_rejects_symlink_swap(
         else:
             path.unlink()
             path.symlink_to(external)
-        return original_open(name, flags, *args, **kwargs)
+        return original_open(name, flags, mode, dir_fd=dir_fd)
 
     monkeypatch.setattr(os, "open", swapped_open)
     (result,) = ResumeFolderSource(root).scan(
@@ -146,11 +153,17 @@ def test_descriptor_rejects_regular_file_replacement(
     path.write_bytes(b"original")
     original_open = os.open
 
-    def replaced_open(name, flags, *args, **kwargs):
+    def replaced_open(
+        name: str | os.PathLike[str],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
         if Path(name) == path:
             path.rename(tmp_path / "original.txt")
             path.write_bytes(b"replacement")
-        return original_open(name, flags, *args, **kwargs)
+        return original_open(name, flags, mode, dir_fd=dir_fd)
 
     monkeypatch.setattr(os, "open", replaced_open)
     with pytest.raises(OSError, match="changed before opening"):
@@ -165,7 +178,14 @@ def test_hash_and_extraction_use_the_same_opened_snapshot(
     path.write_bytes(content)
     extract = resume_folder.bounded_extract
 
-    def replace_before_extract(source, extractor, timeout, *, content, work_dir):
+    def replace_before_extract(
+        source: Path,
+        extractor: Callable[[Path], str],
+        timeout: float,
+        *,
+        content: bytes,
+        work_dir: Path,
+    ) -> tuple[str, list[str]]:
         source.write_text("outside other@example.com", encoding="utf-8")
         return extract(source, extractor, timeout, content=content, work_dir=work_dir)
 

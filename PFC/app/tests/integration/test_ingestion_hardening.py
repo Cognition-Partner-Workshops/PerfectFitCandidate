@@ -1,10 +1,12 @@
 """Phase 1f ingestion limits and confinement regressions."""
 
 import json
+import os
 import time
 from functools import partial
 from io import BytesIO
 from pathlib import Path
+from typing import NoReturn
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
@@ -94,7 +96,7 @@ def test_workbook_rejects_xml_declarations_before_openpyxl(
 ) -> None:
     from pfc.services.ingestion import workbooks
 
-    def must_not_open(*args, **kwargs):
+    def must_not_open(*args: object, **kwargs: object) -> NoReturn:
         pytest.fail("openpyxl must not see unsafe XML")
 
     monkeypatch.setattr(workbooks, "load_workbook", must_not_open)
@@ -163,7 +165,7 @@ def test_unsafe_provenance_is_not_opened(
     with database(client.app.state.settings) as db:
         db.execute("UPDATE resumes SET source_path=?", (stored,))
 
-    def checked_read(base: Path, relative: str, limit: int):
+    def checked_read(base: Path, relative: str, limit: int) -> tuple[bytes | None, os.stat_result]:
         assert base.resolve() == root.resolve()
         return read_resume(base, relative, limit)
 

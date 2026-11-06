@@ -4,7 +4,9 @@ import hashlib
 import multiprocessing
 import os
 import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import NoReturn
 
 import pytest
 
@@ -76,7 +78,7 @@ def test_oversized_cv_is_flagged_without_starting_extractor(
 ) -> None:
     (tmp_path / f"Alex.{extension}").write_bytes(b"x" * 11)
 
-    def must_not_start(*args, **kwargs):
+    def must_not_start(*args: object, **kwargs: object) -> NoReturn:
         pytest.fail("Oversized files must not start an extractor process")
 
     monkeypatch.setattr(multiprocessing, "get_context", must_not_start)
@@ -90,7 +92,7 @@ def test_oversized_cv_is_flagged_without_starting_extractor(
 def test_empty_folder_does_not_start_workers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def must_not_start(*args, **kwargs):
+    def must_not_start(*args: object, **kwargs: object) -> NoReturn:
         pytest.fail("An empty folder needs no workers")
 
     monkeypatch.setattr(multiprocessing, "get_context", must_not_start)
@@ -115,7 +117,14 @@ def test_changed_bytes_refresh_identity_even_when_mtime_and_size_are_unchanged(
     extracted: list[bytes] = []
     extract = resume_folder.bounded_extract
 
-    def tracked_extract(path, extractor, timeout, *, content, work_dir):
+    def tracked_extract(
+        path: Path,
+        extractor: Callable[[Path], str],
+        timeout: float,
+        *,
+        content: bytes,
+        work_dir: Path,
+    ) -> tuple[str, list[str]]:
         extracted.append(content)
         return extract(path, extractor, timeout, content=content, work_dir=work_dir)
 
@@ -171,9 +180,13 @@ def test_private_snapshot_is_in_app_work_directory_and_deleted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail: bool
 ) -> None:
     work = tmp_path / "app" / "work"
-    snapshots = []
+    snapshots: list[Path] = []
 
-    def checked_extract(path, extractor, timeout):
+    def checked_extract(
+        path: Path,
+        extractor: Callable[[Path], str],
+        timeout: float,
+    ) -> tuple[str, list[str]]:
         assert path.is_relative_to(work)
         assert path.read_bytes() == b"verified bytes"
         snapshots.append(path)
