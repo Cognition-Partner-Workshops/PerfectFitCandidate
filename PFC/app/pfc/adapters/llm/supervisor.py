@@ -127,6 +127,7 @@ def _close_job(handle: int | None) -> None:
 class LlamaServerSupervisor:
     """TDD §8/§13: retry crashes three times; explicit start/switch/schedule resets the budget.
 
+    Continuous ready/live operation refills the budget after 600 seconds by default.
     Briefly healthy restarts do not reset it, preventing an endless crash loop.
     """
 
@@ -139,9 +140,13 @@ class LlamaServerSupervisor:
         poll_interval_s: float = 0.5,
         app_state: State | None = None,
         restart_backoff_s: tuple[float, float, float] = (10, 60, 180),
+        restart_reset_window_s: float = 600,
     ) -> None:
         if len(restart_backoff_s) != 3 or any(delay < 0 for delay in restart_backoff_s):
             raise ValueError("Restart backoff requires three non-negative delays")
+        if restart_reset_window_s <= 0:
+            raise ValueError("Restart reset window must be positive")
+        self.restart_reset_window_s = restart_reset_window_s
         self.restart_backoff_s = restart_backoff_s
         self._restart_attempts = 0
         self.settings = settings
@@ -348,7 +353,11 @@ class LlamaServerSupervisor:
             self.state, self.detail = "failed", detail
 
     async def _watch(self) -> None:
+        loop = asyncio.get_running_loop()
+        healthy_since = loop.time()
         while self.proc is not None and self.proc.poll() is None:
+            if loop.time() - healthy_since >= self.restart_reset_window_s:
+                self._restart_attempts = 0
             await asyncio.sleep(self.poll_interval_s)
         async with self._lock:
             await self._cleanup()

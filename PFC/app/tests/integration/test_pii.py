@@ -56,7 +56,8 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
             db.execute(
                 "INSERT INTO resources(resource_id,short_name,short_name_key,email_address,"
                 "candidate_id,eligibility,row_hash,created_at,updated_at) "
-                "VALUES (1,'Resource','resource','resource@example.com',1,'eligible','hash','now','now')"
+                "VALUES (1,'Resource','resource','resource@example.com',"
+                "1,'eligible','hash','now','now')"
             )
         yield result
 
