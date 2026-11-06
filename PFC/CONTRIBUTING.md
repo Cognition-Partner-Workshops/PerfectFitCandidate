@@ -31,6 +31,8 @@ mypy pfc
 pytest
 ```
 
+The backend contract test compares real frontend API calls with the app's OpenAPI routes. Export OpenAPI with `python scripts/export_openapi.py [output.json]` from `PFC/app`. When a backend route is not merged, add its frontend call to `PENDING` in `tests/contract/test_frontend_api_contract.py`; remove the entry when the route appears in OpenAPI.
+
 Run frontend checks from `PFC/frontend`:
 
 ```bash

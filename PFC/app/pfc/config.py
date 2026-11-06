@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PFC_")
 
     data_dir: Path = Path(__file__).resolve().parents[2] / "data"
+    config_dir: Path = Path(__file__).resolve().parents[2] / "config"
     frontend_dir: Path = Path(__file__).resolve().parents[2] / "frontend" / "dist"
     host: str = "127.0.0.1"
     port: int = 8765
