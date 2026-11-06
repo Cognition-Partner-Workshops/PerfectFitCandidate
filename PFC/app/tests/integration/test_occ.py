@@ -2,6 +2,7 @@ import csv
 import io
 import json
 from collections.abc import Iterator
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -821,3 +822,80 @@ def test_audit_timestamp_precision(
     assert result["total"] == len(expected) and result["chain_valid"]
     exported = client.get("/api/v1/occ/audit-log/export", params=params)
     assert [row["entity_id"] for row in csv.DictReader(io.StringIO(exported.text))] == expected
+
+
+def test_internal_domains_preview_security(client: TestClient) -> None:
+    """REQ-CLS-01, REQ-ROLE-04: preview requires Admin and CSRF despite being read-only."""
+    path = "/api/v1/occ/internal-domains/preview"
+    body = {"domains": ["example.com"]}
+    assert client.post(path, json=body).status_code == 401
+    login(client, "worker@example.com", "Analyst")
+    assert client.post(path, json=body).status_code == 403
+    login(client)
+    del client.headers["X-CSRF-Token"]
+    denied = client.post(path, json=body)
+    assert denied.status_code == 403
+    assert denied.headers["content-type"] == "application/problem+json"
+
+
+def test_internal_domains_preview_read_only(client: TestClient) -> None:
+    """REQ-CLS-01: exact CT email domains, no resource/domain/audit/session writes."""
+    login(client)
+    path = "/api/v1/occ/internal-domains/preview"
+    assert client.post(path, json={"domains": []}).json() == {
+        "total": 0,
+        "internal": 0,
+        "external": 0,
+        "unknown": 0,
+        "per_domain": [],
+    }
+    with database(client.app.state.settings) as db:
+        for index, email in enumerate(
+            [
+                "a@example.com",
+                " B@EXAMPLE.COM ",
+                "sub@team.example.com",
+                "x@other.test",
+                None,
+                " ",
+                "x@notexample.com",
+                "missing-at",
+            ]
+        ):
+            db.execute(
+                "INSERT INTO resources(short_name,email_address,short_name_key,email_key,"
+                "eligibility,row_hash,created_at,updated_at) VALUES (?,?,?,?,'eligible',?,?,?)",
+                (
+                    str(index),
+                    email,
+                    str(index),
+                    "unused",
+                    str(index),
+                    "2026-01-01T00:00:00Z",
+                    "2026-01-01T00:00:00Z",
+                ),
+            )
+    clock = client.app.state.clock() + timedelta(seconds=2)
+    client.app.state.clock = lambda: clock
+    with database(client.app.state.settings) as db:
+        before = list(db.iterdump())
+    response = client.post(path, json={"domains": [" @EXAMPLE.COM ", "other.test", "example.com"]})
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "total": 8,
+        "internal": 3,
+        "external": 3,
+        "unknown": 2,
+        "per_domain": [
+            {"domain": "example.com", "matches": 2},
+            {"domain": "other.test", "matches": 1},
+        ],
+    }
+    empty = client.post(path, json={"domains": []}).json()
+    assert (empty["internal"], empty["external"], empty["unknown"]) == (0, 6, 2)
+    for domains in [["invalid"], ["example.com", "bad domain"], ["-example.com"]]:
+        bad = client.post(path, json={"domains": domains})
+        assert bad.status_code == 422 and bad.json()["code"] == "VALIDATION_ERROR"
+    with database(client.app.state.settings) as db:
+        assert list(db.iterdump()) == before
+        assert audit.verify_chain(db)

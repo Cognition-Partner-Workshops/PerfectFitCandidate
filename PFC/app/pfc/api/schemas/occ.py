@@ -135,6 +135,10 @@ class Domain(Input):
     domain: str
 
 
+class DomainPreview(BaseModel):
+    domains: list[str]
+
+
 class AuditFilters(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     action: list[str] = []

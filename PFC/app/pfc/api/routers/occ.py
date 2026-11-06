@@ -10,6 +10,7 @@ from pfc.api.schemas.occ import (
     AuditFilters,
     BenchStatus,
     Domain,
+    DomainPreview,
     EmailTemplate,
     Grade,
     Locations,
@@ -256,6 +257,11 @@ def domain_create(body: Domain, db: DB, admin: Admin) -> dict[str, Any]:
 @router.delete("/internal-domains/{domain}", status_code=204)
 def domain_delete(domain: str, db: DB, admin: Admin) -> None:
     administration.delete_domain(db, admin.user.user_id, domain)
+
+
+@router.post("/internal-domains/preview")
+def domain_preview(body: DomainPreview, db: DB, admin: Admin) -> dict[str, Any]:
+    return administration.preview_domains(db, admin.user.user_id, body.domains)
 
 
 @router.get("/settings")

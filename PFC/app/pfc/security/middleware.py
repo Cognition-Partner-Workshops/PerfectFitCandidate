@@ -32,7 +32,7 @@ def install_middleware(app: FastAPI) -> None:
             if origin is not None and origin != f"{request.url.scheme}://{host}":
                 raise Problem(403, "INVALID_ORIGIN", "Invalid Origin")
             token = request.cookies.get("pfc_session")
-            public = request.url.path == "/api/v1/health"
+            public = request.url.path in {"/api/v1/health", "/api/v1/setup/status"}
             if token and not public:
                 with database(settings) as db:
                     session = sessions.get_session_by_token_hash(db, digest(token))
@@ -56,16 +56,18 @@ def install_middleware(app: FastAPI) -> None:
                                     403, "PASSWORD_CHANGE_REQUIRED", "Password change required"
                                 )
                             request.state.principal = Principal(user, session)
-                            sessions.touch_session(
-                                db,
-                                session.session_id,
-                                stamp(now),
-                                stamp(
-                                    min(
-                                        now + timedelta(minutes=settings.idle_timeout_min), absolute
-                                    )
-                                ),
-                            )
+                            if request.url.path != "/api/v1/occ/internal-domains/preview":
+                                sessions.touch_session(
+                                    db,
+                                    session.session_id,
+                                    stamp(now),
+                                    stamp(
+                                        min(
+                                            now + timedelta(minutes=settings.idle_timeout_min),
+                                            absolute,
+                                        )
+                                    ),
+                                )
             result = await call_next(request)
         except Problem as exc:
             result = response(request, exc.status, exc.code, exc.detail)

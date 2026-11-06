@@ -60,6 +60,29 @@ def domains(db: sqlite3.Connection, user_id: int) -> list[dict[str, Any]]:
     return [dict(r) for r in db.execute("SELECT * FROM internal_email_domains ORDER BY domain")]
 
 
+def preview_domains(db: sqlite3.Connection, user_id: int, values: list[str]) -> dict[str, Any]:
+    """REQ-CLS-01: preview CT email addresses using GUI_OCC §16.9 exact-match semantics."""
+    counts = dict.fromkeys((normalize_domain(value) for value in values), 0)
+    total = internal = unknown = 0
+    for row in db.execute("SELECT email_address FROM resources"):
+        total += 1
+        email = (row["email_address"] or "").strip().lower()
+        if not email:
+            unknown += 1
+        elif email.count("@") == 1 and email.rsplit("@", 1)[1] in counts:
+            counts[email.rsplit("@", 1)[1]] += 1
+            internal += 1
+    return {
+        "total": total,
+        "internal": internal,
+        "external": total - internal - unknown,
+        "unknown": unknown,
+        "per_domain": [
+            {"domain": domain, "matches": matches} for domain, matches in counts.items()
+        ],
+    }
+
+
 def add_domain(db: sqlite3.Connection, user_id: int, domain: str) -> dict[str, Any]:
     domain = normalize_domain(domain)
     db.execute(
