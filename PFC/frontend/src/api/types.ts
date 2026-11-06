@@ -94,6 +94,13 @@ export interface JdRequirements {
   extractionMethod?: 'llm' | 'rule_based_fallback' | null
   /** Backend reason code when extraction fell back to rules (e.g. "provider_unavailable"). */
   fallbackReason?: string | null
+  items?: {
+    kind: 'mandatory_skill' | 'preferred_skill' | 'experience' | 'qualification' | 'domain'
+    text: string
+    jdReqId?: number | null
+    evidence?: string | null
+    evidenceUnverified?: boolean
+  }[]
 }
 
 export interface Resource {
@@ -197,6 +204,19 @@ export interface MatchRun {
   dataChangedSinceRun: boolean
   /** e.g. "DL/CT committed", "OCC approval decision", "OCC settings edit", "JD confirmed", "CV synced". */
   dataChangedReasons: string[]
+  /** "full" or "demands", with the demand IDs of a demand-scoped run. */
+  scope: string
+  demandIds: number[]
+  /** How the run was scored; null for runs recorded before modes existed. */
+  mode: 'incremental' | 'full' | null
+  /** Backend reason code, e.g. "requested_full", "scope_not_full", "config_changed"; "inputs_compared" for incremental. */
+  modeReason: string | null
+}
+
+export interface MatchRunRequest {
+  incremental: boolean
+  scope: 'full' | 'demands'
+  demandIds: number[]
 }
 
 export interface ValidationCheck {

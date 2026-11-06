@@ -77,16 +77,16 @@ fresh-head dispatch. Before a fresh dispatch, the packaging owner must adapt
 All Partial and UAT-only requirements below remain visible release work. None is
 silently accepted/deferred by these notes. The matrix has no Not started rows.
 
-- **REQ-IN-21/23, REQ-MAT-06 and Phase 1 REQ-LLM-02:** resume sync persists
+- **REQ-IN-21/23 and Phase 1 REQ-LLM-02:** resume sync persists
   normalized text and email facts, not the complete structured contact/experience/
   qualifications/projects/evidence model. MAT-02's completed JD review workflow
   does not close these requirements' separate extraction/grounding gaps.
-- **REQ-MAT-07:** CV/vector reuse exists, but matching exposes full/demand scopes
-  rather than dirty-pair incremental scoring/copy-forward. No verified OCC
-  cached-CV-removal route was found.
-- **REQ-CLS-02:** classification fields/display and domain-preview counts exist;
-  domain changes do not implement candidate reclassification or an audited
-  classification-override workflow.
+- **REQ-MAT-06:** merged #63 adds score-neutral experience-duration checks over
+  grounded CV facts and JD evidence-grounding flags retained through review and
+  confirmation. It remains Partial: quote presence does not prove an extracted
+  item's value/meaning, and qualitative specialist experience without explicit
+  years is not separately grounded. These targeted guards do not establish
+  blanket end-to-end no-invention.
 - **REQ-AUTH-06:** encrypted/write-only credential settings are not whole-DB or
   CV-cache encryption. Legacy plaintext needs resave/migration; native DPAPI/
   storage controls, real child logs and residual decisions remain in

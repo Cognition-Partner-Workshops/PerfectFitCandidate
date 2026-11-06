@@ -1,5 +1,6 @@
 """CamelCase matching contracts for the Phase-1 client."""
 
+import json
 from datetime import date
 from typing import Any, Literal, Self
 
@@ -42,6 +43,8 @@ class JdItemSource(WireModel):
     kind: Literal["mandatory_skill", "preferred_skill", "experience", "qualification", "domain"]
     text: str
     jd_req_id: int | None = Field(default=None, strict=True)
+    evidence: str | None = None
+    evidence_unverified: bool = False
 
 
 class JdRequirements(WireModel):
@@ -113,12 +116,12 @@ class JdRequirements(WireModel):
             "location": self.location,
             "onsite_required": self.mandatory_onsite,
         }
-        sources: dict[tuple[str, str], list[int | None]] = {}
+        sources: dict[tuple[str, str], list[JdItemSource]] = {}
         for source in self.items:
             text = (
                 source.text.strip() if source.kind in {"qualification", "domain"} else source.text
             )
-            sources.setdefault((source.kind, text), []).append(source.jd_req_id)
+            sources.setdefault((source.kind, text), []).append(source)
         for field, kind in (
             ("mandatory_skills", "mandatory_skill"),
             ("preferred_skills", "preferred_skill"),
@@ -129,7 +132,11 @@ class JdRequirements(WireModel):
             for entry in result[field]:
                 ids = sources.get((kind, entry["text"]), [])
                 if ids:
-                    entry["jdReqId"] = ids.pop(0)
+                    source = ids.pop(0)
+                    entry["jdReqId"] = source.jd_req_id
+                    for key in ("evidence", "evidence_unverified"):
+                        if key in source.model_fields_set:
+                            entry[key] = getattr(source, key)
         return result
 
 
@@ -164,7 +171,13 @@ def requirements_view(demand_id: int, row: dict[str, Any]) -> JdRequirements:
         confirmed_at=row["confirmed_at"],
         jd_req_id=row["jd_req_id"],
         items=[
-            JdItemSource(kind=item["kind"], text=item["text"], jd_req_id=item["item_id"])
+            JdItemSource(
+                kind=item["kind"],
+                text=item["text"],
+                jd_req_id=item["item_id"],
+                evidence=item["source_span"],
+                evidence_unverified=item.get("evidence_unverified", False),
+            )
             for item in row["items"]
         ],
     )
@@ -203,10 +216,23 @@ class RunView(WireModel):
     embedding_model_id: int
     scope: str
     dq_summary_json: str | None
+    demand_ids: list[int] = Field(default_factory=list)
+    mode: Literal["incremental", "full"] | None = None
+    mode_reason: str | None = None
 
 
 def run_view(row: dict[str, Any]) -> RunView:
-    fields = {name: row[name] for name in RunView.model_fields}
+    derived = {"demand_ids", "mode", "mode_reason"}
+    fields = {name: row[name] for name in RunView.model_fields if name not in derived}
+    try:
+        recorded = json.loads(row.get("scope_json") or "{}")
+    except ValueError:
+        recorded = {}
+    if isinstance(recorded, dict):
+        fields["demand_ids"] = [i for i in recorded.get("demand_ids") or [] if isinstance(i, int)]
+        if recorded.get("mode") in {"incremental", "full"}:
+            fields["mode"] = recorded["mode"]
+            fields["mode_reason"] = recorded.get("reason")
     for name in ("demands_assessed", "pairs_scored", "roles_without_candidate"):
         fields[name] = fields[name] or 0
     fields["llm_model"] = fields["llm_model"] or ""
