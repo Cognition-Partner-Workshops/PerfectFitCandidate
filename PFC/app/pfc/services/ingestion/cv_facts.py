@@ -24,6 +24,7 @@ PROMPT = (
     "Never invent, paraphrase, correct or infer a fact. Use null/empty lists when absent."
 )
 KEYS = ("name", "phone", "experience", "qualifications", "projects")
+DOCUMENT_TITLE = re.compile(r"(?:curriculum\s+vitae|cv|resume|résumé|profile)\b", re.IGNORECASE)
 FACT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -132,6 +133,7 @@ def rule_facts(text: str) -> CVFacts:
         if (
             2 <= len(words) <= 4
             and first.casefold().rstrip(":") not in HEADINGS
+            and not DOCUMENT_TITLE.match(first)
             and all(
                 word[0].isupper() and all(c.isalpha() or c in "'-’." for c in word)
                 for word in words

@@ -158,6 +158,17 @@ def test_req_in_23_name_labels_only_in_header(heading: str) -> None:
     assert labelled is not None and labelled.value == "Alex Border"
 
 
+@pytest.mark.parametrize("title", ["Curriculum Vitae", "CV", "Resume", "Résumé", "Profile"])
+@pytest.mark.parametrize("suffix", ["", " Of Alex", " - Alex"])
+def test_req_in_23_document_titles_are_not_names(title: str, suffix: str) -> None:
+    for line in (title + suffix, (title + suffix).swapcase()):
+        assert rule_facts(f"{line}\nExperience\nEngineer").name is None
+        labelled = rule_facts(f"{line}\nName: Alex Border\nExperience\nEngineer").name
+        assert labelled is not None and labelled.value == "Alex Border"
+    person = rule_facts("Cvelyn Border\nExperience\nEngineer").name
+    assert person is not None and person.value == "Cvelyn Border"
+
+
 @pytest.mark.parametrize(
     "update",
     [
