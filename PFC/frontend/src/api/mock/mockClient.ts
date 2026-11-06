@@ -18,6 +18,8 @@ import type {
   OccUser,
   PackageImportRecord,
   PackagePreview,
+  PackageSource,
+  PendingPackage,
   PersonalSettings,
   ProblemDetails,
   Resource,
@@ -62,7 +64,7 @@ import { formatPct } from '../../lib/format'
 import { maskEmail, maskPhone } from '../../lib/mask'
 
 // Bump when persisted mock shapes or IDs change so stale state is discarded.
-const STORAGE_KEY = 'pfc.mock.v3'
+const STORAGE_KEY = 'pfc.mock.v4'
 
 interface MockUser extends OccUser {
   passwordHash: string
@@ -183,7 +185,7 @@ function initialState(): MockState {
     },
     installedPackageVersion: 6,
     packageHistory: [
-      { version: 6, importedAt: '2026-11-01T09:00:00Z', importedBy: 'OCC Admin', fileName: 'PFC-settings-v6.pfcpkg', canRollback: false },
+      { version: 6, importedAt: '2026-11-01T09:00:00Z', importedBy: 'OCC Admin', fileName: 'PFC-settings-v6.pfcpkg', canRollback: false, status: 'applied', isCurrent: true },
     ],
     previews: [],
     lastExport: null,
@@ -650,6 +652,12 @@ export class MockApiClient implements ApiClient {
     return this.done([this.run()])
   }
 
+  async getMatchRun(runId: number) {
+    this.currentUser()
+    if (runId !== 1) fail(404, 'Run not found', 'NOT_FOUND')
+    return this.done(this.run())
+  }
+
   async getResults(runId: number) {
     this.currentUser()
     if (runId !== 1) fail(404, 'Run not found', 'NOT_FOUND')
@@ -964,14 +972,14 @@ export class MockApiClient implements ApiClient {
     return this.done(preview)
   }
 
-  async importPackage(previewId: string) {
+  async importPackage(source: PackageSource) {
     const u = this.currentUser()
-    const p = this.state.previews.find((x) => x.previewId === previewId)
+    const p = 'previewId' in source ? this.state.previews.find((x) => x.previewId === source.previewId) : undefined
     if (!p) fail(404, 'Preview expired — choose the file again', 'PACKAGE_PREVIEW_EXPIRED')
     if (p.errors.length) fail(422, `Package not applied: ${p.errors[0]}. Current settings are unchanged.`, 'PACKAGE_INVALID')
     this.state.packageHistory = [
-      { version: p.packageVersion, importedAt: iso(), importedBy: u.fullName, fileName: p.fileName, canRollback: true },
-      ...this.state.packageHistory.map((h) => ({ ...h, canRollback: false })),
+      { version: p.packageVersion, importedAt: iso(), importedBy: u.fullName, fileName: p.fileName, canRollback: true, status: 'applied', isCurrent: true },
+      ...this.state.packageHistory.map((h) => ({ ...h, canRollback: false, isCurrent: false })),
     ]
     this.state.installedPackageVersion = p.packageVersion
     this.state.previews = []
@@ -981,12 +989,21 @@ export class MockApiClient implements ApiClient {
 
   async rollbackPackage() {
     this.currentUser()
-    const [latest, previous, ...rest] = this.state.packageHistory
+    const h = this.state.packageHistory
+    const latest = h.find((x) => x.isCurrent)
+    const previous = h.find((x) => x !== latest && x.status === 'applied' && latest && x.version < latest.version)
     if (!latest?.canRollback || !previous) fail(409, 'Nothing to roll back', 'PACKAGE_NO_ROLLBACK')
-    this.state.packageHistory = [previous, ...rest]
+    this.state.packageHistory = h.map((x) =>
+      x === latest ? { ...x, status: 'rolled_back', isCurrent: false, canRollback: false } : x === previous ? { ...x, isCurrent: true, canRollback: h.some((y) => y.status === 'applied' && y.version < previous.version) } : x,
+    )
     this.state.installedPackageVersion = previous.version
     this.audit(`Settings package rolled back to v${previous.version}`)
     return this.done(this.state.packageHistory)
+  }
+
+  async pendingPackages() {
+    this.currentUser()
+    return this.done<PendingPackage[]>([])
   }
 
   async packageHistory() {
@@ -1178,8 +1195,9 @@ export class MockApiClient implements ApiClient {
     return this.done(this.state.lastExport)
   }
 
-  async exportPackage() {
+  async exportPackage(passphrase: string) {
     this.requireAdmin()
+    if (!passphrase) fail(422, 'Enter the signing-key passphrase to export', 'PASSPHRASE_REQUIRED')
     const version = Math.max(this.state.lastExport?.version ?? 0, this.state.installedPackageVersion) + 1
     const s = this.state
     const info: SettingsPackageInfo = {
@@ -1201,6 +1219,6 @@ export class MockApiClient implements ApiClient {
     }
     s.lastExport = info
     this.audit(`Settings package v${version} exported`)
-    return this.done(info)
+    return this.done({ ...info, contentBase64: btoa(`mock package v${version}`), oneTimePasswords: [] })
   }
 }
