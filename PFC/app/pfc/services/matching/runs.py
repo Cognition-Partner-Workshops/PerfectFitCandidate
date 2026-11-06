@@ -26,6 +26,7 @@ from pfc.jobs.runner import JobCancelled, JobContext, JobRunner
 
 from .common import audit, digest, dumps, timestamp
 from .ports import MatchingPorts
+from .results import _mask_email
 from .semantic import VectorCache, model_identity, semantic_inputs
 
 
@@ -213,6 +214,7 @@ def _persist(
     metadata: dict[str, dict[str, Any]],
     config: DomainConfig,
     skipped: list[int],
+    display_emails: dict[str, str | None],
 ) -> None:
     demand_ids = {code: row["demand_id"] for code, row in metadata.items()}
     for exclusion in (*result.global_exclusions, *result.pair_exclusions):
@@ -292,6 +294,19 @@ def _persist(
                 inputs: dict[str, Any] = dict(component.inputs)
                 if name == "skills":
                     inputs["items"] = [asdict(item) for item in best.items]
+                    inputs["display_facts"] = {
+                        "requisition": demand.code_requisition,
+                        "start_date": meta["position_start_date"],
+                        "account": meta["account_name"],
+                        "role": meta["demand_request_name"],
+                        "demand_grade": demand.grade,
+                        "role_location": demand.region or "Unspecified",
+                        "potential_person": person.short_name,
+                        "person_email": display_emails[person.resource_id],
+                        "person_grade": person.grade,
+                        "person_location": person.location,
+                        "status": person.bench_status,
+                    }
                 db.execute(
                     "INSERT INTO score_breakdowns VALUES (?,?,?,?,?)",
                     (result_id, name, component.points, component.maximum, dumps(inputs)),
@@ -332,6 +347,13 @@ def start_run(
         template_id, template = _template(db, config, now)
         model_id = _embedding_model(db, identity)
         demands, resources, cvs, metadata, skipped = _inputs(db, scope, demand_ids, config)
+        display_emails = {
+            str(row["resource_id"]): _mask_email(row["email_address"])
+            for row in db.execute(
+                "SELECT resource_id,email_address FROM resources WHERE lifecycle='active' "
+                "ORDER BY resource_id"
+            )
+        }
         synonyms = [asdict(row) for row in config.synonyms.rows if row.status == "approved"]
         snapshot = {
             "template": template.model_dump(mode="json"),
@@ -346,6 +368,7 @@ def start_run(
             "demands": metadata,
             "requirements": [asdict(demand)["requirements"] for demand in demands],
             "resources": [repr(resource) for resource in resources],
+            "display_emails": display_emails,
             "cv_bases": {key: [asdict(basis) for basis in value] for key, value in cvs.items()},
         }
         llm_models = sorted({m["extracted_by"] for m in metadata.values() if m["extracted_by"]})
@@ -431,7 +454,7 @@ def start_run(
                 )
             with database(settings) as db:
                 context.raise_if_cancelled()
-                _persist(db, run_id, result, metadata, config, skipped)
+                _persist(db, run_id, result, metadata, config, skipped, display_emails)
                 db.execute(
                     "UPDATE match_runs SET status='completed',finished_at=? WHERE run_id=?",
                     (timestamp(clock()), run_id),

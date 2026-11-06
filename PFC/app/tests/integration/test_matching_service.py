@@ -430,6 +430,47 @@ def test_req_mat_08_scope_template_and_cache(settings, runner):
         assert get_run(db, tiered)["config_hash"] != get_run(db, run_id)["config_hash"]
 
 
+def test_req_mat_08_results_preserve_scored_facts(settings: Settings, runner: JobRunner) -> None:
+    with database(settings) as db:
+        demand_id = seed_demand(db)
+        resource_id = seed_resource(db, email="AlexBorder@capgemini.com")
+    run_id = execute(settings, runner)
+    with database(settings) as db:
+        original = list_results(db, run_id)["items"][0]
+        db.execute(
+            "UPDATE resources SET grade='D2',location='London',bench_status='Selected',"
+            "short_name='Changed',email_address=NULL WHERE resource_id=?",
+            (resource_id,),
+        )
+        db.execute(
+            "UPDATE demands SET code_local_grade='E1',region='Glasgow',"
+            "position_start_date='2027-01-01',account_name='Changed',"
+            "demand_request_name='Changed' WHERE demand_id=?",
+            (demand_id,),
+        )
+        historical = list_results(
+            db,
+            run_id,
+            {
+                "person_grade": "C1",
+                "person_location": "Manchester",
+                "status": "Available",
+                "demand_grade": "C1",
+                "account": "Account",
+            },
+        )["items"]
+        assert historical == [original]
+        assert list_results(db, run_id, {"person_grade": "D2"})["items"] == []
+        assert list_results(db, run_id, {"person_location": "London"})["items"] == []
+        assert result_detail(db, original["result_id"])["person_grade"] == "C1"
+        assert demand_matches(db, demand_id)["items"][0]["person_location"] == "Manchester"
+        inputs = db.execute(
+            "SELECT inputs_json FROM score_breakdowns WHERE result_id=? AND component='skills'",
+            (original["result_id"],),
+        ).fetchone()[0]
+        assert "AlexBorder@" not in inputs
+
+
 @pytest.mark.parametrize(
     "filters",
     [

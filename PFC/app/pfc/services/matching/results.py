@@ -83,14 +83,17 @@ def _rows(db: sqlite3.Connection, run_id: int) -> list[dict[str, Any]]:
         "d.code_local_grade AS demand_grade,"
         "COALESCE(NULLIF(d.region,''),'Unspecified') AS role_location,"
         "r.short_name AS potential_person,r.email_address AS person_email,r.grade AS person_grade,"
-        "r.location AS person_location,r.bench_status AS status "
+        "r.location AS person_location,r.bench_status AS status,b.inputs_json AS scored_inputs "
         "FROM match_results m JOIN demands d USING(demand_id) JOIN resources r USING(resource_id) "
+        "LEFT JOIN score_breakdowns b ON b.result_id=m.result_id AND b.component='skills' "
         "WHERE m.run_id=? ORDER BY m.demand_id,m.rank,m.result_id",
         (run_id,),
     ).fetchall()
     result = []
     for source in rows:
         row = dict(source)
+        scored = json.loads(row.pop("scored_inputs") or "{}")
+        row.update(scored.get("display_facts", {}))
         row["person_email"] = _mask_email(row["person_email"])
         overrides = [
             dict(o)
