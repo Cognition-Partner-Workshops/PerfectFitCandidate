@@ -223,7 +223,11 @@ class ModelImporter:
                             )
                 tokenizer_pin = preview.manifest.payloads.get("tokenizer.json")
                 adjacent = Path(metadata.file).parent / "tokenizer.json"
-                if tokenizer_pin is not None and adjacent != Path("tokenizer.json"):
+                if (
+                    metadata.model_type == "embedding"
+                    and tokenizer_pin is not None
+                    and adjacent != Path("tokenizer.json")
+                ):
                     adjacent_pin = preview.manifest.payloads.get(adjacent.as_posix())
                     if adjacent_pin is not None and adjacent_pin.sha256 != tokenizer_pin.sha256:
                         raise PackageServiceError(

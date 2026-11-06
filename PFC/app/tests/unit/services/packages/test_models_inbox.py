@@ -280,6 +280,29 @@ def test_root_tokenizer_signature_hash_and_conflict_validation(
     assert not list((target.data_dir / "models").glob(".pfc-*"))
 
 
+@pytest.mark.parametrize("adjacent_tokenizer", [None, b"different tokenizer"])
+def test_llm_tokenizers_preserve_original_package_layout(
+    pair: tuple[Settings, Settings], adjacent_tokenizer: bytes | None
+) -> None:
+    source, target = pair
+    artifacts = (
+        {"weights/tokenizer.json": adjacent_tokenizer} if adjacent_tokenizer is not None else {}
+    )
+    package = model_package(source, model_type="llm", artifacts=artifacts)
+    with running_jobs(target) as runner:
+        result = ModelImporter(target, jobs=runner).apply(package, actor_id=1)
+        assert finished(runner, result.job_id)["status"] == "completed"
+    assert (target.data_dir / "models/v1/tokenizer.json").read_bytes() == b"test tokenizer"
+    adjacent = result.path.parent / "tokenizer.json"
+    if adjacent_tokenizer is None:
+        assert not adjacent.exists()
+    else:
+        assert adjacent.read_bytes() == adjacent_tokenizer
+    with database(target) as db:
+        assert db.execute("SELECT count(*) FROM embedding_models").fetchone()[0] == 0
+        assert db.execute("SELECT count(*) FROM llm_models").fetchone()[0] == 1
+
+
 @pytest.mark.parametrize("model_type", ["embedding", "llm"])
 def test_model_apply_retains_older_models_and_vectors(
     pair: tuple[Settings, Settings], model_type: str
