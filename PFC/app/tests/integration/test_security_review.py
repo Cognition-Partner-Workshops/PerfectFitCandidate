@@ -230,7 +230,11 @@ def test_secret_settings_encrypted_and_write_only(client: TestClient) -> None:
     }
     response = client.put("/api/v1/occ/settings", json=secrets)
     assert response.status_code == 200
-    assert response.json() == {key: "[REDACTED]" for key in secrets}
+    assert response.json() == {
+        "smtp.password": "[REDACTED]",
+        "llm.api_key": "[REDACTED]",
+        "provider.options": {"auth": [{"access_token": "[REDACTED]"}]},
+    }
     assert client.get("/api/v1/occ/settings").json() == response.json()
     with database(client.app.state.settings) as db:
         for key, value in secrets.items():
@@ -278,7 +282,9 @@ def test_nested_header_credentials_encrypted_and_audit_redacted(
     options = {"options": [{"headers": {key: token}, "max_tokens": 64, "enabled": True}]}
     response = client.put("/api/v1/occ/settings", json={"provider.options": options})
     assert response.status_code == 200
-    assert response.json()["provider.options"] == "[REDACTED]"
+    assert response.json()["provider.options"] == {
+        "options": [{"headers": {key: "[REDACTED]"}, "max_tokens": 64, "enabled": True}]
+    }
     with database(client.app.state.settings) as db:
         stored = db.execute(
             "SELECT value_json FROM settings WHERE key='provider.options'"
@@ -309,7 +315,7 @@ def test_nested_header_credentials_encrypted_and_audit_redacted(
                 "SELECT details_json FROM audit_log WHERE entity_id='provider.options'"
             ).fetchone()[0]
         )
-        assert setting_audit["after"]["value"] == expected
+        assert setting_audit["after"]["value"] == "[encrypted]"
 
 
 def test_scoring_token_counts_remain_in_audit(client: TestClient) -> None:
@@ -369,6 +375,148 @@ def test_token_count_settings_remain_readable_and_audited(client: TestClient) ->
             "num_tokens": 128,
         }
         assert details["after"]["value"] == values
+
+
+def test_auth_tokens_encrypted_and_redacted(client: TestClient) -> None:
+    setup(client)
+    login(client)
+    for token in ("FirstPrivateToken", "ReplacementPrivateToken"):
+        response = client.put("/api/v1/occ/settings", json={"auth.tokens": token})
+        assert response.status_code == 200
+        assert response.json()["auth.tokens"] == "[REDACTED]"
+        assert client.get("/api/v1/occ/settings").json()["auth.tokens"] == "[REDACTED]"
+        with database(client.app.state.settings) as db:
+            stored = db.execute(
+                "SELECT value_json FROM settings WHERE key='auth.tokens'"
+            ).fetchone()[0]
+            assert token not in stored
+            assert (
+                json.loads(
+                    SecretStore(client.app.state.settings.data_dir).decrypt(json.loads(stored))
+                )
+                == token
+            )
+            details = [
+                json.loads(r[0])
+                for r in db.execute(
+                    "SELECT details_json FROM audit_log WHERE entity_id='auth.tokens' "
+                    "ORDER BY audit_id"
+                )
+            ]
+            assert details[-1]["after"] == {"value": "[encrypted]"}
+            assert details[-1]["before"] == (
+                None if len(details) == 1 else {"value": "[encrypted]"}
+            )
+
+
+def test_mixed_auth_headers_get_leaf_redaction_and_whole_audit_marker(client: TestClient) -> None:
+    setup(client)
+    login(client)
+    options = {
+        "headers": {"Authorization": "Bearer FirstPrivateToken", "X-Auth": "SecondPrivateToken"},
+        "max_tokens": 64,
+        "enabled": True,
+    }
+    response = client.put("/api/v1/occ/settings", json={"provider.options": options})
+    expected = {
+        "headers": {"Authorization": "[REDACTED]", "X-Auth": "[REDACTED]"},
+        "max_tokens": 64,
+        "enabled": True,
+    }
+    assert response.status_code == 200
+    assert response.json()["provider.options"] == expected
+    assert client.get("/api/v1/occ/settings").json()["provider.options"] == expected
+    assert client.put("/api/v1/occ/settings", json=response.json()).json() == response.json()
+    with database(client.app.state.settings) as db:
+        stored = db.execute(
+            "SELECT value_json FROM settings WHERE key='provider.options'"
+        ).fetchone()[0]
+        assert "FirstPrivateToken" not in stored and "SecondPrivateToken" not in stored
+        assert (
+            json.loads(SecretStore(client.app.state.settings.data_dir).decrypt(json.loads(stored)))
+            == options
+        )
+        details = [
+            json.loads(r[0])
+            for r in db.execute(
+                "SELECT details_json FROM audit_log WHERE entity_id='provider.options'"
+            )
+        ]
+        assert details == [{"before": None, "after": {"value": "[encrypted]"}}]
+
+
+def test_previously_encrypted_setting_audit_is_conservative(client: TestClient) -> None:
+    setup(client)
+    login(client)
+    assert (
+        client.put(
+            "/api/v1/occ/settings",
+            json={
+                "provider.options": {"Authorization": "PrivateToken"},
+            },
+        ).status_code
+        == 200
+    )
+    assert (
+        client.put(
+            "/api/v1/occ/settings",
+            json={
+                "provider.options": {"max_tokens": 64},
+            },
+        ).status_code
+        == 200
+    )
+    with database(client.app.state.settings) as db:
+        details = json.loads(
+            db.execute(
+                "SELECT details_json FROM audit_log WHERE entity_id='provider.options' "
+                "ORDER BY audit_id DESC LIMIT 1"
+            ).fetchone()[0]
+        )
+        assert details == {"before": {"value": "[encrypted]"}, "after": {"value": "[encrypted]"}}
+
+
+def test_encrypted_setting_get_fails_closed(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    setup(client)
+    login(client)
+    assert (
+        client.put(
+            "/api/v1/occ/settings",
+            json={
+                "provider.options": {"X-Auth": "PrivateToken", "max_tokens": 64},
+            },
+        ).status_code
+        == 200
+    )
+
+    def unavailable(self: SecretStore, value: str) -> bytes:
+        raise SecretStoreError("unavailable")
+
+    monkeypatch.setattr(SecretStore, "decrypt", unavailable)
+    response = client.get("/api/v1/occ/settings")
+    assert response.status_code == 200
+    assert response.json()["provider.options"] == "[REDACTED]"
+    assert "PrivateToken" not in response.text
+
+
+def test_unclassified_legacy_ciphertext_stays_redacted(client: TestClient) -> None:
+    setup(client)
+    login(client)
+    encrypted = SecretStore(client.app.state.settings.data_dir).encrypt(
+        json.dumps("LegacyPrivateToken").encode()
+    )
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "INSERT INTO settings(scope,key,value_json,updated_at) "
+            "VALUES ('system','tokenizer.options',?,datetime('now'))",
+            (json.dumps(encrypted),),
+        )
+    response = client.get("/api/v1/occ/settings")
+    assert response.json()["tokenizer.options"] == "[REDACTED]"
+    assert "LegacyPrivateToken" not in response.text
 
 
 def test_secret_setting_failure_is_atomic(

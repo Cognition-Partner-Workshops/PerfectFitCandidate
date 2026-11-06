@@ -266,9 +266,9 @@ def domain_preview(body: DomainPreview, db: DB, admin: Admin) -> dict[str, Any]:
 
 
 @router.get("/settings")
-def settings_get(db: DB, admin: Admin) -> dict[str, Any]:
+def settings_get(db: DB, admin: Admin, request: Request) -> dict[str, Any]:
     """REQ-ROLE-04: system-wide Admin settings."""
-    return administration.settings_get(db, admin.user.user_id)
+    return administration.settings_get(db, admin.user.user_id, request.app.state.settings)
 
 
 @router.put("/settings")

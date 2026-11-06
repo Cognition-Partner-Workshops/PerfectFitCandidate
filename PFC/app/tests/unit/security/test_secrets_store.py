@@ -116,3 +116,44 @@ def test_redaction_preserves_empty_and_sensitive_containers() -> None:
         "options": [{}, [], {"max_tokens": 64, "token": "[REDACTED]"}],
     }
     assert value["private_key"]["parts"] == ["private", None]
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "auth.tokens",
+        "X-Auth",
+        "tokens",
+        "auth",
+        "session",
+        "Authorization",
+        "bearer",
+        "cookie",
+        "secret",
+        "password",
+        "passwd",
+        "credential",
+        "credentials",
+        "apikey",
+        "api_key",
+        "private_key",
+        "client_secret",
+    ],
+)
+def test_credential_family_segments(key: str) -> None:
+    assert sensitive_setting(key, "private")
+
+
+@pytest.mark.parametrize(
+    "secret", ["token", "tokens", "auth", "authorization", "session", "api_key"]
+)
+@pytest.mark.parametrize(
+    "count", ["max", "min", "num", "count", "limit", "budget", "length", "size", "per"]
+)
+def test_count_exception_applies_to_all_credential_families(secret: str, count: str) -> None:
+    assert not sensitive_setting(f"{secret}_{count}", 64)
+    assert not sensitive_setting(f"{count}.{secret}", 64)
+
+
+def test_tokens_per_minute_is_not_a_credential() -> None:
+    assert not sensitive_setting("tokens_per_minute", 120)

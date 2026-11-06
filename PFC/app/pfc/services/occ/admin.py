@@ -10,6 +10,7 @@ from pfc.config import Settings
 from pfc.db.audit import verify_chain
 from pfc.security.problems import Problem
 from pfc.security.secrets_store import (
+    PREFIX,
     SecretStore,
     SecretStoreError,
     redact_sensitive,
@@ -108,19 +109,24 @@ def delete_domain(db: sqlite3.Connection, user_id: int, domain: str) -> None:
     audit_write(db, user_id, "OCC_EDIT", "internal_email_domains", domain, before, None)
 
 
-def settings_get(db: sqlite3.Connection, user_id: int) -> dict[str, Any]:
+def settings_get(db: sqlite3.Connection, user_id: int, settings: Settings) -> dict[str, Any]:
     """REQ-ROLE-04: system settings, excluding dedicated reference endpoints."""
-    return {
-        row["key"]: (
-            "[REDACTED]"
-            if sensitive_setting(row["key"], json.loads(row["value_json"]))
-            else json.loads(row["value_json"])
-        )
-        for row in db.execute(
-            "SELECT key,value_json FROM settings WHERE scope='system' AND user_id IS NULL "
-            "AND key!='location.aliases' ORDER BY key"
-        )
-    }
+    result = {}
+    for row in db.execute(
+        "SELECT key,value_json FROM settings WHERE scope='system' AND user_id IS NULL "
+        "AND key!='location.aliases' ORDER BY key"
+    ):
+        value = json.loads(row["value_json"])
+        if isinstance(value, str) and value.startswith(PREFIX):
+            try:
+                value = json.loads(SecretStore(settings.data_dir).decrypt(value))
+                if not sensitive_setting(row["key"], value):
+                    value = "[REDACTED]"
+            except (SecretStoreError, ValueError, UnicodeError):
+                result[row["key"]] = "[REDACTED]"
+                continue
+        result[row["key"]] = redact_sensitive(value, row["key"])
+    return result
 
 
 def settings_put(
@@ -129,7 +135,7 @@ def settings_put(
     for key in values:
         if key == "location.aliases" or not re.fullmatch(r"[a-z][a-z0-9_]*(\.[a-z0-9_]+)+", key):
             raise Problem(422, "VALIDATION_ERROR", "Invalid or reserved settings key")
-    before = settings_get(db, user_id)
+    before = settings_get(db, user_id, settings)
     try:
         encoded = {key: json.dumps(value, allow_nan=False) for key, value in values.items()}
     except (ValueError, TypeError) as exc:
@@ -138,6 +144,14 @@ def settings_put(
         if key in before and before[key] == value:
             continue
         secret = sensitive_setting(key, value)
+        previous = db.execute(
+            "SELECT value_json FROM settings WHERE scope='system' AND user_id IS NULL AND key=?",
+            (key,),
+        ).fetchone()
+        previous_value = json.loads(previous[0]) if previous else None
+        encrypted_audit = secret or (
+            isinstance(previous_value, str) and previous_value.startswith(PREFIX)
+        )
         if secret:
             try:
                 encoded[key] = json.dumps(
@@ -153,10 +167,12 @@ def settings_put(
             "admin_only=1,updated_by=excluded.updated_by,updated_at=excluded.updated_at",
             (key, encoded[key], user_id, now()),
         )
-        old = {"value": redact_sensitive(before[key], key)} if key in before else None
-        new = {"value": redact_sensitive(value, key)}
+        old = (
+            {"value": "[encrypted]" if encrypted_audit else before[key]} if key in before else None
+        )
+        new = {"value": "[encrypted]" if encrypted_audit else redact_sensitive(value, key)}
         audit_write(db, user_id, "SETTING_CHANGE", "settings", key, old, new)
-    return settings_get(db, user_id)
+    return settings_get(db, user_id, settings)
 
 
 def audit_timestamp(value: str) -> str:

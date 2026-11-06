@@ -23,7 +23,13 @@ def sensitive_key(key: str) -> bool:
     words = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", words)
     segments = re.split(r"[_\-.]+", words.casefold())
     names = set(segments)
+    if names & {"max", "min", "num", "count", "limit", "budget", "length", "size", "per"}:
+        return False
     if names & {
+        "token",
+        "tokens",
+        "auth",
+        "session",
         "password",
         "passwords",
         "passwd",
@@ -62,23 +68,7 @@ def sensitive_key(key: str) -> bool:
         for pair in zip(segments, segments[1:], strict=False)
     ):
         return True
-    counts = {
-        "max",
-        "min",
-        "num",
-        "number",
-        "count",
-        "limit",
-        "limits",
-        "size",
-        "length",
-        "budget",
-        "usage",
-        "used",
-        "remaining",
-        "total",
-    }
-    return "token" in names and not names & counts
+    return False
 
 
 def sensitive_setting(key: str, value: Any) -> bool:
