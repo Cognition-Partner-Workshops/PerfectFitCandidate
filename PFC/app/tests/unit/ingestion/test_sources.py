@@ -69,6 +69,7 @@ def test_req_in_25_email_boundary(tmp_path: Path) -> None:
     [
         ("alex@example.com.au.pdf", False),
         ("alex@example.com1.pdf", False),
+        ("other_alex@example.com.pdf", False),
         ("AlEx@Example.com.pdf", True),
         ("alex@example.com_CV.pdf", True),
         ("CV - alex@example.com.pdf", True),
@@ -99,6 +100,7 @@ def test_req_in_22_missing_cv_not_error(tmp_path: Path) -> None:
         ("CV - alex@example.com", True),
         ("alex@example.com.au", False),
         ("alex@example.com1", False),
+        ("other_alex@example.com", False),
     ],
 )
 def test_req_in_25_text_candidate_email_boundaries(

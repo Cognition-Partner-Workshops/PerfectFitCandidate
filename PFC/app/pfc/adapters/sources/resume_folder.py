@@ -95,7 +95,9 @@ class ResumeFolderSource:
             for index, candidate in enumerate(candidates):
                 email = (candidate.email_address or "").strip().lower()
                 email_pattern = (
-                    re.compile(r"(?<![a-z0-9.+-])" + re.escape(email) + r"(?![a-z0-9-]|\.[a-z0-9])")
+                    re.compile(
+                        r"(?<![a-z0-9._+-])" + re.escape(email) + r"(?![a-z0-9-]|\.[a-z0-9])"
+                    )
                     if email
                     else None
                 )
