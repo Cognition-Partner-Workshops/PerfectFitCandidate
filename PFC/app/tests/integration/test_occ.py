@@ -441,6 +441,8 @@ def test_email_templates(client: TestClient) -> None:
         "{{",
         "{{ color: red; }}",
         "{{ color: red; }} {candidate_name}",
+        "{{{match_pct}}}",
+        "<!-- {{internal_note}} -->",
         "}}",
     ],
 )
@@ -457,7 +459,9 @@ def test_email_literal_braces(client: TestClient, body_html: str) -> None:
     )
     assert result.status_code == 201, result.text
     assert result.json()["body_html"] == body_html
-    assert isinstance(body_html.format_map({"candidate_name": "Candidate"}), str)
+    assert isinstance(
+        body_html.format_map({"candidate_name": "Candidate", "match_pct": "90.0%"}), str
+    )
 
 
 @pytest.mark.parametrize("field", ["subject", "body_html"])
@@ -478,9 +482,9 @@ def test_email_literal_braces(client: TestClient, body_html: str) -> None:
         ("<style>a{color:red}</style>", "UNKNOWN_PLACEHOLDER"),
         ("{{draft}}", "TEMPLATE_INVALID"),
         ("{{literal_braces}}", "TEMPLATE_INVALID"),
-        ("{{score{match_pct}}}", "TEMPLATE_INVALID"),
         ("{{score{role}}}", "TEMPLATE_INVALID"),
         ("{{{candidate_name}}}", "TEMPLATE_INVALID"),
+        ("<!-- {{internal_note}} -->{{draft}}", "TEMPLATE_INVALID"),
     ],
 )
 def test_email_invalid_formatting(
@@ -501,6 +505,17 @@ def test_email_invalid_formatting(
     assert response.json()["code"] == code
     assert field in response.json()["detail"]
     assert len(client.get(base, params={"all": True}).json()) == int(new_version)
+
+
+def test_email_subject_comments_are_not_sanitized(client: TestClient) -> None:
+    login(client)
+    response = client.post(
+        "/api/v1/occ/email-templates",
+        json={"name": "comment", "subject": "<!-- {{internal_note}} -->", "body_html": ""},
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "TEMPLATE_INVALID"
+    assert "subject" in response.json()["detail"]
 
 
 @pytest.mark.parametrize("token", ["{Unknown}", "{missing!r}"])

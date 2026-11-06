@@ -4,7 +4,7 @@ from string import Formatter
 from typing import Any
 
 from pfc.security.problems import Problem
-from pfc.services.email.service import UNRESOLVED_PLACEHOLDER
+from pfc.services.email.service import UNRESOLVED_PLACEHOLDER, sanitize_email_html
 from pfc.services.occ.common import audit_write, get_row, now
 
 WEIGHTS = {"skills", "grade", "location", "bench_start", "bench_end", "status"}
@@ -19,6 +19,8 @@ PLACEHOLDERS = {
     "spoc_1",
     "spoc_2",
 }
+PLACEHOLDER_SAMPLES = {name: "Example" for name in PLACEHOLDERS}
+PLACEHOLDER_SAMPLES["match_pct"] = f"{90.0:.1f}%"
 
 
 def decode(row: dict[str, Any]) -> dict[str, Any]:
@@ -156,12 +158,9 @@ def activate(db: sqlite3.Connection, user_id: int, target: int) -> dict[str, Any
 def validate_placeholders(subject: str, body: str) -> None:
     for field, text in (("subject", subject), ("body_html", body)):
         try:
-            approval_parts = []
-            for literal, name, spec, conversion in Formatter().parse(text):
-                approval_parts.append(literal)
+            for _, name, spec, conversion in Formatter().parse(text):
                 if name is None:
                     continue
-                approval_parts.append("x")
                 if not name.isidentifier():
                     raise Problem(
                         422,
@@ -179,7 +178,13 @@ def validate_placeholders(subject: str, body: str) -> None:
                         "TEMPLATE_INVALID",
                         f"{field}: format specifications and conversions are not supported",
                     )
-            if UNRESOLVED_PLACEHOLDER.search("".join(approval_parts)):
+            rendered = text.format_map(PLACEHOLDER_SAMPLES)
+            rendered = (
+                sanitize_email_html(rendered)
+                if field == "body_html"
+                else " ".join(rendered.splitlines())
+            )
+            if UNRESOLVED_PLACEHOLDER.search(rendered):
                 raise Problem(
                     422,
                     "TEMPLATE_INVALID",
