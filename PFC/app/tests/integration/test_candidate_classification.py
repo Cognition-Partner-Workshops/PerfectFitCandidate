@@ -94,6 +94,49 @@ def stored(client: TestClient, candidate_id: int) -> dict:
         )
 
 
+@pytest.mark.parametrize("role", ["Admin", "Analyst"])
+def test_detail_classification_live_and_redacted(client: TestClient, role: str) -> None:
+    candidate_id = seed_candidate(client, [("private@example.com", "CT", 0)])
+    login(client)
+    domains = "/api/v1/occ/internal-domains"
+    assert client.post(domains, json={"domain": "example.com"}).status_code == 201
+    response = client.put(
+        f"/api/v1/candidates/{candidate_id}/classification",
+        json={"classification": "Unknown", "reason": "Review private@example.com"},
+    )
+    assert response.status_code == 200
+    assert client.delete(domains + "/example.com").status_code == 204
+    before = stored(client, candidate_id)
+    if role == "Analyst":
+        login(client, "worker@example.com", role)
+    response = client.get(f"/api/v1/candidates/{candidate_id}")
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["resource"]["candidateType"] == "Unknown"
+    assert data["classification"] == {
+        "candidateId": candidate_id,
+        "effectiveClassification": "Unknown",
+        "computedClassification": "External",
+        "classificationOverride": "Unknown",
+        "overrideReason": "Review [REDACTED]",
+        "overrideBy": 1,
+        "overrideAt": before["override_at"],
+    }
+    assert "private@example.com" not in response.text
+    assert stored(client, candidate_id) == before
+
+
+def test_detail_classification_without_email_or_override(client: TestClient) -> None:
+    candidate_id = seed_candidate(client, [], value="Unknown")
+    login(client)
+    data = client.get(f"/api/v1/candidates/{candidate_id}").json()["classification"]
+    assert data["effectiveClassification"] == data["computedClassification"] == "Unknown"
+    assert data["classificationOverride"] is None
+    assert data["overrideReason"] is None
+    assert data["overrideBy"] is None
+    assert data["overrideAt"] is None
+
+
 def test_domain_changes_reclassify_and_audit(client: TestClient) -> None:
     candidate_id = seed_candidate(client, [(" Person@Example.COM ", "CV", 1)])
     login(client)
@@ -178,7 +221,7 @@ def test_override_is_preserved_and_clear_recomputes(client: TestClient) -> None:
         "effectiveClassification": "Unknown",
         "computedClassification": "Internal",
         "classificationOverride": "Unknown",
-        "overrideReason": "Confirmed with private@example.com",
+        "overrideReason": "Confirmed with [REDACTED]",
         "overrideBy": 1,
         "overrideAt": response.json()["overrideAt"],
     }

@@ -137,6 +137,30 @@ def test_candidate_classification_override_openapi(tmp_path: Path) -> None:
     assert "put" in app.openapi()["paths"]["/api/v1/candidates/{candidate_id}/classification"]
 
 
+def test_classification_and_extractions_frontend_contract(tmp_path: Path) -> None:
+    document = create_app(Settings(data_dir=tmp_path)).openapi()
+    schemas = document["components"]["schemas"]
+    assert "classification" in schemas["CandidateDetail"]["required"]
+    assert schemas["CandidateDetail"]["properties"]["classification"]["$ref"].endswith(
+        "/CandidateClassification"
+    )
+    assert set(schemas["CandidateClassification"]["properties"]) == {
+        "candidateId",
+        "effectiveClassification",
+        "computedClassification",
+        "classificationOverride",
+        "overrideReason",
+        "overrideBy",
+        "overrideAt",
+    }
+    assert {
+        ("GET", "/api/v1/occ/candidates/{}/cv-extractions"),
+        ("DELETE", "/api/v1/occ/candidates/{}/cv-extractions"),
+        ("DELETE", "/api/v1/occ/cv-extractions"),
+        ("PUT", "/api/v1/candidates/{}/classification"),
+    } <= _frontend_calls(FRONTEND_ROOT)
+
+
 def test_frontend_api_calls_match_backend_openapi(tmp_path: Path) -> None:
     frontend_calls = _frontend_calls(FRONTEND_ROOT)
     assert frontend_calls, f"No HTTP calls found under {FRONTEND_ROOT / 'src' / 'api'}"
@@ -191,6 +215,15 @@ def test_match_run_change_metadata_contract(model: type[WireModel]) -> None:
     reasons = schema["properties"]["dataChangedReasons"]
     assert reasons["type"] == "array" and reasons["items"]["type"] == "string"
     assert {"dataChangedSinceRun", "dataChangedReasons"} <= set(schema["required"])
+
+
+def test_match_run_mode_contract() -> None:
+    schema = RunView.model_json_schema(mode="serialization", by_alias=True)["properties"]
+    assert schema["mode"]["anyOf"][0]["enum"] == ["incremental", "full"]
+    assert schema["modeReason"]["anyOf"][0]["type"] == "string"
+    assert schema["demandIds"]["items"]["type"] == "integer"
+    types = (FRONTEND_ROOT / "src" / "api" / "types.ts").read_text(encoding="utf-8")
+    assert "mode: 'incremental' | 'full' | null" in types and "modeReason: string | null" in types
 
 
 def test_demand_jd_status_contract(tmp_path: Path) -> None:

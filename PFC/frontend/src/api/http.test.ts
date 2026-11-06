@@ -32,6 +32,42 @@ afterEach(() => {
 })
 
 describe('HttpApiClient — TDD §9.3 session + CSRF', () => {
+  it('preserves additive JD evidence flags through requirements review and save', async () => {
+    const api = new HttpApiClient('/api/v1')
+    const row = { demandId: 1, mandatorySkills: ['SQL'], items: [{ kind: 'mandatory_skill', text: 'SQL', jdReqId: 7, evidence: null, evidenceUnverified: true }] }
+    fetchMock.mockResolvedValueOnce(json(row)).mockResolvedValueOnce(json(row))
+    const draft = await api.getRequirements(1)
+    expect(draft.items?.[0].evidenceUnverified).toBe(true)
+    expect((await api.saveRequirements(draft)).items?.[0].evidence).toBeNull()
+    expect(JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string).items).toEqual(row.items)
+  })
+
+  it('uses camelCase classification and CV removal contracts with CSRF on writes', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(json(AUTH))
+    await api.login({ role: 'Admin', email: 'admin@example.com', password: 'x' })
+    const classification = { candidateId: 7, effectiveClassification: 'Unknown', computedClassification: 'Internal', classificationOverride: 'Unknown', overrideReason: 'Reviewed', overrideBy: 1, overrideAt: '2026-11-01' }
+    fetchMock.mockResolvedValueOnce(json(classification))
+    expect(await api.setClassification(7, { classification: 'Unknown', reason: 'Reviewed' })).toEqual(classification)
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/candidates/7/classification')
+    expect(JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string)).toEqual({ classification: 'Unknown', reason: 'Reviewed' })
+    expect(headersOf(1)['X-CSRF-Token']).toBe('tok-1')
+    const versions = [{ cvVersionId: 9, fileName: 'al**@example.com.docx', versionNo: 2, extractedAt: '2026-11-01', removed: false }]
+    fetchMock.mockResolvedValueOnce(json(versions))
+    expect(await api.listCvExtractions(7)).toEqual(versions)
+    expect(fetchMock.mock.calls[2][0]).toBe('/api/v1/occ/candidates/7/cv-extractions')
+    expect(headersOf(2)['X-CSRF-Token']).toBeUndefined()
+    const counts = { versionsCleared: 1, chunksDeleted: 2, vectorsDeleted: 3, matchingVectorsDeleted: 4 }
+    fetchMock.mockResolvedValueOnce(json(counts)).mockResolvedValueOnce(json(counts))
+    expect(await api.clearCandidateExtractions(7)).toEqual(counts)
+    expect(await api.clearAllExtractions()).toEqual(counts)
+    expect(fetchMock.mock.calls[3][0]).toBe('/api/v1/occ/candidates/7/cv-extractions')
+    expect(fetchMock.mock.calls[4][0]).toBe('/api/v1/occ/cv-extractions')
+    for (const index of [3, 4]) {
+      expect((fetchMock.mock.calls[index][1] as RequestInit).method).toBe('DELETE')
+      expect(headersOf(index)['X-CSRF-Token']).toBe('tok-1')
+    }
+  })
   it('sends cookies same-origin and X-CSRF-Token from the login response on writes only', async () => {
     const api = new HttpApiClient('/api/v1')
     fetchMock.mockResolvedValueOnce(json(AUTH))

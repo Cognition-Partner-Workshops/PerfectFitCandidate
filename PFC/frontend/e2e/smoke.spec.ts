@@ -72,6 +72,18 @@ test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({
   await page.getByRole('link', { name: 'SmokeAlex' }).click()
   await expect(page.getByRole('heading', { name: /SmokeAlex/ })).toBeVisible()
   await expect(page.getByRole('tab', { name: 'CV versions (0)' })).toBeVisible()
+  const classification = page.getByRole('region', { name: 'Candidate classification' })
+  await expect(classification.getByRole('button', { name: 'Set override' })).toBeDisabled()
+  await classification.getByLabel('Override classification').selectOption('Unknown')
+  await classification.getByLabel(/Classification reason/).fill('Smoke review')
+  await classification.getByRole('button', { name: 'Set override' }).click()
+  await expect(classification.getByText('Reason: Smoke review')).toBeVisible()
+  await page.reload()
+  await expect(classification.getByText('Reason: Smoke review')).toBeVisible()
+  await expect(classification.getByText(/Computed classification:/)).toBeVisible()
+  await classification.getByLabel(/Classification reason/).fill('Return to automatic')
+  await classification.getByRole('button', { name: 'Clear override' }).click()
+  await expect(classification.getByText('Reason: Smoke review')).toBeHidden()
   await page.goto('/#/bench')
   // C1 is not in the seeded grade list, so the second synthetic row is excluded from matching.
   await page.getByRole('tab', { name: 'Excluded from matching (1)' }).click()
@@ -87,7 +99,8 @@ test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({
   await expect(demandRow).toContainText('Not analysed')
   await demandRow.getByRole('button', { name: 'Analyze JD' }).click()
   const start = page.getByRole('button', { name: /Confirm & Start/ })
-  await expect(start).toBeEnabled()
+  // Analyze JD runs server-side (local LLM, or the rule-based fallback once the provider is unavailable); allow for slow CI.
+  await expect(start).toBeEnabled({ timeout: 30_000 })
   await expect(page.getByText(/DL region:/)).toBeVisible()
   await page.getByLabel(/Qualifications/).fill('BSc Computing')
   await page.getByLabel('Location (extracted from JD)').fill('Manchester')
@@ -131,8 +144,21 @@ test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({
   // A DL/CT commit after the run flags it as stale (REQ-MAT-08).
   await page.goto('/#/bench')
   await upload(page, 'Upload CT', 'Candidate Tracker workbook', 'ct-update.xlsx')
+  const committedAt = Date.now()
   await page.goto('/#/matches')
   await page.reload()
   await expect(page.getByText('Data changed since this run')).toBeVisible()
   await expect(page.getByText(/DL\/CT committed/)).toBeVisible()
+
+  // Re-run changed only (REQ-MAT-07): the banner clears once the new run completes, and the mode is shown.
+  const latestRun = async () => ((await (await page.request.get('/api/v1/match-runs')).json()) as { runId: number; status: string }[])[0]
+  const before = (await latestRun())?.runId
+  // Whole-second commit stamps count as changed until the end of their second, so a run finishing
+  // within that second would still be flagged; real re-runs are never that fast.
+  await page.waitForTimeout(Math.max(0, committedAt + 1100 - Date.now()))
+  await page.getByRole('button', { name: 'Re-run changed only' }).click()
+  await expect.poll(async () => { const r = await latestRun(); return r && r.runId !== before ? r.status : 'pending' }, { timeout: 30_000, intervals: [250, 500, 1000] }).toBe('completed')
+  await page.reload()
+  await expect(page.getByText(/Mode: (incremental|full)/)).toBeVisible()
+  await expect(page.getByText('Data changed since this run')).toHaveCount(0)
 })

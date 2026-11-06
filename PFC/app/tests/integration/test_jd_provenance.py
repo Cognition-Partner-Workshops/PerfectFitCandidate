@@ -41,12 +41,14 @@ def test_classification_reason_survives_api_save_and_confirm(api: Api) -> None:
         draft = client.get(url + "/requirements").json()
         kept = next(item for item in draft["items"] if item["text"] == "PostgreSQL")
         assert kept["classificationReason"] == "classification_adjusted"
+        assert kept["evidenceUnverified"] is True and kept["evidence"] is None
         source_id = kept["jdReqId"]
         kept["classificationReason"] = None
         saved = client.put(url + "/requirements", headers=headers, json=draft)
         assert saved.status_code == 200, saved.text
         adjusted = next(item for item in saved.json()["items"] if item["text"] == "PostgreSQL")
         assert adjusted["classificationReason"] == "classification_adjusted"
+        assert adjusted["evidenceUnverified"] is True and adjusted["evidence"] is None
         assert saved.json()["extractionMethod"] == "llm"
         assert saved.json()["fallbackReason"] is None
         with database(client.app.state.settings) as db:
@@ -62,11 +64,15 @@ def test_classification_reason_survives_api_save_and_confirm(api: Api) -> None:
             assert json.loads(stored[0])["preferred_skills"][0]["classification_reason"] == (
                 "classification_adjusted"
             )
+            assert json.loads(stored[0])["preferred_skills"][0]["evidence_unverified"] is True
     finish(client, client.post(url + "/requirements/confirm", headers=headers))
     confirmed = client.get(url + "/requirements").json()
     assert confirmed["status"] == "confirmed"
     assert confirmed["extractionMethod"] == original["extractionMethod"] == "llm"
     assert confirmed["fallbackReason"] is None and confirmed["warnings"] == []
+    assert next(item for item in confirmed["items"] if item["text"] == "PostgreSQL")[
+        "evidenceUnverified"
+    ] is True
     assert (
         next(item for item in confirmed["items"] if item["text"] == "PostgreSQL")[
             "classificationReason"
