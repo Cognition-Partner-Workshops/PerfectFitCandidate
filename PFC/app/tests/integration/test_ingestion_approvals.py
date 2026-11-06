@@ -694,6 +694,40 @@ def test_req_in_25_relink_requires_merge_when_old_candidate_has_data(client, dat
             )
 
 
+@pytest.mark.parametrize(
+    "kind,entity,field,api_field,stored_field",
+    [
+        ("dl", "demand", "Account Name", "accountName", "account_name"),
+        ("ct", "resource", "Location", "location", "location"),
+    ],
+)
+def test_req_ing_03_admin_modify_preserves_source_hash_and_unchanged_rows(
+    client, kind, entity, field, api_field, stored_field
+):
+    ingest(client, kind, [{field: "Source"}])
+    source_hash = row(client, entity)["row_hash"]
+    decision(client, queue(client)[0], "modify", comment="Correction", values={api_field: "Admin"})
+    modified = row(client, entity)
+    assert modified["row_hash"] == source_hash
+    other = (
+        {"Code Requisition": "T21234"}
+        if kind == "dl"
+        else {"ShortName": "Other", "Email Address": "other@example.com"}
+    )
+    result = ingest(client, kind, [{field: "Source"}, other])
+    assert result["counts"]["rows_unchanged"] == 1
+    assert result["counts"]["rows_updated"] == 0
+    assert row(client, entity) == modified
+    assert not any(e["targetId"] == 1 and e["state"] == "Pending" for e in queue(client))
+    ingest(client, kind, [{field: "Changed source"}, other])
+    pending = next(e for e in queue(client) if e["targetId"] == 1 and e["state"] == "Pending")
+    assert pending["conflict"]
+    assert row(client, entity)["row_hash"] != source_hash
+    decision(client, pending, "revert")
+    restored = row(client, entity)
+    assert restored["row_hash"] == source_hash and restored[stored_field] == "Admin"
+
+
 def test_req_role_03_audit_contains_business_changes_but_no_emails(client):
     ingest(client, "dl", [{"Account Name": "Original"}])
     decision(client, queue(client)[0], "approve")

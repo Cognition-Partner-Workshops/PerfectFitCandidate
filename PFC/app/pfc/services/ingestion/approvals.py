@@ -16,7 +16,6 @@ from pfc.domain.scoring.models import Resource
 from pfc.security.problems import Problem
 
 from .browse import _mask
-from .models import row_hash
 from .repository import domain_config
 
 EDITABLE = {
@@ -265,7 +264,6 @@ def decide(
                     "valid" if values["bench_end_date"] else "blank"
                 )
             _eligibility(db, values)
-        values["row_hash"] = row_hash({k: values[k] for k in DISPLAY[entity]})
         state = "Modified"
     elif decision.action == "revert":
         before = json.loads(row["before_json"]) if row["before_json"] else None

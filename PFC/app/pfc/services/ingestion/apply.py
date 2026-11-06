@@ -29,7 +29,7 @@ def _upsert(
 ) -> int:
     where = " AND ".join(f"{k}=?" for k in keys)
     old = db.execute(f"SELECT * FROM {table} WHERE {where}", tuple(keys.values())).fetchone()
-    if old and all(old[field] == value for field, value in values.items()):
+    if old and old["row_hash"] == values["row_hash"] and old["lifecycle"] == values["lifecycle"]:
         return int(old[pk])
     values.update(
         last_ingestion_id=run_id, updated_at=now, occ_reviewed_by=None, occ_reviewed_at=None
