@@ -18,10 +18,10 @@ const STATUS_TONE: Record<JdStatus, 'neutral' | 'info' | 'success' | 'warning'> 
 /** No requirements exist for the current JD version yet, so the drawer must analyze first. */
 const needsAnalysis = (s: JdStatus) => s === 'Not analysed' || s === 'JD changed'
 
-const normalizedText = (text: string) => text.normalize('NFKC').trim().toLowerCase().replace(/\s+/g, ' ')
-const itemKey = (kind: JdRequirementItem['kind'], text: string) => `${kind}:${normalizedText(text)}`
+const persistedText = (kind: JdRequirementItem['kind'], text: string) =>
+  kind === 'qualification' || kind === 'domain' ? text.trim() : text
 const findItem = (items: JdRequirementItem[] | undefined, kind: JdRequirementItem['kind'], text: string) =>
-  items?.find((item) => item.kind === kind && normalizedText(item.text) === normalizedText(text))
+  items?.find((item) => item.kind === kind && persistedText(kind, item.text) === persistedText(kind, text))
 
 function RequirementMetadata({ item }: { item?: JdRequirementItem }) {
   return item?.evidenceUnverified ? <span className="small" role="note">Evidence not found in JD text — check before confirming</span> : null
@@ -98,16 +98,11 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
     },
   })
   const [edit, setEdit] = useState<JdRequirements | null>(null)
-  const [changedItems, setChangedItems] = useState<Set<string>>(new Set())
   const value = edit ?? req.data
-  const metadata = value?.items?.filter((item) => !changedItems.has(itemKey(item.kind, item.text)))
+  const metadata = value?.items
   const changeSkills = (kind: 'mandatory_skill' | 'preferred_skill', skills: string[]) => {
     if (!value) return
     const field = kind === 'mandatory_skill' ? 'mandatorySkills' : 'preferredSkills'
-    const before = value[field]
-    setChangedItems((previous) => new Set([...previous, ...[...before, ...skills]
-      .filter((text) => !before.includes(text) || !skills.includes(text))
-      .map((text) => itemKey(kind, text))]))
     setEdit({ ...value, [field]: skills })
   }
   const done = () => {
