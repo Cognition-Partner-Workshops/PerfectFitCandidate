@@ -2,11 +2,55 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
-import type { CandidateDetail, IdentityResolution } from '../api/types'
+import type { CandidateDetail, CvFact, CvFacts, CvVersion, IdentityResolution } from '../api/types'
 import { BandChip, Banner, Chip, EligibilityBadge, ErrorState, MaskedValue, MatchDoughnut, Modal, Spinner } from '../components/ui'
 import { formatDate, formatDateTime, initials, orNotRecorded } from '../lib/format'
 
 type Tab = 'overview' | 'cv' | 'skills' | 'matches' | 'activity'
+
+const NOT_FOUND = <span className="muted">Not found in CV</span>
+
+function FactItem({ fact }: { fact: CvFact }) {
+  return (
+    <div className="stack" style={{ gap: 2 }}>
+      <span>
+        {fact.value} <Chip tone={fact.source === 'llm' ? 'info' : 'neutral'}>{fact.source === 'llm' ? 'Local AI' : 'Rule'}</Chip>
+      </span>
+      <details className="small muted">
+        <summary>Evidence</summary>
+        <blockquote style={{ margin: '4px 0 0 12px', whiteSpace: 'pre-wrap' }}>{fact.evidence}</blockquote>
+      </details>
+    </div>
+  )
+}
+
+/** Structured CV facts (REQ-IN-21/23): only values grounded in the CV text, each with its quote; nothing is inferred. */
+function CvFactsCard({ cv, facts }: { cv: CvVersion; facts: CvFacts }) {
+  const single = (label: string, f: CvFact | null) => (
+    <div>
+      <strong className="small">{label}</strong>
+      <div>{f ? <FactItem fact={f} /> : NOT_FOUND}</div>
+    </div>
+  )
+  const list = (label: string, items: CvFact[]) => (
+    <div>
+      <strong className="small">{label}</strong>
+      {items.length === 0 ? <div>{NOT_FOUND}</div> : items.map((f, i) => <FactItem key={`${f.span[0]}-${i}`} fact={f} />)}
+    </div>
+  )
+  return (
+    <section className="card stack" aria-label={`CV facts for CV-${cv.cvVersionId}`}>
+      <h3>
+        CV facts — {cv.fileName} <span className="small muted mono">CV-{cv.cvVersionId}</span>
+      </h3>
+      {single('Name', facts.name)}
+      {single('Phone (masked)', facts.phone)}
+      {list('Experience', facts.experience)}
+      {list('Qualifications', facts.qualifications)}
+      {list('Projects', facts.projects)}
+    </section>
+  )
+}
 
 /**
  * Incomplete Candidate Information prompt (REQ-IN-23/25, GUI_OCC_DESIGN.md §12.3). Default is
@@ -235,6 +279,16 @@ export function CandidateProfilePage() {
           )}
         </section>
       )}
+      {tab === 'cv' &&
+        d.cvVersions.map((c) =>
+          c.facts ? (
+            <CvFactsCard key={c.cvVersionId} cv={c} facts={c.facts} />
+          ) : (
+            <p key={c.cvVersionId} className="small muted">
+              CV-{c.cvVersionId}: synced before CV facts were extracted, so no facts are shown.
+            </p>
+          ),
+        )}
       {tab === 'skills' && (
         <section className="card stack">
           <h3>CT skills</h3>

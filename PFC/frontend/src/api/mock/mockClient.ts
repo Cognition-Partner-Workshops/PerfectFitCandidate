@@ -8,6 +8,8 @@ import { ApiError, type ApiClient, type EmailList, type StatusMapData } from '..
 import { applyChanges } from '../crud'
 import type {
   CandidateDetail,
+  CvFact,
+  CvFacts,
   CurrentUser,
   DashboardFilters,
   Demand,
@@ -235,6 +237,23 @@ function seedEmails(client: MockApiClient): void {
     if (d.status === 'Sent') d.sentAt = '2026-11-04T15:20:00Z'
     if (d.status === 'Failed') d.failureReason = 'Outlook security prompt declined'
     s.emails.push(d)
+  }
+}
+
+function mockCvFacts(shortName: string, skills: string[], phoneMasked: string | null): CvFacts {
+  const fact = (value: string, evidence: string, at: number, source: CvFact['source'] = 'rule'): CvFact => ({
+    value,
+    evidence,
+    span: [at, at + evidence.length],
+    source,
+  })
+  const skill = skills[0]
+  return {
+    name: fact(shortName, `Name: ${shortName}`, 0),
+    phone: phoneMasked ? fact(phoneMasked, `Phone: ${phoneMasked}`, 40) : null,
+    experience: skill ? [fact(`5 years ${skill}`, `5 years of hands-on ${skill} delivery for financial-services clients.`, 80, 'llm')] : [],
+    qualifications: [],
+    projects: skill ? [fact(`${skill} platform migration`, `Led the ${skill} platform migration for a retail bank.`, 200, 'llm')] : [],
   }
 }
 
@@ -651,6 +670,8 @@ export class MockApiClient implements ApiClient {
         modifiedAt: `2026-10-${String(20 - i * 5).padStart(2, '0')}`,
         extractedAt: '2026-11-04T09:30:00Z',
         isBest: i === 0,
+        // Only the latest version has extracted facts; older versions predate fact extraction. CV fact phones use the backend's `***` + last-two mask.
+        facts: i === 0 ? mockCvFacts(raw.shortName, raw.skills, raw.phone ? `***${raw.phone.slice(-2)}` : null) : null,
       })),
       matches: this.computeResults().filter((r) => r.candidateId === candidateId),
       activity: this.state.audit.filter((a) => a.candidateId === candidateId).slice(0, 20),

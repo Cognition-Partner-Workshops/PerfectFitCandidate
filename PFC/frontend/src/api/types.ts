@@ -289,6 +289,25 @@ export interface CvVersion {
   modifiedAt: string
   extractedAt: string
   isBest: boolean
+  /** Structured facts grounded in the CV text; null for versions synced before fact extraction. */
+  facts?: CvFacts | null
+}
+
+/** One CV fact: `evidence` is the quote it was read from; phones and emails arrive masked. */
+export interface CvFact {
+  value: string
+  evidence: string
+  /** [start, end] character offsets into the stored normalised CV text. */
+  span: [number, number]
+  source: 'rule' | 'llm'
+}
+
+export interface CvFacts {
+  name: CvFact | null
+  phone: CvFact | null
+  experience: CvFact[]
+  qualifications: CvFact[]
+  projects: CvFact[]
 }
 
 export interface CandidateDetail {
