@@ -19,12 +19,14 @@ import httpx
 import uvicorn
 from pfc.adapters.llm.providers import PromptRequest
 from pfc.adapters.vector.stores import NumpyStore
-from pfc.config import Settings
 from pfc.db.connection import database
 from pfc.jobs.runner import JobContext
 from pfc.launcher import launch
 from pfc.services.embeddings.reembed import reembed
 from pfc.services.embeddings.runtime import create_embedder
+
+# isort: split
+from pfc.config import Settings
 
 
 def token_elevated() -> bool:
