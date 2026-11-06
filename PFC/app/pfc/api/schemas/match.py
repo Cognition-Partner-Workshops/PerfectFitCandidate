@@ -114,7 +114,10 @@ class JdRequirements(WireModel):
         }
         sources: dict[tuple[str, str], list[int | None]] = {}
         for source in self.items:
-            sources.setdefault((source.kind, source.text), []).append(source.jd_req_id)
+            text = (
+                source.text.strip() if source.kind in {"qualification", "domain"} else source.text
+            )
+            sources.setdefault((source.kind, text), []).append(source.jd_req_id)
         for field, kind in (
             ("mandatory_skills", "mandatory_skill"),
             ("preferred_skills", "preferred_skill"),

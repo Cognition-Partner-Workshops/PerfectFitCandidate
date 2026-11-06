@@ -4,10 +4,10 @@ import pytest
 from test_jd_llm_extract import Provider
 from test_matching_api import Api, finish
 from test_matching_api import api as api
-from test_matching_service import NOW, seed_demand, seed_resource
+from test_matching_service import NOW, FakeLlm, seed_demand, seed_resource
 
 from pfc.db.connection import database
-from pfc.services.matching import confirm_requirements, get_requirements
+from pfc.services.matching import MatchingPorts, confirm_requirements, get_requirements
 
 
 @pytest.mark.parametrize("mode", ["ready", "down"])
@@ -158,6 +158,40 @@ def test_older_analysis_and_mixed_ancestry(api: Api) -> None:
     assert saved.status_code == 200, saved.text
     for field in ("extractionMethod", "fallbackReason", "warnings"):
         assert saved.json()[field] == second[field]
+
+
+@pytest.mark.parametrize("field", ["qualifications", "domain"])
+@pytest.mark.parametrize("texts", [[" Degree "], [" Degree ", "Degree", " Degree "]])
+def test_trimmed_items_keep_distinct_sources(
+    api: Api, monkeypatch: pytest.MonkeyPatch, field: str, texts: list[str]
+) -> None:
+    client, headers = api
+    llm = FakeLlm()
+    monkeypatch.setattr(llm, "extract_jd", lambda _: {field: [{"text": text} for text in texts]})
+    client.app.state.matching_ports = MatchingPorts(llm=llm)
+    with database(client.app.state.settings) as db:
+        demand = seed_demand(db, confirmed=False)
+    url = f"/api/v1/demands/{demand}"
+    analyzed = client.post(url + "/analyze", headers=headers)
+    assert analyzed.status_code == 200, analyzed.text
+    draft = analyzed.json()
+    for _ in range(2):
+        source_ids = [item["jdReqId"] for item in draft["items"]]
+        saved = client.put(url + "/requirements", headers=headers, json=draft)
+        assert saved.status_code == 200, saved.text
+        draft = saved.json()
+        assert draft["extractionMethod"] == "llm"
+        assert draft["fallbackReason"] is None and draft["warnings"] == []
+        with database(client.app.state.settings) as db:
+            retained = [
+                row[0]
+                for row in db.execute(
+                    "SELECT source_jd_req_id FROM jd_requirement_items WHERE jd_req_id=? "
+                    "ORDER BY position,item_id",
+                    (draft["jdReqId"],),
+                )
+            ]
+        assert retained == source_ids
 
 
 def test_manual_revision_does_not_inherit_future_analysis_or_another_jd_version(api: Api) -> None:
