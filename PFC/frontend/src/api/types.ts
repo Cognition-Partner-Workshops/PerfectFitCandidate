@@ -79,16 +79,7 @@ export interface Demand {
   preferredSkills: string[]
 }
 
-export interface JdRequirementItem {
-  kind: 'mandatory_skill' | 'preferred_skill' | 'experience' | 'qualification' | 'domain'
-  text: string
-  jdReqId?: number | null
-  evidence?: string | null
-  evidenceUnverified?: boolean
-}
-
 export interface JdRequirements {
-  items?: JdRequirementItem[]
   demandId: number
   mandatorySkills: string[]
   preferredSkills: string[]
@@ -112,6 +103,8 @@ export interface JdRequirements {
     evidenceUnverified?: boolean
   }[]
 }
+
+export type JdRequirementItem = NonNullable<JdRequirements['items']>[number]
 
 export interface Resource {
   resourceId: number
