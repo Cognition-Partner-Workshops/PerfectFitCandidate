@@ -384,7 +384,8 @@ def replace_snapshot(
                 )
             else:
                 db.execute(
-                    f"INSERT INTO {table} ({','.join(names)}) VALUES ({','.join('?' for _ in names)})",
+                    f"INSERT INTO {table} ({','.join(names)}) "
+                    f"VALUES ({','.join('?' for _ in names)})",
                     values,
                 )
             if table == "skills":

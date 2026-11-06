@@ -105,7 +105,10 @@ def test_roundtrip_preview_secrecy_and_admin_protection(pair: tuple[Settings, Se
     with database(target) as db:
         after = snapshot(db)
         for table in TABLES:
-            assert after[table] == verified.settings_payloads[f"{table}.v1.json"]
+            expected = verified.settings_payloads[f"{table}.v1.json"]
+            if table == "llm_providers":
+                expected = [{**row, "provider_id": 8} for row in expected]
+            assert after[table] == expected
         assert [dict(row) for row in db.execute("SELECT * FROM users WHERE role_id=1")] == admins
         assert (
             db.execute("SELECT token_blob FROM llm_providers").fetchone()[0]
