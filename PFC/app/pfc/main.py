@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from pfc.api.routers.auth import router as auth_router
+from pfc.api.routers.cv import router as cv_router
 from pfc.api.routers.demands import router as demands_router
 from pfc.api.routers.health import router as health_router
 from pfc.api.routers.ingestion import router as ingestion_router
@@ -58,6 +59,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(ingestion_router, prefix="/api/v1")
     app.include_router(demands_router, prefix="/api/v1")
     app.include_router(resources_router, prefix="/api/v1")
+    app.include_router(cv_router, prefix="/api/v1")
     frontend = settings.frontend_dir.resolve()
     if (frontend / "index.html").is_file():
         if (frontend / "assets").is_dir():

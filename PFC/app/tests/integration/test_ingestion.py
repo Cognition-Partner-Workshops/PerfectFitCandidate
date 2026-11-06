@@ -1,22 +1,65 @@
 """REQ-ING-01..03/06: real sessions, SQLite transactions and synthetic workbooks."""
 
+import json
+import os
+import threading
+import time
 from collections.abc import Iterator
 from io import BytesIO
 from pathlib import Path
 
 import pytest
+from docx import Document
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
+from pypdf import PdfWriter
 
+from pfc.adapters.vector.embeddings import FakeEmbedder
+from pfc.adapters.vector.stores import create_vector_store
 from pfc.config import Settings
 from pfc.db.audit import verify_chain
 from pfc.db.connection import database
 from pfc.domain.config_loader import load_domain_config
+from pfc.jobs.runner import JobCancelled, JobContext
 from pfc.main import create_app
 from pfc.security.setup import code_path
-from pfc.services.ingestion import service
+from pfc.services.ingestion import cv_sync, service
 from pfc.services.ingestion.repository import parse
 from pfc.services.ingestion.workbooks import CT, DL
+
+
+def configure_resume_root(client: TestClient, root: Path, scope: str = "system") -> None:
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "INSERT INTO settings(scope,user_id,key,value_json,updated_at) "
+            "VALUES (?,?,'resume.root_path',?,'2026-01-01')",
+            (scope, 1 if scope == "user" else None, json.dumps(str(root))),
+        )
+
+
+def resume_docx(root: Path, name: str, text: str, mtime: int = 1767225600) -> Path:
+    doc = Document()
+    doc.add_paragraph(text)
+    path = root / name
+    doc.save(str(path))
+    os.utime(path, (mtime, mtime))
+    return path
+
+
+def wait_cv_job(client: TestClient, response) -> dict:
+    assert response.status_code == 202, response.text
+    runner = client.app.state.job_runner
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        job = runner.get(response.json()["job_id"])
+        assert job is not None
+        if job.status in {"completed", "failed", "cancelled"}:
+            assert job.status == "completed", job
+            assert job.progress == 1
+            return json.loads(job.message)
+        time.sleep(0.01)
+    pytest.fail("CV job did not finish")
+
 
 PASSWORD = "Strong!Random4567"
 
@@ -676,3 +719,308 @@ def test_req_out_03_invalid_emails_not_disclosed(
     assert detail.json()["email_address"] == masked
     if email:
         assert email not in response.text and email not in detail.text
+
+
+def test_req_in_21_24_cv_sync_versions_and_metadata(client: TestClient, tmp_path: Path) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(
+        client,
+        upload(
+            client,
+            "ct",
+            [
+                {},
+                {"ShortName": "Taylor", "Email Address": "taylor@example.com"},
+                {"ShortName": "Missing", "Email Address": "missing@example.com"},
+            ],
+        ),
+    )
+    resume_docx(root, "CV.docx", "SQL Engineer AlEx@Example.com")
+    resume_docx(root, "Taylor.docx", "Python Engineer", 1767312000)
+    login(client, "Analyst")
+    summary = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert summary == {
+        "scanned": 2,
+        "new_versions": 2,
+        "unchanged": 0,
+        "missing_cv": 1,
+        "ambiguous": 0,
+        "unmatched": 0,
+        "extraction_failed": 0,
+        "embedded": 0,
+        "warnings": 0,
+    }
+    with database(client.app.state.settings) as db:
+        alex = db.execute("SELECT * FROM resources WHERE short_name_key='alex'").fetchone()
+        version = db.execute(
+            "SELECT * FROM cv_versions WHERE candidate_id=?", (alex["candidate_id"],)
+        ).fetchone()
+        assert version["identity_match"] == "email_exact"
+        assert json.loads(version["facts_json"])["emails"] == ["AlEx@Example.com"]
+        assert version["extracted_by"] == "rule_based" and version["is_latest"] == 1
+        assert (
+            db.execute(
+                "SELECT identity_match FROM cv_versions WHERE candidate_id<>(?)",
+                (alex["candidate_id"],),
+            ).fetchone()[0]
+            == "name_fuzzy"
+        )
+        assert verify_chain(db)
+    response = client.get(f"/api/v1/candidates/{alex['candidate_id']}/cv-versions")
+    assert response.status_code == 200
+    assert response.json()[0]["source_path"] == "CV.docx"
+    assert response.json()[0]["file_name"] == "CV.docx"
+    assert response.json()[0]["file_mtime"]
+    assert "SQL Engineer" not in response.text and "text_norm" not in response.text
+    repeat = wait_cv_job(client, client.post("/api/v1/resources/cv-sync", json={}))
+    assert repeat["unchanged"] == 2 and repeat["new_versions"] == 0
+    resume_docx(root, "CV.docx", "SQL and Python Engineer AlEx@Example.com", 1767400000)
+    updated = wait_cv_job(client, client.post(f"/api/v1/resources/{alex['resource_id']}/cv-sync"))
+    assert updated["new_versions"] == 1
+    versions = client.get(f"/api/v1/candidates/{alex['candidate_id']}/cv-versions").json()
+    assert [v["version_no"] for v in versions] == [2, 1]
+    assert [v["is_latest"] for v in versions] == [True, False]
+    with database(client.app.state.settings) as db:
+        audit = db.execute(
+            "SELECT details_json FROM audit_log WHERE action='CV_SYNC' ORDER BY audit_id DESC"
+        ).fetchone()[0]
+        assert json.loads(audit) == updated
+        assert "example.com" not in audit and str(root) not in audit
+        assert verify_chain(db)
+
+
+def test_req_in_25_cv_sync_ambiguous_unmatched_txt_pdf_failures(
+    client: TestClient, tmp_path: Path
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(
+        client,
+        upload(
+            client,
+            "ct",
+            [
+                {},
+                {"ShortName": "Taylor", "Email Address": "taylor@example.com"},
+            ],
+        ),
+    )
+    resume_docx(root, "Shared.docx", "alex@example.com taylor@example.com")
+    resume_docx(root, "Unknown.docx", "An unrelated CV")
+    (root / "Alex.txt").write_text("alex@example.com SQL")
+    (root / "alex@example.com.pdf").write_bytes(b"broken pdf")
+    writer = PdfWriter()
+    writer.add_blank_page(width=72, height=72)
+    writer.write(root / "Taylor.pdf")
+    (root / "~$Alex.docx").write_bytes(b"lock")
+    summary = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert summary["scanned"] == 5 and summary["new_versions"] == 4
+    assert summary["ambiguous"] == 1 and summary["unmatched"] == 1
+    assert summary["extraction_failed"] == 2 and summary["warnings"] == 1
+    with database(client.app.state.settings) as db:
+        ambiguous = db.execute(
+            "SELECT * FROM cv_versions WHERE identity_match='ambiguous'"
+        ).fetchone()
+        assert ambiguous["candidate_id"] is None and not ambiguous["is_latest"]
+        assert (
+            db.execute(
+                "SELECT candidate_id FROM cv_versions WHERE identity_match='none'"
+            ).fetchone()[0]
+            is None
+        )
+        assert (
+            db.execute(
+                "SELECT count(*) FROM resumes WHERE mime_type NOT IN "
+                "('application/pdf',"
+                "'application/vnd.openxmlformats-officedocument.wordprocessingml.document')"
+            ).fetchone()[0]
+            == 0
+        )
+    repeat = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert repeat["new_versions"] == 0 and repeat["unchanged"] == 4
+
+
+def test_req_mat_01_cv_sync_optional_embedding(client: TestClient, tmp_path: Path) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(client, upload(client, "ct", [{}]))
+    resume_docx(root, "Alex.docx", "SQL Python " * 220)
+    client.app.state.embedder = FakeEmbedder(dimensions=8)
+    no_model = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert no_model["embedded"] == 0
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "INSERT INTO embedding_models(name,runtime,file_sha256,dim,pipeline_version,is_active) "
+            "VALUES ('fake','onnx','fake-hash',8,'fixed-words-v1',1)"
+        )
+    embedded = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert embedded["embedded"] == 3 and embedded["new_versions"] == 0
+    with database(client.app.state.settings) as db:
+        chunks = db.execute("SELECT * FROM embedding_chunks").fetchall()
+        assert len(chunks) == 3
+        assert all(c["owner_type"] == "cv" and c["section"] == "full" for c in chunks)
+        store = create_vector_store(db, dimensions=8)
+        assert store.count(model_version=client.app.state.embedder.model_version) == 3
+        matches = store.search(
+            client.app.state.embedder.embed(["SQL Python"])[0],
+            model_version=client.app.state.embedder.model_version,
+            namespace="cv",
+        )
+        assert len(matches) == 3
+    repeated = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert repeated["embedded"] == 0
+
+
+def test_req_in_21_cv_sync_path_auth_and_selection(client: TestClient, tmp_path: Path) -> None:
+    response = client.post("/api/v1/resources/cv-sync")
+    assert response.status_code == 409 and response.json()["code"] == "RESUME_PATH_NOT_CONFIGURED"
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    configure_resume_root(client, tmp_path / "missing", scope="user")
+    assert client.post("/api/v1/resources/cv-sync").status_code == 409
+    with database(client.app.state.settings) as db:
+        db.execute("DELETE FROM settings WHERE scope='user'")
+    commit(client, upload(client, "ct", [{}]))
+    resume_docx(root, "Alex.docx", "SQL")
+    empty = wait_cv_job(client, client.post("/api/v1/resources/cv-sync", json={"resource_ids": []}))
+    assert empty["new_versions"] == 0
+    assert client.post("/api/v1/resources/999/cv-sync").status_code == 404
+    assert client.get("/api/v1/candidates/999/cv-versions").status_code == 404
+    csrf = client.headers.pop("X-CSRF-Token")
+    assert client.post("/api/v1/resources/cv-sync").status_code == 403
+    assert client.post("/api/v1/resources/1/cv-sync").status_code == 403
+    client.headers["X-CSRF-Token"] = csrf
+    client.cookies.clear()
+    assert client.post("/api/v1/resources/cv-sync").status_code == 401
+    assert client.post("/api/v1/resources/1/cv-sync").status_code == 401
+    assert client.get("/api/v1/candidates/1/cv-versions").status_code == 401
+
+
+def test_req_in_24_cv_file_dates_and_candidate_email_aliases(
+    client: TestClient, tmp_path: Path
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(client, upload(client, "ct", [{}]))
+    with database(client.app.state.settings) as db:
+        candidate_id = db.execute("SELECT candidate_id FROM resources").fetchone()[0]
+        db.execute(
+            "INSERT INTO candidate_emails(candidate_id,email,email_key,source) "
+            "VALUES (?,'Second@Example.com','second@example.com','manual')",
+            (candidate_id,),
+        )
+    resume_docx(root, "Alex recent.docx", "Second@Example.com SQL", 1767400000)
+    wait_cv_job(client, client.post("/api/v1/resources/cv-sync", json={"resource_ids": [1]}))
+    resume_docx(root, "Alex old.docx", "alex@example.com Python", 1767225600)
+    summary = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert summary["ambiguous"] == 0 and summary["new_versions"] == 1
+    history = client.get(f"/api/v1/candidates/{candidate_id}/cv-versions").json()
+    assert [(v["file_name"], v["version_no"], v["is_latest"]) for v in history] == [
+        ("Alex recent.docx", 2, True),
+        ("Alex old.docx", 1, False),
+    ]
+    assert all(v["identity_match"] == "email_exact" for v in history)
+
+
+def test_req_in_21_cv_cancellation_before_persistence(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    commit(client, upload(client, "ct", [{}]))
+    resume_docx(root, "Alex.docx", "SQL Engineer")
+    context = JobContext(client.app.state.job_runner, 0, threading.Event())
+    original = cv_sync.ResumeFolderSource.scan
+
+    def cancel_after_scan(source, candidates):
+        result = original(source, candidates)
+        context.cancelled.set()
+        return result
+
+    monkeypatch.setattr(cv_sync.ResumeFolderSource, "scan", cancel_after_scan)
+    with pytest.raises(JobCancelled):
+        cv_sync.sync(context, client.app.state.settings, root, [1], 1)
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT count(*) FROM resumes").fetchone()[0] == 0
+        assert not db.execute("SELECT 1 FROM audit_log WHERE action='CV_SYNC'").fetchone()
+
+
+def test_req_mat_01_cv_embedding_failure_rolls_back_candidate(
+    client: TestClient, tmp_path: Path
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(client, upload(client, "ct", [{}]))
+    resume_docx(root, "Alex.docx", "SQL")
+    client.app.state.embedder = FakeEmbedder(dimensions=8)
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "INSERT INTO embedding_models(name,runtime,file_sha256,dim,pipeline_version,is_active) "
+            "VALUES ('fake','onnx','fake-hash',16,'fixed-words-v1',1)"
+        )
+    response = client.post("/api/v1/resources/cv-sync")
+    assert response.status_code == 202
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        job = client.app.state.job_runner.get(response.json()["job_id"])
+        if job.status in {"completed", "failed", "cancelled"}:
+            break
+        time.sleep(0.01)
+    assert job.status == "failed" and job.message == "Job failed"
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT count(*) FROM resumes").fetchone()[0] == 0
+        assert db.execute("SELECT count(*) FROM cv_versions").fetchone()[0] == 0
+        assert db.execute("SELECT count(*) FROM embedding_chunks").fetchone()[0] == 0
+
+
+def test_req_in_25_identical_files_for_different_candidates_not_attached(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(
+        client,
+        upload(
+            client,
+            "ct",
+            [
+                {},
+                {"ShortName": "Taylor", "Email Address": "taylor@example.com"},
+            ],
+        ),
+    )
+    first = resume_docx(root, "Alex.docx", "SQL Engineer")
+    (root / "Taylor.docx").write_bytes(first.read_bytes())
+    summary = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert summary["ambiguous"] == 2 and summary["new_versions"] == 1
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT candidate_id FROM resumes").fetchone()[0] is None
+        assert db.execute("SELECT candidate_id FROM cv_versions").fetchone()[0] is None
+
+
+def test_req_in_24_renamed_resume_updates_metadata_without_new_version(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(client, upload(client, "ct", [{}]))
+    first = resume_docx(root, "Original.docx", "alex@example.com SQL")
+    wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    first.rename(root / "Renamed.docx")
+    summary = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert summary["new_versions"] == 0 and summary["unchanged"] == 1
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT source_path FROM resumes").fetchone()[0] == "Renamed.docx"
