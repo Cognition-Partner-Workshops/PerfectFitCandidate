@@ -172,13 +172,12 @@ def _persist(
     candidate_id: int | None,
     version: CVVersion,
     now: str,
+    root: Path,
 ) -> tuple[int, bool]:
     path = Path(version.source_path)
     db.execute(
         "INSERT INTO resumes(candidate_id,source_path,file_name,file_sha256,file_mtime,mime_type,"
-        "discovered_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(file_sha256) DO UPDATE SET "
-        "source_path=excluded.source_path,file_name=excluded.file_name,"
-        "file_mtime=excluded.file_mtime,mime_type=excluded.mime_type",
+        "discovered_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(file_sha256) DO NOTHING",
         (
             candidate_id,
             version.source_path,
@@ -189,9 +188,20 @@ def _persist(
             now,
         ),
     )
-    resume_id = db.execute(
-        "SELECT resume_id FROM resumes WHERE file_sha256=?", (version.file_sha256,)
-    ).fetchone()[0]
+    resume = db.execute(
+        "SELECT resume_id,source_path FROM resumes WHERE file_sha256=?", (version.file_sha256,)
+    ).fetchone()
+    resume_id = resume["resume_id"]
+    if not (root / resume["source_path"]).is_file():
+        db.execute(
+            "UPDATE resumes SET source_path=?,file_name=?,file_mtime=? WHERE resume_id=?",
+            (
+                version.source_path,
+                path.name,
+                stamp(datetime.fromtimestamp(version.file_mtime, UTC)),
+                resume_id,
+            ),
+        )
     text = normalise_text(version.text_norm)
     digest = hashlib.sha256(text.encode()).hexdigest()
     existing = db.execute(
@@ -340,7 +350,7 @@ def sync(
             now = stamp(datetime.now(UTC))
             for version in sorted(found, key=lambda v: (v.file_mtime, v.source_path)):
                 context.raise_if_cancelled()
-                version_id, inserted = _persist(db, candidate_id, version, now)
+                version_id, inserted = _persist(db, candidate_id, version, now, root)
                 counts.new_versions += int(inserted)
                 counts.unchanged += int(not inserted)
                 if candidate_id is not None:

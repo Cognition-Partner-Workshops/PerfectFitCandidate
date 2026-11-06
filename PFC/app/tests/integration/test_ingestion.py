@@ -1070,3 +1070,31 @@ def test_req_in_24_previously_unmatched_cv_attaches_after_identity_resolves(
     assert all(v["identity_match"] == "email_exact" for v in history)
     repeat = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
     assert repeat["new_versions"] == 0 and repeat["unchanged"] == 2
+
+
+def test_req_in_24_identical_copy_keeps_original_cv_provenance(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(client, upload(client, "ct", [{}]))
+    original = resume_docx(root, "Alex original.docx", "alex@example.com SQL", 1767225600)
+    wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    with database(client.app.state.settings) as db:
+        before = dict(db.execute("SELECT * FROM resumes").fetchone())
+        candidate_id = before["candidate_id"]
+    copy = root / "Alex copy.docx"
+    copy.write_bytes(original.read_bytes())
+    os.utime(copy, (1767400000, 1767400000))
+    for _ in range(2):
+        summary = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+        assert summary["new_versions"] == 0
+        with database(client.app.state.settings) as db:
+            assert dict(db.execute("SELECT * FROM resumes").fetchone()) == before
+        history = client.get(f"/api/v1/candidates/{candidate_id}/cv-versions").json()
+        assert len(history) == 1
+        assert history[0]["source_path"] == "Alex original.docx"
+        assert history[0]["file_name"] == "Alex original.docx"
+        assert history[0]["file_mtime"] == before["file_mtime"]
