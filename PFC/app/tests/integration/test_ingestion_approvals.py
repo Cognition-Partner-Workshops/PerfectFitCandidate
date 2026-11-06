@@ -390,10 +390,10 @@ def test_req_in_23_candidate_masks_email_phone_and_ct_options(client):
     detail = response.json()
     assert detail["candidateId"] == 1 and detail["internalRef"] == "PFC-C-000001"
     assert detail["identityStatus"] == "incomplete" and detail["phoneMasked"] == "***90"
-    assert detail["emails"] == ["c***@example.com"]
+    assert detail["emails"] == ["cv*****@example.com"]
     assert detail["resource"]["candidateId"] == 1
     assert detail["ctEmailOptions"] == [
-        {"resourceId": 2, "label": "Alex", "emailMasked": "A***@Example.com"}
+        {"resourceId": 2, "label": "Alex", "emailMasked": " A***@Example.com "}
     ]
     assert detail["cvVersions"] == detail["matches"] == detail["activity"] == []
     for pii in ["Alex@Example.com", "cv.alex@example.com", "+441234567890"]:
@@ -426,7 +426,7 @@ def test_req_in_23_select_ct_record_confirms_verbatim_email(client):
     assert response.status_code == 200, response.text
     result = response.json()
     assert result["identityStatus"] == "complete" and result["resource"]["resourceId"] == 2
-    assert result["resource"]["emailAddressMasked"] == "A***@Example.com"
+    assert result["resource"]["emailAddressMasked"] == " A***@Example.com "
     assert "Alex@Example.com" not in response.text
     with database(client.app.state.settings) as db:
         assert (
@@ -555,15 +555,16 @@ def test_req_in_24_candidate_cv_and_match_metadata_are_masked(client):
     assert result["cvVersions"] == [
         {
             "cvVersionId": 1,
-            "fileName": "a***@example.com.pdf",
-            "folderPath": "a***@example.com",
+            "fileName": "al**@example.com.pdf",
+            "folderPath": "al**@example.com",
             "modifiedAt": "2026-01-01",
             "extractedAt": "2026-01-02",
             "isBest": True,
+            "facts": None,
         }
     ]
     assert result["matches"][0]["score"] == 90
-    assert result["matches"][0]["personEmailMasked"] == "A***@Example.com"
+    assert result["matches"][0]["personEmailMasked"] == " A***@Example.com "
     assert result["matches"][0]["breakdown"] == [
         {"component": "skills", "points": 60, "maxPoints": 70}
     ]

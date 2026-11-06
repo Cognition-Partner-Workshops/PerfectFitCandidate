@@ -40,6 +40,45 @@ response and population size is checked. No browser rendering is measured.
 
 ## Measurements — Linux CI/VM, not target laptop
 
+### OCC-domain follow-up (2026-11-06)
+
+The first OCC-domain run measured match analytics at **1.159 s**, versus the
+earlier reported 0.586 s. A saved 500 × 500 database (60,455 results) was used for
+profiling and a same-database comparison, without changing results or goldens:
+
+| Measurement | Match analytics median |
+|---|---:|
+| OCC implementation before validation fixes, five warm GETs | 1.205 s |
+| After validation fixes, same database, five warm GETs | 0.726 s |
+| Main analytics implementations restored in-memory, same database/dependencies | 1.111 s |
+| Fresh full perf fixture after fixes, three warm GETs | 0.712 s |
+
+The main control restores the main-branch analytics modules and original mask
+behavior in a separate process; it is not a full base checkout or a reproduction
+of historical machine load. It rules out attributing the earlier twofold jump
+solely to OCC configuration. The earlier 0.586 s was not reproduced: the current
+result is about 0.7 s, **not a claimed return to 0.586 s**.
+
+The reachable bottleneck is validation, not config construction: cProfile showed
+one OCC config/SynonymTable build per request, about 2 ms. EXPLAIN showed the
+capacity-input query choosing `ix_results_resource`, scattering breakdown reads.
+Choosing `ix_results_demand` reduced that query from 0.308 to 0.133 s in isolation.
+Request-local memoization reuses pure masks/date/score checks across repeated
+values (120,910 mask calls became 402; 60,455 score checks became 292; date
+checks became 119). Narrower projections and tuple-to-dict conversion reduce
+row hydration cost. No cross-request cache, schema, KPI, band or guard changes.
+The same-database match JSON is exactly equal before/after and in the main control;
+the committed analytics goldens remain unchanged.
+
+Fresh perf fixture medians: summary **0.070 s**, demand **0.094 s**, bench
+**0.070 s**, match **0.712 s**; full matching **26.408 s**. Provenance: Linux
+6.8.0-1060-aws / glibc 2.35, Python 3.12.16, Intel Xeon, 8 logical CPUs,
+33,655,369,728 bytes RAM, base `97f6cc8`, working tree dirty. Evidence is retained
+locally under `/home/ubuntu/occ-domain-evidence/`; no new GitHub-runner or target
+laptop measurement is claimed here. All existing thresholds remain unchanged.
+
+### Original analytics optimization
+
 Seconds; analytics are medians of three warm requests. Every run scores **60,455**
 grade-compatible pairs from the same 500 × 500 population.
 

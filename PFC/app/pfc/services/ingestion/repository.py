@@ -7,15 +7,9 @@ from typing import Literal
 
 from pfc.api.schemas.ingestion import IngestionRun, IssuePage, ReviewSnapshot, RunCounts
 from pfc.config import Settings
-from pfc.domain.config_loader import (
-    BenchStatus,
-    BenchStatuses,
-    DomainConfig,
-    GradeLadder,
-    load_domain_config,
-)
-from pfc.domain.normalise import normalise_term
+from pfc.domain.config_loader import DomainConfig
 from pfc.security.problems import Problem
+from pfc.services.occ.domain import occ_domain_config
 
 from .limits import WorkbookLimits
 from .models import Diff, Preview, RowIssue, RowKey
@@ -60,28 +54,7 @@ def existing_hashes(db: sqlite3.Connection, kind: str) -> dict[RowKey, str]:
 
 
 def domain_config(db: sqlite3.Connection) -> DomainConfig:
-    """Use OCC-editable DB reference data with domain skill/template defaults."""
-    defaults = load_domain_config()
-    statuses = {
-        r["code"]: BenchStatus(**dict(r)) for r in db.execute("SELECT * FROM bench_statuses")
-    }
-    mapping = {}
-    for row in db.execute("SELECT * FROM status_map"):
-        canonical = statuses.get(row["canonical_code"])
-        if canonical:
-            source = normalise_term(row["source_value"])
-            key = f"source:{source}"
-            statuses[key] = canonical.model_copy(
-                update={"is_excluded": bool(row["is_excluded"]), "priority": row["priority"]}
-            )
-            mapping[source] = key
-    codes = tuple(r[0] for r in db.execute("SELECT code FROM grades ORDER BY ordinal"))
-    return defaults.model_copy(
-        update={
-            "grades": GradeLadder(codes=codes) if codes else defaults.grades,
-            "bench_statuses": BenchStatuses(statuses=statuses, status_map=mapping),
-        }
-    )
+    return occ_domain_config(db)
 
 
 def parse(db: sqlite3.Connection, path: Path, kind: Literal["DL", "CT"]) -> Preview:

@@ -59,7 +59,7 @@ def test_seed_full_and_admin_edits(tmp_path: Path) -> None:
             ("skills", 1),
             ("skill_synonyms", 1),
             ("scoring_templates", 1),
-            ("settings", 1),
+            ("settings", 2),
             ("llm_models", 1),
             ("audit_log", 0),
         ]:

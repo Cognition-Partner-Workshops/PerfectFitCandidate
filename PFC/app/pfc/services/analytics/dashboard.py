@@ -6,6 +6,7 @@ import re
 from collections import Counter
 from dataclasses import fields
 from datetime import date, datetime
+from functools import cache
 from typing import Any
 
 from pfc.domain.scoring.models import Resource
@@ -240,6 +241,27 @@ def bench(p: Population) -> dict[str, Any]:
 
 def validation(p: Population) -> list[dict[str, Any]]:
     """REQ-OUT-01/02/03/10, P1-EX-04: inspect scored facts and output serializers."""
+    mask = cache(_mask_email)
+    required_mask = cache(_required_mask)
+
+    @cache
+    def valid_score(score: Any) -> bool:
+        return (
+            isinstance(score, (int, float))
+            and math.isfinite(score)
+            and 0 <= score <= 100
+            and re.fullmatch(r"(?:100\.0|\d{1,2}\.\d)%", export.display_percentage(score))
+            is not None
+        )
+
+    @cache
+    def valid_start(value: Any) -> bool:
+        try:
+            displayed = export.display_start_date(value)
+            return iso_date(value) and (displayed == "" or iso_date(displayed))
+        except (Problem, TypeError, ValueError):
+            return False
+
     ends, distances = [], []
     capacity_ok = all("capacity" not in field.name.casefold() for field in fields(Resource))
     email_ok, masked_ok, score_ok, dates_ok = True, True, True, True
@@ -259,7 +281,7 @@ def validation(p: Population) -> list[dict[str, Any]]:
         capacity_ok = capacity_ok and row["result_id"] not in capacity_violations
         source = row["email_address"]
         snapshot = row["email_snapshot"]
-        expected = _mask_email(source)
+        expected = mask(source)
         email_ok = (
             email_ok
             and bool(source)
@@ -269,24 +291,9 @@ def validation(p: Population) -> list[dict[str, Any]]:
                 else row["person_email"] == expected
             )
         )
-        masked_ok = masked_ok and bool(source) and row["person_email"] == _required_mask(source)
-        score = row["score"]
-        score_ok = score_ok and (
-            isinstance(score, (int, float))
-            and math.isfinite(score)
-            and 0 <= score <= 100
-            and re.fullmatch(r"(?:100\.0|\d{1,2}\.\d)%", export.display_percentage(score))
-            is not None
-        )
-        try:
-            displayed = export.display_start_date(row["start_date"])
-            dates_ok = (
-                dates_ok
-                and iso_date(row["start_date"])
-                and (displayed == "" or iso_date(displayed))
-            )
-        except (Problem, TypeError, ValueError):
-            dates_ok = False
+        masked_ok = masked_ok and bool(source) and row["person_email"] == required_mask(source)
+        score_ok = score_ok and valid_score(row["score"])
+        dates_ok = dates_ok and valid_start(row["start_date"])
     pending = ends.count("unparseable")
     checks = [
         (

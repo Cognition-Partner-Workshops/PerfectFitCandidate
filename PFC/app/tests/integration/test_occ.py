@@ -14,8 +14,10 @@ from pfc.api.schemas.llm import LlmHealth
 from pfc.config import Settings
 from pfc.db import audit, users
 from pfc.db.connection import database
+from pfc.db.migrate import migrate
 from pfc.main import create_app
 from pfc.security.passwords import hasher
+from pfc.services.occ.users import list_users
 
 PASSWORD = "Strong!Random4567"
 
@@ -109,6 +111,74 @@ def test_unchanged_role_preserves_session(client: TestClient) -> None:
         assert not db.execute(
             "SELECT 1 FROM sessions WHERE user_id=2 AND revoked_at IS NULL"
         ).fetchone()
+
+
+@pytest.mark.parametrize("role", ["Analyst", "Admin"])
+@pytest.mark.parametrize(
+    "email,masked",
+    [
+        ("AlexBorder@capgemini.com", "Al******er@capgemini.com"),
+        ("ab@x.com", "**@x.com"),
+        ("a@x.com", "*@x.com"),
+    ],
+)
+def test_req_out_03_occ_user_responses_are_masked(
+    client: TestClient, role: str, email: str, masked: str
+) -> None:
+    login(client)
+    created = client.post(
+        "/api/v1/occ/users",
+        json={
+            "email": email,
+            "display_name": "Account Name",
+            "role": role,
+        },
+    )
+    assert created.status_code == 201
+    account = created.json()["user"]
+    assert account["email"] == masked
+    assert account["display_name"] == "Account Name"
+    target = account["user_id"]
+    listed = client.get("/api/v1/occ/users")
+    assert next(row for row in listed.json() if row["user_id"] == target)["email"] == masked
+    assert "owner@example.com" not in listed.text
+    assert "worker@example.com" not in listed.text
+    assert email not in listed.text
+    updated = client.put(f"/api/v1/occ/users/{target}", json={"display_name": "Renamed Account"})
+    assert updated.status_code == 200
+    assert updated.json()["email"] == masked
+    assert updated.json()["display_name"] == "Renamed Account"
+    unlocked = client.post(f"/api/v1/occ/users/{target}/unlock")
+    assert unlocked.status_code == 200
+    assert unlocked.json()["email"] == masked
+    reset = client.post(f"/api/v1/occ/users/{target}/reset-password")
+    assert reset.status_code == 200
+    assert set(reset.json()) == {"user_id", "one_time_password"}
+    with database(client.app.state.settings) as db:
+        assert users.get_user_by_id(db, target).email == email
+    login(client, email, role, reset.json()["one_time_password"])
+
+
+def test_req_out_03_empty_occ_user_list(tmp_path: Path) -> None:
+    settings = Settings(data_dir=tmp_path)
+    migrate(settings)
+    with database(settings) as db:
+        assert list_users(db, 1) == []
+
+
+def test_req_out_03_invalid_user_email_does_not_create_account(client: TestClient) -> None:
+    login(client)
+    before = client.get("/api/v1/occ/users").json()
+    response = client.post(
+        "/api/v1/occ/users",
+        json={
+            "email": "",
+            "display_name": "Blank Email",
+            "role": "Analyst",
+        },
+    )
+    assert response.status_code == 422
+    assert client.get("/api/v1/occ/users").json() == before
 
 
 def test_users_and_password_reset(client: TestClient) -> None:
