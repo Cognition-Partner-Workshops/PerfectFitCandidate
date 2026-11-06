@@ -29,6 +29,10 @@ jobs:
       - name: Pytest
         run: pytest
         working-directory: PFC/app
+      - name: NFR-01 performance (offline, once per CI run)
+        if: runner.os == 'Linux'
+        run: pytest -m perf -s tests/perf
+        working-directory: PFC/app
 
   frontend:
     runs-on: ubuntu-latest
