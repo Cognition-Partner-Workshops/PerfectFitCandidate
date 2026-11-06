@@ -32,7 +32,7 @@ SEED = 19401
 SIZE = 500
 SAMPLES = 3
 MATCH_LIMIT_SECONDS = 180.0
-ANALYTICS_LIMIT_SECONDS = 35.0
+ANALYTICS_LIMIT_SECONDS = {"summary": 2.0, "demand": 2.0, "bench": 2.0, "match": 2.0}
 NOW = datetime(2026, 11, 6, tzinfo=UTC)
 SKILLS = (
     "SQL",
@@ -387,4 +387,4 @@ def test_nfr01_matching_and_analytics(tmp_path: Path) -> None:
         print("\nNFR01_RESULT=" + json.dumps(report, sort_keys=True))
         assert match_seconds <= MATCH_LIMIT_SECONDS
         for panel, timing in analytics.items():
-            assert timing["median_seconds"] <= ANALYTICS_LIMIT_SECONDS, panel
+            assert timing["median_seconds"] <= ANALYTICS_LIMIT_SECONDS[panel], panel
