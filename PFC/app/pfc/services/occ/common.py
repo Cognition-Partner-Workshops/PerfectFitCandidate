@@ -24,6 +24,7 @@ def audit_write(
     """REQ-AUTH-05: retain values except for PII entities and secret fields."""
 
     pii = entity_type in {"users", "resource_team_recipients"}
+    store = getattr(db, "secret_store", None)
     append_audit(
         db,
         ts=now(),
@@ -32,10 +33,10 @@ def audit_write(
         entity_type=entity_type,
         entity_id=str(entity_id),
         details={
-            "before": (sorted(before) if pii else redact_sensitive(before))
+            "before": (sorted(before) if pii else redact_sensitive(before, store=store))
             if before is not None
             else None,
-            "after": (sorted(after) if pii else redact_sensitive(after))
+            "after": (sorted(after) if pii else redact_sensitive(after, store=store))
             if after is not None
             else None,
         },

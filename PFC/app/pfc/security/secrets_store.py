@@ -1,7 +1,11 @@
 """REQ-AUTH-06: current-user DPAPI; file-key Fernet for non-Windows development/tests."""
 
+from __future__ import annotations
+
 import base64
 import ctypes
+import hmac
+import json
 import os
 import re
 import sys
@@ -81,28 +85,36 @@ def sensitive_setting(key: str, value: Any) -> bool:
     return isinstance(value, str) and value.startswith(PREFIX)
 
 
-def public_identity(key: str, value: Any) -> bool:
-    return key in {"id", "name", "provider"} and (
+def identity_scalar(key: str, value: Any) -> bool:
+    return key in {"id", "name", "key", "provider"} and (
         value is None or isinstance(value, (str, int, float, bool))
     )
 
 
-def redact_sensitive(value: Any, key: str = "") -> Any:
-    def redact(node: Any, sensitive: bool) -> Any:
+def redaction_fingerprint(value: Any) -> str | None:
+    match = re.fullmatch(r"\[REDACTED:([0-9a-f]{12})\]", value) if isinstance(value, str) else None
+    return match[1] if match else None
+
+
+def redacted_marker(value: Any) -> bool:
+    return isinstance(value, str) and (value == "[REDACTED]" or value.startswith("[REDACTED:"))
+
+
+def redact_sensitive(value: Any, key: str = "", *, store: SecretStore | None = None) -> Any:
+    def redact(node: Any, sensitive: bool, field: str) -> Any:
         if isinstance(node, dict):
             return {
-                k: v
-                if public_identity(str(k), v)
-                else redact(v, sensitive or sensitive_key(str(k)))
-                for k, v in node.items()
+                k: redact(v, sensitive or sensitive_key(str(k)), str(k)) for k, v in node.items()
             }
         if isinstance(node, list):
-            return [redact(v, sensitive) for v in node]
+            return [redact(v, sensitive, "") for v in node]
         if sensitive or (isinstance(node, str) and node.startswith(PREFIX)):
+            if identity_scalar(field, node) and store is not None:
+                return f"[REDACTED:{store.fingerprint(node)}]"
             return "[REDACTED]"
         return node
 
-    return redact(value, sensitive_key(key))
+    return redact(value, sensitive_key(key), key)
 
 
 class _Blob(ctypes.Structure):
@@ -164,6 +176,29 @@ class SecretStore:
     def __init__(self, data_dir: Path, *, file_key_fallback: bool = False) -> None:
         self.directory = data_dir / "keys"
         self.use_dpapi = sys.platform == "win32" and not file_key_fallback
+        self._identity_key: bytes | None = None
+
+    def fingerprint(self, value: Any) -> str:
+        try:
+            if self._identity_key is None:
+                self.directory.mkdir(parents=True, exist_ok=True)
+                path = self.directory / "identity.key"
+                with FileLock(self.directory / ".identity-key.lock", timeout=10):
+                    if not path.exists():
+                        encrypted = self.encrypt(os.urandom(32)).encode("ascii")
+                        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                        with os.fdopen(fd, "wb") as output:
+                            output.write(encrypted)
+                    self._identity_key = self.decrypt(path.read_text(encoding="ascii"))
+                if len(self._identity_key) != 32:
+                    self._identity_key = None
+                    raise SecretStoreError("Invalid fingerprint key")
+            canonical = json.dumps(
+                value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+            ).encode("utf-8")
+            return hmac.digest(self._identity_key, canonical, "sha256").hex()[:12]
+        except (OSError, ValueError) as exc:
+            raise SecretStoreError("Secret fingerprint unavailable") from exc
 
     def _fernet(self, *, create: bool) -> Fernet:
         self.directory.mkdir(parents=True, exist_ok=True)

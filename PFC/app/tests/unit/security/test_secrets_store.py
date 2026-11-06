@@ -1,5 +1,7 @@
 """REQ-AUTH-06: development fallback and mocked DPAPI dispatch; not Windows validation."""
 
+import hmac
+import json
 import sys
 from pathlib import Path
 
@@ -161,9 +163,22 @@ def test_tokens_per_minute_is_not_a_credential() -> None:
 
 @pytest.mark.parametrize("key", ["id", "name", "provider"])
 @pytest.mark.parametrize("value", [None, False, 0, 1.5, "", "provider-a"])
-def test_scalar_identity_is_public_under_sensitive_parent(key: str, value: object) -> None:
-    assert redact_sensitive({"auth": [{key: value, "key": "private", "token": "private"}]}) == {
-        "auth": [{key: value, "key": "[REDACTED]", "token": "[REDACTED]"}],
+def test_scalar_identity_is_fingerprinted_under_sensitive_parent(
+    tmp_path: Path,
+    key: str,
+    value: object,
+) -> None:
+    store = SecretStore(tmp_path, file_key_fallback=True)
+    assert redact_sensitive(
+        {"auth": [{key: value, "key": "private", "token": "private"}]}, store=store
+    ) == {
+        "auth": [
+            {
+                key: f"[REDACTED:{store.fingerprint(value)}]",
+                "key": f"[REDACTED:{store.fingerprint('private')}]",
+                "token": "[REDACTED]",
+            }
+        ],
     }
 
 
@@ -175,3 +190,17 @@ def test_structured_identity_is_not_public() -> None:
     ) == {
         "auth": {"id": {"token": "[REDACTED]"}, "name": ["[REDACTED]"], "provider": "[REDACTED]"},
     }
+
+
+def test_fingerprints_are_keyed_canonical_and_install_specific(tmp_path: Path) -> None:
+    store = SecretStore(tmp_path, file_key_fallback=True)
+    value = {"b": 2, "a": "é"}
+    actual = store.fingerprint(value)
+    key = store.decrypt((tmp_path / "keys" / "identity.key").read_text())
+    canonical = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode()
+    assert actual == hmac.digest(key, canonical, "sha256").hex()[:12]
+    assert SecretStore(tmp_path, file_key_fallback=True).fingerprint({"a": "é", "b": 2}) == actual
+    assert SecretStore(tmp_path / "other", file_key_fallback=True).fingerprint(value) != actual
+    assert store.fingerprint(False) != store.fingerprint(0)

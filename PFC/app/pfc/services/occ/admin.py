@@ -1,4 +1,5 @@
 import csv
+import hmac
 import io
 import json
 import re
@@ -13,8 +14,10 @@ from pfc.security.secrets_store import (
     PREFIX,
     SecretStore,
     SecretStoreError,
-    public_identity,
+    identity_scalar,
     redact_sensitive,
+    redacted_marker,
+    redaction_fingerprint,
     sensitive_key,
     sensitive_setting,
 )
@@ -24,12 +27,28 @@ _MISSING = object()
 
 
 def _restore_redacted(value: Any, previous: Any, key: str, settings: Settings) -> Any:
+    store = SecretStore(settings.data_dir)
+
     def has_marker(node: Any) -> bool:
         if isinstance(node, dict):
             return any(has_marker(v) for v in node.values())
         if isinstance(node, list):
             return any(has_marker(v) for v in node)
-        return node == "[REDACTED]"
+        return redacted_marker(node)
+
+    if not has_marker(value):
+        return value
+
+    def fingerprint(node: Any, *, stored: bool = False) -> str:
+        if not stored and redacted_marker(node):
+            result = redaction_fingerprint(node)
+            if result is None:
+                raise Problem(422, "VALIDATION_ERROR", "Invalid identity fingerprint")
+            return result
+        try:
+            return store.fingerprint(node)
+        except SecretStoreError as exc:
+            raise Problem(503, "SECRET_STORE_UNAVAILABLE", "Secret storage unavailable") from exc
 
     def existing_at(path: tuple[Any, ...]) -> Any:
         nonlocal previous
@@ -51,8 +70,7 @@ def _restore_redacted(value: Any, previous: Any, key: str, settings: Settings) -
                     for item in old
                     if isinstance(item, dict)
                     and identity in item
-                    and type(item[identity]) is type(expected)
-                    and item[identity] == expected
+                    and hmac.compare_digest(fingerprint(item[identity], stored=True), expected)
                 ]
                 if len(matches) != 1:
                     return _MISSING
@@ -64,16 +82,14 @@ def _restore_redacted(value: Any, previous: Any, key: str, settings: Settings) -
     def restore(node: Any, path: tuple[Any, ...], sensitive: bool) -> Any:
         if isinstance(node, dict):
             return {
-                k: v
-                if public_identity(str(k), v)
-                else restore(v, (*path, k), sensitive or sensitive_key(str(k)))
+                k: restore(v, (*path, k), sensitive or sensitive_key(str(k)))
                 for k, v in node.items()
             }
         if isinstance(node, list):
             identities = [
                 next(
                     (
-                        (name, item[name])
+                        (name, fingerprint(item[name]))
                         for name in ("id", "name", "key", "provider")
                         if isinstance(item, dict) and name in item and item[name] != "[REDACTED]"
                     ),
@@ -89,8 +105,7 @@ def _restore_redacted(value: Any, previous: Any, key: str, settings: Settings) -
                         for other, candidate in zip(node, identities, strict=True)
                         if candidate is not None
                         and identity[0] == candidate[0]
-                        and type(identity[1]) is type(candidate[1])
-                        and identity[1] == candidate[1]
+                        and hmac.compare_digest(identity[1], candidate[1])
                     ]
                     if len(duplicates) > 1 and any(has_marker(other) for other in duplicates):
                         raise Problem(
@@ -98,12 +113,23 @@ def _restore_redacted(value: Any, previous: Any, key: str, settings: Settings) -
                         )
                 result.append(restore(item, (*path, identity), sensitive))
             return result
-        if node == "[REDACTED]":
+        if redacted_marker(node):
+            if node == "[REDACTED]" and path and identity_scalar(str(path[-1]), node):
+                raise Problem(422, "VALIDATION_ERROR", "Identity requires a fingerprint")
             old = existing_at(path)
             if None in path or (old is _MISSING and any(isinstance(p, tuple) for p in path)):
                 raise Problem(
                     422, "VALIDATION_ERROR", "Re-enter the credential; no unique identity match"
                 )
+            if node != "[REDACTED]":
+                supplied = redaction_fingerprint(node)
+                if (
+                    old is _MISSING
+                    or supplied is None
+                    or not hmac.compare_digest(supplied, fingerprint(old, stored=True))
+                ):
+                    raise Problem(422, "VALIDATION_ERROR", "Identity fingerprint does not match")
+                return old
             if sensitive or (isinstance(old, str) and old.startswith(PREFIX)):
                 if old is _MISSING:
                     raise Problem(
@@ -221,7 +247,12 @@ def settings_get(db: sqlite3.Connection, user_id: int, settings: Settings) -> di
             except (SecretStoreError, ValueError, UnicodeError):
                 result[row["key"]] = "[REDACTED]"
                 continue
-        result[row["key"]] = redact_sensitive(value, row["key"])
+        try:
+            result[row["key"]] = redact_sensitive(
+                value, row["key"], store=SecretStore(settings.data_dir)
+            )
+        except SecretStoreError:
+            result[row["key"]] = "[REDACTED]"
     return result
 
 

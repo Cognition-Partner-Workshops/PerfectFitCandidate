@@ -598,31 +598,102 @@ def test_reordered_providers_keep_their_credentials(client: TestClient, identity
         }
 
 
-@pytest.mark.parametrize("identity", ["id", "name", "provider"])
+@pytest.mark.parametrize("identity", ["id", "name", "key", "provider"])
 def test_auth_list_identity_survives_redaction(client: TestClient, identity: str) -> None:
     setup(client)
     login(client)
     options = {
-        "auth": [{identity: "first", "key": "PrivateKey", "token": "PrivateToken"}],
+        "auth": [
+            {identity: "first", "token": "PrivateToken"},
+            {identity: "second", "token": "SecondPrivateToken"},
+        ],
         "enabled": True,
     }
+    if identity not in {"key", "provider"}:
+        for item in options["auth"]:
+            item["key"] = "PrivateKey"
     response = client.put("/api/v1/occ/settings", json={"provider.options": options})
     assert response.status_code == 200
     updated = client.get("/api/v1/occ/settings").json()
-    assert updated["provider.options"]["auth"][0] == {
-        identity: "first",
-        "key": "[REDACTED]",
-        "token": "[REDACTED]",
-    }
+    store = SecretStore(client.app.state.settings.data_dir)
+    for original, redacted in zip(
+        options["auth"], updated["provider.options"]["auth"], strict=True
+    ):
+        assert redacted[identity] == f"[REDACTED:{store.fingerprint(original[identity])}]"
+        assert redacted["token"] == "[REDACTED]"
+        for name, value in original.items():
+            assert value not in response.text
+            if name == "key":
+                assert redacted[name] == f"[REDACTED:{store.fingerprint(value)}]"
+    updated["provider.options"]["auth"].reverse()
     updated["provider.options"]["enabled"] = False
     assert client.put("/api/v1/occ/settings", json=updated).status_code == 200
     options["enabled"] = False
+    options["auth"].reverse()
     with database(client.app.state.settings) as db:
         stored = json.loads(
             db.execute("SELECT value_json FROM settings WHERE key='provider.options'").fetchone()[0]
         )
         assert (
             json.loads(SecretStore(client.app.state.settings.data_dir).decrypt(stored)) == options
+        )
+
+
+@pytest.mark.parametrize("forged", [False, True])
+def test_auth_fingerprint_rejects_duplicates_and_forgeries(
+    client: TestClient, forged: bool
+) -> None:
+    setup(client)
+    login(client)
+    options = {
+        "auth": [
+            {
+                "id": "ClientIdentitySecret",
+                "name": "ClientNameSecret",
+                "provider": "ProviderSecret",
+                "key": "KeySecret",
+                "token": "TokenSecret",
+            }
+        ]
+    }
+    assert client.put("/api/v1/occ/settings", json={"provider.options": options}).status_code == 200
+    updated = client.get("/api/v1/occ/settings").json()
+    for name, value in options["auth"][0].items():
+        assert value not in json.dumps(updated)
+        assert updated["provider.options"]["auth"][0][name].startswith("[REDACTED")
+    with database(client.app.state.settings) as db:
+        audit_write(db, 1, "OCC_EDIT", "fingerprint-review", "auth", options, options)
+        details = json.loads(
+            db.execute(
+                "SELECT details_json FROM audit_log WHERE entity_type='fingerprint-review'"
+            ).fetchone()[0]
+        )
+        assert details["before"] == updated["provider.options"]
+        assert details["after"] == updated["provider.options"]
+        for value in options["auth"][0].values():
+            assert value not in json.dumps(details)
+    if forged:
+        identity = updated["provider.options"]["auth"][0]["id"]
+        updated["provider.options"]["auth"][0]["id"] = (
+            "[REDACTED:" + ("0" if identity[10] != "0" else "1") + identity[11:]
+        )
+    else:
+        updated["provider.options"]["auth"].append(
+            {
+                "id": "ClientIdentitySecret",
+                "token": "ReplacementSecret",
+            }
+        )
+    with database(client.app.state.settings) as db:
+        before = db.execute(
+            "SELECT value_json FROM settings WHERE key='provider.options'"
+        ).fetchone()[0]
+    response = client.put("/api/v1/occ/settings", json=updated)
+    assert response.status_code == 422
+    with database(client.app.state.settings) as db:
+        assert (
+            db.execute("SELECT value_json FROM settings WHERE key='provider.options'").fetchone()[0]
+            == before
         )
 
 
@@ -649,6 +720,10 @@ def test_auth_list_identity_survives_redaction(client: TestClient, identity: str
             {"items": [{"id": 1, "token": "[REDACTED]"}]},
         ),
         ({"items": [{"id": 1, "enabled": True}]}, {"items": [{"id": 1, "token": "[REDACTED]"}]}),
+        (
+            {"items": [{"id": 1, "name": "first", "token": "FirstSecret"}]},
+            {"items": [{"id": "[REDACTED]", "name": "first", "token": "[REDACTED]"}]},
+        ),
         (
             {"items": [{"id": 1, "token": "FirstSecret"}]},
             {"items": [{"id": 1, "token": "[REDACTED]"}, {"id": 1, "token": "ExplicitSecret"}]},
