@@ -93,6 +93,23 @@ def test_rewrites_do_not_create_duplicates(config: DomainConfig) -> None:
     assert result.preferred_skills[0].canonicalized_from is None
 
 
+@pytest.mark.parametrize("existing_field", ["mandatory_skills", "preferred_skills"])
+def test_existing_alias_in_either_list_blocks_rewrite(existing_field: str) -> None:
+    config = load_domain_config().model_copy(
+        update={"synonyms": SynonymTable([SynonymRow("Business analysis", "Business Analyst")])}
+    )
+    data = Requirements(mandatory_skills=[{"text": "Business Analysis experience"}])
+    getattr(data, existing_field).append(
+        Requirements(mandatory_skills=[{"text": "Business Analyst"}]).mandatory_skills[0]
+    )
+    result = _canonicalize_skills(data, config)
+    assert result == data
+    assert all(
+        item.canonicalized_from is None
+        for item in [*result.mandatory_skills, *result.preferred_skills]
+    )
+
+
 def test_empty_and_non_skill_fields_unchanged(config: DomainConfig) -> None:
     assert _canonicalize_skills(Requirements(), config) == Requirements()
     data = Requirements(experience=[{"text": "Use Python"}], qualifications=[{"text": "Use SQL"}])

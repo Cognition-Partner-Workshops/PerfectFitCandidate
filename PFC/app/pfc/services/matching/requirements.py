@@ -114,6 +114,11 @@ def _canonicalize_skills(data: Requirements, config: DomainConfig) -> Requiremen
     )
     skills = [*data.mandatory_skills, *data.preferred_skills]
     present = {normalise_term(item.text) for item in skills}
+    present.update(
+        normalise_term(canonical)
+        for item in skills
+        if (canonical := config.synonyms.resolve(item.text)) is not None
+    )
     for item in skills:
         if config.synonyms.resolve(item.text) is not None:
             continue

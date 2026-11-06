@@ -117,6 +117,17 @@ than copying canonicalization logic or adding aliases to the scorer. The fresh
 default seed contains **13 skills and 31 synonym rows**. Exact-text harness
 scoring is unchanged.
 
+Review follow-up: the duplicate guard now includes both normalized item text
+and its resolved canonical, so an existing alias such as "Business Analyst"
+also blocks a rewrite to "Business analysis". After figures below were
+recomputed offline from the captured raw responses in `after-canon/`, using the
+production bridge/canonicalizer and a fresh default-seeded DB. All original-ten
+lists and all held-out lists remain identical to the live after results; jd11's
+Python and jd12's SQL rewrites are retained. Schema-invalid counts remain zero
+and LLM-used share remains 100%. Latency/RSS remain the earlier live measurements,
+not new offline measurements. The replay is saved outside git as
+`~/pfc-models/llm/after-canon/alias-guard-recomputed.json`.
+
 #### Original ten
 
 jd01–jd10 plus ten CVs; latency covers twenty generation calls.
@@ -201,7 +212,8 @@ those rewrites and longest-first masking without expanding production seeds.
 Already-resolvable items are untouched. Otherwise approved resolvable terms
 are matched longest-first as whole words in normalized text, masking matched
 spans so C does not also match inside C++. Exactly one canonical must be found,
-and its normalized name must not already occur in either skill list. Related-only
+and its normalized name must not already occur as item text or a resolved canonical
+in either skill list. Related-only
 terms do not qualify. Evidence and the other item metadata are preserved.
 
 The original phrase is stored as nullable `canonicalized_from` in revision
