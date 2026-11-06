@@ -195,10 +195,24 @@ def _persist(
     text = normalise_text(version.text_norm)
     digest = hashlib.sha256(text.encode()).hexdigest()
     existing = db.execute(
-        "SELECT cv_version_id FROM cv_versions WHERE resume_id=? AND text_sha256=?",
+        "SELECT cv_version_id,candidate_id FROM cv_versions WHERE resume_id=? AND text_sha256=?",
         (resume_id, digest),
     ).fetchone()
     if existing:
+        if existing["candidate_id"] is None and candidate_id is not None:
+            number = db.execute(
+                "SELECT coalesce(max(version_no),0)+1 FROM cv_versions WHERE candidate_id=?",
+                (candidate_id,),
+            ).fetchone()[0]
+            db.execute(
+                "UPDATE cv_versions SET candidate_id=?,version_no=?,identity_match=? "
+                "WHERE cv_version_id=?",
+                (candidate_id, number, version.identity_match, existing["cv_version_id"]),
+            )
+            db.execute(
+                "UPDATE resumes SET candidate_id=? WHERE resume_id=? AND candidate_id IS NULL",
+                (candidate_id, resume_id),
+            )
         return existing[0], False
     number = db.execute(
         "SELECT coalesce(max(version_no),0)+1 FROM cv_versions WHERE candidate_id IS ?",

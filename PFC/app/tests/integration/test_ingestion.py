@@ -1024,3 +1024,49 @@ def test_req_in_24_renamed_resume_updates_metadata_without_new_version(
     assert summary["new_versions"] == 0 and summary["unchanged"] == 1
     with database(client.app.state.settings) as db:
         assert db.execute("SELECT source_path FROM resumes").fetchone()[0] == "Renamed.docx"
+
+
+def test_req_in_24_previously_unmatched_cv_attaches_after_identity_resolves(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(client, upload(client, "ct", [{}]))
+    resume_docx(root, "Old.docx", "morgan@example.com SQL", 1767225600)
+    first = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert first["unmatched"] == 1 and first["new_versions"] == 1
+    with database(client.app.state.settings) as db:
+        orphan_id = db.execute("SELECT cv_version_id FROM cv_versions").fetchone()[0]
+        assert db.execute("SELECT candidate_id FROM cv_versions").fetchone()[0] is None
+    commit(
+        client,
+        upload(
+            client,
+            "ct",
+            [
+                {},
+                {"ShortName": "Morgan", "Email Address": "morgan@example.com"},
+            ],
+        ),
+    )
+    resume_docx(root, "Recent.docx", "morgan@example.com Python", 1767400000)
+    resolved = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert resolved["new_versions"] == 1 and resolved["unchanged"] == 1
+    with database(client.app.state.settings) as db:
+        candidate_id = db.execute(
+            "SELECT candidate_id FROM resources WHERE short_name_key='morgan'"
+        ).fetchone()[0]
+        assert (
+            db.execute("SELECT candidate_id FROM resumes WHERE source_path='Old.docx'").fetchone()[
+                0
+            ]
+            == candidate_id
+        )
+    history = client.get(f"/api/v1/candidates/{candidate_id}/cv-versions").json()
+    assert [(v["version_no"], v["is_latest"]) for v in history] == [(2, True), (1, False)]
+    assert history[1]["cv_version_id"] == orphan_id
+    assert all(v["identity_match"] == "email_exact" for v in history)
+    repeat = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert repeat["new_versions"] == 0 and repeat["unchanged"] == 2
