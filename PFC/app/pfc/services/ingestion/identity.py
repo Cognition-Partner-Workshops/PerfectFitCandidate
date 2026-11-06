@@ -16,6 +16,7 @@ from pfc.api.schemas.candidates import (
 )
 from pfc.db.audit import append_audit
 from pfc.security.problems import Problem
+from pfc.services.candidates.classification import reclassify_candidate
 
 from .browse import _mask
 from .cv_facts import public_facts
@@ -318,6 +319,9 @@ def resolve(
             "DO UPDATE SET email=excluded.email,source='CT',confirmed=1",
             (candidate_id, row["email_address"], row["email_key"]),
         )
+        reclassify_candidate(db, candidate_id)
+        if old_id is not None and old_id != candidate_id:
+            reclassify_candidate(db, old_id)
         status = "complete"
     else:
         status = "review_later" if body.action == "review_later" else "complete"

@@ -21,6 +21,8 @@ from pfc.security.secrets_store import (
     sensitive_key,
     sensitive_setting,
 )
+from pfc.services.candidates import classification
+from pfc.services.candidates.classification import normalize_domain
 from pfc.services.occ.common import audit_write, get_row, now
 from pfc.services.occ.seed import RELATED_SEED_MARKER
 
@@ -178,14 +180,6 @@ def delete_recipient(db: sqlite3.Connection, user_id: int, target: int) -> None:
     audit_write(db, user_id, "OCC_EDIT", "resource_team_recipients", target, before, None)
 
 
-def normalize_domain(domain: str) -> str:
-    domain = domain.strip().lstrip("@").strip().lower()
-    label = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
-    if len(domain) > 253 or not re.fullmatch(rf"{label}(?:\.{label})+", domain):
-        raise Problem(422, "VALIDATION_ERROR", "Invalid domain")
-    return domain
-
-
 def domains(db: sqlite3.Connection, user_id: int) -> list[dict[str, Any]]:
     """REQ-CLS-01: explicit normalized internal-domain allowlist."""
     return [dict(r) for r in db.execute("SELECT * FROM internal_email_domains ORDER BY domain")]
@@ -222,6 +216,7 @@ def add_domain(db: sqlite3.Connection, user_id: int, domain: str) -> dict[str, A
     )
     after = get_row(db, "internal_email_domains", "domain", domain)
     audit_write(db, user_id, "OCC_EDIT", "internal_email_domains", domain, None, after)
+    classification.reclassify_all(db, user_id=user_id)
     return after
 
 
@@ -230,6 +225,7 @@ def delete_domain(db: sqlite3.Connection, user_id: int, domain: str) -> None:
     before = get_row(db, "internal_email_domains", "domain", domain)
     db.execute("DELETE FROM internal_email_domains WHERE domain=?", (domain,))
     audit_write(db, user_id, "OCC_EDIT", "internal_email_domains", domain, before, None)
+    classification.reclassify_all(db, user_id=user_id)
 
 
 def settings_get(db: sqlite3.Connection, user_id: int, settings: Settings) -> dict[str, Any]:
