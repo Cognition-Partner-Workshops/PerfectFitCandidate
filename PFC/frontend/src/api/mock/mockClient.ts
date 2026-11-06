@@ -49,6 +49,7 @@ import type {
   AuditQuery,
   Grade,
   LlmModel as OccLlmModel,
+  MatchRunRequest,
 } from '../types'
 import {
   ADMIN_SETTINGS,
@@ -403,6 +404,8 @@ export class MockApiClient implements ApiClient {
     })
   }
 
+  private lastRun: { mode: 'incremental' | 'full'; reason: string } = { mode: 'full', reason: 'requested_full' }
+
   private run(): MatchRun {
     const results = this.computeResults()
     const scored = this.state.demands.filter((d) => d.jdStatus === 'Confirmed')
@@ -418,7 +421,19 @@ export class MockApiClient implements ApiClient {
       rolesWithoutCandidate: without,
       dataChangedSinceRun: (this.state.dataChanges ?? []).length > 0,
       dataChangedReasons: [...(this.state.dataChanges ?? [])],
+      scope: 'full',
+      demandIds: [],
+      mode: this.lastRun.mode,
+      modeReason: this.lastRun.reason,
     }
+  }
+
+  async startMatchRun(req: MatchRunRequest) {
+    this.currentUser()
+    // Mirrors the backend: only a full-scope run can be incremental.
+    this.lastRun = req.incremental && req.scope === 'full' ? { mode: 'incremental', reason: 'inputs_compared' } : { mode: 'full', reason: req.incremental ? 'scope_not_full' : 'requested_full' }
+    this.state.dataChanges = []
+    return this.done({ runId: 1, jobId: 1 })
   }
 
   private noteDataChange(reason: string): void {

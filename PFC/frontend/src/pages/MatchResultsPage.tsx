@@ -17,6 +17,7 @@ import { useAuth } from '../auth/context'
 import { canEdit } from '../lib/permissions'
 import { groupExcluded, type ExcludedPerson } from '../lib/excluded'
 import { DataChangedBanner } from '../components/DataChangedBanner'
+import { runMode } from '../lib/runMode'
 
 function OverrideDialog({ row, onClose }: { row: MatchResult; onClose: () => void }) {
   const qc = useQueryClient()
@@ -306,7 +307,8 @@ export function MatchResultsPage() {
       </div>
     )
   }
-  const meta = `Run ${formatDateTime(run.finishedAt)} · Model ${run.llmModel} · Template v${run.templateVersion}`
+  const mode = runMode(run)
+  const meta = `Run ${formatDateTime(run.finishedAt)} · Model ${run.llmModel} · Template v${run.templateVersion}${mode ? ` · Mode: ${mode}` : ''}`
   const selectedVisible = rows.filter((r) => selected.has(r.resultId))
   const groups = grouped ? groupByRequisition(rows) : [['', rows] as [string, MatchResult[]]]
   const canOverride = !!user && canEdit(user.role, 'matchOverrides')

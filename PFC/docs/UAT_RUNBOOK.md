@@ -226,11 +226,10 @@ Requirements: NFR-01, REQ-MAT-07 (incremental re-scoring); exit criterion P1-EX-
    `http://127.0.0.1:<port>/api/v1/match-runs`.
 4. Change five CT rows in the synthetic workbook (for example a skill or a location),
    then upload, approve and commit it.
-5. Start an incremental run. In the browser's developer tools (F12) → Console, on the
-   signed-in PFC tab, run:
-   `fetch('/api/v1/match-runs', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRF-Token': '<token>'}, body: JSON.stringify({incremental: true})})`.
-   Copy `<token>` from the `X-CSRF-Token` request header of any recent POST in the
-   Network tab; don't record it. Read the timestamps as in action 3.
+5. Open **Match Results** and reload. The "Data changed since this run" banner names
+   "DL/CT committed". Choose **Re-run changed only**, wait for the run to complete and
+   reload. Read the timestamps as in action 3, and the **Mode** in the run summary
+   (`incremental`, or `full (<reason>)` if the backend had to score everything).
 6. On **Dashboard**, change each filter once (BU, region, account, grade) and switch
    between panels. In developer tools → Network, record the slowest `/api/v1/analytics/*`
    request and the time until the panel shows the new data.
@@ -239,7 +238,7 @@ Requirements: NFR-01, REQ-MAT-07 (incremental re-scoring); exit criterion P1-EX-
 **Expected result**
 
 - The full run completes within the NFR-01 target in REQUIREMENTS_BASELINE.md.
-- The incremental run completes, and faster than the full run.
+- The incremental run completes with Mode `incremental`, faster than the full run, and the banner clears.
 - Every dashboard and Match Results interaction completes in < 2 s.
 
 **Evidence**
