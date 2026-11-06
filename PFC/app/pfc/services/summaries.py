@@ -47,6 +47,15 @@ def source(db: sqlite3.Connection, kind: OwnerKind, owner_id: int) -> tuple[int,
     return (row[0], row[1] or "") if row else None
 
 
+def _stale(current: tuple[int, str] | None, version_id: int, source_sha256: str) -> bool:
+    return (
+        current is None
+        or current[0] != version_id
+        or not current[1].strip()
+        or hashlib.sha256(current[1].encode("utf-8")).hexdigest() != source_sha256
+    )
+
+
 def latest(settings: Settings, kind: OwnerKind, owner_id: int) -> SummaryView:
     with database(settings) as db:
         row = db.execute(
@@ -61,7 +70,7 @@ def latest(settings: Settings, kind: OwnerKind, owner_id: int) -> SummaryView:
             sentences=json.loads(row["sentences_json"]),
             model=row["model"],
             created_at=row["created_at"],
-            stale=current is None or current[0] != row["source_version_id"],
+            stale=_stale(current, row["source_version_id"], row["source_sha256"]),
             dropped_ungrounded=row["dropped_ungrounded"],
             source_version_id=row["source_version_id"],
         )
@@ -134,6 +143,7 @@ def generate(
     if provider is None:
         raise Problem(503, "LLM_UNAVAILABLE", "Local summary provider is unavailable")
     version_id, text = original
+    source_sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
     document, model = from_thread.run(_generate, provider, text)
     normalised = _normalise(text)
     kept = [
@@ -160,7 +170,7 @@ def generate(
                 kind,
                 owner_id,
                 version_id,
-                hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                source_sha256,
                 model,
                 json.dumps([item.model_dump() for item in masked]),
                 len(document.sentences) - len(kept),
@@ -173,7 +183,7 @@ def generate(
             sentences=masked,
             model=model,
             created_at=now,
-            stale=current is None or current[0] != version_id,
+            stale=_stale(current, version_id, source_sha256),
             dropped_ungrounded=len(document.sentences) - len(kept),
             source_version_id=version_id,
         )
