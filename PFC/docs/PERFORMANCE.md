@@ -314,7 +314,93 @@ The supervisor stopped the server after the run. Default pytest needs no model,
 binary or download. This evidence does not replace locked-down Windows laptop
 validation, representative full-size inputs, or analyst review.
 
-+### Before versus after2 — Linux VM, not target laptop
+### Current main re-baseline — Linux VM, not target laptop
+
+Main's REQ-MAT-06 change added `ExtractedItem.evidence_unverified` to the
+generation schema, so both sides were rerun rather than reusing the older
+baseline. These are the **current results**; the earlier pair below is history.
+
+| Run | Source commit | External report directory |
+|---|---|---|
+| Before-m, current origin/main at fetch | `a81110ac05552ab3fb62bbf283a2f5bfd908b90c` | `~/pfc-models/llm/before-m/` |
+| After-m, merged branch | `6b43110c257ebd51403521a5da46af4d79e3a4eb` | `~/pfc-models/llm/after-m/` |
+
+The before run used a detached main worktree and its own Python modules.
+All four probes ran serially with temperature 0 and seed 0. The main and
+merged generation-schema JSON were checked byte-identical, including
+`evidence_unverified`; only the branch's internal `classification_reason`
+is excluded from generation. The prompt is unchanged.
+
+Artifacts: Qwen3-4B-Instruct-2507-Q4_K_M GGUF SHA-256
+`2fde00ce69dd4899c70d020845e2638353015bba0fdf161b3eb965f2bca4464e`;
+official Linux CPU llama.cpp **b8936**, version **8936 (2dd84169d)**.
+Archive SHA-256:
+`9eb1116a03be6ab2056c38788cc90a1a86541443bf44b703eb6e2f809b068438`.
+The archive hash and all 43 extracted binary/library files were reverified;
+each probe also verified the GGUF hash. Raw reports and source-SHA records
+remain outside git in the directories above.
+
+#### Original ten — current re-baseline
+
+Default fixtures: jd01–jd10 and ten CVs. Latency covers twenty calls.
+
+| Metric | Before-m (main) | After-m (merged branch) |
+|---|---:|---:|
+| Mandatory precision | 94.12% (16/17) | 100% (16/16) |
+| Mandatory recall | 100% (16/16) | 100% (16/16) |
+| Preferred precision | 100% (10/10) | 100% (10/10) |
+| Preferred recall | 100% (10/10) | 100% (10/10) |
+| JD schema-invalid count | 0 | 0 |
+| JD LLM-used share | 100% (10/10) | 100% (10/10) |
+| JD fallback count | 0 | 0 |
+| Generation calls | 20 | 20 |
+| Median latency | 13.654 s | 16.944 s |
+| Maximum latency | 47.385 s | 38.620 s |
+| Startup → healthy | 3.548 s | 3.558 s |
+| Peak server RSS/HWM | 5,555,314,688 bytes | 5,555,421,184 bytes |
+| Final CV fact/span failures | 0 | 0 |
+
+**Gate: PASS.** Main still duplicates PostgreSQL on jd05. Its mandatory list
+changes only from `["SQL", "PostgreSQL"]` to `["SQL"]`; PostgreSQL remains
+preferred with `classification_adjusted`. Every other per-JD mandatory and
+preferred text list, including order and casing, is identical.
+Raw responses are byte-identical for **20/20 calls**. Only jd05's duplicate
+post-check changes a skill list; no fallback or schema failure occurred.
+
+#### Held-out five — current re-baseline
+
+Same separate jd11–jd15 fixtures, with no CVs; no tuning was performed.
+
+| Metric | Before-m (main) | After-m (merged branch) |
+|---|---:|---:|
+| Mandatory precision | 10% (1/10) | 10% (1/10) |
+| Mandatory recall | 11.11% (1/9) | 11.11% (1/9) |
+| Preferred precision | 20% (1/5) | 20% (1/5) |
+| Preferred recall | 20% (1/5) | 20% (1/5) |
+| JD schema-invalid count | 0 | 0 |
+| JD LLM-used share | 100% (5/5) | 100% (5/5) |
+| JD fallback count | 0 | 0 |
+| Generation calls | 5 | 5 |
+| Median latency | 21.323 s | 36.832 s |
+| Maximum latency | 22.758 s | 49.187 s |
+| Startup → healthy | 3.047 s | 3.102 s |
+| Peak server RSS/HWM | 5,118,488,576 bytes | 5,118,472,192 bytes |
+
+**Gate: PASS.** All held-out skill lists and extraction metrics are unchanged;
+raw responses are byte-identical for **5/5 calls**. The poor exact-text scores
+and every missed/extra phrase are also unchanged from after2: jd13 is correct;
+jd11, jd12, jd14 and jd15 retain expanded phrases, with an extra task phrase on
+jd14. The historical canonicalization table below still describes the same
+misses; canonicalization was not rerun or changed.
+
+**Report-only timing flag:** held-out maximum latency increased **2.161×**
+(22.758 s → 49.187 s). Latency and RSS are not extraction gates.
+These VM observations are not a controlled post-check-overhead measurement
+and do not certify target-laptop performance. Both runs stayed below the
+8 GB memory ceiling. Machine-readable per-JD/raw-versus-final comparisons
+are in `~/pfc-models/llm/after-m/comparison.json`.
+
+### Historical: Before versus after2 — Linux VM, not target laptop
 
 The gate is **extraction quality**, not VM latency. Generation uses temperature
 0 and seed 0. The restored system prompt and generation-schema JSON were checked
