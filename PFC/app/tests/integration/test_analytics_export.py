@@ -582,3 +582,33 @@ def test_export_rejects_unknown_filter_values(populated: tuple[Api, dict[str, An
     for query in ("candidateType=Robot", "incompleteIdentity=maybe", "mandatorySkills=some"):
         response = api[0].get(f"{PREFIX}/match-runs/{ids['run']}/export?{query}")
         assert response.status_code == 422, (query, response.text)
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("account=acme", ["Avg", "Strong"]),
+        ("account=Acme%20Bank", ["Weak"]),
+        ("personLocation=ACME", ["Strong"]),
+        ("personLocation=acme%20bank", ["Weak"]),
+        ("status=Acme", ["Strong"]),
+        ("status=Acme%20bank", ["Weak"]),
+        ("account=Acm", []),
+        ("requisition=t1", ["Avg", "Strong", "Weak"]),
+    ],
+)
+def test_dropdown_filters_match_exactly(
+    populated: tuple[Api, dict[str, Any]], query: str, expected: list[str]
+) -> None:
+    api, ids = populated
+    demands, resources = ids["demands"], ids["resources"]
+    with database(api[0].app.state.settings) as db:
+        for demand, account in ((demands[0], "Acme"), (demands[1], "Acme Bank")):
+            db.execute("UPDATE demands SET account_name=? WHERE demand_id=?", (account, demand))
+        for resource, value in zip(resources[:3], ("Acme", "Acme Bank", "Other"), strict=True):
+            db.execute(
+                "UPDATE resources SET location=?,bench_status=? WHERE resource_id=?",
+                (value, value, resource),
+            )
+    assert _export_bands(api, ids["run"], query) == expected
+    assert _list_bands(api, ids["run"], query) == expected

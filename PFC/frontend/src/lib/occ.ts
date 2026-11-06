@@ -36,3 +36,40 @@ export function moveItem<T>(items: T[], from: number, to: number): T[] {
   next.splice(to, 0, x)
   return next
 }
+
+/** Placeholders the backend allows in email templates (REQ-EML-03, `pfc.services.occ.templates.PLACEHOLDERS`). */
+export const EMAIL_PLACEHOLDERS = ['candidate_name', 'requisition', 'role', 'match_pct', 'analysis', 'gaps', 'pointers', 'spoc_1', 'spoc_2'] as const
+
+/**
+ * Checks a template the way the backend renders it (Python `str.format_map`): `{{`/`}}` are literal braces,
+ * every `{field}` must be an allowlisted placeholder, and an unmatched brace or a `:`/`!` spec fails rendering.
+ */
+export function checkTemplate(...texts: string[]): { unknown: string[]; malformed: boolean } {
+  const allowed = new Set<string>(EMAIL_PLACEHOLDERS)
+  const unknown = new Set<string>()
+  let malformed = false
+  for (const text of texts) {
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i]
+      if (c === '}') {
+        if (text[i + 1] === '}') i++
+        else malformed = true
+      } else if (c === '{') {
+        if (text[i + 1] === '{') {
+          i++
+          continue
+        }
+        const end = text.indexOf('}', i)
+        const field = end < 0 ? null : text.slice(i + 1, end)
+        if (field === null || field.includes('{')) {
+          malformed = true
+          break
+        }
+        if (/[!:]/.test(field)) malformed = true
+        else if (!allowed.has(field)) unknown.add(field)
+        i = end
+      }
+    }
+  }
+  return { unknown: [...unknown], malformed }
+}

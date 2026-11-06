@@ -188,11 +188,9 @@ def list_results(
     for row in _rows(db, run_id):
         if f.shortlisted_only and not row["effective_shortlisted"]:
             continue
-        values = f.model_dump(exclude_none=True)
-        if any(
-            str(value).casefold() not in str(row.get(key) or "").casefold()
-            for key, value in values.items()
-            if key in {"requisition", "account", "person_location", "status"}
+        if (
+            f.requisition
+            and f.requisition.casefold() not in str(row["requisition"] or "").casefold()
         ):
             continue
         if any(
@@ -204,6 +202,9 @@ def list_results(
         if any(
             str(row.get(column) or "").casefold() != str(getattr(f, key)).casefold()
             for key, column in (
+                ("account", "account"),
+                ("person_location", "person_location"),
+                ("status", "status"),
                 ("bu", "bu"),
                 ("region", "role_location"),
                 ("candidate_type", "candidate_type"),

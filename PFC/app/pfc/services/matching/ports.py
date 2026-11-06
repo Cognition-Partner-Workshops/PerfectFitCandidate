@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
+Task = Literal["document", "query"]
+
 
 class LlmProvider(Protocol):
     @property
@@ -23,7 +25,7 @@ class Embedder(Protocol):
     @property
     def pipeline_version(self) -> str: ...
 
-    def embed(self, texts: list[str]) -> list[list[float]]: ...
+    def embed(self, texts: list[str], *, task: Task = "document") -> list[list[float]]: ...
 
 
 @dataclass(frozen=True)
@@ -36,6 +38,7 @@ class ChunkOwner:
     chunk_no: int
     text_sha256: str
     model_key: str
+    task: Task = "document"
 
 
 class VectorStore(Protocol):
