@@ -84,14 +84,12 @@ class ResumeFolderSource:
                 continue
             relative = path.relative_to(self.root).as_posix()
             flags: list[str] = []
-            extraction_failed = False
             try:
                 text = extract_text(path)
                 if not text:
                     flags.append("no extractable text")
             except Exception as exc:
                 text = ""
-                extraction_failed = True
                 flags.append(f"extraction failed: {type(exc).__name__}")
             emails = set(EMAIL_PATTERN.findall(text.lower()))
             filename_emails = set(EMAIL_PATTERN.findall(path.stem.lower()))
@@ -101,7 +99,7 @@ class ResumeFolderSource:
                 names = [_tokens(candidate.short_name), _tokens(candidate.display_name)]
                 if email and (email in emails or email in filename_emails):
                     matches.append((index, "email_exact"))
-                elif not extraction_failed and relative in candidate.source_paths:
+                elif relative in candidate.source_paths:
                     matches.append((index, "manual"))
                 elif any(tokens and tokens <= _tokens(path.stem) for tokens in names):
                     matches.append((index, "name_fuzzy"))

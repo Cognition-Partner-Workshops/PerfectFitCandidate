@@ -151,11 +151,18 @@ def test_req_in_23_extraction_failure_filename_match_flag(tmp_path: Path, extens
 
 
 @pytest.mark.parametrize("extension", ["pdf", "docx"])
-def test_req_in_23_failed_extraction_cached_path_not_enough(tmp_path: Path, extension: str) -> None:
+def test_req_in_23_failed_extraction_cached_path_keeps_version(
+    tmp_path: Path, extension: str
+) -> None:
     name = f"profile.{extension}"
     (tmp_path / name).write_bytes(b"broken")
     (result,) = ResumeFolderSource(tmp_path).scan([candidate(source_paths=[name])])
-    assert result.versions == []
+    (version,) = result.versions
+    assert version.source_path == name
+    assert version.identity_match == "manual"
+    assert version.text_norm == ""
+    assert version.flags[0].startswith("extraction failed:")
+    assert result.checks == []
 
 
 def test_req_in_24_versions_sorted_metadata(tmp_path: Path) -> None:
