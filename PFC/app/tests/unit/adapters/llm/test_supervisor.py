@@ -23,6 +23,9 @@ SCRIPT = """
 import json, os, pathlib, signal, sys, time
 record = pathlib.Path(sys.argv[1])
 record.with_suffix(".key").write_text(os.environ.get("LLAMA_API_KEY", ""))
+record.with_suffix(".env.json").write_text(json.dumps({
+    name: os.environ.get(name) for name in ("LLAMA_API_KEY", "LLAMA_ARG_API_KEY")
+}))
 if "ignore" in record.name:
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
 temporary = record.with_suffix(".tmp")
@@ -122,6 +125,8 @@ def test_api_key_passed_only_in_environment(settings: Settings, tmp_path: Path) 
             key = (tmp_path / "ready.key").read_text()
             assert len(key) >= 32
             assert key not in argv
+            child_env = json.loads((tmp_path / "ready.env.json").read_text())
+            assert child_env == {"LLAMA_API_KEY": key, "LLAMA_ARG_API_KEY": key}
             assert service.check().status == "ok"
         finally:
             await service.stop()

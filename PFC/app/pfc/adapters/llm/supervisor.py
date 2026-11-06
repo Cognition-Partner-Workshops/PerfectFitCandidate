@@ -270,6 +270,7 @@ class LlamaServerSupervisor:
             "--parallel",
             "1",
         ]
+        child_env = {**os.environ, "LLAMA_API_KEY": api_key, "LLAMA_ARG_API_KEY": api_key}
         try:
             logs = self.settings.data_dir / "logs"
             logs.mkdir(parents=True, exist_ok=True)
@@ -279,7 +280,7 @@ class LlamaServerSupervisor:
                         argv,
                         stdout=output,
                         stderr=subprocess.STDOUT,
-                        env={**os.environ, "LLAMA_API_KEY": api_key},
+                        env=child_env,
                         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
                         | subprocess.CREATE_NO_WINDOW,
                     )
@@ -290,7 +291,7 @@ class LlamaServerSupervisor:
                         stdout=output,
                         stderr=subprocess.STDOUT,
                         start_new_session=True,
-                        env={**os.environ, "LLAMA_API_KEY": api_key},
+                        env=child_env,
                     )
             async with asyncio.timeout(self.settings.llm_startup_timeout_s):
                 async with httpx.AsyncClient(
