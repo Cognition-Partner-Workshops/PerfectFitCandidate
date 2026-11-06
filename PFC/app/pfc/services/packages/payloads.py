@@ -168,6 +168,8 @@ def snapshot(db: sqlite3.Connection) -> Snapshot:
         ]
     for row in result["llm_providers"]:
         _safe_provider(row)
+    if any(row["approved"] != 1 for row in result["llm_models"]):
+        raise PackageServiceError("payload_schema", "Only approved model settings are portable")
     result["settings"] = [
         dict(row)
         for row in db.execute(
@@ -315,6 +317,8 @@ def _remove_absent(db: sqlite3.Connection, data: Snapshot) -> None:
             if (match := _matching_row(db, table, row)) is not None
         }
         for row in db.execute(f"SELECT * FROM {table}").fetchall():
+            if table == "llm_models" and not row["approved"]:
+                continue
             if row[primary] in retained:
                 continue
             if _referenced(db, table, row):
@@ -338,6 +342,11 @@ def replace_snapshot(
         for row in db.execute("SELECT name, token_blob, owner_user_id FROM llm_providers")
     }
     _remove_absent(db, data)
+    db.execute("UPDATE llm_models SET is_active=0 WHERE approved=1")
+    local_model_active = (
+        db.execute("SELECT 1 FROM llm_models WHERE approved=0 AND is_active=1").fetchone()
+        is not None
+    )
     skill_ids: dict[int, int] = {}
     for table, columns in TABLES.items():
         for incoming in data[table]:
@@ -346,6 +355,11 @@ def replace_snapshot(
                 row["skill_id"] = skill_ids[row["skill_id"]]
             primary = columns[0]
             existing = _matching_row(db, table, row)
+            if table == "llm_models":
+                if existing and not existing["approved"]:
+                    continue
+                if local_model_active:
+                    row["is_active"] = 0
             names = list(columns)
             if existing:
                 row[primary] = existing[primary]

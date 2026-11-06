@@ -342,6 +342,31 @@ def test_natural_keys_preserve_local_ids_and_remap_synonyms(
         assert not db.execute("PRAGMA foreign_key_check").fetchall()
 
 
+@pytest.mark.parametrize("name", ["local-private", "approved"])
+def test_unapproved_local_models_survive_apply_and_rollback(
+    pair: tuple[Settings, Settings], name: str
+) -> None:
+    source, target = pair
+    with database(target) as db:
+        db.execute(
+            "INSERT INTO llm_models VALUES (1, ?, 'private.gguf', 'local', 7, 8, "
+            "1024, 'Local', 0, NULL, 1)",
+            (name,),
+        )
+        local = tuple(db.execute("SELECT * FROM llm_models WHERE model_id=1").fetchone())
+    importer = SettingsImporter(target)
+    importer.apply(exported(source).path, actor_id=1)
+    importer.apply(exported(source).path, actor_id=1)
+    importer.rollback(actor_id=1)
+    with database(target) as db:
+        assert tuple(db.execute("SELECT * FROM llm_models WHERE model_id=1").fetchone()) == local
+        assert db.execute("SELECT count(*) FROM llm_models WHERE is_active=1").fetchone()[0] == 1
+        if name != "approved":
+            assert (
+                db.execute("SELECT is_active FROM llm_models WHERE approved=1").fetchone()[0] == 0
+            )
+
+
 def test_payload_validation_and_missing_approval_target(pair: tuple[Settings, Settings]) -> None:
     source, target = pair
     with database(source) as db:
