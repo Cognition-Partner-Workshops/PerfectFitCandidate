@@ -3,6 +3,7 @@
 import json
 import os
 import sqlite3
+import stat
 import subprocess
 import sys
 from datetime import timedelta
@@ -477,6 +478,7 @@ def test_naive_generated_at_rejected(settings: Settings) -> None:
         "hardlink",
         "unwritable_md",
         "unwritable_md_existing",
+        "refresh_mode",
     ],
 )
 def test_cli_reports_are_read_only(
@@ -507,6 +509,12 @@ def test_cli_reports_are_read_only(
         md = blocker / "report.md"
         if case == "unwritable_md_existing":
             output.write_text("Existing report", encoding="utf-8")
+    elif case == "refresh_mode":
+        if os.name != "posix":
+            pytest.skip("POSIX permission bits")
+        for path in (output, md):
+            path.write_text("Existing report", encoding="utf-8")
+            path.chmod(0o644)
     app = Path(__file__).resolve().parents[2]
     result = subprocess.run(
         [
@@ -527,6 +535,10 @@ def test_cli_reports_are_read_only(
     )
     assert source.read_bytes() == before
     assert result.stdout == ""
+    if case == "refresh_mode":
+        assert result.returncode == 0, result.stderr
+        assert all(stat.S_IMODE(path.stat().st_mode) == 0o644 for path in (output, md))
+        return
     if case != "normal":
         assert result.returncode == 1
         assert not md.exists()
@@ -540,6 +552,10 @@ def test_cli_reports_are_read_only(
             assert not list(output.parent.glob(f".{output.name}.*.tmp"))
         return
     assert result.returncode == 0, result.stderr
+    if os.name == "posix":
+        umask = os.umask(0)
+        os.umask(umask)
+        assert stat.S_IMODE(output.stat().st_mode) == 0o666 & ~umask
     value = json.loads(output.read_text(encoding="utf-8"))
     assert value["kpi05"]["headline_ct"]["run_id"] == sample[1]["ct_zero"]
     assert markdown(value) == md.read_text(encoding="utf-8")

@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import sqlite3
+import stat
 import sys
 import tempfile
 from contextlib import closing
@@ -11,6 +12,15 @@ from pathlib import Path
 
 from pfc.config import Settings
 from pfc.services.kpi.baselines import markdown, measure
+
+
+def _report_mode(target: Path) -> int:
+    """Keep an existing report's permissions; new reports get the umask default."""
+    if target.exists():
+        return stat.S_IMODE(target.stat().st_mode)
+    umask = os.umask(0)
+    os.umask(umask)
+    return 0o666 & ~umask
 
 
 def main() -> int:
@@ -49,6 +59,7 @@ def main() -> int:
                 ) as stream:
                     staged.append(Path(stream.name))
                     stream.write(content)
+                os.chmod(staged[-1], _report_mode(target))
             for temporary, target in zip(staged, outputs, strict=True):
                 os.replace(temporary, target)
         finally:
