@@ -275,16 +275,22 @@ export class HttpApiClient implements ApiClient {
   /** The backend stores one term per row, so each variant is posted separately (REQ-MAT-05). */
   createSynonym: ApiClient['createSynonym'] = async (s) => {
     const rows: SynonymRow[] = []
-    for (const term of s.variants.length ? s.variants : [s.canonical])
-      rows.push(
-        await this.request('POST', '/occ/synonyms', {
-          canonical: s.canonical,
-          term,
-          relation: fromSynonymRelation(s.relation),
-          credit: s.relation === 'Related' ? 0.6 : 1,
-          status: 'approved',
-        }),
-      )
+    try {
+      for (const term of s.variants.length ? s.variants : [s.canonical])
+        rows.push(
+          await this.request('POST', '/occ/synonyms', {
+            canonical: s.canonical,
+            term,
+            relation: fromSynonymRelation(s.relation),
+            credit: s.relation === 'Related' ? 0.6 : 1,
+            status: 'approved',
+          }),
+        )
+    } catch (e) {
+      // All-or-nothing: undo the variants already saved so a retry of the same form succeeds.
+      for (const r of rows) await this.request('DELETE', `/occ/synonyms/${r.synonym_id}`).catch(() => undefined)
+      throw e
+    }
     return { ...toSynonym(rows[0]), variants: rows.map((r) => r.term) }
   }
   updateSynonym: ApiClient['updateSynonym'] = async (id, p) => {

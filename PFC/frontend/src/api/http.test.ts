@@ -134,6 +134,17 @@ describe('HttpApiClient — review fixes', () => {
     expect(s.variants).toEqual(['J2EE', 'JEE'])
   })
 
+  it('undoes saved variants when a later one fails', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock
+      .mockResolvedValueOnce(json({ synonym_id: 5, canonical: 'Java', term: 'J2EE', relation: 'equivalent', status: 'approved', created_by: 1 }))
+      .mockResolvedValueOnce(problem(409, 'CONFLICT', 'Synonym exists'))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    await expect(api.createSynonym({ canonical: 'Java', variants: ['J2EE', 'JEE'], relation: 'Exact synonym' })).rejects.toBeInstanceOf(ApiError)
+    expect(fetchMock.mock.calls[2][0]).toBe('/api/v1/occ/synonyms/5')
+    expect((fetchMock.mock.calls[2][1] as RequestInit).method).toBe('DELETE')
+  })
+
   it('keeps local-only settings per user and only after the server accepts the save', async () => {
     localStorage.clear()
     const api = new HttpApiClient('/api/v1')
