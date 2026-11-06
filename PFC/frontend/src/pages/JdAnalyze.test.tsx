@@ -12,12 +12,26 @@ describe('Analyze JD', () => {
 
   it('analyzes a new demand once and shows the draft it returns', async () => {
     const analyze = vi.spyOn(mock, 'analyzeDemand')
-    const get = vi.spyOn(mock, 'getRequirements')
     renderApp('/demands')
     fireEvent.click((await screen.findAllByRole('button', { name: 'Analyze JD' }))[0])
     await screen.findByRole('button', { name: /Confirm & Start/ })
     expect(analyze).toHaveBeenCalledTimes(1)
-    expect(get).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not re-analyze when a draft exists but the row still says Not analysed', async () => {
+    const analyze = vi.spyOn(mock, 'analyzeDemand')
+    const real = mock.getRequirements.bind(mock)
+    vi.spyOn(mock, 'getRequirements').mockImplementation(async (id) => {
+      try {
+        return await real(id)
+      } catch {
+        return { demandId: id, mandatorySkills: ['Selenium'], preferredSkills: [], experienceYears: 3, qualifications: '', domain: '', location: '', mandatoryOnsite: false, synonymsApplied: [], warnings: [] }
+      }
+    })
+    renderApp('/demands')
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Analyze JD' }))[0])
+    await screen.findByRole('button', { name: /Confirm & Start/ })
+    expect(analyze).not.toHaveBeenCalled()
   })
 
   it('shows why analysis failed instead of loading forever', async () => {

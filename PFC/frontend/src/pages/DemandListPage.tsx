@@ -1,8 +1,8 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Upload, X } from 'lucide-react'
-import { api } from '../api'
+import { api, ApiError } from '../api'
 import type { Demand, JdRequirements } from '../api/types'
 import { BandChip, Banner, Chip, EmptyState, ErrorState, Modal, Spinner } from '../components/ui'
 import { UploadDialog } from '../components/UploadDialog'
@@ -44,16 +44,17 @@ function SkillChips({ label, skills, onChange }: { label: string; skills: string
 /** JD review drawer: Analyze JD → review requirements → Confirm & Start (REQ-MAT-02, §9.3). */
 function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) {
   const qc = useQueryClient()
-  // A never-analysed demand has no requirements draft yet (GET → 404), so extract one first, once per review:
-  // each analysis stores a new draft revision, and the refetch after Save/Confirm must not add another.
-  const analyzed = useRef(demand.jdStatus !== 'Not analysed')
+  // Analyze only when no draft exists yet (GET → 404): each analysis stores a new draft revision, and the
+  // demand list carries no JD status from the backend, so the row's status can't tell us.
   const req = useQuery({
     queryKey: ['requirements', demand.demandId],
     queryFn: async () => {
-      if (analyzed.current) return api.getRequirements(demand.demandId)
+      try {
+        return await api.getRequirements(demand.demandId)
+      } catch (e) {
+        if (!(e instanceof ApiError && e.code === 'REQUIREMENTS_NOT_FOUND')) throw e
+      }
       const draft = await api.analyzeDemand(demand.demandId)
-      analyzed.current = true
-      // The list must show the new status, or reopening this demand would analyze it again.
       void qc.invalidateQueries({ queryKey: ['demands'] })
       return draft
     },
