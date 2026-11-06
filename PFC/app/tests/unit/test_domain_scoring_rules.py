@@ -120,7 +120,7 @@ def test_req_elig_02_07_every_status(
     row = result.demands[0].rows[0]
     assert row.status_priority == priority
     assert row.best.components["status"].points == binary
-    tier = replace(config.template, status_score_mode="tiered")
+    tier = config.template.model_copy(update={"status_score_mode": "tiered"})
     assert (
         run(config, person, demand, template=tier)
         .demands[0]
@@ -324,7 +324,9 @@ def test_req_mat_01_semantic_validation(value):
 def test_req_mat_01_cosine_errors(config):
     with pytest.raises(ValueError):
         normalise_cosine(float("nan"), config.template)
-    template = replace(config.template, skills=replace(config.template.skills, semantic_high=0.45))
+    template = config.template.model_copy(
+        update={"skills": config.template.skills.model_copy(update={"semantic_high": 0.45})}
+    )
     with pytest.raises(ValueError):
         normalise_cosine(0.5, template)
 
@@ -411,7 +413,7 @@ def test_req_scr_03_cap_band(config, resource, demand):
         ),
     )
     assert pair(config, resource, d).band == "Strong"
-    template = replace(config.template, mandatory_gap_policy="cap_band")
+    template = config.template.model_copy(update={"mandatory_gap_policy": "cap_band"})
     best = pair(config, resource, d, template=template)
     assert best.band == "Potential" and best.mandatory_missing == 1
 
@@ -421,7 +423,7 @@ def test_req_mat_05_empty_unknown_related(config, resource, demand):
     table = SynonymTable(
         [SynonymRow("SQL", "query", "related", 0.4), SynonymRow("Python", "Python")]
     )
-    cfg = replace(config, synonyms=table)
+    cfg = config.model_copy(update={"synonyms": table})
     d = replace(demand, requirements=(RequirementItem("M1", "query", "mandatory"),))
     assert pair(cfg, resource, d).items[0].credit == 0.6
 
@@ -430,8 +432,10 @@ def test_req_mat_05_empty_unknown_related(config, resource, demand):
 def test_req_mat_05_template_drives_related_credit(config, resource, demand, credit):
     d = replace(demand, requirements=(RequirementItem("M1", "Delivery Lead", "mandatory"),))
     r = replace(resource, ct_skills="Project Manager,SQL")
-    template = replace(
-        config.template, skills=replace(config.template.skills, related_synonym_credit=credit)
+    template = config.template.model_copy(
+        update={
+            "skills": config.template.skills.model_copy(update={"related_synonym_credit": credit})
+        }
     )
     best = pair(config, r, d, SemanticInput(0), template=template)
     assert best.items[0].credit == credit
@@ -446,7 +450,7 @@ def test_req_mat_05_related_aliases(config, resource, demand):
             SynonymRow("SQL", "SQL"),
         ]
     )
-    cfg = replace(config, synonyms=table)
+    cfg = config.model_copy(update={"synonyms": table})
     d = replace(demand, requirements=(RequirementItem("M1", "QL", "mandatory"),))
     assert pair(cfg, resource, d).items[0].credit == 0.6
 

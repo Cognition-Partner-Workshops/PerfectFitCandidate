@@ -152,14 +152,16 @@ def test_req_mat_04_weak_inclusion(strong, enabled, requires_no_strong, threshol
                 ct_skills="SQL,AWS,Spark,Azure",
             )
         )
-    t = replace(
-        config.template,
-        weak_inclusion=replace(
-            config.template.weak_inclusion,
-            enabled=enabled,
-            requires_no_strong=requires_no_strong,
-            min_transferable_semantic=threshold,
-        ),
+    t = config.template.model_copy(
+        update={
+            "weak_inclusion": config.template.weak_inclusion.model_copy(
+                update={
+                    "enabled": enabled,
+                    "requires_no_strong": requires_no_strong,
+                    "min_transferable_semantic": threshold,
+                }
+            ),
+        }
     )
     semantics = {("D", "CT:weak"): SemanticInput(0.2), ("D", "CT:strong"): SemanticInput(1)}
     result = run_match([d], people, {}, semantics, config, AS_OF, template=t)

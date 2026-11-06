@@ -2,10 +2,10 @@
 
 import json
 import shutil
-from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
+from pydantic import BaseModel, ValidationError
 
 from pfc.domain.config_loader import ScoringTemplate, load_domain_config
 
@@ -18,10 +18,12 @@ def test_req_scr_01_shipped_defaults():
     template = config.template
     assert template.name == "default"
     assert template.version == 1
-    assert vars(template.weights) == dict(
+    assert template.weights.model_dump() == dict(
         skills=70, grade=10, location=5, bench_start=5, bench_end=5, status=5
     )
-    assert vars(template.skills.sub_weights) == dict(mandatory=0.6, preferred=0.15, semantic=0.25)
+    assert template.skills.sub_weights.model_dump() == dict(
+        mandatory=0.6, preferred=0.15, semantic=0.25
+    )
     assert template.bench_start.tiers_days == ((0, 5), (30, 4), (45, 3), (60, 2), (90, 1))
     assert template.bench_start.missing == template.bench_start.beyond == 0
     assert template.bench_end_blank_points == 5
@@ -117,7 +119,7 @@ def test_req_loc_01_clusters():
 
 def test_req_scr_01_immutable():
     config = load_domain_config()
-    with pytest.raises(FrozenInstanceError):
+    with pytest.raises(ValidationError, match="frozen_instance"):
         config.template.version = 2
     with pytest.raises(TypeError):
         config.template.bands["Strong"] = 1
@@ -129,7 +131,7 @@ def test_req_scr_01_immutable():
     ("section", "key", "value", "message"),
     [
         ("weights", "skills", 69, "sum to 100"),
-        ("weights", "skills", float("nan"), "sum to 100"),
+        ("weights", "skills", float("nan"), "finite"),
         (
             "skills",
             "sub_weights",
@@ -177,7 +179,7 @@ def test_req_scr_01_component_point_limits(section, key, maximum, bad):
     data = json.loads((CONFIG / "scoring_template.default.json").read_text())
     target = data[section] if section else data
     target[key] = maximum + bad if bad == 0.1 else bad
-    with pytest.raises(ValueError, match="points must be within"):
+    with pytest.raises(ValueError):
         ScoringTemplate.from_dict(data)
 
 
@@ -186,7 +188,7 @@ def test_req_scr_01_component_point_limits(section, key, maximum, bad):
 def test_req_scr_01_bench_tier_point_limits(bad, tier):
     data = json.loads((CONFIG / "scoring_template.default.json").read_text())
     data["bench_start"]["tiers_days"][tier][1] = bad
-    with pytest.raises(ValueError, match="bench_start points must be within"):
+    with pytest.raises(ValueError):
         ScoringTemplate.from_dict(data)
 
 
@@ -199,6 +201,94 @@ def test_req_scr_01_component_point_limits_inclusive(value):
     data["bench_end_blank_points"] = value
     data["status_tiered_points"] = {key: value for key in data["status_tiered_points"]}
     assert ScoringTemplate.from_dict(data).bench_end_blank_points == value
+
+
+def test_req_scr_01_pydantic_models_frozen_forbid_extras():
+    config = load_domain_config()
+    template = config.template
+    models = [
+        config,
+        config.grades,
+        config.bench_statuses,
+        config.locations,
+        *config.bench_statuses.statuses.values(),
+        template,
+        template.weights,
+        template.grade,
+        template.skills,
+        template.skills.sub_weights,
+        template.bench_start,
+        template.weak_inclusion,
+    ]
+    for model in models:
+        assert isinstance(model, BaseModel)
+        assert model.model_config["frozen"]
+        assert model.model_config["extra"] == "forbid"
+        values = {name: getattr(model, name) for name in type(model).model_fields}
+        with pytest.raises(ValidationError, match="extra_forbidden"):
+            type(model).model_validate({**values, "unexpected": 1})
+        field = next(iter(type(model).model_fields))
+        with pytest.raises(ValidationError, match="frozen_instance"):
+            setattr(model, field, getattr(model, field))
+
+
+@pytest.mark.parametrize(
+    "section",
+    [None, "weights", "grade", "skills", "bench_start", "weak_inclusion"],
+)
+def test_req_scr_01_reject_unknown_template_fields(section):
+    data = json.loads((CONFIG / "scoring_template.default.json").read_text())
+    target = data[section] if section else data
+    target["unexpected"] = 1
+    with pytest.raises(ValueError, match="extra_forbidden"):
+        ScoringTemplate.from_dict(data)
+
+
+@pytest.mark.parametrize(
+    ("section", "key", "value"),
+    [
+        ("grade", "exact", "invalid"),
+        ("skills", "semantic_low", "invalid"),
+        ("skills", "related_synonym_credit", -0.1),
+        ("skills", "related_synonym_credit", 1.1),
+        ("skills", "semantic_item_cap", 1.1),
+        (None, "version", True),
+        (None, "version", 1.5),
+        (None, "version", "1"),
+    ],
+)
+def test_req_scr_01_pydantic_field_validation(section, key, value):
+    data = json.loads((CONFIG / "scoring_template.default.json").read_text())
+    target = data[section] if section else data
+    target[key] = value
+    with pytest.raises(ValueError):
+        ScoringTemplate.from_dict(data)
+
+
+def test_req_scr_01_pydantic_roundtrip_and_mapping_immutability(tmp_path):
+    template = load_domain_config().template
+    assert ScoringTemplate.from_dict(template.model_dump()) == template
+    path = tmp_path / "template.json"
+    path.write_text(template.model_dump_json(), encoding="utf-8")
+    assert ScoringTemplate.from_json_file(path) == template
+    data = template.model_dump()
+    loaded = ScoringTemplate.from_dict(data)
+    data["bands"]["Strong"] = 95
+    assert loaded.bands["Strong"] == 90
+    with pytest.raises(TypeError):
+        loaded.status_tiered_points[1] = 0
+    config = load_domain_config()
+    with pytest.raises(TypeError):
+        config.bench_statuses.status_map["available"] = "UNKNOWN"
+    with pytest.raises(TypeError):
+        config.locations.travel_clusters["scotland"] = ()
+
+
+@pytest.mark.parametrize("codes", [[], ["C1", "C1"]])
+def test_req_grd_01_pydantic_grade_validation(codes):
+    config = load_domain_config()
+    with pytest.raises(ValueError, match="nonempty and unique"):
+        type(config.grades)(codes=codes)
 
 
 def test_req_scr_01_paths_and_overrides(tmp_path, monkeypatch):

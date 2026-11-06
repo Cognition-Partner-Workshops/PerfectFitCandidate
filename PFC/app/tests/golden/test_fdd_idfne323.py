@@ -1,6 +1,5 @@
 """FDD §14 golden fixture: REQ-GRD-02, REQ-SCR-01..04, REQ-ELIG-08."""
 
-from dataclasses import replace
 from datetime import date
 
 import pytest
@@ -110,7 +109,7 @@ def test_req_scr_01_fdd_idfne323(mode, totals):
         semantics,
         config,
         date(2026, 11, 6),
-        template=replace(config.template, status_score_mode=mode),
+        template=config.template.model_copy(update={"status_score_mode": mode}),
     )
     excluded = {
         e.resource_id: {reason.code for reason in e.reasons}
