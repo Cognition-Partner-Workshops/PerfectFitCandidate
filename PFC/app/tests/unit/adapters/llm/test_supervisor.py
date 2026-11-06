@@ -468,13 +468,16 @@ def test_healthy_window_refills_restart_budget(settings: Settings, tmp_path: Pat
 
 
 def test_healthy_exit_between_polls_refills_restart_budget(
-    settings: Settings, tmp_path: Path
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    poll_paused, resume_poll = asyncio.Event(), asyncio.Event()
+
     async def crash_and_recover(service: LlamaServerSupervisor) -> None:
         proc = service.proc
         assert proc is not None
         proc.kill()
         await asyncio.to_thread(proc.wait)
+        resume_poll.set()
         async with asyncio.timeout(5):
             while service.proc is proc or service.check().status != "ok":
                 assert service.check().detail != "llama-server exited; restart attempts exhausted"
@@ -485,17 +488,34 @@ def test_healthy_exit_between_polls_refills_restart_budget(
             settings,
             tmp_path,
             restart_backoff_s=(0.01, 0.01, 0.01),
-            restart_reset_window_s=0.1,
+            restart_reset_window_s=3600,
         )
         try:
             await service.start("one", settings.models_dir / "one.gguf")
             for attempt in range(1, 4):
                 await crash_and_recover(service)
                 assert service._restart_attempts == attempt
-            service.poll_interval_s = 0.5
+            monitor = service._monitor
+            assert monitor is not None
+            sleep, start = asyncio.sleep, service.start
+
+            async def pause_poll(delay: float) -> None:
+                if asyncio.current_task() is monitor:
+                    poll_paused.set()
+                    await resume_poll.wait()
+                await sleep(delay)
+
+            async def restart(model_name: str, model_path: Path) -> None:
+                service.restart_reset_window_s = 3600
+                await start(model_name, model_path)
+
+            monkeypatch.setattr(asyncio, "sleep", pause_poll)
+            monkeypatch.setattr(service, "start", restart)
+            resume_poll.clear()
+            await asyncio.wait_for(poll_paused.wait(), timeout=5)
+            service.restart_reset_window_s = 0.1
             await asyncio.sleep(0.15)
             assert service._restart_attempts == 3
-            service.poll_interval_s = 0.01
             for attempt in range(1, 4):
                 await crash_and_recover(service)
                 assert service._restart_attempts == attempt
