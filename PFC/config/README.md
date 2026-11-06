@@ -11,6 +11,15 @@ Editable domain defaults (REQ-SCR-01, REQ-MAT-05, REQ-ELIG-07):
 
 Set `PFC_CONFIG_DIR` to load an edited copy instead of these shipped defaults.
 
+Before building or distributing an Analyst ZIP, provision the OCC Admin's signing
+public key in `config/keys/trusted/<key_id>.pub`. An Admin obtains `keyId` and
+`publicKeyBase64` from authenticated
+`GET /api/v1/occ/settings-package/signing-key` (after the first settings export),
+base64-decodes the public key, and saves the raw bytes under that filename.
+Never distribute the private key, its passphrase, or `data/keys/private.json`.
+`build_zip.py` already copies `PFC/config`, including these read-only trusted keys.
+See [keys/trusted/README.md](keys/trusted/README.md) for details.
+
 For related synonyms, CSV `credit` is informational for OCC; scoring uses the
 template's `skills.related_synonym_credit` (TDD §7.3, REQ-MAT-05).
 
