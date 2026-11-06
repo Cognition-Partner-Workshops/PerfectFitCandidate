@@ -3,6 +3,7 @@
 import base64
 import ctypes
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -17,37 +18,90 @@ class SecretStoreError(Exception):
     pass
 
 
-def sensitive_setting(key: str, value: Any) -> bool:
-    normalized = key.casefold().replace("-", "_")
+def sensitive_key(key: str) -> bool:
+    words = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", key)
+    words = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", words)
+    segments = re.split(r"[_\-.]+", words.casefold())
+    names = set(segments)
+    if names & {
+        "password",
+        "passwords",
+        "passwd",
+        "passphrase",
+        "passphrases",
+        "secret",
+        "secrets",
+        "credential",
+        "credentials",
+        "authorization",
+        "bearer",
+        "cookie",
+        "cookies",
+        "apikey",
+        "privatekey",
+        "sessionkey",
+        "accesskey",
+        "signingkey",
+        "clientsecret",
+    }:
+        return True
     if any(
-        marker in normalized
-        for marker in (
-            "password",
-            "secret",
-            "token",
-            "credential",
-            "api_key",
-            "apikey",
-            "authorization",
-            "bearer",
-            "cookie",
-            "private_key",
-            "privatekey",
-            "session_key",
-            "sessionkey",
-            "access_key",
-            "accesskey",
-            "signing_key",
-            "signingkey",
-            "clientsecret",
-        )
+        pair
+        in {
+            ("api", "key"),
+            ("api", "keys"),
+            ("private", "key"),
+            ("private", "keys"),
+            ("session", "key"),
+            ("session", "keys"),
+            ("access", "key"),
+            ("access", "keys"),
+            ("signing", "key"),
+            ("signing", "keys"),
+        }
+        for pair in zip(segments, segments[1:], strict=False)
     ):
+        return True
+    counts = {
+        "max",
+        "min",
+        "num",
+        "number",
+        "count",
+        "limit",
+        "limits",
+        "size",
+        "length",
+        "budget",
+        "usage",
+        "used",
+        "remaining",
+        "total",
+    }
+    return "token" in names and not names & counts
+
+
+def sensitive_setting(key: str, value: Any) -> bool:
+    if sensitive_key(key):
         return True
     if isinstance(value, dict):
         return any(sensitive_setting(str(k), v) for k, v in value.items())
     if isinstance(value, list):
         return any(sensitive_setting("", v) for v in value)
     return isinstance(value, str) and value.startswith(PREFIX)
+
+
+def redact_sensitive(value: Any, key: str = "") -> Any:
+    def redact(node: Any, sensitive: bool) -> Any:
+        if isinstance(node, dict):
+            return {k: redact(v, sensitive or sensitive_key(str(k))) for k, v in node.items()}
+        if isinstance(node, list):
+            return [redact(v, sensitive) for v in node]
+        if sensitive or (isinstance(node, str) and node.startswith(PREFIX)):
+            return "[REDACTED]"
+        return node
+
+    return redact(value, sensitive_key(key))
 
 
 class _Blob(ctypes.Structure):

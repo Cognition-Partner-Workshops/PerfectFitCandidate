@@ -275,7 +275,7 @@ def test_nested_header_credentials_encrypted_and_audit_redacted(
     setup(client)
     login(client)
     token = "Bearer SensitiveReviewToken"
-    options = {"options": [{"headers": {key: token}}]}
+    options = {"options": [{"headers": {key: token}, "max_tokens": 64, "enabled": True}]}
     response = client.put("/api/v1/occ/settings", json={"provider.options": options})
     assert response.status_code == 200
     assert response.json()["provider.options"] == "[REDACTED]"
@@ -300,6 +300,75 @@ def test_nested_header_credentials_encrypted_and_audit_redacted(
         details = [r[0] for r in db.execute("SELECT details_json FROM audit_log") if r[0]]
         assert all(token not in value for value in details)
         assert "[REDACTED]" in details[-1]
+        expected = {
+            "options": [{"headers": {key: "[REDACTED]"}, "max_tokens": 64, "enabled": True}]
+        }
+        assert json.loads(details[-1]) == {"before": expected, "after": expected}
+        setting_audit = json.loads(
+            db.execute(
+                "SELECT details_json FROM audit_log WHERE entity_id='provider.options'"
+            ).fetchone()[0]
+        )
+        assert setting_audit["after"]["value"] == expected
+
+
+def test_scoring_token_counts_remain_in_audit(client: TestClient) -> None:
+    setup(client)
+    login(client)
+    with database(client.app.state.settings) as db:
+        target = db.execute(
+            "INSERT INTO scoring_templates(name,version,weights_json,rules_json,status,created_at) "
+            "VALUES ('review',1,'{}',?,'draft',datetime('now'))",
+            (json.dumps({"max_tokens": 128, "require_evidence": False}),),
+        ).lastrowid
+    response = client.put(
+        f"/api/v1/occ/scoring-templates/{target}",
+        json={
+            "rules": {"max_tokens": 256, "require_evidence": True},
+            "change_note": "Review",
+        },
+    )
+    assert response.status_code == 200
+    with database(client.app.state.settings) as db:
+        details = json.loads(
+            db.execute(
+                "SELECT details_json FROM audit_log WHERE entity_type='scoring_templates' "
+                "AND entity_id=?",
+                (str(target),),
+            ).fetchone()[0]
+        )
+        assert details["before"]["rules"] == {"max_tokens": 128, "require_evidence": False}
+        assert details["after"]["rules"]["max_tokens"] == 256
+        assert details["after"]["rules"]["require_evidence"] is True
+
+
+def test_token_count_settings_remain_readable_and_audited(client: TestClient) -> None:
+    setup(client)
+    login(client)
+    for limit in (128, 256):
+        values = {"max_tokens": limit, "token_limit": limit, "num_tokens": limit}
+        response = client.put("/api/v1/occ/settings", json={"llm.options": values})
+        assert response.status_code == 200
+        assert response.json()["llm.options"] == values
+    with database(client.app.state.settings) as db:
+        assert (
+            json.loads(
+                db.execute("SELECT value_json FROM settings WHERE key='llm.options'").fetchone()[0]
+            )
+            == values
+        )
+        details = json.loads(
+            db.execute(
+                "SELECT details_json FROM audit_log WHERE entity_id='llm.options' "
+                "ORDER BY audit_id DESC LIMIT 1"
+            ).fetchone()[0]
+        )
+        assert details["before"]["value"] == {
+            "max_tokens": 128,
+            "token_limit": 128,
+            "num_tokens": 128,
+        }
+        assert details["after"]["value"] == values
 
 
 def test_secret_setting_failure_is_atomic(

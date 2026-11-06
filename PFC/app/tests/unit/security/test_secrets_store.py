@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from pfc.security.secrets_store import SecretStore, SecretStoreError, sensitive_setting
+from pfc.security.secrets_store import (
+    SecretStore,
+    SecretStoreError,
+    redact_sensitive,
+    sensitive_setting,
+)
 
 
 @pytest.mark.parametrize("value", [b"", b"secret smtp password", b"non-ascii \xc3\xa9"])
@@ -60,3 +65,54 @@ def test_nested_secret_detection() -> None:
     assert sensitive_setting("llm.api_key", "private")
     assert sensitive_setting("provider.options", [{"apiKey": "private"}])
     assert not sensitive_setting("matching.top_n", 5)
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "token",
+        "access_token",
+        "apiKey",
+        "Authorization",
+        "PRIVATE.KEY",
+        "clientSecret",
+        "HTTPAuthorization",
+        "session-key",
+        "signing_key",
+        "client.credentials",
+        "headers.cookies",
+        "PRIVATE.KEYS",
+        "sessionKeys",
+    ],
+)
+def test_sensitive_key_segments(key: str) -> None:
+    assert sensitive_setting(key, "private")
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "max_tokens",
+        "token_limit",
+        "num_tokens",
+        "maxTokenCount",
+        "access_token_limit",
+        "tokenizer",
+        "author",
+        "secretary",
+    ],
+)
+def test_noncredential_segments(key: str) -> None:
+    assert not sensitive_setting(key, 64)
+
+
+def test_redaction_preserves_empty_and_sensitive_containers() -> None:
+    value = {
+        "private_key": {"parts": ["private", None], "empty": []},
+        "options": [{}, [], {"max_tokens": 64, "token": "private"}],
+    }
+    assert redact_sensitive(value) == {
+        "private_key": {"parts": ["[REDACTED]", "[REDACTED]"], "empty": []},
+        "options": [{}, [], {"max_tokens": 64, "token": "[REDACTED]"}],
+    }
+    assert value["private_key"]["parts"] == ["private", None]

@@ -9,7 +9,12 @@ from typing import Any
 from pfc.config import Settings
 from pfc.db.audit import verify_chain
 from pfc.security.problems import Problem
-from pfc.security.secrets_store import SecretStore, SecretStoreError, sensitive_setting
+from pfc.security.secrets_store import (
+    SecretStore,
+    SecretStoreError,
+    redact_sensitive,
+    sensitive_setting,
+)
 from pfc.services.occ.common import audit_write, get_row, now
 
 
@@ -148,8 +153,8 @@ def settings_put(
             "admin_only=1,updated_by=excluded.updated_by,updated_at=excluded.updated_at",
             (key, encoded[key], user_id, now()),
         )
-        old = {"value": "[REDACTED]" if secret else before[key]} if key in before else None
-        new = {"value": "[REDACTED]" if secret else value}
+        old = {"value": redact_sensitive(before[key], key)} if key in before else None
+        new = {"value": redact_sensitive(value, key)}
         audit_write(db, user_id, "SETTING_CHANGE", "settings", key, old, new)
     return settings_get(db, user_id)
 
