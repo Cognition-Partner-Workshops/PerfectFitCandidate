@@ -18,8 +18,9 @@ class SecretStoreError(Exception):
 
 
 def sensitive_setting(key: str, value: Any) -> bool:
+    normalized = key.casefold().replace("-", "_")
     if any(
-        marker in key.casefold()
+        marker in normalized
         for marker in (
             "password",
             "secret",
@@ -27,6 +28,18 @@ def sensitive_setting(key: str, value: Any) -> bool:
             "credential",
             "api_key",
             "apikey",
+            "authorization",
+            "bearer",
+            "cookie",
+            "private_key",
+            "privatekey",
+            "session_key",
+            "sessionkey",
+            "access_key",
+            "accesskey",
+            "signing_key",
+            "signingkey",
+            "clientsecret",
         )
     ):
         return True

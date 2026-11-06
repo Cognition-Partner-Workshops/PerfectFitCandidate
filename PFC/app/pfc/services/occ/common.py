@@ -4,6 +4,7 @@ from typing import Any
 
 from pfc.db.audit import append_audit
 from pfc.security.problems import Problem
+from pfc.security.secrets_store import sensitive_setting
 from pfc.security.sessions import stamp
 
 
@@ -25,12 +26,7 @@ def audit_write(
     def safe(value: Any) -> Any:
         if isinstance(value, dict):
             return {
-                k: safe(v)
-                for k, v in value.items()
-                if not any(
-                    marker in k.casefold()
-                    for marker in ("password", "secret", "token", "credential")
-                )
+                k: "[REDACTED]" if sensitive_setting(k, v) else safe(v) for k, v in value.items()
             }
         if isinstance(value, list):
             return [safe(v) for v in value]

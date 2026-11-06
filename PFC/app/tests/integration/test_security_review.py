@@ -17,6 +17,7 @@ from pfc.main import create_app
 from pfc.security.passwords import hasher
 from pfc.security.secrets_store import SecretStore, SecretStoreError
 from pfc.security.setup import code_path
+from pfc.services.occ.common import audit_write
 
 EMAIL = "reviewer@example.com"
 PASSWORD = "Strong!Random4567"
@@ -249,6 +250,56 @@ def test_secret_settings_encrypted_and_write_only(client: TestClient) -> None:
         assert [tuple(r) for r in before] == [
             tuple(r) for r in db.execute("SELECT key,value_json FROM settings ORDER BY key")
         ]
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "Authorization",
+        "BEARER",
+        "Cookie",
+        "Set-Cookie",
+        "credential",
+        "api_key",
+        "apiKey",
+        "client_secret",
+        "private-key",
+        "Proxy-Authorization",
+        "session_key",
+    ],
+)
+def test_nested_header_credentials_encrypted_and_audit_redacted(
+    client: TestClient,
+    key: str,
+) -> None:
+    setup(client)
+    login(client)
+    token = "Bearer SensitiveReviewToken"
+    options = {"options": [{"headers": {key: token}}]}
+    response = client.put("/api/v1/occ/settings", json={"provider.options": options})
+    assert response.status_code == 200
+    assert response.json()["provider.options"] == "[REDACTED]"
+    with database(client.app.state.settings) as db:
+        stored = db.execute(
+            "SELECT value_json FROM settings WHERE key='provider.options'"
+        ).fetchone()[0]
+        assert token not in stored
+        assert (
+            json.loads(SecretStore(client.app.state.settings.data_dir).decrypt(json.loads(stored)))
+            == options
+        )
+        audit_write(
+            db,
+            1,
+            "SETTING_CHANGE",
+            "settings",
+            "direct-header-review",
+            options,
+            options,
+        )
+        details = [r[0] for r in db.execute("SELECT details_json FROM audit_log") if r[0]]
+        assert all(token not in value for value in details)
+        assert "[REDACTED]" in details[-1]
 
 
 def test_secret_setting_failure_is_atomic(
