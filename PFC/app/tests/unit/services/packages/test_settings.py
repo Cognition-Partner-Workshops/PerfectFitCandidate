@@ -225,7 +225,9 @@ def test_atomic_apply_and_rollback(pair: tuple[Settings, Settings]) -> None:
         )
     assert importer.rollback(actor_id=1).manifest.package_version == 1
     with database(target) as db:
-        assert snapshot(db) == baseline
+        restored = snapshot(db)
+        assert restored.pop("analysts") == v2["analysts"]
+        assert restored == {key: value for key, value in baseline.items() if key != "analysts"}
         assert (
             db.execute("SELECT action FROM audit_log ORDER BY audit_id DESC LIMIT 1").fetchone()[0]
             == "settings_package.rollback"

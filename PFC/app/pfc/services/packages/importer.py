@@ -148,7 +148,7 @@ class SettingsImporter:
             data = decode_snapshot(verified.settings_payloads)
             preview = SettingsPreview(verified.manifest, diff(snapshot(db), data))
             now = timestamp()
-            replace_snapshot(db, data, actor_id=actor_id, now=now)
+            replace_snapshot(db, data, actor_id=actor_id, now=now, preserve_credentials=True)
             if self.failure_hook:
                 self.failure_hook()
             db.execute("UPDATE settings_packages SET is_active=0 WHERE is_active=1")

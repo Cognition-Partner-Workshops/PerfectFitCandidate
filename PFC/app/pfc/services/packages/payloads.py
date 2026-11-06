@@ -218,7 +218,9 @@ def decode_snapshot(payloads: dict[str, Any]) -> Snapshot:
         rows = payloads[f"{name}.v1.json"]
         columns = TABLES.get(name, extra_columns.get(name, ()))
         if not isinstance(rows, list) or any(
-            not isinstance(row, dict) or set(row) != set(columns) for row in rows
+            not isinstance(row, dict)
+            or set(row) - ({"is_active"} if name == "analysts" else set()) != set(columns)
+            for row in rows
         ):
             raise PackageServiceError("payload_schema", f"Invalid rows in {name}")
         if len({_row_key(name, row) for row in rows}) != len(rows):
@@ -231,6 +233,7 @@ def decode_snapshot(payloads: dict[str, Any]) -> Snapshot:
             or row["must_change_password"] != 1
             or row["role"] != "Analyst"
             or not isinstance(row["email"], str)
+            or row.get("is_active", 1) not in (0, 1)
         ):
             raise PackageServiceError("payload_schema", "Invalid imported Analyst account")
         try:
@@ -267,7 +270,14 @@ def diff(before: Snapshot, after: Snapshot) -> dict[str, PayloadDiff]:
     return result
 
 
-def replace_snapshot(db: sqlite3.Connection, data: Snapshot, *, actor_id: int, now: str) -> None:
+def replace_snapshot(
+    db: sqlite3.Connection,
+    data: Snapshot,
+    *,
+    actor_id: int,
+    now: str,
+    preserve_credentials: bool = False,
+) -> None:
     tokens = {
         row["name"]: (row["token_blob"], row["owner_user_id"])
         for row in db.execute("SELECT name, token_blob, owner_user_id FROM llm_providers")
@@ -305,6 +315,13 @@ def replace_snapshot(db: sqlite3.Connection, data: Snapshot, *, actor_id: int, n
             (row["email"],),
         ).fetchone()
         if existing and existing["name"] == "Admin":
+            continue
+        if existing and preserve_credentials:
+            if "is_active" in row:
+                db.execute(
+                    "UPDATE users SET is_active=? WHERE user_id=?",
+                    (row["is_active"], existing["user_id"]),
+                )
             continue
         db.execute(
             "INSERT INTO users(email, display_name, persona, role_id, password_hash, "

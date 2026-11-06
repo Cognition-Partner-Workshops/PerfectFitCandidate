@@ -267,6 +267,41 @@ def test_otp_roundtrip_password_change_and_no_retrieval(
                 assert otp.encode() not in path.read_bytes(), path
 
 
+def test_rollback_does_not_restore_used_otp(apps: tuple[TestClient, TestClient]) -> None:
+    source, target = apps
+    source_csrf, csrf = login(source), login(target)
+    first = export(source, source_csrf).json()
+    provision(source, target)
+    token = preview(target, csrf, base64.b64decode(first["content_base64"])).json()["token"]
+    assert apply(target, csrf, token).status_code == 200
+    second = export(source, source_csrf).json()
+    token = preview(target, csrf, base64.b64decode(second["content_base64"])).json()["token"]
+    assert apply(target, csrf, token).status_code == 200
+    otp = second["one_time_passwords"][0]["otp"]
+    csrf = login(target, role="Analyst", email="worker@example.com", password=otp)
+    response = target.post(
+        f"{PREFIX}/auth/password",
+        headers={"X-CSRF-Token": csrf},
+        json={"current_password": otp, "new_password": "NewRandom12345"},
+    )
+    assert response.status_code == 200, response.text
+    csrf = login(target)
+    assert (
+        target.post(
+            f"{PREFIX}/settings-packages/rollback", headers={"X-CSRF-Token": csrf}
+        ).status_code
+        == 200
+    )
+    for old in (otp, first["one_time_passwords"][0]["otp"]):
+        response = target.post(
+            f"{PREFIX}/auth/login",
+            json={"role": "Analyst", "email": "worker@example.com", "password": old},
+        )
+        assert response.status_code == 401, response.text
+    login(target, role="Analyst", email="worker@example.com", password="NewRandom12345")
+    assert target.get(f"{PREFIX}/settings/settings-package/history").status_code == 200
+
+
 @pytest.mark.parametrize(
     "failure, status, code",
     [
