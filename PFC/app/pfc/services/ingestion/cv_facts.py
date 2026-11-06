@@ -228,7 +228,11 @@ def extract_facts(
             )
         llm = validate_facts(text, candidates)
         merged = llm.model_copy(
-            update={"name": rules.name or llm.name, "phone": rules.phone or llm.phone}
+            update={
+                "name": rules.name or llm.name,
+                "phone": rules.phone or llm.phone,
+                **{key: getattr(llm, key) or getattr(rules, key) for key in KEYS[2:]},
+            }
         )
         produced = any(
             fact.source == "llm"

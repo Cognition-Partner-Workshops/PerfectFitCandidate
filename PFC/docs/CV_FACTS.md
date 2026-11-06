@@ -24,8 +24,9 @@ fact whose span/quote is not exact or whose non-empty value is not a substring
 of its quote. Phone values additionally must contain the same phone digits.
 LLM quotes are located exactly; neither values nor quotes are repaired.
 
-Rule names and phones take precedence. Successful LLM extraction supplies the
-three lists (even if filtering leaves them empty); failure uses rule lists.
+Rule names and phones take precedence. Each non-empty validated LLM category
+supplies its list; empty or entirely ungrounded categories use their rule facts.
+Failure uses rule lists.
 Retained LLM facts record `extracted_by=llm:<provider>:<model>` and
 `prompt_version=cv_extract_v1`; rules-only output records `rule_based`/NULL.
 Versions without `facts_schema` are backfilled in place, preserving their emails

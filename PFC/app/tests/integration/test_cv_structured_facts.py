@@ -33,7 +33,7 @@ def payload() -> str:
                 {"value": "CEO", "evidence": "Never present quote"},
             ],
             "qualifications": [],
-            "projects": [],
+            "projects": [{"value": "Invented project", "evidence": "Not in this CV"}],
         }
     )
 
@@ -87,6 +87,13 @@ def test_req_in_21_23_sync_persists_only_grounded_facts(
         assert saved["facts"]["experience"][0]["value"] == (
             "Engineer" if mode == "healthy" else "Engineer at Example"
         )
+        assert saved["facts"]["experience"][0]["source"] == ("llm" if mode == "healthy" else "rule")
+        assert saved["facts"]["qualifications"][0]["value"] == "BSc Computing"
+        assert saved["facts"]["qualifications"][0]["source"] == "rule"
+        assert saved["facts"]["projects"][0]["value"] == (
+            "Atlas: contact alex@example.com on +44 123456789"
+        )
+        assert saved["facts"]["projects"][0]["source"] == "rule"
         assert (
             "Fabricated" not in version["facts_json"]
             and "Never present" not in version["facts_json"]

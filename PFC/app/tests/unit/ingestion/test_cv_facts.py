@@ -171,6 +171,7 @@ def test_req_in_23_llm_quotes_and_precedence(loop: asyncio.AbstractEventLoop) ->
                 {"value": "Invented executive", "evidence": "Engineer at Example 2020-2024"},
                 {"value": "CEO", "evidence": "CEO at Fabricated"},
             ],
+            projects=[{"value": "Fabricated delivery", "evidence": "Never present quote"}],
         )
     )
     result = extract_facts(TEXT, LLMBridge(fake, loop, asyncio.Semaphore(1)), 2, Context())  # type: ignore[arg-type]
@@ -178,10 +179,28 @@ def test_req_in_23_llm_quotes_and_precedence(loop: asyncio.AbstractEventLoop) ->
     assert result.facts.phone == rule_facts(TEXT).phone
     assert [item.value for item in result.facts.experience] == ["Engineer"]
     assert result.facts.experience[0].source == "llm"
-    assert result.facts.qualifications == []
+    assert result.facts.qualifications == rule_facts(TEXT).qualifications
+    assert result.facts.projects == rule_facts(TEXT).projects
+    assert result.facts.projects[0].source == "rule"
     assert result.extracted_by == "llm:fake:fake-v1" and result.prompt_version == "cv_extract_v1"
     for fact in all_facts(result.facts):
         assert TEXT[slice(*fact["span"])] == fact["evidence"]
+
+
+@pytest.mark.parametrize("ungrounded", [False, True])
+def test_req_in_21_23_empty_llm_categories_keep_rules_and_provenance(
+    loop: asyncio.AbstractEventLoop,
+    ungrounded: bool,
+) -> None:
+    lists = {
+        key: [{"value": "Fabricated", "evidence": "Not in the CV"}] if ungrounded else []
+        for key in KEYS[2:]
+    }
+    fake = FakeProvider(generated(**lists))
+    result = extract_facts(TEXT, LLMBridge(fake, loop, asyncio.Semaphore(1)), 2, Context())  # type: ignore[arg-type]
+    assert result.facts == rule_facts(TEXT)
+    assert result.failure is None
+    assert result.extracted_by == "rule_based" and result.prompt_version is None
 
 
 class HangingProvider(FakeProvider):
