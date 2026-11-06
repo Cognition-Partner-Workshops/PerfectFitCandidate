@@ -288,6 +288,8 @@ export function fromStatusMapEntry(e: StatusMapEntry, statuses: BenchStatus[]) {
 /** `ResourcePage.items` from GET /resources and /resources/excluded (ingestion). */
 export interface ResourceItem {
   resource_id: number
+  candidate_id: number | null
+  cv_versions_count: number
   short_name: string
   email_address: string | null
   grade: string | null
@@ -307,10 +309,10 @@ export interface ResourceItem {
   occ_pending_review: boolean
 }
 const ELIGIBILITY: Resource['eligibility'][] = ['eligible', 'eligible_caveat', 'excluded', 'insufficient']
-/** The list rows carry no candidate or CV data, so those take neutral defaults (`candidateId` 0 = not linked); `pending_review` is the bench-date parse flag, not identity. */
+/** `candidateId` 0 = not linked; CV status follows the backend's rule (any CV version = Synced); `pending_review` is the bench-date parse flag, not identity. */
 export const toResource = (r: ResourceItem): Resource => ({
   resourceId: r.resource_id,
-  candidateId: 0,
+  candidateId: r.candidate_id ?? 0,
   shortName: r.short_name,
   emailAddressMasked: r.email_address ? maskEmail(r.email_address) : null,
   name: null,
@@ -327,8 +329,8 @@ export const toResource = (r: ResourceItem): Resource => ({
   groupOwner: null,
   eligibility: ELIGIBILITY.find((e) => e === r.eligibility) ?? 'insufficient',
   exclusionReasons: r.exclusion_reasons,
-  cvStatus: 'Not synced',
-  cvCount: 0,
+  cvStatus: r.cv_versions_count > 0 ? 'Synced' : 'Not synced',
+  cvCount: r.cv_versions_count,
   candidateType: 'Unknown',
   identityStatus: r.email_address ? 'complete' : 'incomplete',
 })

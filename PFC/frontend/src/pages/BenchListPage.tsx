@@ -15,7 +15,13 @@ const isEligible = (r: Resource) => r.eligibility === 'eligible' || r.eligibilit
 /** Bench List (REQ-IN-10..14, REQ-IN-20..22, REQ-ELIG-01..08, GUI_OCC_DESIGN.md §10). */
 export function BenchListPage() {
   const qc = useQueryClient()
-  const resources = useQuery({ queryKey: ['resources'], queryFn: () => api.listResources() })
+  // CV sync is a background job with no status route, so refresh the list for a while after submitting it.
+  const [pollUntil, setPollUntil] = useState(0)
+  const resources = useQuery({
+    queryKey: ['resources'],
+    queryFn: () => api.listResources(),
+    refetchInterval: () => (Date.now() < pollUntil ? 3000 : false),
+  })
   const [view, setView] = useState<View>('eligible')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<Set<number>>(new Set())
@@ -25,6 +31,7 @@ export function BenchListPage() {
     mutationFn: (ids: number[]) => api.syncCvs(ids),
     onSuccess: () => {
       setSelected(new Set())
+      setPollUntil(Date.now() + 60_000)
       void qc.invalidateQueries({ queryKey: ['resources'] })
     },
   })
@@ -100,9 +107,9 @@ export function BenchListPage() {
                   <td>
                     <input type="checkbox" checked={selected.has(r.resourceId)} onChange={() => toggle(r.resourceId)} aria-label={`Select ${r.shortName}`} />
                   </td>
-                  <td className="mono">{r.shortName}</td>
+                  <td className="mono">{r.candidateId ? <Link to={`/candidates/${r.candidateId}`}>{r.shortName}</Link> : r.shortName}</td>
                   <td>
-                    {r.candidateId ? <Link to={`/candidates/${r.candidateId}`}>{orNotRecorded(r.name)}</Link> : orNotRecorded(r.name)}
+                    {orNotRecorded(r.name)}
                     {r.identityStatus !== 'complete' && <Chip tone="warning">Incomplete identity</Chip>}
                   </td>
                   <td>
