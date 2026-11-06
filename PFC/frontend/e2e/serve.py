@@ -44,6 +44,7 @@ CV_LINES = [
     f"Phone: {CV_PHONE}",
     "Senior data engineer with eight years of SQL and Python delivery.",
     "Built reporting pipelines for retail banking clients.",
+    f"Contact: {CV_EMAIL}; phone: {CV_PHONE}.",
 ]
 # One reply for every source: the backend keeps only sentences whose evidence is in that source.
 SUMMARY_REPLY = {
@@ -53,7 +54,7 @@ SUMMARY_REPLY = {
             "evidence": CV_LINES[3],
         },
         {"text": "Taylor built reporting pipelines for banks.", "evidence": CV_LINES[4]},
-        {"text": f"Reach Taylor at {CV_EMAIL} or {CV_PHONE}.", "evidence": CV_LINES[2]},
+        {"text": f"Reach Taylor at {CV_EMAIL} or {CV_PHONE}.", "evidence": CV_LINES[5]},
         {"text": "The role needs SQL and Python.", "evidence": "SQL, Python"},
     ]
 }
