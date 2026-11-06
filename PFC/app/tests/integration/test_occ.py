@@ -441,6 +441,7 @@ def test_email_templates(client: TestClient) -> None:
         "{{",
         "{{ color: red; }}",
         "{{{candidate_name}}}",
+        "{{score{match_pct}}}",
         "}}",
     ],
 )
@@ -457,7 +458,9 @@ def test_email_literal_braces(client: TestClient, body_html: str) -> None:
     )
     assert result.status_code == 201, result.text
     assert result.json()["body_html"] == body_html
-    assert isinstance(body_html.format_map({"candidate_name": "Candidate"}), str)
+    assert isinstance(
+        body_html.format_map({"candidate_name": "Candidate", "match_pct": "90%"}), str
+    )
 
 
 @pytest.mark.parametrize("field", ["subject", "body_html"])
