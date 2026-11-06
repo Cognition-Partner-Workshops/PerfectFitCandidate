@@ -99,7 +99,11 @@ Edit component **Weights**, band thresholds (**Strong**, **Potential**, **Avg**;
 ## 9. Email templates and resource-team list
 
 - **OCC → Resource-team list:** the recipients of candidate emails (display name, email, active). Changes apply to new drafts only. An address already in the list or not a valid email is rejected.
-- **Pending:** there is no OCC email-template screen yet. The backend serves `/occ/email-templates`, but the SPA does not call it. Analysts edit their own template in **Settings → Email template**, stored in their browser.
+- **OCC → Email templates:** lists the latest version of each template with its subject, version, created date and whether it is the default. **Show all versions** adds the earlier versions.
+  - **Edit** opens a version; **Save as v(N+1)** adds the next version. Versions are never changed in place. **New template** starts a new template name.
+  - Subjects and bodies may use only `{candidate_name}`, `{requisition}`, `{role}`, `{match_pct}`, `{analysis}`, `{gaps}`, `{pointers}`, `{spoc_1}` and `{spoc_2}`. Any other `{token}` is rejected; `{{`, `}}` and CSS blocks are kept as literal text.
+  - **Set as default** makes that version the one new email drafts use. There is one default at a time, and a new version is not the default until you set it. If no template exists, the first email draft creates `candidate_default` v1 as the default.
+  - Analysts' **Settings → Email template** is separate and stored in their browser.
 
 ## 10. Internal domains
 
@@ -145,7 +149,6 @@ The append-only log of sign-ins, OCC changes, uploads, overrides, approvals and 
 | Area | Status |
 |---|---|
 | DL / CT approvals | Pending: backend approval routes not merged |
-| OCC email templates | Pending: no OCC screen; backend routes exist |
 | Global default model | Pending: **Make default** is per user |
 | Signing-key details screen | Pending |
-| Lockout status on sign-in | Pending: the backend answers a lockout as invalid credentials |
+| Lockout status on sign-in | Pending: the backend answers a locked account with 401 invalid credentials. The sign-in screen shows the lockout message on a 423, with a countdown when the reply carries `Retry-After` |

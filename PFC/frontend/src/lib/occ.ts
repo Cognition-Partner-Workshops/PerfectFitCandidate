@@ -36,3 +36,13 @@ export function moveItem<T>(items: T[], from: number, to: number): T[] {
   next.splice(to, 0, x)
   return next
 }
+
+/** Placeholders the backend allows in email templates (REQ-EML-03, `pfc.services.occ.templates.PLACEHOLDERS`). */
+export const EMAIL_PLACEHOLDERS = ['candidate_name', 'requisition', 'role', 'match_pct', 'analysis', 'gaps', 'pointers', 'spoc_1', 'spoc_2'] as const
+
+/** `{token}`s outside the allowlist, using the backend's rule: `{{`/`}}` and CSS blocks are literal. */
+export function unknownPlaceholders(subject: string, body: string): string[] {
+  const allowed = new Set<string>(EMAIL_PLACEHOLDERS)
+  const tokens = [...`${subject}\n${body}`.matchAll(/(?<!\{)\{([^{}\s:;]+)\}(?!\})/g)].map((m) => m[1])
+  return [...new Set(tokens.filter((t) => !allowed.has(t)))]
+}

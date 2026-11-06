@@ -167,4 +167,4 @@ PDF report download is Phase 2 (REQ-OUT-09).
 | Per-run excluded list in Match Results | Pending: not on screen yet |
 | PDF export | Phase 2 |
 | DL/CT auto-sync, SMTP, Chat | Phase 2 |
-| Lockout countdown on sign-in | Pending: the backend answers a lockout as invalid credentials |
+| Lockout countdown on sign-in | Pending: the backend answers a locked account with 401 invalid credentials. The sign-in screen shows the lockout message on a 423, with a countdown when the reply carries `Retry-After` |

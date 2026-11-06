@@ -5,6 +5,7 @@ import { OccStatusMap } from './OccStatusMap'
 import { OccSynonyms } from './OccSynonyms'
 import { OccScoringTemplate } from './OccScoringTemplate'
 import { OccResourceTeam } from './OccResourceTeam'
+import { OccEmailTemplates } from './OccEmailTemplates'
 import { OccInternalDomains } from './OccInternalDomains'
 import { OccSettingsPackage } from './OccSettingsPackage'
 import { OccApprovals } from './OccApprovals'
@@ -14,7 +15,7 @@ import { OccAuditLog } from './OccAuditLog'
 import { OccAdminSettings } from './OccAdminSettings'
 
 const GROUPS: [string, [string, string][]][] = [
-  ['People', [['users', 'Users & passwords'], ['resource-team', 'Resource-team list']]],
+  ['People', [['users', 'Users & passwords'], ['resource-team', 'Resource-team list'], ['email-templates', 'Email templates']]],
   ['Data', [['approvals', 'DL / CT approvals'], ['grades', 'Grade list'], ['status-map', 'Status list & mapping'], ['synonyms', 'Skill synonyms'], ['internal-domains', 'Internal domains']]],
   ['Matching', [['scoring-template', 'Scoring template'], ['models', 'Approved models']]],
   ['Operations', [['audit-log', 'Audit log'], ['admin-settings', 'Admin settings'], ['settings-package', 'Settings packages']]],
@@ -47,6 +48,7 @@ export function OccPage() {
           <Route path="overview" element={<OccOverview />} />
           <Route path="users" element={<OccUsers />} />
           <Route path="resource-team" element={<OccResourceTeam />} />
+          <Route path="email-templates" element={<OccEmailTemplates />} />
           <Route path="status-map" element={<OccStatusMap />} />
           <Route path="synonyms" element={<OccSynonyms />} />
           <Route path="internal-domains" element={<OccInternalDomains />} />
