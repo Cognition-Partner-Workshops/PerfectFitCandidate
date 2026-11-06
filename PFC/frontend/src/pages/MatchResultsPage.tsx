@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, Download, Mail, TriangleAlert } from 'lucide-react'
 import { api } from '../api'
 import { ApiError, type ExportFormat } from '../api/client'
-import { EXPORT_UNSUPPORTED_FILTERS } from '../api/mappers'
 import { downloadBlob } from '../lib/download'
 import type { Band, MatchResult, MatchRun, ResultFilters } from '../api/types'
 import { FilterBar } from '../components/FilterBar'
@@ -218,7 +217,6 @@ export function MatchResultsPage() {
     mutationFn: () => api.exportResults(run?.runId ?? 0, filters, exportFormat, includeEmails),
     onSuccess: ({ blob, fileName }) => downloadBlob(blob, fileName),
   })
-  const unsupported = EXPORT_UNSUPPORTED_FILTERS.filter((k) => filters[k] !== undefined && filters[k] !== '')
 
   const all = useMemo(() => results.data ?? [], [results.data])
   const rows = useMemo(() => applyResultFilters(all, filters), [all, filters])
@@ -288,9 +286,6 @@ export function MatchResultsPage() {
         </button>
       </div>
       {exporter.isError && <Banner tone="danger">{exportError(exporter.error)}</Banner>}
-      {unsupported.length > 0 && (
-        <p className="small">The export applies the requisition, account, grade, location, band, status and score filters; BU, region, candidate type, identity and mandatory-skill filters are not applied to the file.</p>
-      )}
       <div className="card stack">
         <FilterBar value={filters} onChange={setFilters} options={options} splitGrade />
         <div className="row small">

@@ -150,7 +150,7 @@ With no completed run yet, the tiles show zero and the charts are empty.
 2. Leave **Include full emails** clear to export masked emails (the default). Tick it to export emails exactly as in the CT; this is recorded in the audit log as an unmask. If the OCC Admin has disabled unmasking for Analysts, PFC says so and you can export with masked emails instead.
 3. Choose **Export CSV** or **Export XLSX**.
 
-The file starts with the run, finish time, model and template version, then the disclaimer, then the result columns. Overridden-out rows are left out, and cells that start with a formula character are protected. The export applies the requisition, account, grade, location, band, status and score filters; when a BU, region, candidate type, identity or mandatory-skill filter is set, the page notes that those are not applied to the file. Every export is recorded in the audit log.
+The file starts with the run, finish time, model and template version, then the disclaimer, then the result columns. Overridden-out rows are left out, and cells that start with a formula character are protected. The export applies the same filters as the grid. Every export is recorded in the audit log.
 
 PDF report download is Phase 2 (REQ-OUT-09).
 

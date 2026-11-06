@@ -368,7 +368,11 @@ describe('HttpApiClient — analytics and export wiring (REQ-OUT-04..09)', () =>
 
   it('maps result filters onto the export query and leaves emails masked by default', () => {
     const q = new URLSearchParams(
-      toExportQuery({ codeRequisition: ' T1 ', accountName: 'Acme', location: 'Pune', band: 'Strong', bu: 'X', scoreMax: 90 }, 'xlsx', false),
+      toExportQuery(
+        { codeRequisition: ' T1 ', accountName: 'Acme', location: 'Pune', band: 'Strong', bu: 'X', region: '', candidateType: 'Internal', incompleteIdentity: 'no', mandatorySkills: 'gap', scoreMax: 90 },
+        'xlsx',
+        false,
+      ),
     )
     expect(Object.fromEntries(q)).toEqual({
       format: 'xlsx',
@@ -377,6 +381,10 @@ describe('HttpApiClient — analytics and export wiring (REQ-OUT-04..09)', () =>
       personLocation: 'Pune',
       band: 'Strong',
       scoreMax: '90',
+      bu: 'X',
+      candidateType: 'Internal',
+      incompleteIdentity: 'no',
+      mandatorySkills: 'gap',
     })
     expect(new URLSearchParams(toExportQuery({}, 'csv', true)).get('includeEmails')).toBe('true')
   })

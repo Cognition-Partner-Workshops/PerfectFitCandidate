@@ -435,9 +435,6 @@ export const toMatchAnalytics = (r: MatchAnalytics): MatchAnalytics => ({
   validation: (r.validation ?? []).map((v) => ({ ...v, detail: v.detail ?? '' })),
 })
 
-/** Match Results filters that `GET /match-runs/{id}/export` cannot apply (no matching query field). */
-export const EXPORT_UNSUPPORTED_FILTERS = ['bu', 'region', 'candidateType', 'incompleteIdentity', 'mandatorySkills'] as const
-
 /** Match Results filters → `ExportQuery` (`pfc.api.schemas.analytics`), REQ-OUT-09. */
 export const toExportQuery = (f: ResultFilters, format: 'csv' | 'xlsx', includeEmails: boolean): string => {
   const p = new URLSearchParams({ format })
@@ -453,6 +450,11 @@ export const toExportQuery = (f: ResultFilters, format: 'csv' | 'xlsx', includeE
   set('status', f.status)
   set('scoreMin', f.scoreMin)
   set('scoreMax', f.scoreMax)
+  set('bu', f.bu)
+  set('region', f.region)
+  set('candidateType', f.candidateType)
+  set('incompleteIdentity', f.incompleteIdentity)
+  set('mandatorySkills', f.mandatorySkills)
   if (includeEmails) p.set('includeEmails', 'true')
   return p.toString()
 }
