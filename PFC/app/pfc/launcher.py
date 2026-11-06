@@ -153,7 +153,7 @@ def launch(
 
             browser_thread = threading.Thread(target=browse, daemon=True, name="pfc-browser")
             browser_thread.start()
-        run_server(create_app(settings), host="127.0.0.1", port=port, workers=1)
+        run_server(create_app(settings), host="127.0.0.1", port=port, workers=1, access_log=False)
         return 0
     finally:
         stop.set()

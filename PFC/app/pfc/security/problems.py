@@ -46,5 +46,5 @@ def install_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def unexpected_handler(request: Request, exc: Any) -> JSONResponse:
-        logger.error("Unexpected request error", exc_info=exc)
+        logger.error("Unexpected request error")
         return response(request, 500, "INTERNAL_ERROR", "Internal server error")

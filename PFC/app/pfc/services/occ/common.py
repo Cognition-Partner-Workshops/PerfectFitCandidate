@@ -4,6 +4,7 @@ from typing import Any
 
 from pfc.db.audit import append_audit
 from pfc.security.problems import Problem
+from pfc.security.secrets_store import redact_sensitive
 from pfc.security.sessions import stamp
 
 
@@ -22,21 +23,8 @@ def audit_write(
 ) -> None:
     """REQ-AUTH-05: retain values except for PII entities and secret fields."""
 
-    def safe(value: Any) -> Any:
-        if isinstance(value, dict):
-            return {
-                k: safe(v)
-                for k, v in value.items()
-                if not any(
-                    marker in k.casefold()
-                    for marker in ("password", "secret", "token", "credential")
-                )
-            }
-        if isinstance(value, list):
-            return [safe(v) for v in value]
-        return value
-
     pii = entity_type in {"users", "resource_team_recipients"}
+    store = getattr(db, "secret_store", None)
     append_audit(
         db,
         ts=now(),
@@ -45,8 +33,12 @@ def audit_write(
         entity_type=entity_type,
         entity_id=str(entity_id),
         details={
-            "before": (sorted(before) if pii else safe(before)) if before is not None else None,
-            "after": (sorted(after) if pii else safe(after)) if after is not None else None,
+            "before": (sorted(before) if pii else redact_sensitive(before, store=store))
+            if before is not None
+            else None,
+            "after": (sorted(after) if pii else redact_sensitive(after, store=store))
+            if after is not None
+            else None,
         },
     )
 

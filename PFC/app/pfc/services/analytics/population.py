@@ -13,10 +13,20 @@ from pfc.domain.config_loader import load_domain_config
 from pfc.domain.normalise import normalise_term, tokenise_skills
 from pfc.security.problems import Problem
 from pfc.services import matching
+from pfc.services.matching import results as result_views
 from pfc.services.matching.lifecycle import reconcile_runs
 from pfc.services.matching.results import _mask_email, active_overrides, apply_overrides
 
 BANDS = ("Strong", "Potential", "Avg", "Weak", "Insufficient data")
+
+
+def _capacity_input(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(
+            "capacity" in str(key).casefold() or _capacity_input(item)
+            for key, item in value.items()
+        )
+    return isinstance(value, list) and any(_capacity_input(item) for item in value)
 
 
 def equal(actual: Any, expected: str | None) -> bool:
@@ -146,6 +156,9 @@ class Population:
                 "m.matching_evidence",
                 "m.gaps_checks",
                 "r.email_address",
+                "json_extract(b.inputs_json,'$.display_facts.person_email') AS email_snapshot",
+                "json_type(b.inputs_json,'$.display_facts.person_email') IS NOT NULL "
+                "AS has_email_snapshot",
                 self._snapshot("start_date", "d.position_start_date") + " AS start_date",
                 "json_extract(g.inputs_json,'$.distance') AS grade_distance",
                 "json_extract(e.inputs_json,'$.parse_status') AS end_status",
@@ -175,6 +188,10 @@ class Population:
             "SELECT " + ",".join(columns) + joins + " WHERE m.run_id=?", (self.run["run_id"],)
         ):
             row = dict(source)
+            if validation:
+                row["person_email"] = result_views._mask_email(
+                    row["email_snapshot"] if row["has_email_snapshot"] else row["email_address"]
+                )
             if included is not None:
                 if row["result_id"] in included:
                     yield row
@@ -192,6 +209,22 @@ class Population:
     @cached_property
     def validation_rows(self) -> list[dict[str, Any]]:
         return list(self._match_rows(validation=True))
+
+    @cached_property
+    def capacity_result_ids(self) -> set[int]:
+        """REQ-OUT-10: inspect suspect scoring inputs once per run, not per result."""
+        if self.run is None:
+            return set()
+        return {
+            row["result_id"]
+            for row in self.db.execute(
+                "SELECT b.result_id,b.inputs_json FROM score_breakdowns b "
+                "JOIN match_results m USING(result_id) "
+                "WHERE m.run_id=? AND b.inputs_json LIKE '%capacity%'",
+                (self.run["run_id"],),
+            )
+            if _capacity_input(json.loads(row["inputs_json"]))
+        }
 
     @cached_property
     def demands(self) -> list[dict[str, Any]]:

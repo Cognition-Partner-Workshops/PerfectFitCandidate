@@ -5,6 +5,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from unittest.mock import Mock
 
 import httpx
 import pytest
@@ -96,6 +97,7 @@ def test_start_switch_stop(settings: Settings, tmp_path: Path, caplog) -> None:
         try:
             await service.start("one", settings.models_dir / "one.gguf")
             assert service.check().status == "ok"
+            assert service.running_model == ("one", (settings.models_dir / "one.gguf").resolve())
             assert service.check().model == "one"
             assert isinstance(service.app_state.llm_provider, FallbackProvider)
             proc = service.proc
@@ -119,9 +121,37 @@ def test_start_switch_stop(settings: Settings, tmp_path: Path, caplog) -> None:
             await service.stop()
             await service.stop()
         assert service.proc is not None and service.proc.poll() is not None
+        assert service.running_model is None
         assert service.app_state.llm_provider is None
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "state,exit_code,expected",
+    [
+        ("ready", None, True),
+        ("starting", None, True),
+        ("ready", 1, False),
+        ("starting", 1, False),
+        ("unavailable", None, False),
+        ("restarting", None, False),
+    ],
+)
+def test_running_model_requires_live_process(
+    settings: Settings,
+    state: str,
+    exit_code: int | None,
+    expected: bool,
+) -> None:
+    service = LlamaServerSupervisor(settings)
+    service.model_name = "one"
+    service.model_path = (settings.models_dir / "one.gguf").resolve()
+    service.state = state
+    assert service.running_model is None
+    service.proc = Mock()
+    service.proc.poll.return_value = exit_code
+    assert service.running_model == (("one", service.model_path) if expected else None)
 
 
 def test_api_key_passed_only_in_environment(settings: Settings, tmp_path: Path) -> None:

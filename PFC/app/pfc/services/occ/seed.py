@@ -156,7 +156,7 @@ def seed_reference_data(
             continue
         path = directory / filename
         if not path.is_file():
-            logger.info("Skipping missing seed file %s", path)
+            logger.info("Skipping missing seed file %s", filename)
             continue
         db.execute("SAVEPOINT seed_file")
         try:
@@ -169,7 +169,7 @@ def seed_reference_data(
             _seed(db, filename, data)
         except (ValueError, TypeError, KeyError, sqlite3.Error, yaml.YAMLError, csv.Error, OSError):
             db.execute("ROLLBACK TO seed_file")
-            logger.warning("Skipping malformed seed file %s", path)
+            logger.warning("Skipping malformed seed file %s", filename)
         finally:
             db.execute("RELEASE seed_file")
     if not (directory / "llm_models.approved.json").is_file():
@@ -180,7 +180,7 @@ def seed_reference_data(
     if db.execute("SELECT 1 FROM email_templates LIMIT 1").fetchone():
         return
     if not email_path.is_file():
-        logger.info("Skipping missing email template %s", email_path)
+        logger.info("Skipping missing email template candidate_default.html")
         return
     db.execute("SAVEPOINT seed_email")
     try:
@@ -201,6 +201,6 @@ def seed_reference_data(
         )
     except (OSError, ValueError, sqlite3.Error, Problem):
         db.execute("ROLLBACK TO seed_email")
-        logger.warning("Skipping malformed email template %s", email_path)
+        logger.warning("Skipping malformed email template candidate_default.html")
     finally:
         db.execute("RELEASE seed_email")

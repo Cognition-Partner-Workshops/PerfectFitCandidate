@@ -167,6 +167,18 @@ export interface MatchResult {
   override?: MatchOverride
 }
 
+/** GET /match-runs/{id}/excluded row: one exclusion reason for one person, run-wide or for one requisition (REQ-ELIG-08). */
+export interface ExcludedEntry {
+  runId: number
+  resourceId: number
+  shortName: string
+  demandId: number | null
+  codeRequisition: string | null
+  reasonCode: string
+  detail: string | null
+  scope: 'global' | 'pair'
+}
+
 export interface MatchRun {
   runId: number
   status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'

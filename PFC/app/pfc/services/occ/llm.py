@@ -1,6 +1,7 @@
 import json
 import sqlite3
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Protocol
 
 from pfc.api.schemas.llm import LlmHealth
@@ -65,13 +66,67 @@ def list_models(
     return [dict(row) for row in db.execute(sql + " ORDER BY model_id")]
 
 
-def approve(db: sqlite3.Connection, user_id: int, target: int, approved: bool) -> dict[str, Any]:
+def model_purpose(model: dict[str, Any]) -> str:
+    if "embed" in model["name"].casefold() or Path(model["file_name"]).suffix.lower() == ".onnx":
+        return "embedding"
+    return "generation"
+
+
+def occ_models(db: sqlite3.Connection, user_id: int) -> list[dict[str, Any]]:
+    return [
+        {
+            **model,
+            "id": str(model["model_id"]),
+            "purpose": model_purpose(model),
+            "ramGb": model["ram_estimate_mb"] / 1024,
+            "diskGb": model["size_mb"] / 1024,
+            "approved": bool(model["approved"]),
+            "isDefault": bool(model["is_active"]),
+        }
+        for model in list_models(db, user_id)
+    ]
+
+
+def approve(
+    db: sqlite3.Connection,
+    user_id: int,
+    target: int,
+    approved: bool | None,
+    *,
+    is_default: bool = False,
+) -> dict[str, Any]:
     before = get_row(db, "llm_models", "model_id", target)
-    if before["is_active"] and not approved:
+    if is_default:
+        if not (before["approved"] if approved is None else approved):
+            raise Problem(422, "MODEL_NOT_APPROVED", "Model is not approved")
+        filename = Path(before["file_name"])
+        if (
+            filename.suffix.lower() != ".gguf"
+            or filename.is_absolute()
+            or ".." in filename.parts
+            or model_purpose(before) != "generation"
+        ):
+            raise Problem(422, "MODEL_NOT_GENERATIVE", "Default model must be a generation GGUF")
+    if before["is_active"] and approved is False:
         raise Problem(409, "MODEL_ACTIVE", "The active model cannot be unapproved")
-    db.execute("UPDATE llm_models SET approved=? WHERE model_id=?", (approved, target))
+    if approved is not None:
+        db.execute("UPDATE llm_models SET approved=? WHERE model_id=?", (approved, target))
+    if is_default:
+        previous = db.execute("SELECT model_id FROM llm_models WHERE is_active=1").fetchone()
+        db.execute("UPDATE llm_models SET is_active=0 WHERE is_active=1")
+        db.execute("UPDATE llm_models SET is_active=1 WHERE model_id=?", (target,))
+        audit_write(
+            db,
+            user_id,
+            "OCC_EDIT",
+            "llm_models",
+            "default",
+            {"default_model_id": previous[0] if previous else None},
+            {"default_model_id": target},
+        )
     after = get_row(db, "llm_models", "model_id", target)
-    audit_write(db, user_id, "OCC_EDIT", "llm_models", target, before, after)
+    if approved is not None:
+        audit_write(db, user_id, "OCC_EDIT", "llm_models", target, before, after)
     return after
 
 
