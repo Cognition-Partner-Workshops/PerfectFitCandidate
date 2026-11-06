@@ -71,3 +71,4 @@ disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["perf: default-on synthetic API performance checks (skip with -m 'not perf')"]
