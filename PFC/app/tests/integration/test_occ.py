@@ -410,7 +410,6 @@ def test_email_templates(client: TestClient) -> None:
         "body_html": "<p>Hello {candidate_name}</p>",
     }
     assert client.get(base).json() == []
-    assert client.post(base, json={**body, "subject": "{unfinished"}).status_code == 422
     assert (
         client.post(base, json={**body, "subject": "{unknown}"}).json()["code"]
         == "UNKNOWN_PLACEHOLDER"
@@ -426,6 +425,30 @@ def test_email_templates(client: TestClient) -> None:
     assert client.get(base + f"/{first['email_template_id']}").json()["subject"] == body["subject"]
     assert client.get(base + "/99999").status_code == 404
     assert client.post(base + "/99999/set-default").status_code == 404
+
+
+@pytest.mark.parametrize(
+    "body_html",
+    [
+        "<style>p { color: red }</style><p>{candidate_name}</p>",
+        "{{",
+        "{{literal_braces}}",
+        "{unfinished",
+    ],
+)
+def test_email_literal_braces(client: TestClient, body_html: str) -> None:
+    """REQ-EML-03: CSS and literal braces are not placeholder identifiers."""
+    login(client)
+    result = client.post(
+        "/api/v1/occ/email-templates",
+        json={
+            "name": "styled",
+            "subject": "Opportunity {role}",
+            "body_html": body_html,
+        },
+    )
+    assert result.status_code == 201, result.text
+    assert result.json()["body_html"] == body_html
 
 
 def test_recipients_domains_settings_and_audit(client: TestClient) -> None:

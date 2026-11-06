@@ -1,4 +1,5 @@
 import json
+import re
 import sqlite3
 from typing import Any
 
@@ -151,10 +152,8 @@ def activate(db: sqlite3.Connection, user_id: int, target: int) -> dict[str, Any
 
 
 def validate_placeholders(subject: str, body: str) -> None:
-    remaining = subject + "\n" + body
-    for placeholder in PLACEHOLDERS:
-        remaining = remaining.replace("{" + placeholder + "}", "")
-    if "{" in remaining or "}" in remaining:
+    tokens = re.findall(r"(?<!\{)\{([a-z_][a-z0-9_]*)\}(?!\})", subject + "\n" + body)
+    if set(tokens) - PLACEHOLDERS:
         raise Problem(422, "UNKNOWN_PLACEHOLDER", "Unknown email placeholder")
 
 
