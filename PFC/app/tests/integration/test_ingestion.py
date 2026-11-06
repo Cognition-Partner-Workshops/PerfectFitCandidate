@@ -420,3 +420,259 @@ def test_req_ing_02_empty_preview_and_unseeded_references(client: TestClient) ->
         row = db.execute("SELECT * FROM resources").fetchone()
         assert row["grade"] is row["bench_status_code"] is None
         assert row["exclusion_reason"] == "NO_GRADE"
+
+
+@pytest.fixture
+def demand_rows(client: TestClient) -> TestClient:
+    commit(client, upload(client, "dl", [{"Code Requisition": "T19999"}]))
+    commit(
+        client,
+        upload(
+            client,
+            "dl",
+            [
+                {
+                    "Code Requisition": "T10001",
+                    "Position Start Date": "1/1/2026",
+                    "BU": "Data",
+                    "Region": "North",
+                    "Account Name": "Acme",
+                    "Demand Request Name": "SQL Lead",
+                },
+                {
+                    "Code Requisition": "T10002",
+                    "Position Start Date": "2/1/2026",
+                    "BU": "Apps",
+                    "Region": "South",
+                    "Code Local Grade": "A3",
+                },
+                {"Code Requisition": "T10003", "Position Start Date": "2/1/2026"},
+                {"Code Requisition": "T10004"},
+            ],
+        ),
+    )
+    return client
+
+
+def test_req_out_01_demand_paging_sort_and_detail(demand_rows: TestClient) -> None:
+    client = demand_rows
+    login(client, "Analyst")
+    response = client.get("/api/v1/demands?page_size=2")
+    page = response.json()
+    assert page["total"] == 4 and page["page"] == 1 and page["page_size"] == 2
+    assert [r["code_requisition"] for r in page["items"]] == ["T10002", "T10003"]
+    second = client.get("/api/v1/demands?page=2&page_size=2").json()
+    assert [r["code_requisition"] for r in second["items"]] == ["T10001", "T10004"]
+    assert "jd_text_norm" not in response.text
+    assert all(r["occ_pending_review"] for r in page["items"])
+    demand_id = page["items"][0]["demand_id"]
+    detail = client.get(f"/api/v1/demands/{demand_id}").json()
+    assert detail["versions"][0]["version_no"] == 1
+    assert detail["versions"][0]["jd_text_norm"] == "- SQL"
+    assert len(detail["versions"][0]["jd_sha256"]) == 64
+    assert detail["versions"][0]["created_at"]
+    with database(client.app.state.settings) as db:
+        db.execute("UPDATE demands SET occ_reviewed_at='reviewed' WHERE demand_id=?", (demand_id,))
+    assert not client.get(f"/api/v1/demands/{demand_id}").json()["occ_pending_review"]
+    assert client.get("/api/v1/demands?page=9").json()["items"] == []
+
+
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        ("bu=Data", ["T10001"]),
+        ("region=North", ["T10001"]),
+        ("account_name=Acme", ["T10001"]),
+        ("grade=A3", ["T10002"]),
+        ("lifecycle=closed", ["T19999"]),
+        ("q=sql", ["T10001"]),
+        ("q=0004", ["T10004"]),
+        ("q=%25", []),
+        ("bu=Data&region=South", []),
+        ("q=' OR 1=1 --", []),
+    ],
+)
+def test_req_out_01_demand_filters(
+    demand_rows: TestClient, query: str, expected: list[str]
+) -> None:
+    page = demand_rows.get(f"/api/v1/demands?{query}").json()
+    assert [r["code_requisition"] for r in page["items"]] == expected
+    assert page["total"] == len(expected)
+
+
+@pytest.fixture
+def resource_rows(client: TestClient) -> TestClient:
+    commit(
+        client,
+        upload(client, "ct", [{"ShortName": "Removed", "Email Address": "removed@example.com"}]),
+    )
+    commit(
+        client,
+        upload(
+            client,
+            "ct",
+            [
+                {
+                    "ShortName": "Alex",
+                    "Email Address": " AlEx@Example.com ",
+                    "Bench Start Date": "1/1/2026",
+                    "Bench End Date": "nonsense",
+                    "Location": "Edinburgh",
+                    "Available Capacity": "N",
+                },
+                {
+                    "ShortName": "Taylor",
+                    "Email Address": "taylor@example.com",
+                    "Grade": "A3",
+                    "Bench Start Date": "2/1/2026",
+                    "Bench Status": "Selected",
+                    "Location": "London",
+                },
+                {
+                    "ShortName": "Morgan",
+                    "Email Address": "morgan@example.com",
+                    "Bench Start Date": "2/1/2026",
+                    "Bench Status": "Custom",
+                    "Group": "RG2",
+                },
+                {"ShortName": "Casey", "Email Address": None},
+            ],
+        ),
+    )
+    return client
+
+
+def test_req_out_03_resource_sort_mask_flags_and_detail(resource_rows: TestClient) -> None:
+    client = resource_rows
+    login(client, "Analyst")
+    response = client.get("/api/v1/resources")
+    rows = response.json()["items"]
+    assert [r["short_name"] for r in rows] == ["Taylor", "Morgan", "Alex", "Casey"]
+    assert response.json()["total"] == 4
+    assert all(
+        email not in response.text.lower()
+        for email in [
+            "alex@example.com",
+            "taylor@example.com",
+            "morgan@example.com",
+            "removed@example.com",
+        ]
+    )
+    assert "email_key" not in response.text
+    alex = rows[2]
+    assert alex["email_address"] == "A***@Example.com"
+    assert alex["pending_review"] and alex["occ_pending_review"]
+    assert alex["available_capacity"] == "N" and alex["eligibility"] == "eligible"
+    assert rows[1]["unmapped_status"] and not rows[1]["pending_review"]
+    assert rows[0]["exclusion_reasons"] == ["STATUS_EXCLUDED"]
+    assert rows[3]["email_address"] is None
+    assert client.get("/api/v1/resources?page_size=1&page=3").json()["items"] == [alex]
+    assert client.get("/api/v1/resources?page=9").json()["items"] == []
+    detail_response = client.get(f"/api/v1/resources/{alex['resource_id']}")
+    detail = detail_response.json()
+    assert "alex@example.com" not in detail_response.text.lower()
+    assert detail["candidate_id"] and detail["cv_versions_count"] == 0
+    assert detail["latest_cv"] is None
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "UPDATE resources SET occ_reviewed_at='reviewed' WHERE resource_id=?",
+            (alex["resource_id"],),
+        )
+        resume = db.execute(
+            "INSERT INTO resumes(candidate_id,source_path,file_name,file_sha256,"
+            "mime_type,discovered_at) "
+            "VALUES (?,'alex@example.com.pdf','alex@example.com.pdf','file-hash',"
+            "'application/pdf','2026-01-01')",
+            (detail["candidate_id"],),
+        ).lastrowid
+        for version in (1, 2):
+            db.execute(
+                "INSERT INTO cv_versions(resume_id,candidate_id,version_no,text_sha256,text_norm,"
+                "extracted_by,is_latest,extracted_at) VALUES (?,?,?,?,?,'test',?,'2026-01-01')",
+                (
+                    resume,
+                    detail["candidate_id"],
+                    version,
+                    f"hash-{version}",
+                    "alex@example.com",
+                    version == 2,
+                ),
+            )
+    detail_response = client.get(f"/api/v1/resources/{alex['resource_id']}")
+    detail = detail_response.json()
+    assert detail["cv_versions_count"] == 2 and detail["latest_cv"]["version_no"] == 2
+    assert not detail["occ_pending_review"]
+    assert "alex@example.com" not in detail_response.text.lower()
+
+
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        ("grade=A3", ["Taylor"]),
+        ("bench_status_code=AVAILABLE", ["Alex", "Casey"]),
+        ("eligibility=excluded", ["Taylor"]),
+        ("lifecycle=off_bench", ["Removed"]),
+        ("group_name=RG2", ["Morgan"]),
+        ("location=DIN", ["Alex"]),
+        ("q=ayL", ["Taylor"]),
+        ("q=%25", []),
+        ("grade=A3&location=Edinburgh", []),
+    ],
+)
+def test_req_out_03_resource_filters(
+    resource_rows: TestClient, query: str, expected: list[str]
+) -> None:
+    page = resource_rows.get(f"/api/v1/resources?{query}").json()
+    assert [r["short_name"] for r in page["items"]] == expected
+    assert page["total"] == len(expected)
+
+
+def test_req_elig_08_excluded_route_and_reasons(resource_rows: TestClient) -> None:
+    client = resource_rows
+    response = client.get("/api/v1/resources/excluded?eligibility=eligible")
+    assert response.status_code == 200
+    page = response.json()
+    assert page["total"] == 1
+    assert page["items"][0]["short_name"] == "Taylor"
+    assert page["items"][0]["exclusion_reasons"] == ["STATUS_EXCLUDED"]
+    assert "taylor@example.com" not in response.text
+    assert client.get("/api/v1/resources/excluded?grade=B1").json()["items"] == []
+
+
+@pytest.mark.parametrize("path", ["/demands", "/resources", "/resources/excluded"])
+def test_req_out_read_errors_and_empty(client: TestClient, path: str) -> None:
+    assert client.get(f"/api/v1{path}").json()["total"] == 0
+    for params in ("page=0", "page_size=0", "page_size=201"):
+        assert client.get(f"/api/v1{path}?{params}").status_code == 422
+    assert client.get(f"/api/v1{path}?page_size=200").status_code == 200
+    if path != "/resources/excluded":
+        response = client.get(f"/api/v1{path}/99999")
+        assert response.status_code == 404
+        assert response.headers["content-type"] == "application/problem+json"
+    client.cookies.clear()
+    assert client.get(f"/api/v1{path}").status_code == 401
+    if path != "/resources/excluded":
+        assert client.get(f"/api/v1{path}/1").status_code == 401
+
+
+@pytest.mark.parametrize(
+    "email,masked",
+    [
+        ("invalid", "***"),
+        ("@example.com", "***"),
+        ("alex@", "***"),
+        ("alex@@example.com", "***"),
+        ("", None),
+    ],
+)
+def test_req_out_03_invalid_emails_not_disclosed(
+    client: TestClient, email: str, masked: str | None
+) -> None:
+    commit(client, upload(client, "ct", [{"Email Address": email}]))
+    response = client.get("/api/v1/resources")
+    row = response.json()["items"][0]
+    assert row["email_address"] == masked
+    detail = client.get(f"/api/v1/resources/{row['resource_id']}")
+    assert detail.json()["email_address"] == masked
+    if email:
+        assert email not in response.text and email not in detail.text
