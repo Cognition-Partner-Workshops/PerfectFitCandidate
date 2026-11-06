@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from pfc.api.schemas.match import RunView, WireModel
+from pfc.api.schemas.results import ResultDetail, ResultRow
 from pfc.config import Settings
 from pfc.main import create_app
 
@@ -153,3 +155,12 @@ def test_frontend_api_calls_match_backend_openapi(tmp_path: Path) -> None:
         if not label.startswith(ALLOWED_PENDING_LABELS) and not label.startswith("MISMATCH")
     }
     assert not invalid_labels, f"Unrecognized PENDING labels: {invalid_labels}"
+
+
+@pytest.mark.parametrize("model", [RunView, ResultRow, ResultDetail])
+def test_match_run_change_metadata_contract(model: type[WireModel]) -> None:
+    schema = model.model_json_schema(mode="validation", by_alias=True)
+    assert schema["properties"]["dataChangedSinceRun"]["type"] == "boolean"
+    reasons = schema["properties"]["dataChangedReasons"]
+    assert reasons["type"] == "array" and reasons["items"]["type"] == "string"
+    assert {"dataChangedSinceRun", "dataChangedReasons"} <= set(schema["required"])
