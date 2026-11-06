@@ -5,6 +5,7 @@ import json
 import re
 import sqlite3
 from collections import defaultdict
+from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -20,6 +21,9 @@ from pfc.domain.normalise.text import normalise_text
 from pfc.jobs.runner import JobContext
 from pfc.security.problems import Problem
 from pfc.security.sessions import stamp
+from pfc.services.embeddings.chunking import OwnerType
+from pfc.services.embeddings.reembed import ReembedCounts, embed_owners
+from pfc.services.embeddings.runtime import EmbeddingModelUnavailable, create_embedder
 
 from .limits import positive_setting
 
@@ -113,61 +117,45 @@ def _lookups(settings: Settings, ids: list[int]) -> list[CandidateLookup]:
     return result
 
 
-def _embed(
-    db: sqlite3.Connection,
-    version_id: int,
-    text: str,
-    embedder: Embedder | None,
-    now: str,
+class _EmbeddingContext(JobContext):
+    def __init__(self, parent: JobContext, index: int, total: int) -> None:
+        super().__init__(parent.runner, parent.job_id, parent.cancelled)
+        self.parent, self.index, self.total = parent, index, total
+
+    def report_progress(self, fraction: float, message: str = "") -> None:
+        self.parent.report_progress((self.index + fraction) / self.total, message)
+
+
+def _embed_affected(
+    settings: Settings,
     context: JobContext,
-) -> int:
-    model = db.execute("SELECT * FROM embedding_models WHERE is_active=1").fetchone()
-    if embedder is None or model is None or not text:
-        return 0
-    if model["dim"] != embedder.dimensions:
-        raise ValueError("Active embedding model dimensions do not match embedder")
-    words = text.split()
-    chunks = [" ".join(words[i : i + 200]) for i in range(0, len(words), 200)]
-    pending = [
-        (number, chunk)
-        for number, chunk in enumerate(chunks)
-        if not db.execute(
-            "SELECT 1 FROM embedding_chunks WHERE owner_type='cv' AND owner_id=? "
-            "AND section='full' AND chunk_no=? AND embedding_model_id=?",
-            (version_id, number, model["embedding_model_id"]),
+    owners: list[tuple[OwnerType, int]],
+    embedder: Embedder | None,
+) -> tuple[ReembedCounts, str | None]:
+    with database(settings) as db:
+        model = db.execute(
+            "SELECT embedding_model_id FROM embedding_models WHERE is_active=1"
         ).fetchone()
-    ]
-    if not pending:
-        return 0
-    context.raise_if_cancelled()
-    vectors = embedder.embed([chunk for _, chunk in pending], task="document")
-    if vectors.shape != (len(pending), embedder.dimensions):
-        raise ValueError("Embedder returned an unexpected vector shape")
-    store = create_vector_store(db, dimensions=embedder.dimensions)
-    for (number, chunk), vector in zip(pending, vectors, strict=True):
-        context.raise_if_cancelled()
-        cursor = db.execute(
-            "INSERT INTO embedding_chunks(owner_type,owner_id,section,chunk_no,text,text_sha256,"
-            "token_count,embedding_model_id,created_at) VALUES ('cv',?,'full',?,?,?,?,?,?)",
-            (
-                version_id,
-                number,
-                chunk,
-                hashlib.sha256(chunk.encode()).hexdigest(),
-                len(chunk.split()),
-                model["embedding_model_id"],
-                now,
-            ),
-        )
-        assert cursor.lastrowid is not None
-        store.upsert(
-            cursor.lastrowid,
-            vector,
-            embedder.model_version,
-            namespace="cv",
-            metadata={"embedding_model_id": model["embedding_model_id"]},
-        )
-    return len(pending)
+        if model is None:
+            return ReembedCounts(), "Embedding skipped: no active embedding model"
+        try:
+            selected = (
+                embedder
+                if embedder is not None
+                else create_embedder(settings, embedding_model_id=model[0])
+            )
+            store = create_vector_store(db, dimensions=selected.dimensions)
+            return embed_owners(
+                settings,
+                context,
+                owners=owners,
+                embedder=selected,
+                store=store,
+                embedding_model_id=model[0],
+            ), None
+        except EmbeddingModelUnavailable as exc:
+            context.raise_if_cancelled()
+            return ReembedCounts(), f"Embedding skipped: {exc}"
 
 
 def _persist(
@@ -297,6 +285,8 @@ def sync(
             max_file_bytes=max(1, int(positive_setting(db, "cv.max_file_mb", 20) * 1024**2)),
             extract_timeout_s=positive_setting(db, "cv.extract_timeout_s", 30),
         )
+    embedding_counts = ReembedCounts()
+    embedding_notes: list[str] = []
     matched: dict[str, dict[str, CVVersion]] = defaultdict(dict)
     for result in source.scan(lookups):
         context.raise_if_cancelled()
@@ -367,21 +357,60 @@ def sync(
         context.raise_if_cancelled()
         with database(settings) as db:
             db.execute("BEGIN IMMEDIATE")
+            affected = (
+                {
+                    row[0]
+                    for row in db.execute(
+                        "SELECT v.cv_version_id FROM cv_versions v WHERE v.candidate_id=? AND "
+                        "(v.is_latest=1 OR EXISTS (SELECT 1 FROM embedding_chunks c "
+                        "JOIN embedding_models m USING(embedding_model_id) WHERE m.is_active=1 "
+                        "AND c.owner_type='cv' AND c.owner_id=v.cv_version_id))",
+                        (candidate_id,),
+                    )
+                }
+                if candidate_id is not None
+                else set()
+            )
             now = stamp(datetime.now(UTC))
             for version in sorted(found, key=lambda v: (v.file_mtime, v.source_path)):
                 context.raise_if_cancelled()
-                version_id, inserted = _persist(db, candidate_id, version, now, root)
+                _, inserted = _persist(db, candidate_id, version, now, root)
                 counts.new_versions += int(inserted)
                 counts.unchanged += int(not inserted)
-                if candidate_id is not None:
-                    counts.embedded += _embed(
-                        db, version_id, normalise_text(version.text_norm), embedder, now, context
-                    )
             if candidate_id is not None:
                 _latest(db, candidate_id)
+                affected.update(
+                    row[0]
+                    for row in db.execute(
+                        "SELECT cv_version_id FROM cv_versions "
+                        "WHERE candidate_id=? AND is_latest=1",
+                        (candidate_id,),
+                    )
+                )
             context.raise_if_cancelled()
+        if affected:
+            embedded, note = _embed_affected(
+                settings,
+                _EmbeddingContext(context, index, len(groups)),
+                [("cv", id) for id in sorted(affected)],
+                embedder,
+            )
+            for field in ("embedded", "reused", "skipped", "deleted"):
+                setattr(
+                    embedding_counts,
+                    field,
+                    getattr(embedding_counts, field) + getattr(embedded, field),
+                )
+            counts.embedded += embedded.embedded
+            if note and note not in embedding_notes:
+                embedding_notes.append(note)
         context.report_progress((index + 1) / max(len(groups), 1), "Synchronising CVs")
     context.raise_if_cancelled()
+    summary = {
+        **counts.model_dump(),
+        "embedding_counts": asdict(embedding_counts),
+        "embedding_notes": embedding_notes,
+    }
     with database(settings) as db:
         db.execute("BEGIN IMMEDIATE")
         append_audit(
@@ -391,10 +420,10 @@ def sync(
             user_id=user_id,
             entity_type="job",
             entity_id=str(context.job_id),
-            details=counts.model_dump(),
+            details=summary,
         )
-        # The runner clears messages on completion, so publish the terminal summary atomically here.
+        # TODO(foundation): use JobContext.complete(message) in pfc/jobs/runner.py.
         db.execute(
             "UPDATE jobs SET status='completed',progress=1,message=?,finished_at=? WHERE job_id=?",
-            (counts.model_dump_json(), stamp(datetime.now(UTC)), context.job_id),
+            (json.dumps(summary), stamp(datetime.now(UTC)), context.job_id),
         )
