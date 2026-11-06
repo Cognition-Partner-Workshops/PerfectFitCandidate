@@ -1,9 +1,12 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api'
-import type { PackagePreview } from '../../api/types'
+import type { PackageImportRecord, PackagePreview, PackageSource } from '../../api/types'
 import { Banner, Chip, ErrorState, Modal } from '../../components/ui'
 import { formatDateTime } from '../../lib/format'
+
+/** History is newest-first; after a rollback the newest row is `rolled_back`, so the flag decides. */
+const currentOf = (h: PackageImportRecord[] | undefined) => h?.find((x) => x.isCurrent)
 
 /**
  * Settings-package import with signature/version validation, change preview, atomic apply and
@@ -12,15 +15,17 @@ import { formatDateTime } from '../../lib/format'
 export function SettingsPackagePanel() {
   const qc = useQueryClient()
   const history = useQuery({ queryKey: ['package-history'], queryFn: () => api.packageHistory() })
+  const pending = useQuery({ queryKey: ['package-pending'], queryFn: () => api.pendingPackages() })
   const [preview, setPreview] = useState<PackagePreview | null>(null)
   const [confirmRollback, setConfirmRollback] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const doPreview = useMutation({ mutationFn: (f: File) => api.previewPackage(f), onSuccess: (p) => { setPreview(p); setNotice(null) } })
   const apply = useMutation({
-    mutationFn: (id: string) => api.importPackage(id),
+    mutationFn: (source: PackageSource) => api.importPackage(source),
     onSuccess: (h) => {
       qc.setQueryData(['package-history'], h)
-      setNotice(`Settings package v${preview?.packageVersion} applied. Imported Analyst accounts must change their one-time password at first sign-in.`)
+      void qc.invalidateQueries({ queryKey: ['package-pending'] })
+      setNotice(`Settings package v${currentOf(h)?.version} applied. Imported Analyst accounts must change their one-time password at first sign-in.`)
       setPreview(null)
     },
   })
@@ -29,10 +34,10 @@ export function SettingsPackagePanel() {
     onSuccess: (h) => {
       qc.setQueryData(['package-history'], h)
       setConfirmRollback(false)
-      setNotice(`Rolled back to v${h[0]?.version}.`)
+      setNotice(`Rolled back to v${currentOf(h)?.version}.`)
     },
   })
-  const installed = history.data?.[0]
+  const installed = currentOf(history.data)
   const valid = preview && preview.errors.length === 0
   return (
     <section className="card stack" aria-label="Settings package">
@@ -108,11 +113,30 @@ export function SettingsPackagePanel() {
             <button className="btn" onClick={() => setPreview(null)}>
               Cancel
             </button>
-            <button className="btn btn-primary" disabled={!valid || apply.isPending} onClick={() => apply.mutate(preview.previewId)}>
+            <button className="btn btn-primary" disabled={!valid || apply.isPending} onClick={() => apply.mutate({ previewId: preview.previewId })}>
               Apply package
             </button>
           </div>
           {apply.isError && <ErrorState error={apply.error} />}
+        </div>
+      )}
+      {(pending.data ?? []).filter((p) => p.kind === 'settings').length > 0 && (
+        <div className="stack" aria-label="Packages in inbox">
+          <h3>Found in inbox</h3>
+          {(pending.data ?? [])
+            .filter((p) => p.kind === 'settings')
+            .map((p) => (
+              <div className="row" key={p.id}>
+                <span className="mono small">{p.fileName}</span>
+                {p.version != null && <span className="muted small">v{p.version}</span>}
+                {p.valid ? <Chip tone="success">✓ Valid</Chip> : <Chip tone="danger">{p.error ?? 'Invalid'}</Chip>}
+                <span className="spacer" />
+                <button className="btn btn-sm" disabled={!p.valid || apply.isPending} onClick={() => apply.mutate({ pendingId: p.id })}>
+                  Apply
+                </button>
+              </div>
+            ))}
+          {!preview && apply.isError && <ErrorState error={apply.error} />}
         </div>
       )}
       <h3>Import history</h3>
@@ -129,7 +153,10 @@ export function SettingsPackagePanel() {
         <tbody>
           {(history.data ?? []).map((h) => (
             <tr key={`${h.version}-${h.importedAt}`}>
-              <td>v{h.version}</td>
+              <td>
+                v{h.version} {h.isCurrent && <Chip tone="success">Installed</Chip>}
+                {h.status === 'rolled_back' && <Chip tone="neutral">Rolled back</Chip>}
+              </td>
               <td className="mono small">{h.fileName}</td>
               <td>{formatDateTime(h.importedAt)}</td>
               <td>{h.importedBy}</td>

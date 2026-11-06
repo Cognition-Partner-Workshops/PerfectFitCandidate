@@ -15,7 +15,7 @@ The real backend is the default in every build; the in-browser mock is an explic
 | Selection | Client | Notes |
 |---|---|---|
 | default (no flag) | `HttpApiClient` | Real `/api/v1` backend: same-origin cookie session (`pfc_session`), `X-CSRF-Token` on POST/PUT/DELETE (token from the login / `/auth/me` / `/auth/password` response), RFC 9457 `application/problem+json` errors shown as friendly messages, 401 → back to sign-in, 423 → lockout countdown. `VITE_PFC_API_BASE` overrides `/api/v1`. |
-| `VITE_PFC_API=mock` | `MockApiClient` | Any build (vitest sets it). In-browser fixtures (fictitious people, `example.com`/`example.org` emails), persisted in `localStorage` key `pfc.mock.v3`. The first-run setup code is shown on the setup screen and in the console. |
+| `VITE_PFC_API=mock` | `MockApiClient` | Any build (vitest sets it). In-browser fixtures (fictitious people, `example.com`/`example.org` emails), persisted in `localStorage` key `pfc.mock.v4`. The first-run setup code is shown on the setup screen and in the console. |
 | `?mock=1` on a `npm run dev` URL | `MockApiClient` | Dev server only; ignored in production builds. |
 | `VITE_PFC_API=http` | `HttpApiClient` | Forces HTTP even with `?mock=1`. |
 

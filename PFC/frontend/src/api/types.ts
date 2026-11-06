@@ -465,7 +465,27 @@ export interface PackageImportRecord {
   importedBy: string
   fileName: string
   canRollback: boolean
+  status: 'applied' | 'rolled_back'
+  isCurrent: boolean
 }
+
+/** POST /occ/settings-package/export response: the signed file plus one-time passwords to hand out once. */
+export interface ExportedPackage extends SettingsPackageInfo {
+  contentBase64: string
+  oneTimePasswords: { email: string; otp: string }[]
+}
+
+/** GET /settings/settings-package/pending: packages detected in `inbox\`. */
+export interface PendingPackage {
+  id: string
+  fileName: string
+  kind: 'settings' | 'model'
+  version: number | null
+  valid: boolean
+  error: string | null
+}
+
+export type PackageSource = { previewId: string } | { pendingId: string }
 
 export interface UploadPreview {
   ingestionRunId: number
