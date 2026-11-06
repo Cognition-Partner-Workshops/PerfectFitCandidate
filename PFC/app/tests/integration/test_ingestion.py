@@ -23,6 +23,7 @@ from pfc.jobs.runner import JobCancelled, JobContext
 from pfc.main import create_app
 from pfc.security.setup import code_path
 from pfc.services.embeddings.chunking import OwnerType
+from pfc.services.embeddings.incremental import submit_incremental_embed
 from pfc.services.embeddings.reembed import reembed
 from pfc.services.embeddings.runtime import EmbeddingModelUnavailable
 from pfc.services.ingestion import cv_sync, service
@@ -143,7 +144,7 @@ def commit(client: TestClient, run: dict) -> dict:
     return response.json()
 
 
-def test_dl_embedding_trigger_only_changed_versions(
+def test_dl_embedding_trigger_only_changed_versions_and_titles(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls: list[set[tuple[OwnerType, int]]] = []
@@ -178,6 +179,149 @@ def test_dl_embedding_trigger_only_changed_versions(
     rows[0]["Account Name"] = "Metadata only"
     commit(client, upload(client, "dl", rows))
     commit(client, upload(client, "ct", [{}]))
+    assert calls == []
+    rows[0]["Demand Request Name"] = "Python Engineer"
+    commit(client, upload(client, "dl", rows))
+    assert calls == [{("jd", new["T11234"])}]
+    with database(client.app.state.settings) as db:
+        assert dict(db.execute("SELECT code_requisition,current_version_id FROM demands")) == new
+    calls.clear()
+    rows[0]["Account Name"] = "Another metadata edit"
+    commit(client, upload(client, "dl", rows))
+    assert calls == []
+
+
+def test_dl_replacement_cleans_only_indexed_active_requirement_items(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    commit(client, upload(client, "dl", [{}, {"Code Requisition": "T21234"}]))
+    settings = client.app.state.settings
+    embedder = FakeEmbedder(8)
+    with database(settings) as db:
+        versions = dict(db.execute("SELECT code_requisition,current_version_id FROM demands"))
+        model_id = db.execute(
+            "INSERT INTO embedding_models(name,runtime,file_sha256,dim,pipeline_version,is_active) "
+            "VALUES ('fake','onnx','',8,'v1',1) RETURNING embedding_model_id"
+        ).fetchone()[0]
+        inactive_model = db.execute(
+            "INSERT INTO embedding_models(name,runtime,file_sha256,dim,pipeline_version,is_active) "
+            "VALUES ('inactive','onnx','',8,'v1',0) RETURNING embedding_model_id"
+        ).fetchone()[0]
+        for req_id, code in enumerate(("T11234", "T21234"), 1):
+            db.execute(
+                "INSERT INTO jd_requirements(jd_req_id,demand_version_id,"
+                "revision,status,created_at) "
+                "VALUES (?,?,1,'confirmed','2026-11-06')",
+                (req_id, versions[code]),
+            )
+            db.execute(
+                "INSERT INTO jd_requirement_items(item_id,jd_req_id,kind,text,position) "
+                "VALUES (?,?,'mandatory_skill','SQL',0)",
+                (req_id, req_id),
+            )
+    with database(settings) as db:
+        store = create_vector_store(db, dimensions=8)
+        reembed(
+            settings,
+            JobContext(client.app.state.job_runner, 0, threading.Event()),
+            embedding_model_id=model_id,
+            embedder=embedder,
+            store=store,
+        )
+        old_chunks = [
+            row[0]
+            for row in db.execute(
+                "SELECT chunk_id FROM embedding_chunks WHERE (owner_type='jd' AND owner_id=?) "
+                "OR (owner_type='jd_item' AND owner_id=1)",
+                (versions["T11234"],),
+            )
+        ]
+        db.execute(
+            "INSERT INTO jd_requirements(jd_req_id,demand_version_id,revision,status,created_at) "
+            "VALUES (3,?,2,'superseded','2026-11-06')",
+            (versions["T11234"],),
+        )
+        for id, req in ((3, 1), (4, 1), (5, 3)):
+            db.execute(
+                "INSERT INTO jd_requirement_items(item_id,jd_req_id,kind,text,position) "
+                "VALUES (?,?,'mandatory_skill','SQL',?)",
+                (id, req, id),
+            )
+
+        def index(item_id: int, model: int) -> int:
+            id = db.execute(
+                "INSERT INTO embedding_chunks(owner_type,owner_id,section,chunk_no,text,"
+                "text_sha256,token_count,embedding_model_id,created_at) "
+                "VALUES ('jd_item',?,'full',0,'SQL',?,1,?,'2026-11-06') RETURNING chunk_id",
+                (item_id, "f" * 64, model),
+            ).fetchone()[0]
+            store.upsert(
+                id,
+                embedder.embed(["SQL"], task="query")[0],
+                embedder.model_version,
+                namespace="jd_item",
+            )
+            return id
+
+        inactive_chunk = index(3, inactive_model)
+        old_chunks.append(index(5, model_id))
+    calls: list[set[tuple[OwnerType, int]]] = []
+    jobs: list[int] = []
+
+    def submit(
+        runner: object,
+        settings: Settings,
+        owners: Iterable[tuple[OwnerType, int]],
+        *,
+        created_by: int | None = None,
+    ) -> int:
+        selected = set(owners)
+        calls.append(selected)
+        job_id = submit_incremental_embed(
+            client.app.state.job_runner, settings, selected, created_by=created_by
+        )
+        assert job_id is not None
+        jobs.append(job_id)
+        return job_id
+
+    monkeypatch.setattr("pfc.api.routers.ingestion.submit_incremental_embed", submit)
+    monkeypatch.setattr(
+        "pfc.services.embeddings.incremental.create_embedder",
+        lambda settings, *, embedding_model_id: embedder,
+    )
+    rows: list[dict[str, object]] = [{"JD": "Python"}, {"Code Requisition": "T21234"}]
+    commit(client, upload(client, "dl", rows))
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        job = client.app.state.job_runner.get(jobs[0])
+        assert job is not None
+        if job.status in {"completed", "failed", "cancelled"}:
+            assert job.status == "completed", job
+            break
+        time.sleep(0.01)
+    else:
+        pytest.fail("Incremental embedding did not finish")
+    with database(settings) as db:
+        current = db.execute(
+            "SELECT current_version_id FROM demands WHERE code_requisition='T11234'"
+        ).fetchone()[0]
+        assert calls == [
+            {("jd", versions["T11234"]), ("jd", current), ("jd_item", 1), ("jd_item", 5)}
+        ]
+        store = create_vector_store(db, dimensions=8)
+        for id in old_chunks:
+            assert (
+                db.execute("SELECT 1 FROM embedding_chunks WHERE chunk_id=?", (id,)).fetchone()
+                is None
+            )
+            assert store.get_vector(id) is None
+        assert store.get_vector(inactive_chunk) is not None
+        assert db.execute(
+            "SELECT 1 FROM embedding_chunks WHERE owner_type='jd_item' AND owner_id=2"
+        ).fetchone()
+    calls.clear()
+    rows[0]["Account Name"] = "Metadata only"
+    commit(client, upload(client, "dl", rows))
     assert calls == []
 
 

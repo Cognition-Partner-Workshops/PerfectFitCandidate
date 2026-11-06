@@ -80,11 +80,21 @@ def commit(run_id: int, request: Request, principal: Analyst) -> IngestionRun:
         try:
             after = _current_versions(request.app.state.settings)
             owners: set[tuple[OwnerType, int]] = set()
-            for demand_id, version in after.items():
-                if demand_id not in before or before[demand_id] != version:
-                    for id in (before.get(demand_id), version):
+            for demand_id, current in after.items():
+                previous = before.get(demand_id)
+                if previous != current:
+                    version = current[0]
+                    old_version = previous[0] if previous is not None else None
+                    for id in (old_version, version):
                         if id is not None:
                             owners.add(("jd", id))
+                    if old_version is not None and old_version != version:
+                        owners.update(
+                            ("jd_item", id)
+                            for id in _indexed_requirement_items(
+                                request.app.state.settings, old_version
+                            )
+                        )
             if (
                 owners
                 and submit_incremental_embed(
@@ -101,10 +111,28 @@ def commit(run_id: int, request: Request, principal: Analyst) -> IngestionRun:
     return result
 
 
-def _current_versions(settings: Settings) -> dict[int, int | None]:
+def _current_versions(settings: Settings) -> dict[int, tuple[int | None, str | None]]:
     with database(settings) as db:
         return {
-            row[0]: row[1] for row in db.execute("SELECT demand_id,current_version_id FROM demands")
+            row[0]: (row[1], row[2])
+            for row in db.execute(
+                "SELECT demand_id,current_version_id,demand_request_name FROM demands"
+            )
+        }
+
+
+def _indexed_requirement_items(settings: Settings, version_id: int) -> set[int]:
+    with database(settings) as db:
+        return {
+            row[0]
+            for row in db.execute(
+                "SELECT DISTINCT i.item_id FROM jd_requirement_items i "
+                "JOIN jd_requirements r ON r.jd_req_id=i.jd_req_id "
+                "JOIN embedding_chunks c ON c.owner_type='jd_item' AND c.owner_id=i.item_id "
+                "JOIN embedding_models m ON m.embedding_model_id=c.embedding_model_id "
+                "WHERE r.demand_version_id=? AND m.is_active=1",
+                (version_id,),
+            )
         }
 
 
