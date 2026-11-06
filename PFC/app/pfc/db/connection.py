@@ -20,7 +20,7 @@ def load_vec(connection: Connection) -> bool:
         sqlite_vec.load(connection)
         return True
     except (AttributeError, sqlite3.Error, OSError):
-        logger.warning("sqlite-vec unavailable; using keyword-only fallback", exc_info=True)
+        logger.warning("sqlite-vec unavailable; using keyword-only fallback")
         return False
     finally:
         try:

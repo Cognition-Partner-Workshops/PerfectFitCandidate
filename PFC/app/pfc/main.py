@@ -56,7 +56,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             scan_inbox(settings)
         except Exception:
-            logger.exception("Package inbox scan failed; startup continues")
+            logger.error("Package inbox scan failed; startup continues")
         app.state.job_runner = JobRunner(settings)
         supervisor = LlamaServerSupervisor(
             settings, app_state=app.state if not hasattr(app.state, "llm_provider") else None
