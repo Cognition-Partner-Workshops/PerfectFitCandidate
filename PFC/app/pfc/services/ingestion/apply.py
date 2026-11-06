@@ -12,6 +12,7 @@ from pfc.domain.scoring.engine import build_ct_basis, eligibility
 from pfc.domain.scoring.models import Resource
 from pfc.security.problems import Problem
 
+from .approvals import record_changes, snapshot
 from .models import ParsedRow, Preview
 from .repository import domain_config
 from .workbooks import CT, DL
@@ -28,7 +29,12 @@ def _upsert(
 ) -> int:
     where = " AND ".join(f"{k}=?" for k in keys)
     old = db.execute(f"SELECT * FROM {table} WHERE {where}", tuple(keys.values())).fetchone()
-    if old and all(old[field] == value for field, value in values.items()):
+    if old and (
+        table == "demands"
+        and old["row_hash"] == values["row_hash"]
+        and old["lifecycle"] == values["lifecycle"]
+        or all(old[field] == value for field, value in values.items())
+    ):
         return int(old[pk])
     values.update(
         last_ingestion_id=run_id, updated_at=now, occ_reviewed_by=None, occ_reviewed_at=None
@@ -107,26 +113,33 @@ def _resource(
         row_hash=row.row_hash,
         lifecycle="active",
     )
+    old = db.execute(
+        "SELECT * FROM resources WHERE short_name_key=? AND email_key=?",
+        (f["short_name_key"], f["email_key"]),
+    ).fetchone()
+    unchanged = old is not None and old["row_hash"] == row.row_hash and old["lifecycle"] == "active"
+    if unchanged:
+        values = {field: old[field] for field in values}
     if not db.execute("SELECT 1 FROM grades WHERE code=?", (values["grade"],)).fetchone():
         values["grade"] = None
-    status = config.bench_statuses.resolve(f["bench_status"] or "")
+    status = config.bench_statuses.resolve(values["bench_status"] or "")
     values["bench_status_code"] = status.code if status else None
     resource = Resource(
         resource_id=str(row.row_number),
         short_name=f["short_name"],
         grade=values["grade"],
-        location=f["location"],
-        bench_status=f["bench_status"],
-        group=f["group_name"],
-        bench_start=_parsed(f["bench_start_date"]),
-        bench_end=_parsed(f["bench_end_date"], f["bench_end_date_parse_status"]),
-        ct_skills=f["skills_raw"],
+        location=values["location"],
+        bench_status=values["bench_status"],
+        group=values["group_name"],
+        bench_start=_parsed(values["bench_start_date"]),
+        bench_end=_parsed(values["bench_end_date"], values["bench_end_date_parse_status"]),
+        ct_skills=values["skills_raw"],
     )
     reasons = eligibility(resource, [build_ct_basis(resource, config)], config)
     values.update(
         eligibility="excluded" if reasons else "eligible",
         exclusion_reason=",".join(r.code for r in reasons) or None,
-        candidate_id=_candidate(db, row, now),
+        candidate_id=old["candidate_id"] if unchanged else _candidate(db, row, now),
     )
     _upsert(
         db,
@@ -174,6 +187,8 @@ def _demand(
 
 
 def apply_preview(db: sqlite3.Connection, preview: Preview, run_id: int, now: str) -> None:
+    entity = "demand" if preview.kind == "DL" else "resource"
+    before = snapshot(db, entity)
     config = domain_config(db)
     accepted = [r for r in preview.rows if not r.rejected and not r.superseded]
     incomplete_counts = Counter(
@@ -209,3 +224,4 @@ def apply_preview(db: sqlite3.Connection, preview: Preview, run_id: int, now: st
                     "occ_reviewed_by=NULL, occ_reviewed_at=NULL WHERE resource_id=?",
                     (now, run_id, record[0]),
                 )
+    record_changes(db, entity, before, run_id, now)
