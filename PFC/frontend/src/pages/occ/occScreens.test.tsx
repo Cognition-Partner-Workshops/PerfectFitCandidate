@@ -43,6 +43,17 @@ describe('OCC mock API (GUI_OCC_DESIGN.md §16.4/§16.8/§16.10/§16.12/§16.14)
     expect(log[0].summary).toContain('T1A123: Modified')
   })
 
+  it('masks account emails in list, update and unlock responses without changing sign-in', async () => {
+    const created = await api.createUser({ fullName: 'Short Account', email: 'ab@x.com', role: 'Analyst' })
+    const listed = await api.listUsers()
+    expect(listed.find((u) => u.userId === created.userId)?.email).toBe('**@x.com')
+    expect(listed.some((u) => u.email === ADMIN.email)).toBe(false)
+    expect((await api.updateUser(created.userId, { role: 'Admin' })).email).toBe('**@x.com')
+    expect((await api.unlockUser(created.userId)).email).toBe('**@x.com')
+    await api.logout()
+    expect((await api.login({ role: 'Admin', email: 'ab@x.com', password: created.oneTimePassword })).mustChangePassword).toBe(true)
+  })
+
   it('validates grade codes and uniqueness', async () => {
     const g = await api.listGrades()
     expect(g.map((x) => x.code)).toEqual(['A3', 'A4', 'B1', 'B2', 'C1', 'C2', 'D1', 'D2', 'E1'])
@@ -113,6 +124,24 @@ describe('OCC screens', () => {
     renderApp('/occ/overview')
     const nav = await screen.findByRole('navigation', { name: 'OCC sections' })
     for (const label of ['DL / CT approvals', 'Grade list', 'Approved models', 'Audit log', 'Admin settings']) expect(within(nav).getByText(label)).toBeTruthy()
+  })
+
+  it('shows masked Admin and Analyst emails while identifying accounts by display name', async () => {
+    await api.createUser({ fullName: 'Short Admin', email: 'ab@x.com', role: 'Admin' })
+    await api.createUser({ fullName: 'Single Analyst', email: 'a@x.com', role: 'Analyst' })
+    await api.createUser({ fullName: 'Alex Account', email: 'AlexBorder@capgemini.com', role: 'Analyst' })
+    renderApp('/occ/users')
+    for (const [name, masked, raw] of [
+      ['Short Admin', '**@x.com', 'ab@x.com'],
+      ['Single Analyst', '*@x.com', 'a@x.com'],
+      ['Alex Account', 'Al******er@capgemini.com', 'AlexBorder@capgemini.com'],
+    ]) {
+      const row = (await screen.findByText(name)).closest('tr')!
+      expect(within(row).getByText(masked)).toBeTruthy()
+      expect(within(row).queryByText(raw)).toBeNull()
+      expect(within(row).getByRole('combobox', { name: `Role for ${name}` })).toBeTruthy()
+    }
+    expect(screen.queryByText(ADMIN.email)).toBeNull()
   })
 
   it('approves a DL change and requires a reason to revert a CT change', async () => {

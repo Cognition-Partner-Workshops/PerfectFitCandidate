@@ -20,7 +20,7 @@ from pfc.services.packages.common import (
     transaction,
 )
 from pfc.services.packages.keys import SigningKeys
-from pfc.services.packages.payloads import encode_snapshot, snapshot
+from pfc.services.packages.payloads import SETTINGS_SCHEMA, encode_snapshot, snapshot
 
 
 @dataclass(frozen=True)
@@ -63,6 +63,7 @@ def export_settings(
             encode_snapshot(data),
             private=private,
             package_version=number,
+            schema_version=SETTINGS_SCHEMA,
             min_app_version=min_app_version or app_version(),
             max_app_version=max_app_version or app_version(),
             created_at=now,

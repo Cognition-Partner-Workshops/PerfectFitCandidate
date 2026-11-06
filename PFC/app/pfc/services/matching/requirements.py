@@ -8,8 +8,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from pfc.domain.config_loader import DomainConfig, load_domain_config
+from pfc.domain.config_loader import DomainConfig
 from pfc.domain.normalise import normalise_term
+from pfc.services.occ.domain import occ_domain_config
 
 from .common import atomic, audit, dumps, timestamp
 from .ports import MatchingPorts
@@ -251,7 +252,7 @@ def analyze_jd(
     text = version["jd_text_norm"]
     if not text.strip():
         raise ValueError("JD text is blank")
-    config = load_domain_config()
+    config = occ_domain_config(db)
     extracted_by = "rule_based"
     fallback_reason = None
     try:
@@ -311,7 +312,7 @@ def save_draft(
             items.append(item)
         cleaned[field] = items
     data = Requirements.model_validate(cleaned)
-    config = load_domain_config()
+    config = occ_domain_config(db)
     with atomic(db):
         version = _current(db, demand_id)
         req_id = _write(
@@ -340,7 +341,7 @@ def confirm_requirements(
         version = _current(db, demand_id)
         if data is not None:
             req_id = _write(
-                db, version["demand_version_id"], data, "manual", now, load_domain_config()
+                db, version["demand_version_id"], data, "manual", now, occ_domain_config(db)
             )
         else:
             draft = db.execute(
