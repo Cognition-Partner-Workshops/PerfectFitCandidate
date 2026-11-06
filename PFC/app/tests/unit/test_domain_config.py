@@ -157,6 +157,50 @@ def test_req_scr_01_empty_template(data):
         ScoringTemplate.from_dict(data)
 
 
+@pytest.mark.parametrize(
+    ("section", "key", "maximum"),
+    [
+        ("grade", "exact", 10),
+        ("grade", "adjacent", 10),
+        ("location_points", "Aligned", 5),
+        ("location_points", "Remote/unspecified", 5),
+        ("location_points", "Potential travel", 5),
+        ("location_points", "Location check", 5),
+        ("bench_start", "beyond", 5),
+        ("bench_start", "missing", 5),
+        (None, "bench_end_blank_points", 5),
+        *(("status_tiered_points", str(priority), 5) for priority in range(1, 7)),
+    ],
+)
+@pytest.mark.parametrize("bad", [-0.1, 0.1, float("nan"), float("inf")])
+def test_req_scr_01_component_point_limits(section, key, maximum, bad):
+    data = json.loads((CONFIG / "scoring_template.default.json").read_text())
+    target = data[section] if section else data
+    target[key] = maximum + bad if bad == 0.1 else bad
+    with pytest.raises(ValueError, match="points must be within"):
+        ScoringTemplate.from_dict(data)
+
+
+@pytest.mark.parametrize("bad", [-1, 5.1, float("nan"), float("inf")])
+@pytest.mark.parametrize("tier", range(5))
+def test_req_scr_01_bench_tier_point_limits(bad, tier):
+    data = json.loads((CONFIG / "scoring_template.default.json").read_text())
+    data["bench_start"]["tiers_days"][tier][1] = bad
+    with pytest.raises(ValueError, match="bench_start points must be within"):
+        ScoringTemplate.from_dict(data)
+
+
+@pytest.mark.parametrize("value", [0, 5])
+def test_req_scr_01_component_point_limits_inclusive(value):
+    data = json.loads((CONFIG / "scoring_template.default.json").read_text())
+    data["grade"] = {"exact": value, "adjacent": value, "max_distance": 1}
+    data["location_points"] = {key: value for key in data["location_points"]}
+    data["bench_start"] = {"tiers_days": [[0, value]], "beyond": value, "missing": value}
+    data["bench_end_blank_points"] = value
+    data["status_tiered_points"] = {key: value for key in data["status_tiered_points"]}
+    assert ScoringTemplate.from_dict(data).bench_end_blank_points == value
+
+
 def test_req_scr_01_paths_and_overrides(tmp_path, monkeypatch):
     copied = tmp_path / "settings"
     shutil.copytree(CONFIG, copied)

@@ -142,6 +142,21 @@ class ScoringTemplate:
             raise ValueError("bands must descend Strong > Potential > Avg within 0..100")
         if isinstance(self.version, bool) or not isinstance(self.version, int) or self.version < 1:
             raise ValueError("version must be a positive integer")
+        component_points = {
+            "grade": (self.grade.exact, self.grade.adjacent),
+            "location": tuple(self.location_points.values()),
+            "bench_start": (
+                *(point for _, point in self.bench_start.tiers_days),
+                self.bench_start.beyond,
+                self.bench_start.missing,
+            ),
+            "bench_end": (self.bench_end_blank_points,),
+            "status": tuple(self.status_tiered_points.values()),
+        }
+        for component, points in component_points.items():
+            maximum = getattr(self.weights, component)
+            if any(not math.isfinite(point) or not 0 <= point <= maximum for point in points):
+                raise ValueError(f"{component} points must be within 0..weights.{component}")
         object.__setattr__(self, "location_points", MappingProxyType(dict(self.location_points)))
         object.__setattr__(
             self, "status_tiered_points", MappingProxyType(dict(self.status_tiered_points))
