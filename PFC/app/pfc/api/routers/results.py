@@ -23,6 +23,7 @@ from pfc.security.dependencies import Principal, require_role
 from pfc.security.problems import Problem
 from pfc.services import matching
 from pfc.services.matching.export import export_results
+from pfc.services.pii import require_unmask_permission
 
 router = APIRouter(dependencies=[Depends(require_role("Analyst"))])
 Analyst = Annotated[Principal, Depends(require_role("Analyst"))]
@@ -169,6 +170,8 @@ def export(
         exclude={"format", "include_emails", "sort", "descending", "limit", "offset"}
     )
     with database(request.app.state.settings) as db:
+        if query.include_emails:
+            require_unmask_permission(db, principal.session.role_at_login)
         content, media = export_results(
             db,
             run_id,

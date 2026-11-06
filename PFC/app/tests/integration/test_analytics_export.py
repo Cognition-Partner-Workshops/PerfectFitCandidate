@@ -15,6 +15,7 @@ from test_matching_service import NOW, seed_demand, seed_resource
 from pfc.db.audit import verify_chain
 from pfc.db.connection import database
 from pfc.services.matching.export import DISCLAIMER, HEADERS
+from pfc.services.pii import ANALYST_UNMASK_KEY
 
 PREFIX = "/api/v1"
 PANELS = ("summary", "demand", "bench", "match")
@@ -214,6 +215,74 @@ def test_shapes_counts_capacity_and_clock(populated: tuple[Api, dict[str, Any]])
             "UPDATE resources SET lifecycle='off_bench' WHERE resource_id=?", (ids["resources"][0],)
         )
     assert get(api, "/analytics/summary")["emailsWithin24hPct"] == 25
+
+
+@pytest.mark.parametrize("format", ["csv", "xlsx"])
+@pytest.mark.parametrize("enabled", [False, True])
+def test_export_respects_unmask_policy(
+    populated: tuple[Api, dict[str, Any]],
+    format: str,
+    enabled: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api, ids = populated
+    client, _ = api
+    role = get(api, "/auth/me")["user"]["role"]
+
+    def set_policy(value: bool) -> None:
+        with database(client.app.state.settings) as db:
+            db.execute(
+                "INSERT INTO settings(scope,key,value_json,updated_at) "
+                "VALUES ('system',?,?,?) ON CONFLICT DO UPDATE SET value_json=excluded.value_json",
+                (ANALYST_UNMASK_KEY, json.dumps(value), NOW.isoformat()),
+            )
+
+    def counts() -> tuple[int, int, int]:
+        with database(client.app.state.settings) as db:
+            return tuple(
+                db.execute(sql).fetchone()[0]
+                for sql in (
+                    "SELECT COUNT(*) FROM audit_log",
+                    "SELECT COUNT(*) FROM audit_log WHERE action='export_results'",
+                    "SELECT COUNT(*) FROM audit_log WHERE action IN ('unmask','UNMASK')",
+                )
+            )
+
+    def exported_email(content: bytes) -> str:
+        if format == "csv":
+            return list(csv.reader(io.StringIO(content.decode())))[3][7]
+        sheet = load_workbook(io.BytesIO(content)).active
+        assert sheet is not None
+        value = sheet.cell(4, 8).value
+        assert isinstance(value, str)
+        return value
+
+    set_policy(enabled)
+    before = counts()
+    base = f"{PREFIX}/match-runs/{ids['run']}/export?format={format}"
+    if role == "Analyst" and not enabled:
+
+        def forbidden_generation(*args: Any, **kwargs: Any) -> None:
+            pytest.fail("Export generation must not run when unmasking is denied")
+
+        with monkeypatch.context() as patch:
+            patch.setattr("pfc.api.routers.results.export_results", forbidden_generation)
+            response = client.get(base + "&includeEmails=true")
+        assert response.status_code == 403, response.text
+        assert response.json()["code"] == "UNMASK_DISABLED"
+        assert response.headers["content-type"].startswith("application/problem+json")
+        assert counts() == before
+    else:
+        response = client.get(base + "&includeEmails=true")
+        assert response.status_code == 200, response.text
+        assert exported_email(response.content) == "person0@example.com"
+        assert counts() == (before[0] + 2, before[1] + 1, before[2] + 1)
+    set_policy(False)
+    response = client.get(base)
+    assert response.status_code == 200, response.text
+    assert exported_email(response.content) == "pe*****@example.com"
+    with database(client.app.state.settings) as db:
+        assert verify_chain(db)
 
 
 @pytest.mark.parametrize("format", ["csv", "xlsx"])
