@@ -112,7 +112,14 @@ are removed, and retained lines are limited to 2048 characters **after** redacti
 Input lines above 64 KiB are discarded in bounded chunks, never logged as partial
 fragments. A dedicated pipe reader keeps disk writes off the async supervisor;
 on disk-write failure it drains/discards output with a fixed warning, not payloads.
-Shutdown/model switches drain and close that sink after stopping the child.
+Shutdown/model switches allow two seconds for EOF before abandoning a blocked
+daemon pipe reader, disabling further persistence and emitting one fixed
+truncation warning. Already-written records are flushed per line and the sink is
+closed independently of the pipe. The owning reader closes its pipe if it later
+unblocks; cleanup never closes a buffered read handle from another thread, which
+could itself block on Windows. A permanently inherited pipe can therefore retain
+a daemon thread/read handle until process exit, but cannot stall cleanup or append
+late output to the old sink.
 
 Only `settings.data_dir / "logs" / "llm.log"` is used. Retention is 5 MiB per
 file, active plus two backups (`.1`, `.2`), three files total; byte accounting

@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -12,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.datastructures import State
 
+from pfc.adapters.llm.child_logs import ChildLogCapture
 from pfc.adapters.llm.providers import FallbackProvider
 from pfc.adapters.llm.supervisor import LlamaServerSupervisor
 from pfc.api.schemas.llm import LlmHealth
@@ -291,6 +293,64 @@ def test_unexpected_exit_clears_provider(settings: Settings, tmp_path: Path) -> 
         assert service.check().status == "degraded"
         assert service.check().detail == "restarting (attempt 1/3)"
         await service.stop()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("operation", ["failed_start", "shutdown", "restart"])
+def test_inherited_output_pipe_does_not_block_lifecycle(
+    settings: Settings,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    held_pipe,
+    operation: str,
+    caplog,
+) -> None:
+    monkeypatch.setattr("pfc.adapters.llm.child_logs.DRAIN_TIMEOUT_S", 0.1)
+    original_start = ChildLogCapture.start
+    captures = []
+
+    def start(capture: ChildLogCapture, stream) -> None:
+        if not captures:
+            captures.append(capture)
+            stream.close()
+            original_start(capture, held_pipe)
+        else:
+            original_start(capture, stream)
+
+    monkeypatch.setattr(ChildLogCapture, "start", start)
+
+    async def scenario() -> None:
+        service = supervisor(
+            settings,
+            tmp_path,
+            "exit" if operation == "failed_start" else "ready",
+            restart_backoff_s=(0.01, 0.01, 0.01),
+        )
+        try:
+            async with asyncio.timeout(3):
+                await service.start("one", settings.models_dir / "one.gguf")
+                assert held_pipe.blocked.is_set()
+                if operation == "failed_start":
+                    assert service.state == "failed"
+                elif operation == "shutdown":
+                    started = time.monotonic()
+                    await service.stop()
+                    assert time.monotonic() - started < 1
+                    assert service.state == "unavailable"
+                else:
+                    first = service.proc
+                    first.kill()
+                    await asyncio.to_thread(first.wait)
+                    while service.proc is first or service.check().status != "ok":
+                        await asyncio.sleep(0.01)
+                    assert service.proc is not first and service._restart_attempts == 1
+            assert caplog.text.count("Local LLM output capture truncated at shutdown") == 1
+            assert captures[0].thread.is_alive() and captures[0].log.stream.closed
+        finally:
+            held_pipe.release.set()
+            await service.stop()
+            await asyncio.to_thread(captures[0].thread.join, 1)
 
     asyncio.run(scenario())
 

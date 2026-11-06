@@ -1,5 +1,7 @@
 import io
 import json
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -191,3 +193,55 @@ def test_log_write_errors_do_not_echo_payload_or_stop_draining(
     assert stream.closed and len(calls) == 1
     assert "Local LLM diagnostic log unavailable" in caplog.text
     assert "PRIVATE_IO_EXCEPTION" not in caplog.text
+
+
+def test_close_bounds_non_eof_pipe_and_discards_late_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, held_pipe, caplog
+) -> None:
+    monkeypatch.setattr("pfc.adapters.llm.child_logs.DRAIN_TIMEOUT_S", 0.1)
+    capture = ChildLogCapture(tmp_path / "llm.log", [], [])
+    capture.start(held_pipe)
+    assert held_pipe.blocked.wait(1)
+    errors = []
+
+    def close() -> None:
+        try:
+            capture.close()
+        except Exception as exc:
+            errors.append(exc)
+
+    closer = threading.Thread(target=close, daemon=True)
+    started = time.monotonic()
+    closer.start()
+    closer.join(1)
+    try:
+        assert not closer.is_alive() and time.monotonic() - started < 1
+        assert not errors
+        assert capture.thread is not None and capture.thread.daemon and capture.thread.is_alive()
+        assert not held_pipe.closed and capture.log.stream.closed
+        capture.close()
+        assert caplog.text.count("Local LLM output capture truncated at shutdown") == 1
+        assert (tmp_path / "llm.log").read_text() == "main: model loaded\n"
+    finally:
+        held_pipe.release.set()
+        closer.join(1)
+        capture.thread.join(1)
+    assert not capture.thread.is_alive()
+    assert "LATE_OUTPUT" not in (tmp_path / "llm.log").read_text()
+
+
+def test_close_suppresses_sink_close_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    capture = ChildLogCapture(tmp_path / "llm.log", [], [])
+    original_close = capture.log.close
+
+    def fail() -> None:
+        raise OSError("PRIVATE_CLOSE_ERROR")
+
+    monkeypatch.setattr(capture.log, "close", fail)
+    try:
+        capture.close()
+        capture.close()
+    finally:
+        original_close()
