@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,6 +38,12 @@ class SettingsPreview:
     changes: dict[str, PayloadDiff]
 
 
+def _latest_version(db: sqlite3.Connection) -> int:
+    return int(
+        db.execute("SELECT COALESCE(MAX(package_version), 0) FROM settings_packages").fetchone()[0]
+    )
+
+
 class SettingsImporter:
     def __init__(
         self, settings: Settings, *, failure_hook: Callable[[], None] | None = None
@@ -48,12 +55,11 @@ class SettingsImporter:
         """No writes, staging, audit or apply side effects (REQ-OCC-02)."""
         package = source_bytes(source)
         with readonly_database(self.settings) as db:
-            active = active_package(db)
             verified = signing.verify_package(
                 package,
                 trusted_keys=load_trusted_keys(self.settings),
                 app_version=app_version(),
-                current_version=active["package_version"] if active else 0,
+                current_version=_latest_version(db),
             )
             return SettingsPreview(
                 verified.manifest, diff(snapshot(db), decode_snapshot(verified.settings_payloads))
@@ -71,7 +77,7 @@ class SettingsImporter:
                     package,
                     trusted_keys=load_trusted_keys(self.settings),
                     app_version=app_version(),
-                    current_version=active["package_version"] if active else 0,
+                    current_version=_latest_version(db),
                 )
                 data = decode_snapshot(verified.settings_payloads)
                 preview = SettingsPreview(verified.manifest, diff(snapshot(db), data))

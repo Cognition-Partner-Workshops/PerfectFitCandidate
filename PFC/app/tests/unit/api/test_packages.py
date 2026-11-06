@@ -400,6 +400,30 @@ def test_atomic_api_apply_rollback_and_history(
         assert db.execute("SELECT name FROM skills").fetchone()[0] == "Python"
 
 
+def test_version_high_water_survives_rollback(apps: tuple[TestClient, TestClient]) -> None:
+    source, target = apps
+    source_csrf, csrf = login(source), login(target)
+    versions = []
+    for _ in range(2):
+        package = base64.b64decode(export(source, source_csrf).json()["content_base64"])
+        versions.append(package)
+        provision(source, target)
+        token = preview(target, csrf, package).json()["token"]
+        assert apply(target, csrf, token).status_code == 200
+    assert (
+        target.post(
+            f"{PREFIX}/settings-packages/rollback", headers={"X-CSRF-Token": csrf}
+        ).status_code
+        == 200
+    )
+    problem(preview(target, csrf, versions[1]), 409, "PACKAGE_STALE_VERSION")
+    third = base64.b64decode(export(source, source_csrf).json()["content_base64"])
+    response = preview(target, csrf, third)
+    assert response.status_code == 200, response.text
+    assert response.json()["version"] == 3
+    assert apply(target, csrf, response.json()["token"]).status_code == 200
+
+
 def test_token_ownership_expiry_and_tampering(
     apps: tuple[TestClient, TestClient], monkeypatch: pytest.MonkeyPatch
 ) -> None:
