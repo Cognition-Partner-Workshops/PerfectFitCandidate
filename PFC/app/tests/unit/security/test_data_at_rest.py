@@ -2,7 +2,9 @@
 
 import logging
 import sqlite3
+import stat
 import subprocess
+import sys
 import time
 from contextlib import closing
 from pathlib import Path
@@ -140,6 +142,13 @@ def test_windows_acl_uses_icacls_argv_for_user_and_system(
     ]
     assert "shell" not in kwargs and kwargs["check"] is True
     assert restrict_acl(tmp_path, run=run, platform="linux") is True and len(run.calls) == 2
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX mode bits")
+def test_posix_data_dir_is_owner_only(tmp_path: Path) -> None:
+    target = tmp_path / "explicit"
+    prepare_data_dir(Settings(data_dir=target))
+    assert stat.S_IMODE(target.stat().st_mode) == 0o700
 
 
 def test_failing_acl_step_warns_and_startup_continues(

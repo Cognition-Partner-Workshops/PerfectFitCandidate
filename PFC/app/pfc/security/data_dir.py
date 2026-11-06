@@ -142,8 +142,13 @@ def migrate_legacy_data_dir(legacy: Path, target: Path) -> bool:
 
 
 def restrict_acl(path: Path, *, run: Runner = subprocess.run, platform: str = sys.platform) -> bool:
-    """Windows: limit the data dir to the current user and SYSTEM. Needs no admin rights."""
+    """Limit the data dir to the current user (and SYSTEM on Windows). Needs no admin rights."""
     if platform != "win32":
+        try:
+            path.chmod(0o700)
+        except OSError:
+            logger.warning("Data directory permissions not restricted; startup continues")
+            return False
         return True
     user, domain = os.environ.get("USERNAME"), os.environ.get("USERDOMAIN")
     if not user:
