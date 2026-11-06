@@ -1,7 +1,10 @@
 """REQ-IN-20..25 / REQ-ING-05: local resume discovery, not identity confirmation."""
 
 import hashlib
+import multiprocessing
 import re
+from collections.abc import Callable
+from multiprocessing.connection import Connection
 from pathlib import Path
 from typing import Literal
 
@@ -63,11 +66,62 @@ def _tokens(text: str) -> set[str]:
     return set(re.findall(r"[^\W_]+", text.lower()))
 
 
+def _extract_worker(path: Path, extractor: Callable[[Path], str], sender: Connection) -> None:
+    try:
+        sender.send((True, extractor(path)))
+    except BaseException as exc:
+        sender.send((False, type(exc).__name__))
+    finally:
+        sender.close()
+
+
+def bounded_extract(
+    path: Path, extractor: Callable[[Path], str], timeout: float
+) -> tuple[str, list[str]]:
+    context = multiprocessing.get_context("spawn")
+    receiver, sender = context.Pipe(duplex=False)
+    worker = context.Process(target=_extract_worker, args=(path, extractor, sender), daemon=True)
+    try:
+        worker.start()
+        sender.close()
+        if not receiver.poll(timeout):
+            return "", ["extraction_timeout"]
+        success, value = receiver.recv()
+        if not success:
+            return "", [f"extraction failed: {value}"]
+        return value, [] if value else ["no extractable text"]
+    except (EOFError, OSError) as exc:
+        return "", [f"extraction failed: {type(exc).__name__}"]
+    finally:
+        receiver.close()
+        sender.close()
+        if worker.pid is not None:
+            worker.join(timeout=0.1)
+            if worker.is_alive():
+                worker.terminate()
+                worker.join(timeout=1)
+            if worker.is_alive():
+                worker.kill()
+                worker.join()
+            worker.close()
+
+
 class ResumeFolderSource:
     """REQ-IN-21/22/24/25: scan only selected candidates; retain all matching versions."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        max_file_bytes: int = 20 * 1024 * 1024,
+        extract_timeout_s: float = 30,
+        extractor: Callable[[Path], str] | None = None,
+    ) -> None:
         self.root = root.resolve()
+        self.max_file_bytes = max_file_bytes
+        self.extract_timeout_s = extract_timeout_s
+        self.extractor = extractor or extract_text
+        self._extracted: dict[Path, tuple[str, list[str]]] = {}
 
     def scan(self, candidates: list[CandidateLookup]) -> list[ResumeResult]:
         if not self.root.is_dir():
@@ -85,14 +139,19 @@ class ResumeFolderSource:
         ]
         for path in sorted(resume_files(self.root)):
             relative = path.relative_to(self.root).as_posix()
-            flags: list[str] = []
             try:
-                text = extract_text(path)
-                if not text:
-                    flags.append("no extractable text")
-            except Exception as exc:
-                text = ""
-                flags.append(f"extraction failed: {type(exc).__name__}")
+                stat = path.stat()
+                if path not in self._extracted:
+                    self._extracted[path] = (
+                        ("", ["too_large"])
+                        if stat.st_size > self.max_file_bytes
+                        else bounded_extract(path, self.extractor, self.extract_timeout_s)
+                    )
+                text, flags = self._extracted[path]
+            except OSError as exc:
+                for result in results:
+                    result.checks.append(f"{relative}: unreadable ({type(exc).__name__})")
+                continue
             text_lower = text.lower()
             filename_lower = path.stem.lower()
             matches: list[tuple[int, Literal["email_exact", "manual", "name_fuzzy"]]] = []
@@ -117,8 +176,11 @@ class ResumeFolderSource:
             if not matches:
                 continue
             try:
-                stat = path.stat()
-                digest = file_sha256(path)
+                digest = (
+                    ""
+                    if {"too_large", "extraction_timeout"}.intersection(flags)
+                    else file_sha256(path)
+                )
             except OSError as exc:
                 for index, _ in matches:
                     results[index].checks.append(f"{relative}: unreadable ({type(exc).__name__})")

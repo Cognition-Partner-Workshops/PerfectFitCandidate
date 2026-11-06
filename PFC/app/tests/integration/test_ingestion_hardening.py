@@ -1,6 +1,8 @@
 """Phase 1f ingestion limits and confinement regressions."""
 
 import json
+import time
+from functools import partial
 from io import BytesIO
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -10,6 +12,7 @@ from fastapi.testclient import TestClient
 from test_ingestion import client as client
 from test_ingestion import commit, configure_resume_root, data, resume_docx, upload, wait_cv_job
 
+from pfc.adapters.sources.resume_folder import ResumeFolderSource, extract_text
 from pfc.db.connection import database
 from pfc.services.ingestion import cv_sync
 from pfc.services.ingestion.limits import WorkbookLimits, positive_setting
@@ -169,3 +172,39 @@ def test_unsafe_provenance_is_not_opened(
     assert summary["new_versions"] == 0
     with database(client.app.state.settings) as db:
         assert db.execute("SELECT source_path FROM resumes").fetchone()[0] == "Alex.docx"
+
+
+def selective_extractor(path: Path) -> str:
+    if "slow" in path.stem:
+        time.sleep(30)
+    return extract_text(path)
+
+
+def test_cv_job_skips_timeout_and_oversize_and_continues(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(client, upload(client, "ct", [{}]))
+    resume_docx(root, "unknown slow.docx", "alex@example.com SQL")
+    resume_docx(root, "Alex good.docx", "alex@example.com Python")
+    (root / "Alex large.pdf").write_bytes(b"x" * 80000)
+    setting(client, "cv.max_file_mb", 0.05)
+    setting(client, "cv.extract_timeout_s", 2.5)
+    monkeypatch.setattr(
+        cv_sync, "ResumeFolderSource", partial(ResumeFolderSource, extractor=selective_extractor)
+    )
+    summary = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert summary["scanned"] == 3
+    assert summary["extraction_timeout"] == 1
+    assert summary["too_large"] == 1
+    assert summary["extraction_failed"] == 0
+    assert summary["new_versions"] == 1
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT file_name FROM resumes").fetchall()[0][0] == "Alex good.docx"
+        assert db.execute("SELECT count(*) FROM resumes").fetchone()[0] == 1
+        details = json.loads(
+            db.execute("SELECT details_json FROM audit_log WHERE action='CV_SYNC'").fetchone()[0]
+        )
+        assert details["too_large"] == 1 and details["extraction_timeout"] == 1
