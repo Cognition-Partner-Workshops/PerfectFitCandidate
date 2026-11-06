@@ -685,6 +685,7 @@ def test_model_approval_schedules_after_commit(client: TestClient, tmp_path: Pat
 
         def schedule(self, model: tuple[str, Path] | None) -> None:
             self.selections.append(model)
+            self.model_name, self.model_path = model if model else (None, None)
 
     probe = Probe(settings)
     client.app.state.llm_supervisor = probe
@@ -695,6 +696,153 @@ def test_model_approval_schedules_after_commit(client: TestClient, tmp_path: Pat
     assert probe.selections[-1] is None
     assert client.put("/api/v1/occ/llm-models/999", json={"approved": True}).status_code == 404
     assert len(probe.selections) == 2
+
+
+@pytest.fixture
+def default_models(client: TestClient, tmp_path: Path) -> LlamaServerSupervisor:
+    settings = client.app.state.settings
+    settings.models_dir = tmp_path
+    for name in ("one", "embedding", "three", "four"):
+        (tmp_path / f"{name}.gguf").touch()
+    with database(settings) as db:
+        db.execute(
+            "UPDATE llm_models SET approved=1,file_name='one.gguf',is_active=1 WHERE model_id=1"
+        )
+        db.execute("UPDATE llm_models SET approved=1,file_name='embedding.gguf' WHERE model_id=2")
+        for name, filename, approved in [
+            ("generation-three", "three.gguf", 1),
+            ("generation-four", "four.gguf", 0),
+            ("generation-missing", "", 1),
+        ]:
+            db.execute(
+                "INSERT INTO llm_models(name,file_name,file_sha256,size_mb,ram_estimate_mb,"
+                "context_tokens,licence,approved) VALUES (?,?, '',1024,2048,4096,'test',?)",
+                (name, filename, approved),
+            )
+
+    class Probe(LlamaServerSupervisor):
+        def __init__(self, settings: Settings) -> None:
+            super().__init__(settings)
+            self.selections: list[tuple[str, Path] | None] = []
+            self.model_name = "Qwen3-4B-Instruct-2507"
+            self.model_path = (tmp_path / "one.gguf").resolve()
+
+        def schedule(self, model: tuple[str, Path] | None) -> None:
+            self.selections.append(model)
+            self.model_name, self.model_path = model if model else (None, None)
+
+    probe = Probe(settings)
+    client.app.state.llm_supervisor = probe
+    return probe
+
+
+def test_occ_make_default_transaction_audit_and_wire(
+    client: TestClient, default_models: LlamaServerSupervisor, tmp_path: Path
+) -> None:
+    login(client)
+    response = client.put("/api/v1/occ/llm-models/3", json={"isDefault": True})
+    assert response.status_code == 200, response.text
+    models = response.json()
+    assert isinstance(models, list)
+    assert [row["id"] for row in models if row["isDefault"]] == ["3"]
+    assert all(
+        {
+            "id",
+            "name",
+            "purpose",
+            "ramGb",
+            "diskGb",
+            "licence",
+            "approved",
+            "isDefault",
+        }
+        <= row.keys()
+        for row in models
+    )
+    assert models[2]["ramGb"] == 2 and models[2]["diskGb"] == 1
+    assert models == client.get("/api/v1/occ/llm-models").json()
+    assert default_models.selections == [("generation-three", (tmp_path / "three.gguf").resolve())]
+    with database(client.app.state.settings) as db:
+        assert [r[0] for r in db.execute("SELECT model_id FROM llm_models WHERE is_active=1")] == [
+            3
+        ]
+        details = json.loads(
+            db.execute(
+                "SELECT details_json FROM audit_log WHERE action='OCC_EDIT' "
+                "AND entity_type='llm_models' AND entity_id='default'"
+            ).fetchone()[0]
+        )
+        assert details == {"before": {"default_model_id": 1}, "after": {"default_model_id": 3}}
+        assert audit.verify_chain(db)
+    assert client.put("/api/v1/occ/llm-models/1", json={"isDefault": True}).status_code == 200
+    assert [m["id"] for m in client.get("/api/v1/occ/llm-models").json() if m["isDefault"]] == ["1"]
+
+
+def test_occ_default_preserves_personal_selection(
+    client: TestClient, default_models: LlamaServerSupervisor
+) -> None:
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "INSERT INTO settings(scope,user_id,key,value_json,updated_by,updated_at) "
+            "VALUES ('user',2,'llm.active_model','1',2,'2026-01-01T00:00:00Z')"
+        )
+        before = [tuple(r) for r in db.execute("SELECT * FROM settings WHERE scope='user'")]
+    login(client)
+    assert client.put("/api/v1/occ/llm-models/3", json={"isDefault": True}).status_code == 200
+    assert default_models.selections == []
+    with database(client.app.state.settings) as db:
+        assert [tuple(r) for r in db.execute("SELECT * FROM settings WHERE scope='user'")] == before
+        assert db.execute("SELECT model_id FROM llm_models WHERE is_active=1").fetchone()[0] == 3
+        assert default_models.resolve_model(db)[0] == "Qwen3-4B-Instruct-2507"
+
+
+@pytest.mark.parametrize(
+    "target,body,code",
+    [
+        (4, {"isDefault": True}, "MODEL_NOT_APPROVED"),
+        (2, {"isDefault": True}, "MODEL_NOT_GENERATIVE"),
+        (5, {"isDefault": True}, "MODEL_NOT_GENERATIVE"),
+        (3, {"isDefault": False}, "VALIDATION_ERROR"),
+        (3, {"isDefault": None}, "VALIDATION_ERROR"),
+        (3, {}, "VALIDATION_ERROR"),
+        (3, {"approved": False, "isDefault": True}, "MODEL_NOT_APPROVED"),
+        (3, {"approved": None}, "VALIDATION_ERROR"),
+    ],
+)
+def test_occ_invalid_default_no_changes(
+    client: TestClient, default_models: LlamaServerSupervisor, target: int, body: dict, code: str
+) -> None:
+    login(client)
+    with database(client.app.state.settings) as db:
+        before = [tuple(r) for r in db.execute("SELECT * FROM llm_models ORDER BY model_id")]
+        audits = db.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0]
+    response = client.put(f"/api/v1/occ/llm-models/{target}", json=body)
+    assert response.status_code == 422 and response.json()["code"] == code
+    with database(client.app.state.settings) as db:
+        assert [
+            tuple(r) for r in db.execute("SELECT * FROM llm_models ORDER BY model_id")
+        ] == before
+        assert db.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0] == audits
+    assert default_models.selections == []
+
+
+def test_occ_default_auth_and_combined_approval(
+    client: TestClient, default_models: LlamaServerSupervisor
+) -> None:
+    assert client.put("/api/v1/occ/llm-models/3", json={"isDefault": True}).status_code == 401
+    login(client, "worker@example.com", "Analyst")
+    assert client.put("/api/v1/occ/llm-models/3", json={"isDefault": True}).status_code == 403
+    login(client)
+    del client.headers["X-CSRF-Token"]
+    assert client.put("/api/v1/occ/llm-models/3", json={"isDefault": True}).status_code == 403
+    login(client)
+    response = client.put("/api/v1/occ/llm-models/4", json={"approved": True, "isDefault": True})
+    assert response.status_code == 200
+    assert [m["id"] for m in response.json() if m["isDefault"]] == ["4"]
+    assert next(m for m in response.json() if m["id"] == "4")["approved"] is True
+    conflict = client.put("/api/v1/occ/llm-models/4", json={"approved": False})
+    assert conflict.status_code == 409 and conflict.json()["code"] == "MODEL_ACTIVE"
+    assert client.put("/api/v1/occ/llm-models/999", json={"isDefault": True}).status_code == 404
 
 
 def test_model_updates_schedule_after_commit(client: TestClient, tmp_path: Path) -> None:

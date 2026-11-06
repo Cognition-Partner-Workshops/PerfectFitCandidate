@@ -98,3 +98,49 @@ The API enumeration handles both flat APIRoutes and lazy effective included rout
 without relying only on OpenAPI output or a hard-coded list of write endpoints.
 All defined HTTP methods are enumerated for mandatory-password-change enforcement; the
 CSRF test enumerates all four state-changing verbs and checks the problem code.
+
+## OCC instance-default follow-up
+
+The existing `PUT /api/v1/occ/llm-models/{id}` additionally accepts
+`{"isDefault": true}`, optionally with `approved`. GET and PUT return model lists
+with the frontend LlmModel fields (including isDefault derived from is_active);
+legacy metadata fields remain available. Personal llm.active_model settings are
+not updated.
+
+The existing BEGIN IMMEDIATE transaction clears the old active flag, sets the new
+one, and writes OCC_EDIT with before/after default_model_id. Clearing the old flag
+first respects the database's unique active-model index; clients never observe the
+intermediate state. Approval and default changes in one request are atomic.
+
+Choices:
+
+- Unapproved targets require approval in the same request, or get 422.
+- Missing/non-GGUF filenames, absolute/traversing paths, and identifiable
+  embedding models get 422. The schema lacks an authoritative purpose column:
+  embedding identification currently uses embed-named models and ONNX filenames,
+  not binary GGUF inspection.
+- isDefault=false, explicit nulls and an empty patch get 422.
+- Unapproving the current default retains the existing 409 MODEL_ACTIVE guard.
+  Select a different default first; a simultaneous unapprove/make-default
+  contradiction gets 422.
+- After commit, the restart helper is queued only when resolve_model differs from
+  the supervisor's current model name/path. An unchanged personal selection that
+  still wins does not restart the shared server or reset its recovery budget.
+
+Tests: `test_occ_make_default_transaction_audit_and_wire`,
+`test_occ_default_preserves_personal_selection`,
+`test_occ_invalid_default_no_changes`, and
+`test_occ_default_auth_and_combined_approval` in
+`tests/integration/test_occ.py`. These cover single-default uniqueness,
+wire fields, audit integrity, personal-row preservation, restart/no-restart,
+combined approval, invalid targets/patches, authentication, Analyst denial and CSRF.
+This backend follow-up is not browser/visually verified.
+
+Final local check output:
+
+```text
+All checks passed!
+157 files already formatted
+Success: no issues found in 117 source files
+973 passed, 1 skipped in 48.37s
+```
