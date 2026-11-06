@@ -1,7 +1,79 @@
 import { ApiError, type ApiClient } from './client'
-import type { CurrentUser, PackageImportRecord, ProblemDetails } from './types'
+import { ADMIN_SETTINGS } from './mock/fixtures'
+import {
+  fromAdminSettings,
+  fromGrades,
+  fromPersonal,
+  fromSynonymRelation,
+  toAdminSettings,
+  toAuditEvent,
+  toCurrentUser,
+  toDomain,
+  toEmailDraft,
+  toGrade,
+  toLlmModel,
+  toMember,
+  toOccUser,
+  toPersonal,
+  toPreview,
+  toSynonym,
+  type AuditRow,
+  type AuthView,
+  type EmailRow,
+  type GradeRow,
+  type ModelRow,
+  type PersonalRow,
+  type RecipientRow,
+  type SynonymRow,
+  type UserRow,
+} from './mappers'
+import type { CurrentUser, PackageImportRecord, PersonalSettings, ProblemDetails } from './types'
 
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE'
+
+/** Called on any 401 outside sign-in so the shell can drop the session and route to login (TDD §9.3). */
+let unauthorizedHandler: (() => void) | null = null
+export function setUnauthorizedHandler(fn: (() => void) | null): void {
+  unauthorizedHandler = fn
+}
+
+const FRIENDLY: Record<string, string> = {
+  INVALID_CREDENTIALS: 'Sign-in failed. Check your role, email and password.',
+  ACCOUNT_LOCKED: 'Too many failed sign-ins. The account is temporarily locked.',
+  CSRF_INVALID: 'Your session security token expired. Sign in again.',
+  PASSWORD_CHANGE_REQUIRED: 'You must change your password before continuing.',
+  INVALID_ORIGIN: 'Request blocked: open PFC from the launcher address.',
+  INVALID_HOST: 'Request blocked: open PFC from the launcher address.',
+  VALIDATION_ERROR: 'Some values are invalid.',
+  CONFLICT: 'This change conflicts with existing data.',
+  INTERNAL_ERROR: 'Something went wrong in the PFC service.',
+}
+
+/** RFC 9457 problem+json → user-facing ProblemDetails (title is the message shown). */
+export async function parseProblem(res: Response): Promise<ProblemDetails> {
+  let body: Partial<ProblemDetails> & { request_id?: string } = {}
+  try {
+    body = (await res.json()) as typeof body
+  } catch {
+    /* non-JSON error body */
+  }
+  const code = body.code ?? (res.status === 423 ? 'ACCOUNT_LOCKED' : undefined)
+  const retry = Number(res.headers.get('Retry-After'))
+  const specific = body.detail && body.detail !== body.title ? body.detail : undefined
+  const generic = code ? FRIENDLY[code] : undefined
+  const detail =
+    code === 'VALIDATION_ERROR' && body.detail && body.detail !== 'Invalid request'
+      ? body.detail
+      : (generic ?? specific ?? body.detail ?? body.title ?? (res.statusText || 'Request failed'))
+  return {
+    type: body.type,
+    title: body.title ?? res.statusText ?? 'Request failed',
+    status: res.status,
+    detail,
+    code,
+    retryAfterSeconds: body.retryAfterSeconds ?? (Number.isFinite(retry) && retry > 0 ? retry : undefined),
+  }
+}
 
 /**
  * Real backend client: cookie session + `X-CSRF-Token` on writes, RFC 9457 errors (TDD.md §9.3, §12).
@@ -51,11 +123,10 @@ export class HttpApiClient implements ApiClient {
       throw new ApiError({ title: 'Service unreachable', status: 0, code: 'SERVICE_UNREACHABLE' })
     }
     if (!res.ok) {
-      let problem: ProblemDetails = { title: res.statusText || 'Request failed', status: res.status }
-      try {
-        problem = { ...problem, ...((await res.json()) as Partial<ProblemDetails>) }
-      } catch {
-        /* non-JSON error body */
+      const problem = await parseProblem(res)
+      if (res.status === 401 && !['/auth/login', '/auth/me', '/auth/password'].includes(path)) {
+        this.csrfToken = null
+        unauthorizedHandler?.()
       }
       throw new ApiError(problem)
     }
@@ -63,10 +134,13 @@ export class HttpApiClient implements ApiClient {
     return (await res.json()) as T
   }
 
-  private remember(user: CurrentUser): CurrentUser {
+  private remember(view: AuthView): CurrentUser {
+    const user = toCurrentUser(view)
     this.csrfToken = user.csrfToken
     return user
   }
+
+  private userNames = async () => new Map((await this.listUsers()).map((u) => [u.userId, u]))
 
   private upload<T>(path: string, file: File): Promise<T> {
     const form = new FormData()
@@ -79,7 +153,14 @@ export class HttpApiClient implements ApiClient {
     const r = await this.request<{ admin_exists?: boolean; adminExists?: boolean }>('GET', '/setup/status')
     return { adminExists: r.admin_exists ?? r.adminExists ?? false }
   }
-  setupAdmin: ApiClient['setupAdmin'] = (req) => this.request('POST', '/setup/admin', req)
+  setupAdmin: ApiClient['setupAdmin'] = async (req) => {
+    await this.request('POST', '/setup/admin', {
+      setup_code: req.setupCode,
+      email: req.email,
+      display_name: req.fullName,
+      password: req.password,
+    })
+  }
   login: ApiClient['login'] = async (req) => this.remember(await this.request('POST', '/auth/login', req))
   logout: ApiClient['logout'] = async () => {
     await this.request('POST', '/auth/logout')
@@ -87,14 +168,16 @@ export class HttpApiClient implements ApiClient {
   }
   me: ApiClient['me'] = async () => {
     try {
-      return this.remember(await this.request<CurrentUser>('GET', '/auth/me'))
+      return this.remember(await this.request<AuthView>('GET', '/auth/me'))
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) return null
       throw e
     }
   }
   changePassword: ApiClient['changePassword'] = async (req) =>
-    this.remember(await this.request('POST', '/auth/password', req))
+    this.remember(
+      await this.request('POST', '/auth/password', { current_password: req.currentPassword, new_password: req.newPassword }),
+    )
 
   listDemands: ApiClient['listDemands'] = () => this.request('GET', '/demands')
   analyzeDemands: ApiClient['analyzeDemands'] = (ids) => this.request('POST', '/demands/analyze', { demandIds: ids })
@@ -133,16 +216,42 @@ export class HttpApiClient implements ApiClient {
   analyticsBench: ApiClient['analyticsBench'] = (f) => this.request('GET', `/analytics/bench${this.qs(f)}`)
   analyticsMatch: ApiClient['analyticsMatch'] = (f) => this.request('GET', `/analytics/match${this.qs(f)}`)
 
-  createDrafts: ApiClient['createDrafts'] = (ids) => this.request('POST', '/emails/drafts', { resultIds: ids })
-  listEmails: ApiClient['listEmails'] = () => this.request('GET', '/emails')
-  updateEmail: ApiClient['updateEmail'] = (id, patch) => this.request('PUT', `/emails/${id}`, patch)
-  approveEmail: ApiClient['approveEmail'] = (id, confirmResend) =>
-    this.request('POST', `/emails/${id}/approve`, { confirmResend: Boolean(confirmResend) })
-  sendEmail: ApiClient['sendEmail'] = (id) => this.request('POST', `/emails/${id}/send`)
+  /** POST /emails/drafts needs run_id|demand_id; the latest run is used until matching (#10) exposes it per result. */
+  createDrafts: ApiClient['createDrafts'] = async (ids) => {
+    const [run] = await this.listMatchRuns()
+    const r = await this.request<{ drafts: EmailRow[] }>('POST', '/emails/drafts', { run_id: run?.runId, result_ids: ids })
+    return r.drafts.map(toEmailDraft)
+  }
+  listEmails: ApiClient['listEmails'] = async () => {
+    const r = await this.request<{ drafts: EmailRow[] }>('GET', '/emails')
+    return { items: r.drafts.map(toEmailDraft), transport: { transport: 'Outlook COM', outlookDetected: true } }
+  }
+  updateEmail: ApiClient['updateEmail'] = async (id, patch) =>
+    toEmailDraft(await this.request('PUT', `/emails/${id}`, { subject: patch.subject, body_html: patch.body }))
+  approveEmail: ApiClient['approveEmail'] = async (id, confirmResend) =>
+    toEmailDraft(await this.request('POST', `/emails/${id}/${confirmResend ? 'resend' : 'approve'}`))
+  sendEmail: ApiClient['sendEmail'] = async (id) => {
+    await this.request('POST', `/emails/${id}/send`)
+    return toEmailDraft(await this.request('GET', `/emails/${id}`))
+  }
 
-  getMySettings: ApiClient['getMySettings'] = () => this.request('GET', '/settings/me')
-  saveMySettings: ApiClient['saveMySettings'] = (s) => this.request('PUT', '/settings/me', s)
-  listModels: ApiClient['listModels'] = () => this.request('GET', '/llm/models')
+  /** Fields the backend does not store yet (SPOCs, personal email template) are kept locally. */
+  private localPersonal(): PersonalSettings {
+    const empty = { enabled: false, watchPath: '', pattern: '' }
+    const base: PersonalSettings = { resumeFolderPath: '', autoSyncDl: empty, autoSyncCt: empty, activeModel: '', spoc1: '', spoc2: '', emailTemplate: '', density: 'Comfortable' }
+    try {
+      return { ...base, ...(JSON.parse(localStorage.getItem('pfc.personal.local') ?? '{}') as Partial<PersonalSettings>) }
+    } catch {
+      return base
+    }
+  }
+  getMySettings: ApiClient['getMySettings'] = async () =>
+    toPersonal(await this.request<PersonalRow>('GET', '/settings/me'), this.localPersonal())
+  saveMySettings: ApiClient['saveMySettings'] = async (s) => {
+    localStorage.setItem('pfc.personal.local', JSON.stringify({ spoc1: s.spoc1, spoc2: s.spoc2, emailTemplate: s.emailTemplate }))
+    return toPersonal(await this.request<PersonalRow>('PUT', '/settings/me', fromPersonal(s)), this.localPersonal())
+  }
+  listModels: ApiClient['listModels'] = async () => (await this.request<ModelRow[]>('GET', '/llm/models')).map(toLlmModel)
   previewPackage: ApiClient['previewPackage'] = (file) => this.upload('/settings/settings-package/preview', file)
   importPackage: ApiClient['importPackage'] = (previewId) =>
     this.request('POST', '/settings/settings-package/import', { previewId })
@@ -153,20 +262,61 @@ export class HttpApiClient implements ApiClient {
     return toImportRecords(rows)
   }
 
-  listUsers: ApiClient['listUsers'] = () => this.request('GET', '/occ/users')
-  createUser: ApiClient['createUser'] = (req) => this.request('POST', '/occ/users', req)
-  resetPassword: ApiClient['resetPassword'] = (id) => this.request('POST', `/occ/users/${id}/reset-password`)
-  unlockUser: ApiClient['unlockUser'] = (id) => this.request('POST', `/occ/users/${id}/unlock`)
-  updateUser: ApiClient['updateUser'] = (id, patch) => this.request('PUT', `/occ/users/${id}`, patch)
+  listUsers: ApiClient['listUsers'] = async () => (await this.request<UserRow[]>('GET', '/occ/users')).map(toOccUser)
+  createUser: ApiClient['createUser'] = async (req) => {
+    const r = await this.request<{ user: UserRow; one_time_password: string }>('POST', '/occ/users', {
+      email: req.email,
+      display_name: req.fullName,
+      role: req.role,
+      persona: req.persona,
+    })
+    return { userId: r.user.user_id, oneTimePassword: r.one_time_password }
+  }
+  resetPassword: ApiClient['resetPassword'] = async (id) => {
+    const r = await this.request<{ user_id: number; one_time_password: string }>('POST', `/occ/users/${id}/reset-password`)
+    return { userId: r.user_id, oneTimePassword: r.one_time_password }
+  }
+  unlockUser: ApiClient['unlockUser'] = async (id) => toOccUser(await this.request('POST', `/occ/users/${id}/unlock`))
+  updateUser: ApiClient['updateUser'] = async (id, patch) =>
+    toOccUser(
+      await this.request('PUT', `/occ/users/${id}`, {
+        role: patch.role,
+        is_active: patch.status === undefined ? undefined : patch.status !== 'Disabled',
+      }),
+    )
 
   listBenchStatuses: ApiClient['listBenchStatuses'] = () => this.request('GET', '/occ/bench-statuses')
   saveBenchStatuses: ApiClient['saveBenchStatuses'] = (s) => this.request('PUT', '/occ/bench-statuses', s)
   getStatusMap: ApiClient['getStatusMap'] = () => this.request('GET', '/occ/status-map')
   saveStatusMap: ApiClient['saveStatusMap'] = (e) => this.request('PUT', '/occ/status-map', e)
 
-  listSynonyms: ApiClient['listSynonyms'] = () => this.request('GET', '/occ/synonyms')
-  createSynonym: ApiClient['createSynonym'] = (s) => this.request('POST', '/occ/synonyms', s)
-  updateSynonym: ApiClient['updateSynonym'] = (id, p) => this.request('PUT', `/occ/synonyms/${id}`, p)
+  listSynonyms: ApiClient['listSynonyms'] = async () => (await this.request<SynonymRow[]>('GET', '/occ/synonyms')).map(toSynonym)
+  /** The backend stores one term per row; the first variant is sent (REQ-MAT-05). */
+  createSynonym: ApiClient['createSynonym'] = async (s) =>
+    toSynonym(
+      await this.request('POST', '/occ/synonyms', {
+        canonical: s.canonical,
+        term: s.variants[0] ?? s.canonical,
+        relation: fromSynonymRelation(s.relation),
+        credit: s.relation === 'Related' ? 0.6 : 1,
+        status: 'approved',
+      }),
+    )
+  updateSynonym: ApiClient['updateSynonym'] = async (id, p) => {
+    if (p.status === 'Active') return toSynonym(await this.request('POST', `/occ/synonyms/${id}/approve`))
+    if (p.status === 'Rejected') return toSynonym(await this.request('POST', `/occ/synonyms/${id}/reject`))
+    const cur = (await this.listSynonyms()).find((x) => x.synonymId === id)
+    const next = { ...cur, ...p } as typeof cur & typeof p
+    return toSynonym(
+      await this.request('PUT', `/occ/synonyms/${id}`, {
+        canonical: next.canonical,
+        term: next.variants?.[0] ?? next.canonical,
+        relation: fromSynonymRelation(next.relation ?? 'Related'),
+        credit: next.relation === 'Related' ? 0.6 : 1,
+        status: 'approved',
+      }),
+    )
+  }
 
   listTemplates: ApiClient['listTemplates'] = () => this.request('GET', '/occ/scoring-templates')
   publishTemplate: ApiClient['publishTemplate'] = async (draft) => {
@@ -175,13 +325,15 @@ export class HttpApiClient implements ApiClient {
     return this.listTemplates()
   }
 
-  listResourceTeam: ApiClient['listResourceTeam'] = () => this.request('GET', '/occ/resource-team')
+  listResourceTeam: ApiClient['listResourceTeam'] = async () =>
+    (await this.request<RecipientRow[]>('GET', '/occ/resource-team')).map(toMember)
   saveResourceTeam: ApiClient['saveResourceTeam'] = (m) => this.request('PUT', '/occ/resource-team', m)
 
-  listInternalDomains: ApiClient['listInternalDomains'] = () => this.request('GET', '/occ/internal-domains')
+  listInternalDomains: ApiClient['listInternalDomains'] = async () =>
+    (await this.request<{ domain: string }[]>('GET', '/occ/internal-domains')).map(toDomain)
   saveInternalDomains: ApiClient['saveInternalDomains'] = (d) => this.request('PUT', '/occ/internal-domains', d)
-  previewClassification: ApiClient['previewClassification'] = (d) =>
-    this.request('POST', '/occ/internal-domains/preview', d)
+  previewClassification: ApiClient['previewClassification'] = async (d) =>
+    toPreview(await this.request('POST', '/occ/internal-domains/preview', { domains: d.map((x) => x.domain) }))
 
   lastExportedPackage: ApiClient['lastExportedPackage'] = () => this.request('GET', '/occ/settings-package')
   exportPackage: ApiClient['exportPackage'] = () => this.request('POST', '/occ/settings-package/export')
@@ -189,11 +341,37 @@ export class HttpApiClient implements ApiClient {
   listApprovals: ApiClient['listApprovals'] = () => this.request('GET', '/occ/approvals')
   decideApproval: ApiClient['decideApproval'] = (e, d) =>
     this.request('PUT', `${e.source === 'CT' ? '/occ/resources' : '/occ/demands'}/${e.targetId}`, d)
-  listGrades: ApiClient['listGrades'] = () => this.request('GET', '/occ/grades')
-  saveGrades: ApiClient['saveGrades'] = (g) => this.request('PUT', '/occ/grades', g)
-  listOccModels: ApiClient['listOccModels'] = () => this.request('GET', '/occ/llm-models')
-  updateOccModel: ApiClient['updateOccModel'] = (id, p) => this.request('PUT', `/occ/llm-models/${encodeURIComponent(id)}`, p)
-  auditLog: ApiClient['auditLog'] = (q) => this.request('GET', `/occ/audit-log${this.qs(q)}`)
-  getAdminSettings: ApiClient['getAdminSettings'] = () => this.request('GET', '/occ/settings')
-  saveAdminSettings: ApiClient['saveAdminSettings'] = (s) => this.request('PUT', '/occ/settings', s)
+  listGrades: ApiClient['listGrades'] = async () => (await this.request<GradeRow[]>('GET', '/occ/grades')).map(toGrade)
+  saveGrades: ApiClient['saveGrades'] = async (g) =>
+    (await this.request<GradeRow[]>('PUT', '/occ/grades', fromGrades(g))).map(toGrade)
+  listOccModels: ApiClient['listOccModels'] = async () =>
+    (await this.request<ModelRow[]>('GET', '/occ/llm-models')).map(toLlmModel)
+  /** Approval is global (PUT /occ/llm-models/{id}); "default" maps to the caller's active model (PUT /llm/active). */
+  updateOccModel: ApiClient['updateOccModel'] = async (id, p) => {
+    if (p.approved !== undefined)
+      await this.request('PUT', `/occ/llm-models/${encodeURIComponent(id)}`, { approved: p.approved })
+    if (p.isDefault) await this.request('PUT', '/llm/active', { model_id: Number(id) })
+    return this.listOccModels()
+  }
+  /** Dates are sent as UTC day bounds (backend requires a timezone); user names are matched client-side. */
+  auditLog: ApiClient['auditLog'] = async (q) => {
+    const users = await this.userNames()
+    const r = await this.request<{ items: AuditRow[] }>(
+      'GET',
+      `/occ/audit-log${this.qs({
+        limit: 1000,
+        action: q.action,
+        entity_type: q.entity,
+        from: q.from ? `${q.from}T00:00:00Z` : undefined,
+        to: q.to ? `${q.to}T23:59:59Z` : undefined,
+      })}`,
+    )
+    const events = r.items.map((a) => toAuditEvent(a, users))
+    const needle = q.user?.toLowerCase()
+    return needle ? events.filter((e) => e.user.toLowerCase().includes(needle)) : events
+  }
+  getAdminSettings: ApiClient['getAdminSettings'] = async () =>
+    toAdminSettings(await this.request('GET', '/occ/settings'), ADMIN_SETTINGS)
+  saveAdminSettings: ApiClient['saveAdminSettings'] = async (s) =>
+    toAdminSettings(await this.request('PUT', '/occ/settings', fromAdminSettings(s)), ADMIN_SETTINGS)
 }
