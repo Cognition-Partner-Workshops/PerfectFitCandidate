@@ -315,7 +315,33 @@ export interface CvFacts {
   projects: CvFact[]
 }
 
+export interface CandidateClassification {
+  candidateId: number
+  effectiveClassification: CandidateType
+  computedClassification: CandidateType
+  classificationOverride: CandidateType | null
+  overrideReason: string | null
+  overrideBy: number | null
+  overrideAt: string | null
+}
+
+export interface CvExtraction {
+  cvVersionId: number
+  fileName: string
+  versionNo: number
+  extractedAt: string
+  removed: boolean
+}
+
+export interface RemovalCounts {
+  versionsCleared: number
+  chunksDeleted: number
+  vectorsDeleted: number
+  matchingVectorsDeleted: number
+}
+
 export interface CandidateDetail {
+  classification: CandidateClassification
   candidateId: number
   internalRef: string
   resource: Resource
