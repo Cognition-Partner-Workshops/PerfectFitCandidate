@@ -17,6 +17,8 @@ class ResourceQuery(BaseModel):
 
 class ResourceItem(BaseModel):
     resource_id: int
+    candidate_id: int | None
+    cv_versions_count: int
     short_name: str
     email_address: str | None
     grade: str | None
@@ -43,8 +45,6 @@ class CVSummary(BaseModel):
 
 
 class ResourceDetail(ResourceItem):
-    candidate_id: int | None
-    cv_versions_count: int
     latest_cv: CVSummary | None
 
 

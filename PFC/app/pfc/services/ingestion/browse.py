@@ -9,6 +9,11 @@ from pfc.config import Settings
 from pfc.db.connection import database
 from pfc.security.problems import Problem
 
+RESOURCE_SELECT = (
+    "SELECT resources.*, (SELECT count(*) FROM cv_versions "
+    "WHERE cv_versions.candidate_id=resources.candidate_id) AS cv_versions_count FROM resources"
+)
+
 
 def _where(
     filters: dict[str, str | None], substrings: dict[str, str | None]
@@ -107,7 +112,7 @@ def resources(
     with database(settings) as db:
         total = db.execute(f"SELECT count(*) FROM resources WHERE {where}", params).fetchone()[0]
         rows = db.execute(
-            f"SELECT * FROM resources WHERE {where} ORDER BY bench_start_date IS NULL, "
+            f"{RESOURCE_SELECT} WHERE {where} ORDER BY bench_start_date IS NULL, "
             "bench_start_date DESC, resource_id LIMIT ? OFFSET ?",
             [*params, page_size, (page - 1) * page_size],
         ).fetchall()
@@ -118,12 +123,9 @@ def resources(
 
 def resource_detail(settings: Settings, resource_id: int) -> ResourceDetail:
     with database(settings) as db:
-        row = db.execute("SELECT * FROM resources WHERE resource_id=?", (resource_id,)).fetchone()
+        row = db.execute(f"{RESOURCE_SELECT} WHERE resource_id=?", (resource_id,)).fetchone()
         if row is None:
             raise Problem(404, "RESOURCE_NOT_FOUND", "Resource not found")
-        count = db.execute(
-            "SELECT count(*) FROM cv_versions WHERE candidate_id=?", (row["candidate_id"],)
-        ).fetchone()[0]
         latest = db.execute(
             "SELECT cv_version_id, version_no, extracted_at FROM cv_versions "
             "WHERE candidate_id=? ORDER BY is_latest DESC, version_no DESC, "
@@ -132,7 +134,5 @@ def resource_detail(settings: Settings, resource_id: int) -> ResourceDetail:
         ).fetchone()
         return ResourceDetail(
             **_resource(row).model_dump(),
-            candidate_id=row["candidate_id"],
-            cv_versions_count=count,
             latest_cv=CVSummary(**dict(latest)) if latest else None,
         )
