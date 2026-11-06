@@ -1,75 +1,28 @@
-# React + TypeScript + Vite
+# PFC frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Phase 1 single-page app for PerfectFitCandidate (React 19 + TypeScript + Vite), implementing
+[GUI_OCC_DESIGN.md](../docs/GUI_OCC_DESIGN.md). Plain CSS design tokens (`src/styles/tokens.css`),
+React Router (hash routes for deep links), TanStack Query and Apache ECharts (per
+[DASHBOARD_RESEARCH.md](../docs/DASHBOARD_RESEARCH.md)).
 
-Currently, two official plugins are available:
+## API mode
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+All data access goes through the typed `ApiClient` in `src/api/` whose methods map 1:1 to the
+`/api/v1` routes in [TDD.md §12](../docs/TDD.md#12-api-surface).
 
-## React Compiler
+| `VITE_PFC_API` | Client | Notes |
+|---|---|---|
+| `mock` (default) | `MockApiClient` | In-browser fixtures (fictitious people, `example.com`/`example.org` emails), persisted in `localStorage` key `pfc.mock.v1`. The first-run setup code is shown on the setup screen and in the console. |
+| `http` | `HttpApiClient` | Real backend; cookie session + `X-CSRF-Token`, RFC 9457 errors. `VITE_PFC_API_BASE` overrides `/api/v1`. |
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+npm ci
+npm run dev                      # mock mode
+VITE_PFC_API=http npm run dev    # proxies /api to 127.0.0.1:8765
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+## Checks
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+npm run lint && npm run typecheck && npm test && npm run build
 ```
