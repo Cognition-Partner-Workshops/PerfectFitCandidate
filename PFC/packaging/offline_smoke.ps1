@@ -2,6 +2,47 @@ param([string]$Archive, [string]$PackageDir, [switch]$Child)
 $ErrorActionPreference = 'Stop'
 
 if ($Child) {
+    Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class OfflineSmokeProfile {
+    [DllImport("userenv.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool GetUserProfileDirectory(IntPtr token, StringBuilder path, ref uint size);
+}
+'@
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    # restrict_acl grants the data dir to USERDOMAIN\USERNAME, so these must name this token's account too.
+    $env:USERDOMAIN, $env:USERNAME = $identity.Name.Split('\', 2)
+    try {
+        [uint32]$size = 0
+        [void][OfflineSmokeProfile]::GetUserProfileDirectory($identity.Token, $null, [ref]$size)
+        if (-not $size) { throw 'Could not resolve the smoke account profile from its token' }
+        $buffer = [Text.StringBuilder]::new([int]$size)
+        if (-not [OfflineSmokeProfile]::GetUserProfileDirectory($identity.Token, $buffer, [ref]$size)) {
+            throw [ComponentModel.Win32Exception]::new([Runtime.InteropServices.Marshal]::GetLastWin32Error())
+        }
+        $profileDir = [IO.Path]::GetFullPath($buffer.ToString()).TrimEnd('\')
+    } finally {
+        $identity.Dispose()
+    }
+    $env:USERPROFILE = $profileDir
+    $drive = [IO.Path]::GetPathRoot($profileDir).TrimEnd('\')
+    $env:HOMEDRIVE = $drive
+    $env:HOMEPATH = $profileDir.Substring($drive.Length)
+    $localAppData = Join-Path $profileDir 'AppData\Local'
+    $appData = Join-Path $profileDir 'AppData\Roaming'
+    [Console]::Error.WriteLine("Offline smoke user: $(& whoami.exe); LOCALAPPDATA: $localAppData")
+    foreach ($folder in @($localAppData, $appData)) {
+        if ([string]::IsNullOrWhiteSpace($folder) -or -not [IO.Path]::GetFullPath($folder).StartsWith("$profileDir\", [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Smoke app-data folder is not under the current token's profile '$profileDir': '$folder'"
+        }
+    }
+    New-Item -ItemType Directory -Force -Path $localAppData, $appData | Out-Null
+    $env:LOCALAPPDATA = $localAppData
+    $env:APPDATA = $appData
+    $env:TEMP = $env:TMP = Join-Path $localAppData 'Temp'
+    New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null
     $env:HTTP_PROXY = $env:HTTPS_PROXY = $env:ALL_PROXY = 'http://127.0.0.1:9'
     $env:NO_PROXY = '127.0.0.1,localhost,::1'
     $env:HF_HUB_OFFLINE = $env:TRANSFORMERS_OFFLINE = '1'
@@ -77,7 +118,7 @@ try {
         & taskkill.exe /PID $process.Id /T /F | Out-Null
     }
     foreach ($rule in $rules) { Remove-NetFirewallRule -DisplayName $rule -ErrorAction Continue }
-    foreach ($profile in $profiles) { Set-NetFirewallProfile -Profile $profile.Name -Enabled $profile.Enabled -ErrorAction Continue }
+    foreach ($firewallProfile in $profiles) { Set-NetFirewallProfile -Profile $firewallProfile.Name -Enabled $firewallProfile.Enabled -ErrorAction Continue }
     Copy-Item "$root/stderr.txt" $evidence -ErrorAction SilentlyContinue
     Remove-LocalUser -Name $user -ErrorAction Continue
 }
