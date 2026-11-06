@@ -329,6 +329,35 @@ def _remove_absent(db: sqlite3.Connection, data: Snapshot) -> None:
                 db.execute(f"DELETE FROM {table} WHERE {primary}=?", (row[primary],))
 
 
+def _stage_unique_values(db: sqlite3.Connection, data: Snapshot) -> None:
+    for table, column in (("grades", "ordinal"), ("bench_statuses", "label")):
+        used = {
+            str(row[column]).casefold()
+            for row in [*db.execute(f"SELECT {column} FROM {table}"), *data[table]]
+        }
+        candidate = 0
+        for incoming in data[table]:
+            existing = _matching_row(db, table, incoming)
+            if existing is None or existing[column] == incoming[column]:
+                continue
+            while True:
+                candidate += 1
+                temporary: int | str = (
+                    -candidate if table == "grades" else f"__pfc_merge_{candidate}__"
+                )
+                if str(temporary).casefold() not in used:
+                    break
+            used.add(str(temporary).casefold())
+            db.execute(f"UPDATE {table} SET {column}=? WHERE code=?", (temporary, existing["code"]))
+    for incoming in data["scoring_templates"]:
+        existing = _matching_row(db, "scoring_templates", incoming)
+        if existing and existing["status"] == "active":
+            db.execute(
+                "UPDATE scoring_templates SET status='retired' WHERE template_id=?",
+                (existing["template_id"],),
+            )
+
+
 def replace_snapshot(
     db: sqlite3.Connection,
     data: Snapshot,
@@ -342,6 +371,7 @@ def replace_snapshot(
         for row in db.execute("SELECT name, token_blob, owner_user_id FROM llm_providers")
     }
     _remove_absent(db, data)
+    _stage_unique_values(db, data)
     db.execute("UPDATE llm_models SET is_active=0 WHERE approved=1")
     local_model_active = (
         db.execute("SELECT 1 FROM llm_models WHERE approved=0 AND is_active=1").fetchone()

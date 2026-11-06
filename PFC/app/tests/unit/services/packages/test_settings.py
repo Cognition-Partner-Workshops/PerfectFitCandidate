@@ -350,6 +350,63 @@ def test_referenced_absent_rows_are_retained(pair: tuple[Settings, Settings]) ->
     assert (target.data_dir / "packages/v2.pfcpkg").exists()
 
 
+def test_unique_reference_value_swaps_are_atomic(pair: tuple[Settings, Settings]) -> None:
+    source, target = pair
+    with database(source) as db:
+        db.execute("INSERT INTO grades VALUES ('B1', 2, 1)")
+        db.execute("INSERT INTO bench_statuses VALUES ('OTHER', 'Other', 0, 2, 0, 0)")
+        db.execute(
+            "INSERT INTO scoring_templates VALUES (2, 'default', 2, NULL, '{}', '{}', "
+            "'retired', 1, ?, NULL)",
+            (NOW,),
+        )
+    importer = SettingsImporter(target)
+    importer.apply(exported(source).path, actor_id=1)
+    with database(source) as db:
+        db.execute("UPDATE grades SET ordinal=-1 WHERE code='A3'")
+        db.execute("UPDATE grades SET ordinal=1 WHERE code='B1'")
+        db.execute("UPDATE grades SET ordinal=2 WHERE code='A3'")
+        db.execute("UPDATE bench_statuses SET label='temporary' WHERE code='AVAILABLE'")
+        db.execute("UPDATE bench_statuses SET label='Available' WHERE code='OTHER'")
+        db.execute("UPDATE bench_statuses SET label='Other' WHERE code='AVAILABLE'")
+        db.execute("UPDATE scoring_templates SET status='retired' WHERE version=1")
+        db.execute("UPDATE scoring_templates SET status='active' WHERE version=2")
+    package = exported(source)
+
+    def fail() -> None:
+        raise RuntimeError("after unique value merge")
+
+    with database(target) as db:
+        before = snapshot(db)
+    with pytest.raises(RuntimeError, match="after unique"):
+        SettingsImporter(target, failure_hook=fail).apply(package.path, actor_id=1)
+    with database(target) as db:
+        assert snapshot(db) == before
+    importer.apply(package.path, actor_id=1)
+    with database(target) as db:
+        assert [
+            tuple(row) for row in db.execute("SELECT code, ordinal FROM grades ORDER BY code")
+        ] == [
+            ("A3", 2),
+            ("B1", 1),
+        ]
+        assert [
+            tuple(row) for row in db.execute("SELECT code, label FROM bench_statuses ORDER BY code")
+        ] == [
+            ("AVAILABLE", "Other"),
+            ("OTHER", "Available"),
+        ]
+        assert (
+            db.execute("SELECT version FROM scoring_templates WHERE status='active'").fetchone()[0]
+            == 2
+        )
+    importer.rollback(actor_id=1)
+    with database(target) as db:
+        restored = snapshot(db)
+        for table in ("grades", "bench_statuses", "scoring_templates"):
+            assert restored[table] == before[table]
+
+
 def test_natural_keys_preserve_local_ids_and_remap_synonyms(
     pair: tuple[Settings, Settings],
 ) -> None:
