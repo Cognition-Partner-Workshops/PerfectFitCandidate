@@ -44,6 +44,8 @@ import {
   toDemandAnalytics,
   toMatchAnalytics,
   toExportQuery,
+  toEmailTemplate,
+  type EmailTemplateRow,
 } from './mappers'
 import type { BenchStatus, CurrentUser, InternalDomain, PersonalSettings, ProblemDetails, ResourceTeamMember, StatusMapEntry } from './types'
 
@@ -385,6 +387,17 @@ export class HttpApiClient implements ApiClient {
     await this.request('POST', `/occ/scoring-templates/${created.templateId}/activate`)
     return this.listTemplates()
   }
+
+  listEmailTemplates: ApiClient['listEmailTemplates'] = async (all) => {
+    const params = { all: all || undefined }
+    return (await this.request<EmailTemplateRow[]>('GET', `/occ/email-templates${this.qs(params)}`)).map(toEmailTemplate)
+  }
+  getEmailTemplate: ApiClient['getEmailTemplate'] = async (id) =>
+    toEmailTemplate(await this.request<EmailTemplateRow>('GET', `/occ/email-templates/${id}`))
+  createEmailTemplate: ApiClient['createEmailTemplate'] = async (d) =>
+    toEmailTemplate(await this.request<EmailTemplateRow>('POST', '/occ/email-templates', { name: d.name.trim(), subject: d.subject, body_html: d.bodyHtml }))
+  setDefaultEmailTemplate: ApiClient['setDefaultEmailTemplate'] = async (id) =>
+    toEmailTemplate(await this.request<EmailTemplateRow>('POST', `/occ/email-templates/${id}/set-default`))
 
   listResourceTeam: ApiClient['listResourceTeam'] = async () =>
     (await this.request<RecipientRow[]>('GET', '/occ/resource-team')).map(toMember)

@@ -49,7 +49,11 @@ export function LoginPage() {
       navigate(u.mustChangePassword ? '/change-password' : last && last !== '/login' ? last : '/dashboard', { replace: true })
     } catch (err) {
       setPassword('')
-      if (err instanceof ApiError && err.code === 'ACCOUNT_LOCKED') setLockedFor(err.problem.retryAfterSeconds ?? 900)
+      if (err instanceof ApiError && err.code === 'ACCOUNT_LOCKED') {
+        const seconds = err.problem.retryAfterSeconds
+        if (seconds) setLockedFor(seconds)
+        else setError('Too many failed sign-ins. The account is temporarily locked. Try again later, or ask an OCC Admin to unlock it.')
+      }
       else if (err instanceof ApiError && err.code === 'ACCOUNT_DISABLED') setError('This account is disabled. Contact your PFC administrator.')
       else if (err instanceof ApiError && err.status === 0) setError("Can't reach the PFC service. Start PFC from the launcher.")
       else setError('Email, password or role is incorrect.')

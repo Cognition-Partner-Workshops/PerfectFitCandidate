@@ -435,3 +435,37 @@ describe('HttpApiClient — analytics and export wiring (REQ-OUT-04..09)', () =>
     expect(s).toMatchObject({ run: null, openRequisitions: 2, dataQualityIssues: { total: 1, dl: 1, ct: 0 } })
   })
 })
+
+describe('HttpApiClient — OCC email templates (REQ-EML-03)', () => {
+  const row = { email_template_id: 7, name: 'candidate', version: 2, subject: 'Opportunity {role}', body_html: '<p>{candidate_name}</p>', is_default: 1, created_by: 1, created_at: '2026-11-06T09:00:00Z' }
+
+  it('lists latest or all versions and maps rows to camelCase', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(json([row])).mockResolvedValueOnce(json([row]))
+    expect(await api.listEmailTemplates(false)).toEqual([
+      { emailTemplateId: 7, name: 'candidate', version: 2, subject: 'Opportunity {role}', bodyHtml: '<p>{candidate_name}</p>', isDefault: true, createdBy: 1, createdAt: '2026-11-06T09:00:00Z' },
+    ])
+    await api.listEmailTemplates(true)
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(['/api/v1/occ/email-templates', '/api/v1/occ/email-templates?all=true'])
+  })
+
+  it('creates a version with the snake_case body and sets the default by id', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(json(AUTH)).mockResolvedValueOnce(json(row, 201)).mockResolvedValueOnce(json(row)).mockResolvedValueOnce(json(row))
+    await api.login({ role: 'Admin', email: 'admin@example.com', password: 'x' })
+    await api.createEmailTemplate({ name: ' candidate ', subject: 'Opportunity {role}', bodyHtml: '<p>{candidate_name}</p>' })
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/occ/email-templates')
+    expect(JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string)).toEqual({ name: 'candidate', subject: 'Opportunity {role}', body_html: '<p>{candidate_name}</p>' })
+    expect(headersOf(1)['X-CSRF-Token']).toBe('tok-1')
+    expect((await api.setDefaultEmailTemplate(7)).isDefault).toBe(true)
+    expect(fetchMock.mock.calls[2]).toMatchObject(['/api/v1/occ/email-templates/7/set-default', { method: 'POST' }])
+    expect((await api.getEmailTemplate(7)).bodyHtml).toBe('<p>{candidate_name}</p>')
+    expect(fetchMock.mock.calls[3][0]).toBe('/api/v1/occ/email-templates/7')
+  })
+
+  it('surfaces UNKNOWN_PLACEHOLDER', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(problem(422, 'UNKNOWN_PLACEHOLDER', 'Unknown email placeholder'))
+    await expect(api.createEmailTemplate({ name: 'x', subject: '{nope}', bodyHtml: '' })).rejects.toMatchObject({ code: 'UNKNOWN_PLACEHOLDER' })
+  })
+})
