@@ -33,6 +33,8 @@ import {
   toStatusMapEntry,
   type BenchRow,
   type StatusMapRow,
+  toResource,
+  type ResourceItem,
 } from './mappers'
 import type { BenchStatus, CurrentUser, InternalDomain, PersonalSettings, ProblemDetails, ResourceTeamMember, StatusMapEntry } from './types'
 
@@ -178,14 +180,26 @@ export class HttpApiClient implements ApiClient {
   commitIngestion: ApiClient['commitIngestion'] = (id) => this.request('POST', `/ingestion-runs/${id}/commit`)
   discardIngestion: ApiClient['discardIngestion'] = (id) => this.request('POST', `/ingestion-runs/${id}/discard`)
 
-  listResources: ApiClient['listResources'] = () => this.request('GET', '/resources')
-  listExcludedResources: ApiClient['listExcludedResources'] = () => this.request('GET', '/resources/excluded')
+  /** Follows `ResourcePage` paging (page_size ≤ 200) until `total` rows are loaded. */
+  private async allPages<T>(fetchPage: (page: number) => Promise<{ items: T[]; total: number }>): Promise<T[]> {
+    const items: T[] = []
+    for (let page = 1; ; page++) {
+      const r = await fetchPage(page)
+      items.push(...r.items)
+      if (!r.items.length || items.length >= r.total) return items
+    }
+  }
+  listResources: ApiClient['listResources'] = async () =>
+    (await this.allPages<ResourceItem>((page) => this.request('GET', `/resources?page=${page}&page_size=200`))).map(toResource)
+  listExcludedResources: ApiClient['listExcludedResources'] = async () =>
+    (await this.allPages<ResourceItem>((page) => this.request('GET', `/resources/excluded?page=${page}&page_size=200`))).map(toResource)
   syncCvs: ApiClient['syncCvs'] = (ids) => this.request('POST', '/resources/cv-sync', { ids })
 
   getCandidate: ApiClient['getCandidate'] = (id) => this.request('GET', `/candidates/${id}`)
   resolveIdentity: ApiClient['resolveIdentity'] = (id, r) => this.request('PUT', `/candidates/${id}/identity`, r)
 
   listMatchRuns: ApiClient['listMatchRuns'] = () => this.request('GET', '/match-runs')
+  getMatchRun: ApiClient['getMatchRun'] = (runId) => this.request('GET', `/match-runs/${runId}`)
   getResults: ApiClient['getResults'] = (runId) => this.request('GET', `/match-runs/${runId}/results`)
   addOverride: ApiClient['addOverride'] = (id, o) => this.request('POST', `/match-results/${id}/overrides`, o)
   unmask: ApiClient['unmask'] = async (entity, id, field) =>

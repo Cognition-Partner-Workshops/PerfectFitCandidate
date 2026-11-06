@@ -1,16 +1,17 @@
 import json
 import sqlite3
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from pfc.api.schemas.llm import LlmHealth
 from pfc.security.problems import Problem
-from pfc.services.occ.common import audit_write, get_row, now
+from pfc.services.occ.common import audit_write, get_row
 
 # Metadata placeholders (empty hash/file name and zero sizes) are not verified artifacts.
 DEFAULT_MODELS: tuple[dict[str, Any], ...] = (
     {
         "name": "Qwen3-4B-Instruct-2507",
-        "file_name": "qwen3-4b-instruct-2507-Q4_K_M.gguf",
+        "file_name": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
         "file_sha256": "",
         "size_mb": 0,
         "ram_estimate_mb": 0,
@@ -119,7 +120,12 @@ def select(db: sqlite3.Connection, user_id: int, model_id: int | None) -> dict[s
             " VALUES ('user',?,'llm.active_model',?,0,?,?) ON CONFLICT DO UPDATE SET "
             "value_json=excluded.value_json,updated_by=excluded.updated_by,"
             "updated_at=excluded.updated_at",
-            (user_id, json.dumps(model_id), user_id, now()),
+            (
+                user_id,
+                json.dumps(model_id),
+                user_id,
+                datetime.now(UTC).isoformat(timespec="microseconds"),
+            ),
         )
     after = {"value": model_id} if model_id is not None else None
     if before != after:

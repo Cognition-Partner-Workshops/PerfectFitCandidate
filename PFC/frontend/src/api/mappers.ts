@@ -14,6 +14,7 @@ import type {
   LlmModel,
   OccUser,
   PersonalSettings,
+  Resource,
   ResourceTeamMember,
   StatusMapEntry,
   Role,
@@ -254,6 +255,54 @@ export function fromStatusMapEntry(e: StatusMapEntry, statuses: BenchStatus[]) {
     is_excluded: target?.eligibility === 'Excluded',
   }
 }
+
+/** `ResourcePage.items` from GET /resources and /resources/excluded (ingestion). */
+export interface ResourceItem {
+  resource_id: number
+  short_name: string
+  email_address: string | null
+  grade: string | null
+  location: string | null
+  bench_status: string | null
+  bench_status_code: string | null
+  skills_raw: string | null
+  available_capacity: string | null
+  bench_start_date: string | null
+  bench_end_date: string | null
+  group_name: string | null
+  lifecycle: string
+  eligibility: string
+  exclusion_reasons: string[]
+  pending_review: boolean
+  unmapped_status: boolean
+  occ_pending_review: boolean
+}
+const ELIGIBILITY: Resource['eligibility'][] = ['eligible', 'eligible_caveat', 'excluded', 'insufficient']
+/** The list rows carry no candidate, CV or identity data; those fields take neutral defaults. */
+export const toResource = (r: ResourceItem): Resource => ({
+  resourceId: r.resource_id,
+  candidateId: 0,
+  shortName: r.short_name,
+  emailAddressMasked: r.email_address ? maskEmail(r.email_address) : null,
+  name: null,
+  grade: r.grade,
+  location: r.location,
+  benchStatus: r.bench_status,
+  benchStatusPriority: null,
+  unmappedStatus: r.unmapped_status,
+  skills: (r.skills_raw ?? '').split(/[,;\n]/).map((x) => x.trim()).filter(Boolean),
+  availableCapacity: r.available_capacity === 'Y' || r.available_capacity === 'N' ? r.available_capacity : null,
+  benchStartDate: r.bench_start_date,
+  benchEndDate: r.bench_end_date,
+  groupName: r.group_name,
+  groupOwner: null,
+  eligibility: ELIGIBILITY.find((e) => e === r.eligibility) ?? 'insufficient',
+  exclusionReasons: r.exclusion_reasons,
+  cvStatus: 'Not synced',
+  cvCount: 0,
+  candidateType: 'Unknown',
+  identityStatus: r.pending_review ? 'incomplete' : 'complete',
+})
 
 export const toDomain = (r: { domain: string }): InternalDomain => ({ domain: r.domain })
 export const toPreview = (r: { internal: number; external: number; unknown: number }): ClassificationPreview => ({

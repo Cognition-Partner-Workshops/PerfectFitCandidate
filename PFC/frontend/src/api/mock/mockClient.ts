@@ -653,6 +653,12 @@ export class MockApiClient implements ApiClient {
     return this.done([this.run()])
   }
 
+  async getMatchRun(runId: number) {
+    this.currentUser()
+    if (runId !== 1) fail(404, 'Run not found', 'NOT_FOUND')
+    return this.done(this.run())
+  }
+
   async getResults(runId: number) {
     this.currentUser()
     if (runId !== 1) fail(404, 'Run not found', 'NOT_FOUND')
