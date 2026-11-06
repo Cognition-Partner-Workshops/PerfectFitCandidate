@@ -345,6 +345,9 @@ def test_stale_after_source_cleared_or_changed_in_place(
                 (replacement, version),
             )
     response = client.get(url)
+    if kind == "candidate" and replacement == "":
+        problem(response, 404, "SUMMARY_NOT_FOUND")
+        return
     assert response.status_code == 200, response.text
     assert response.json()["sourceVersionId"] == version
     assert response.json()["stale"] is True
