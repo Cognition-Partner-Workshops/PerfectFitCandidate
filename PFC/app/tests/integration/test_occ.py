@@ -720,10 +720,12 @@ def test_model_updates_schedule_after_commit(client: TestClient, tmp_path: Path)
     assert probe.selections == [("nomic-embed-text-v1.5", (tmp_path / "two.gguf").resolve())]
     assert client.put("/api/v1/settings/me", json={"active_model_id": 1}).status_code == 200
     assert probe.selections[-1] == ("Qwen3-4B-Instruct-2507", (tmp_path / "one.gguf").resolve())
+    assert client.put("/api/v1/settings/me", json={"active_model_id": 1}).status_code == 200
+    assert len(probe.selections) == 3
     assert client.put("/api/v1/settings/me", json={"density": "compact"}).status_code == 200
-    assert len(probe.selections) == 2
+    assert len(probe.selections) == 3
     assert client.put("/api/v1/llm/active", json={"model_id": 999}).status_code == 422
-    assert len(probe.selections) == 2
+    assert len(probe.selections) == 3
 
 
 def test_health_stub_and_override(client: TestClient) -> None:

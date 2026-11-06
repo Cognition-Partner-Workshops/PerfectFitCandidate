@@ -23,13 +23,9 @@ def put_settings(
     body: PersonalSettings, db: DB, user: User, request: Request, background_tasks: BackgroundTasks
 ) -> PersonalSettings:
     """Commit preferences before scheduling a shared-server model switch."""
-    before = get_personal(db, user.user.user_id)
     result = put_personal(db, user.user.user_id, body.model_dump(exclude_unset=True))
     db.commit()
-    if (
-        "active_model_id" in body.model_fields_set
-        and before.active_model_id != result.active_model_id
-    ):
+    if "active_model_id" in body.model_fields_set:
         background_tasks.add_task(
             restart_selected_model, request.app.state.settings, request.app.state
         )
