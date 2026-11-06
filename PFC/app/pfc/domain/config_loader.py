@@ -42,8 +42,8 @@ class GradeLadder(FrozenConfig):
 
     @model_validator(mode="after")
     def validate_codes(self) -> Self:
-        if not self.codes or len(set(self.codes)) != len(self.codes):
-            raise ValueError("grades must be nonempty and unique")
+        if len(set(self.codes)) != len(self.codes):
+            raise ValueError("grades must be unique")
         return self
 
     def ordinal(self, grade: str) -> int:

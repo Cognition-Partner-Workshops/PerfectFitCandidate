@@ -38,8 +38,27 @@ describe('format (REQ-OUT-02/10, GQ-11)', () => {
 describe('masking (REQ-OUT-03)', () => {
   it('masks 6 characters after the 2nd position', () => {
     expect(maskEmail('AlexBorder@capgemini.com')).toBe('Al******er@capgemini.com')
-    expect(maskEmail('ab@x.com')).toBe('a******@x.com')
+    expect(maskEmail('ab@x.com')).toBe('**@x.com')
     expect(maskEmail(null)).toBeNull()
+  })
+  it.each([
+    ['a@x.com', '*@x.com'],
+    ['ab@x.com', '**@x.com'],
+    ['abc@x.com', 'ab*@x.com'],
+    ['abcdefg@x.com', 'ab*****@x.com'],
+    ['abcdefgh@x.com', 'ab******@x.com'],
+    ['abcdefghi@x.com', 'ab******i@x.com'],
+    ['🙂@x.com', '*@x.com'],
+    ['🙂🙂@x.com', '**@x.com'],
+    ['@x.com', '@x.com'],
+    ['ab', '**'],
+  ])('matches backend masking for %s and keeps masked responses unchanged', (email, expected) => {
+    expect(maskEmail(email)).toBe(expected)
+    expect(maskEmail(expected)).toBe(expected)
+  })
+  it('keeps missing presentation values absent', () => {
+    expect(maskEmail('')).toBeNull()
+    expect(maskEmail(undefined)).toBeNull()
   })
   it('masks phones keeping prefix and last 2 digits', () => {
     expect(maskPhone('+44 7700 900189')).toBe('+44 ******89')

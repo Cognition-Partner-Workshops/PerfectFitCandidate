@@ -9,6 +9,18 @@ from pfc.services.occ.common import now
 
 ANALYST_UNMASK_KEY = "privacy.analysts_may_unmask"
 
+
+def mask_email(value: str | None) -> str | None:
+    if not value:
+        return value
+    local, separator, domain = value.partition("@")
+    if len(local) <= 2:
+        local = "*" * len(local)
+    else:
+        local = local[:2] + "*" * min(6, len(local) - 2) + local[8:]
+    return local + separator + domain
+
+
 QUERIES = {
     ("resource", "email"): "SELECT email_address FROM resources WHERE resource_id=?",
     ("resource", "phone"): (

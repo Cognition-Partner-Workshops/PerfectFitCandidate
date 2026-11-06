@@ -36,6 +36,7 @@ from pfc.services.matching import (
 )
 from pfc.services.matching.ports import ChunkOwner
 from pfc.services.matching.runs import _inputs
+from pfc.services.occ.seed import seed_reference_data
 
 NOW = datetime(2026, 11, 6, tzinfo=UTC)
 STAMP = NOW.isoformat()
@@ -96,10 +97,8 @@ def settings(tmp_path: Path) -> Settings:
     result = Settings(data_dir=tmp_path, job_workers=1)
     migrate(result)
     with database(result) as db:
-        db.executemany(
-            "INSERT INTO grades(code,ordinal) VALUES (?,?)",
-            [(code, i) for i, code in enumerate(load_domain_config().grades.codes, 1)],
-        )
+        seed_reference_data(db)
+        db.execute("DELETE FROM email_templates")
         db.execute(
             "INSERT INTO users"
             "(user_id,email,display_name,role_id,password_hash,created_at,updated_at)"
@@ -869,12 +868,6 @@ def test_req_mat_08_queued_cancellation_reconciles(settings: Settings, runner: J
 def test_req_mat_08_restart_interruption_reconciles(settings: Settings) -> None:
     # Persist the state left by a process exit, without a live worker racing recovery.
     with database(settings) as db:
-        template = load_domain_config().template.model_dump(mode="json")
-        db.execute(
-            "INSERT INTO scoring_templates(template_id,name,version,weights_json,rules_json,"
-            "status,created_at) VALUES (1,'default',1,?,?,'active',?)",
-            (json.dumps(template["weights"]), json.dumps(template), STAMP),
-        )
         db.execute(
             "INSERT INTO embedding_models VALUES (1,'test','onnx','hash',2,1,'v1',1)",
         )

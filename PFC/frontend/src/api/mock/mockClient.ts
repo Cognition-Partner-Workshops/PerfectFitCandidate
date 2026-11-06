@@ -331,7 +331,7 @@ export class MockApiClient implements ApiClient {
 
   private publicUser(u: MockUser): OccUser {
     const { userId, fullName, email, role, persona, status, lastSignIn, passwordSetAt } = u
-    return { userId, fullName, email, role, persona, status, lastSignIn, passwordSetAt }
+    return { userId, fullName, email: maskEmail(email) ?? '', role, persona, status, lastSignIn, passwordSetAt }
   }
 
   activeTemplate(): ScoringTemplate {

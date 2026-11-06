@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 from argon2 import Type, extract_parameters
 from argon2.exceptions import InvalidHashError
 
+from pfc.domain.normalise import SynonymTable
 from pfc.services.packages.common import PackageServiceError
 
 TABLES: dict[str, tuple[str, ...]] = {
@@ -94,7 +95,7 @@ SYSTEM_KEYS = frozenset(
 )
 NATURAL_KEYS = {
     "skills": ("name",),
-    "skill_synonyms": ("term_norm",),
+    "skill_synonyms": ("canonical", "term_norm"),
     "scoring_templates": ("name", "version"),
     "grades": ("code",),
     "bench_statuses": ("code",),
@@ -108,6 +109,8 @@ NATURAL_KEYS = {
 EXTRA_PAYLOADS = {"settings", "analysts", "dl_approvals", "ct_approvals"}
 Row = dict[str, Any]
 Snapshot = dict[str, list[Row]]
+SYNONYM_COLUMNS = ("canonical", "term", "term_norm", "relation", "credit", "status", "updated_at")
+SETTINGS_SCHEMA = 2
 
 
 @dataclass(frozen=True)
@@ -166,6 +169,14 @@ def snapshot(db: sqlite3.Connection) -> Snapshot:
                 f"SELECT {','.join(columns)} FROM {table}{where} ORDER BY {columns[0]}"
             )
         ]
+    skills = {row["skill_id"]: row["name"] for row in result["skills"]}
+    result["skill_synonyms"] = sorted(
+        [
+            {"canonical": skills[row["skill_id"]], **{key: row[key] for key in SYNONYM_COLUMNS[1:]}}
+            for row in result["skill_synonyms"]
+        ],
+        key=lambda row: (row["canonical"].casefold(), row["term_norm"]),
+    )
     for row in result["llm_providers"]:
         _safe_provider(row)
     if any(row["approved"] != 1 for row in result["llm_models"]):
@@ -206,12 +217,13 @@ def snapshot(db: sqlite3.Connection) -> Snapshot:
 
 
 def encode_snapshot(data: Snapshot) -> dict[str, Any]:
-    return {f"{name}.v1.json": rows for name, rows in data.items()}
+    return {f"{name}.v{SETTINGS_SCHEMA}.json": rows for name, rows in data.items()}
 
 
 def decode_snapshot(payloads: dict[str, Any]) -> Snapshot:
     names = {*TABLES, *EXTRA_PAYLOADS}
-    if set(payloads) != {f"{name}.v1.json" for name in names}:
+    version = 1 if "skills.v1.json" in payloads else SETTINGS_SCHEMA
+    if set(payloads) != {f"{name}.v{version}.json" for name in names}:
         raise PackageServiceError(
             "payload_schema", "Settings payload set is incomplete or unexpected"
         )
@@ -230,17 +242,47 @@ def decode_snapshot(payloads: dict[str, Any]) -> Snapshot:
         "ct_approvals": ("short_name_key", "email_key", "occ_reviewed_at"),
     }
     for name in names:
-        rows = payloads[f"{name}.v1.json"]
+        rows = payloads[f"{name}.v{version}.json"]
         columns = TABLES.get(name, extra_columns.get(name, ()))
+        if name == "skill_synonyms" and version == SETTINGS_SCHEMA:
+            columns = SYNONYM_COLUMNS
         if not isinstance(rows, list) or any(
             not isinstance(row, dict)
             or set(row) - ({"is_active"} if name == "analysts" else set()) != set(columns)
             for row in rows
         ):
             raise PackageServiceError("payload_schema", f"Invalid rows in {name}")
+        if name == "skill_synonyms" and version == 1:
+            try:
+                skills = {row["skill_id"]: row["name"] for row in payloads["skills.v1.json"]}
+                rows = [
+                    {
+                        "canonical": skills[row["skill_id"]],
+                        **{key: row[key] for key in SYNONYM_COLUMNS[1:]},
+                    }
+                    for row in rows
+                ]
+            except (KeyError, TypeError) as exc:
+                raise PackageServiceError(
+                    "payload_schema", "Invalid legacy skill reference"
+                ) from exc
         if len({_row_key(name, row) for row in rows}) != len(rows):
             raise PackageServiceError("payload_schema", f"Duplicate keys in {name}")
         result[name] = rows
+    if any(not isinstance(row["name"], str) for row in result["skills"]):
+        raise PackageServiceError("payload_schema", "Invalid canonical skill name")
+    skill_names = {row["name"].casefold() for row in result["skills"]}
+    if any(
+        not isinstance(row["canonical"], str)
+        or row["canonical"].casefold() not in skill_names
+        or not isinstance(row["term_norm"], str)
+        for row in result["skill_synonyms"]
+    ):
+        raise PackageServiceError("payload_schema", "Unknown canonical skill")
+    try:
+        SynonymTable(result["skill_synonyms"])
+    except ValueError as exc:
+        raise PackageServiceError("payload_schema", "Invalid synonym configuration") from exc
     for row in result["analysts"]:
         if (
             not isinstance(row["password_hash"], str)
@@ -265,6 +307,8 @@ def decode_snapshot(payloads: dict[str, Any]) -> Snapshot:
 
 
 def _row_key(name: str, row: Row) -> str:
+    if name == "skill_synonyms":
+        return json.dumps([str(row["canonical"]).casefold(), row["term_norm"]])
     if name == "ct_approvals":
         return json.dumps([row["short_name_key"], row["email_key"]])
     field = {"analysts": "email", "settings": "key", "dl_approvals": "code_requisition"}.get(name)
@@ -286,6 +330,12 @@ def diff(before: Snapshot, after: Snapshot) -> dict[str, PayloadDiff]:
 
 
 def _matching_row(db: sqlite3.Connection, table: str, row: Row) -> sqlite3.Row | None:
+    if table == "skill_synonyms":
+        return db.execute(
+            "SELECT y.* FROM skill_synonyms y JOIN skills s USING(skill_id) "
+            "WHERE s.name=? AND y.term_norm=?",
+            (row["canonical"], row["term_norm"]),
+        ).fetchone()
     keys = NATURAL_KEYS[table]
     return db.execute(
         f"SELECT * FROM {table} WHERE " + " AND ".join(f"{key}=?" for key in keys),
@@ -363,6 +413,31 @@ def _stage_unique_values(db: sqlite3.Connection, data: Snapshot) -> None:
             )
 
 
+def _replace_synonym(db: sqlite3.Connection, row: Row, actor_id: int) -> None:
+    skill = db.execute("SELECT skill_id FROM skills WHERE name=?", (row["canonical"],)).fetchone()
+    if skill is None:
+        raise PackageServiceError("payload_schema", "Unknown canonical skill")
+    existing = _matching_row(db, "skill_synonyms", row)
+    values = {key: row[key] for key in SYNONYM_COLUMNS[1:]}
+    values.update(skill_id=skill[0], created_by=actor_id)
+    if existing:
+        db.execute(
+            "UPDATE skill_synonyms SET "
+            + ",".join(f"{key}=?" for key in values)
+            + " WHERE synonym_id=?",
+            [*values.values(), existing["synonym_id"]],
+        )
+    else:
+        db.execute(
+            "INSERT INTO skill_synonyms ("
+            + ",".join(values)
+            + ") VALUES ("
+            + ",".join("?" for _ in values)
+            + ")",
+            list(values.values()),
+        )
+
+
 def replace_snapshot(
     db: sqlite3.Connection,
     data: Snapshot,
@@ -382,12 +457,12 @@ def replace_snapshot(
         db.execute("SELECT 1 FROM llm_models WHERE approved=0 AND is_active=1").fetchone()
         is not None
     )
-    skill_ids: dict[int, int] = {}
     for table, columns in TABLES.items():
         for incoming in data[table]:
             row = dict(incoming)
             if table == "skill_synonyms":
-                row["skill_id"] = skill_ids[row["skill_id"]]
+                _replace_synonym(db, row, actor_id)
+                continue
             primary = columns[0]
             existing = _matching_row(db, table, row)
             if table == "llm_models":
@@ -423,10 +498,6 @@ def replace_snapshot(
                     f"VALUES ({','.join('?' for _ in names)})",
                     values,
                 )
-            if table == "skills":
-                matched = _matching_row(db, table, row)
-                assert matched is not None
-                skill_ids[incoming[primary]] = matched[primary]
     _remove_absent(db, data)
     for key in SYSTEM_KEYS:
         db.execute(
