@@ -1,0 +1,14 @@
+PFC/data/
+PFC/models/
+node_modules/
+dist/
+__pycache__/
+.venv/
+.venv312/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.coverage
+coverage.xml
+htmlcov/
