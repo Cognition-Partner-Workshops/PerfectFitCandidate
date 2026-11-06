@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pfc.adapters.sources.resume_folder import CandidateLookup, CVVersion, ResumeFolderSource
+from pfc.adapters.sources.resume_paths import confined_path, resume_files
 from pfc.adapters.vector.embeddings import Embedder
 from pfc.adapters.vector.stores import create_vector_store
 from pfc.api.schemas.cv import CVSyncCounts, CVVersionItem
@@ -194,9 +195,13 @@ def _persist(
         "SELECT resume_id,source_path FROM resumes WHERE file_sha256=?", (version.file_sha256,)
     ).fetchone()
     resume_id = resume["resume_id"]
-    original = root / resume["source_path"]
+    original = confined_path(root, resume["source_path"])
     try:
-        original_matches = original.is_file() and file_sha256(original) == version.file_sha256
+        original_matches = (
+            original is not None
+            and original.is_file()
+            and file_sha256(original) == version.file_sha256
+        )
     except OSError:
         original_matches = False
     if not original_matches:
@@ -283,14 +288,9 @@ def sync(
     lookups = _lookups(settings, ids)
     inventory = set()
     if ids:
-        for path in root.rglob("*"):
+        for path in resume_files(root):
             context.raise_if_cancelled()
-            if (
-                path.is_file()
-                and not path.name.startswith("~$")
-                and path.suffix.lower() in {".pdf", ".docx", ".txt"}
-            ):
-                inventory.add(path.relative_to(root).as_posix())
+            inventory.add(path.relative_to(root.resolve()).as_posix())
     counts = CVSyncCounts(scanned=len(inventory))
     matched: dict[str, dict[str, CVVersion]] = defaultdict(dict)
     for result in ResumeFolderSource(root).scan(lookups):

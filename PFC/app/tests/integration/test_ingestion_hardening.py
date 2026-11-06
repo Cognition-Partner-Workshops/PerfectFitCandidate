@@ -2,15 +2,18 @@
 
 import json
 from io import BytesIO
+from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 from fastapi.testclient import TestClient
+from test_ingestion import client as client
+from test_ingestion import commit, configure_resume_root, data, resume_docx, upload, wait_cv_job
 
 from pfc.db.connection import database
+from pfc.services.ingestion import cv_sync
 from pfc.services.ingestion.limits import WorkbookLimits, positive_setting
-from test_ingestion import client as client
-from test_ingestion import commit, data, upload
+from pfc.services.ingestion.models import file_sha256
 
 
 def setting(client: TestClient, key: str, value: object, scope: str = "system") -> None:
@@ -141,3 +144,28 @@ def test_openpyxl_defusedxml_is_active() -> None:
 
     assert xml.DEFUSEDXML is True
     assert iterparse.__module__ == "defusedxml.common"
+
+
+@pytest.mark.parametrize("stored", ["../outside.docx", "/outside.docx", "C:/outside.docx"])
+def test_unsafe_provenance_is_not_opened(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stored: str
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(client, upload(client, "ct", [{}]))
+    path = resume_docx(root, "Alex.docx", "alex@example.com SQL")
+    wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    (tmp_path / "outside.docx").write_bytes(path.read_bytes())
+    with database(client.app.state.settings) as db:
+        db.execute("UPDATE resumes SET source_path=?", (stored,))
+
+    def checked_hash(path: Path) -> str:
+        assert path.resolve().is_relative_to(root.resolve()), path
+        return file_sha256(path)
+
+    monkeypatch.setattr(cv_sync, "file_sha256", checked_hash)
+    summary = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert summary["new_versions"] == 0
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT source_path FROM resumes").fetchone()[0] == "Alex.docx"

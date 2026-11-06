@@ -11,6 +11,8 @@ from pypdf import PdfReader
 
 from pfc.services.ingestion.models import file_sha256
 
+from .resume_paths import confined_path, resume_files
+
 
 class CandidateLookup(BaseModel):
     candidate_id: str
@@ -65,7 +67,7 @@ class ResumeFolderSource:
     """REQ-IN-21/22/24/25: scan only selected candidates; retain all matching versions."""
 
     def __init__(self, root: Path) -> None:
-        self.root = root
+        self.root = root.resolve()
 
     def scan(self, candidates: list[CandidateLookup]) -> list[ResumeResult]:
         if not self.root.is_dir():
@@ -73,13 +75,15 @@ class ResumeFolderSource:
         results = [ResumeResult(candidate_id=c.candidate_id) for c in candidates]
         if not candidates:
             return results
-        for path in sorted(self.root.rglob("*")):
-            if (
-                not path.is_file()
-                or path.name.startswith("~$")
-                or path.suffix.lower() not in {".txt", ".docx", ".pdf"}
-            ):
-                continue
+        cached = [
+            {
+                safe.relative_to(self.root).as_posix()
+                for stored in candidate.source_paths
+                if (safe := confined_path(self.root, stored)) is not None
+            }
+            for candidate in candidates
+        ]
+        for path in sorted(resume_files(self.root)):
             relative = path.relative_to(self.root).as_posix()
             flags: list[str] = []
             try:
@@ -106,7 +110,7 @@ class ResumeFolderSource:
                     email_pattern.search(filename_lower) or email_pattern.search(text_lower)
                 ):
                     matches.append((index, "email_exact"))
-                elif relative in candidate.source_paths:
+                elif relative in cached[index]:
                     matches.append((index, "manual"))
                 elif any(tokens and tokens <= _tokens(path.stem) for tokens in names):
                     matches.append((index, "name_fuzzy"))
