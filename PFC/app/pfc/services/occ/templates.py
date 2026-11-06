@@ -12,6 +12,7 @@ PLACEHOLDERS = {
     "requisition",
     "role",
     "match_pct",
+    "analysis",
     "gaps",
     "pointers",
     "spoc_1",

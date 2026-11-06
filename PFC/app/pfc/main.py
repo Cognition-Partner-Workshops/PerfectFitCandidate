@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from pfc.api.routers.auth import router as auth_router
 from pfc.api.routers.cv import router as cv_router
 from pfc.api.routers.demands import router as demands_router
+from pfc.api.routers.email import router as email_router
 from pfc.api.routers.health import router as health_router
 from pfc.api.routers.ingestion import router as ingestion_router
 from pfc.api.routers.llm import router as llm_router
@@ -50,7 +51,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             cleanup.cancel()
             with suppress(asyncio.CancelledError):
                 await cleanup
-            app.state.job_runner.shutdown()
+            try:
+                email_transport = getattr(app.state, "email_transport", None)
+                close_transport = getattr(email_transport, "close", None)
+                if callable(close_transport):
+                    close_transport()
+            finally:
+                app.state.email_transport = None
+                app.state.job_runner.shutdown()
 
     app = FastAPI(title="PerfectFitCandidate", lifespan=lifespan)
     app.state.settings = settings
@@ -60,6 +68,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     install_middleware(app)
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(auth_router, prefix="/api/v1")
+    app.include_router(email_router, prefix="/api/v1")
     app.include_router(jobs_router, prefix="/api/v1")
     app.include_router(ingestion_router, prefix="/api/v1")
     app.include_router(demands_router, prefix="/api/v1")
