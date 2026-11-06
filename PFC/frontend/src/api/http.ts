@@ -210,7 +210,7 @@ export class HttpApiClient implements ApiClient {
   updateEmail: ApiClient['updateEmail'] = async (id, patch) =>
     toEmailDraft(await this.request('PUT', `/emails/${id}`, { subject: patch.subject, body_html: patch.body }))
   approveEmail: ApiClient['approveEmail'] = async (id, confirmResend) =>
-    toEmailDraft(await this.request('POST', `/emails/${id}/${confirmResend ? 'resend' : 'approve'}`))
+    toEmailDraft(await this.request('POST', `/emails/${id}${confirmResend ? '/resend' : '/approve'}`))
   sendEmail: ApiClient['sendEmail'] = async (id) => {
     await this.request('POST', `/emails/${id}/send`)
     return toEmailDraft(await this.request('GET', `/emails/${id}`))
@@ -341,16 +341,14 @@ export class HttpApiClient implements ApiClient {
   /** Dates are sent as UTC day bounds (backend requires a timezone); user names are matched client-side. */
   auditLog: ApiClient['auditLog'] = async (q) => {
     const users = await this.userNames()
-    const r = await this.request<{ items: AuditRow[] }>(
-      'GET',
-      `/occ/audit-log${this.qs({
-        limit: 1000,
-        action: q.action,
-        entity_type: q.entity,
-        from: q.from ? `${q.from}T00:00:00Z` : undefined,
-        to: q.to ? `${q.to}T23:59:59Z` : undefined,
-      })}`,
-    )
+    const filters = {
+      limit: 1000,
+      action: q.action,
+      entity_type: q.entity,
+      from: q.from ? `${q.from}T00:00:00Z` : undefined,
+      to: q.to ? `${q.to}T23:59:59Z` : undefined,
+    }
+    const r = await this.request<{ items: AuditRow[] }>('GET', `/occ/audit-log${this.qs(filters)}`)
     const events = r.items.map((a) => toAuditEvent(a, users))
     const needle = q.user?.toLowerCase()
     return needle ? events.filter((e) => e.user.toLowerCase().includes(needle)) : events
