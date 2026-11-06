@@ -29,6 +29,7 @@ import type {
   ResultFilters,
 } from './types'
 import { maskEmail } from '../lib/mask'
+import type { EmailTemplateVersion } from './types'
 
 type Flag = boolean | 0 | 1
 const b = (v: Flag | null | undefined): boolean => Boolean(v)
@@ -224,6 +225,26 @@ export const fromSynonymRelation = (r: Synonym['relation']) =>
   (Object.entries(REL).find(([, v]) => v === r)?.[0] ?? 'related') as keyof typeof REL
 
 export interface RecipientRow { recipient_id: number; email: string; display_name: string | null; is_active: Flag }
+export interface EmailTemplateRow {
+  email_template_id: number
+  name: string
+  version: number
+  subject: string
+  body_html: string
+  is_default: Flag
+  created_by: number | null
+  created_at: string
+}
+export const toEmailTemplate = (r: EmailTemplateRow): EmailTemplateVersion => ({
+  emailTemplateId: r.email_template_id,
+  name: r.name,
+  version: r.version,
+  subject: r.subject,
+  bodyHtml: r.body_html,
+  isDefault: b(r.is_default),
+  createdBy: r.created_by ?? null,
+  createdAt: r.created_at,
+})
 export const toMember = (r: RecipientRow): ResourceTeamMember => ({ email: r.email, displayName: r.display_name ?? '', active: b(r.is_active), notes: '' })
 export interface BenchRow {
   code: string
@@ -267,6 +288,8 @@ export function fromStatusMapEntry(e: StatusMapEntry, statuses: BenchStatus[]) {
 /** `ResourcePage.items` from GET /resources and /resources/excluded (ingestion). */
 export interface ResourceItem {
   resource_id: number
+  candidate_id: number | null
+  cv_versions_count: number
   short_name: string
   email_address: string | null
   grade: string | null
@@ -286,10 +309,10 @@ export interface ResourceItem {
   occ_pending_review: boolean
 }
 const ELIGIBILITY: Resource['eligibility'][] = ['eligible', 'eligible_caveat', 'excluded', 'insufficient']
-/** The list rows carry no candidate or CV data, so those take neutral defaults (`candidateId` 0 = not linked); `pending_review` is the bench-date parse flag, not identity. */
+/** `candidateId` 0 = not linked; CV status follows the backend's rule (any CV version = Synced); `pending_review` is the bench-date parse flag, not identity. */
 export const toResource = (r: ResourceItem): Resource => ({
   resourceId: r.resource_id,
-  candidateId: 0,
+  candidateId: r.candidate_id ?? 0,
   shortName: r.short_name,
   emailAddressMasked: r.email_address ? maskEmail(r.email_address) : null,
   name: null,
@@ -306,8 +329,8 @@ export const toResource = (r: ResourceItem): Resource => ({
   groupOwner: null,
   eligibility: ELIGIBILITY.find((e) => e === r.eligibility) ?? 'insufficient',
   exclusionReasons: r.exclusion_reasons,
-  cvStatus: 'Not synced',
-  cvCount: 0,
+  cvStatus: r.cv_versions_count > 0 ? 'Synced' : 'Not synced',
+  cvCount: r.cv_versions_count,
   candidateType: 'Unknown',
   identityStatus: r.email_address ? 'complete' : 'incomplete',
 })

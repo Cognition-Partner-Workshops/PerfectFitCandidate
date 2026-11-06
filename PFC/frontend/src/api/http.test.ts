@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveApiMode } from '../config'
 import { ApiError } from './client'
 import { HttpApiClient, setUnauthorizedHandler } from './http'
-import { fromGrades, toCurrentUser, toDashboardQuery, toEmailDraft, toExportQuery, toGrade } from './mappers'
+import { fromGrades, toCurrentUser, toDashboardQuery, toEmailDraft, toExportQuery, toGrade, toResource, type ResourceItem } from './mappers'
 
 const AUTH = {
   user: { user_id: 1, email: 'admin@example.com', display_name: 'OCC Admin', role: 'Admin', must_change_password: false },
@@ -433,5 +433,63 @@ describe('HttpApiClient — analytics and export wiring (REQ-OUT-04..09)', () =>
     expect(m.validation[0]).toEqual({ id: 'v1', label: 'Check', passed: true, detail: '' })
     const s = await api.analyticsSummary({})
     expect(s).toMatchObject({ run: null, openRequisitions: 2, dataQualityIssues: { total: 1, dl: 1, ct: 0 } })
+  })
+})
+
+describe('toResource — candidate link and CV status (REQ-IN-22)', () => {
+  const item: ResourceItem = {
+    resource_id: 5, candidate_id: 9, cv_versions_count: 2, short_name: 'Alex', email_address: 'alex@example.com', grade: 'B2', location: 'Pune',
+    bench_status: 'Bench', bench_status_code: 'BENCH', skills_raw: 'Java, SQL', available_capacity: 'Y', bench_start_date: null, bench_end_date: null,
+    group_name: null, lifecycle: 'active', eligibility: 'eligible', exclusion_reasons: [], pending_review: false, unmapped_status: false, occ_pending_review: false,
+  }
+  it('maps candidate_id and cv_versions_count', () => {
+    expect(toResource(item)).toMatchObject({ candidateId: 9, cvCount: 2, cvStatus: 'Synced' })
+  })
+  it('leaves unlinked rows at candidateId 0 and Not synced', () => {
+    expect(toResource({ ...item, candidate_id: null, cv_versions_count: 0 })).toMatchObject({ candidateId: 0, cvCount: 0, cvStatus: 'Not synced' })
+  })
+})
+
+describe('HttpApiClient — CV sync (REQ-IN-21)', () => {
+  it('sends the selected ids as resource_ids', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(json({ job_id: 3 }, 202))
+    await api.syncCvs([4, 5])
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/resources/cv-sync')
+    expect(JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)).toEqual({ resource_ids: [4, 5] })
+  })
+})
+
+describe('HttpApiClient — OCC email templates (REQ-EML-03)', () => {
+  const row = { email_template_id: 7, name: 'candidate', version: 2, subject: 'Opportunity {role}', body_html: '<p>{candidate_name}</p>', is_default: 1, created_by: 1, created_at: '2026-11-06T09:00:00Z' }
+
+  it('lists latest or all versions and maps rows to camelCase', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(json([row])).mockResolvedValueOnce(json([row]))
+    expect(await api.listEmailTemplates(false)).toEqual([
+      { emailTemplateId: 7, name: 'candidate', version: 2, subject: 'Opportunity {role}', bodyHtml: '<p>{candidate_name}</p>', isDefault: true, createdBy: 1, createdAt: '2026-11-06T09:00:00Z' },
+    ])
+    await api.listEmailTemplates(true)
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual(['/api/v1/occ/email-templates', '/api/v1/occ/email-templates?all=true'])
+  })
+
+  it('creates a version with the snake_case body and sets the default by id', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(json(AUTH)).mockResolvedValueOnce(json(row, 201)).mockResolvedValueOnce(json(row)).mockResolvedValueOnce(json(row))
+    await api.login({ role: 'Admin', email: 'admin@example.com', password: 'x' })
+    await api.createEmailTemplate({ name: ' candidate ', subject: 'Opportunity {role}', bodyHtml: '<p>{candidate_name}</p>' })
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/occ/email-templates')
+    expect(JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string)).toEqual({ name: 'candidate', subject: 'Opportunity {role}', body_html: '<p>{candidate_name}</p>' })
+    expect(headersOf(1)['X-CSRF-Token']).toBe('tok-1')
+    expect((await api.setDefaultEmailTemplate(7)).isDefault).toBe(true)
+    expect(fetchMock.mock.calls[2]).toMatchObject(['/api/v1/occ/email-templates/7/set-default', { method: 'POST' }])
+    expect((await api.getEmailTemplate(7)).bodyHtml).toBe('<p>{candidate_name}</p>')
+    expect(fetchMock.mock.calls[3][0]).toBe('/api/v1/occ/email-templates/7')
+  })
+
+  it('surfaces UNKNOWN_PLACEHOLDER', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(problem(422, 'UNKNOWN_PLACEHOLDER', 'Unknown email placeholder'))
+    await expect(api.createEmailTemplate({ name: 'x', subject: '{nope}', bodyHtml: '' })).rejects.toMatchObject({ code: 'UNKNOWN_PLACEHOLDER' })
   })
 })

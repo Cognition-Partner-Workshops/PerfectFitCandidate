@@ -9,7 +9,9 @@ from typing import Any, Literal
 from openpyxl import load_workbook  # type: ignore[import-untyped]
 from openpyxl.utils.datetime import from_excel  # type: ignore[import-untyped]
 
+from .limits import WorkbookLimits
 from .models import ParsedRow, Preview, RowIssue, RowKey, file_sha256, row_hash
+from .workbook_safety import WorkbookError, inspect_workbook
 
 GRADES = frozenset("A3 A4 B1 B2 C1 C2 D1 D2 E1".split())
 STATUSES = frozenset(
@@ -94,12 +96,15 @@ def parse_workbook(
     grades: Set[str] = GRADES,
     known_statuses: Set[str] = STATUSES,
     jd_normaliser: Callable[[str], str] = normalise_jd,
+    limits: WorkbookLimits | None = None,
 ) -> Preview:
     """REQ-ING-01/02: parse for review; no DB, formula evaluation or side effects."""
+    limits = limits or WorkbookLimits()
     if empty_row_limit < 1:
         raise ValueError("empty_row_limit must be positive")
     if path.suffix.lower() != ".xlsx":
         raise ValueError("Only unencrypted .xlsx workbooks are supported")
+    inspect_workbook(path, limits)
     fields = DL if kind == "DL" else CT
     aliases = {_label(label): field for label, field in fields.items()}
     aliases.update(
@@ -166,6 +171,8 @@ def parse_workbook(
                     break
                 continue
             empty = 0
+            if len(rows) >= limits.max_rows:
+                raise WorkbookError("WORKBOOK_TOO_MANY_ROWS", "Workbook exceeds the data row limit")
             business: dict[str, Any] = {field: None for field in fields.values()}
             business.update(
                 {

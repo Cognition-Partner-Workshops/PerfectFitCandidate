@@ -23,35 +23,12 @@ def iso_date(value: Any) -> bool:
 
 
 def coverage(p: Population) -> float:
-    covered = {r["demand_id"] for r in p.results if r["effective_band"] in BANDS[:2]}
+    covered = {demand_id for demand_id, band in p.result_counts if band in BANDS[:2]}
     return percent(sum(d["demand_id"] in covered for d in p.demands), len(p.demands))
 
 
 def emails(p: Population) -> list[dict[str, Any]]:
-    demand_ids = {
-        row["demand_id"]
-        for row in p.db.execute("SELECT * FROM demands")
-        if p.demand_filter(dict(row))
-    }
-    resource_ids = {
-        row["resource_id"]
-        for row in p.db.execute(
-            "SELECT r.*,COALESCE(c.identity_status,'incomplete') AS identity_status,"
-            "COALESCE(c.classification_override,c.classification,'Unknown') AS candidate_type "
-            "FROM resources r LEFT JOIN candidates c USING(candidate_id)"
-        )
-        if p.person_filter(dict(row))
-    }
-    rows = p.db.execute(
-        "SELECT e.*,i.started_at AS uploaded_at FROM email_messages e "
-        "JOIN demands d USING(demand_id) LEFT JOIN ingestion_runs i "
-        "ON i.ingestion_run_id=d.first_ingestion_id"
-    )
-    return [
-        dict(row)
-        for row in rows
-        if row["demand_id"] in demand_ids and row["resource_id"] in resource_ids
-    ]
+    return p.email_rows
 
 
 def within_day(row: dict[str, Any]) -> bool:
@@ -86,10 +63,10 @@ def summary(p: Population) -> dict[str, Any]:
     ):
         assessed = {
             row["demand_id"]
-            for row in p.db.execute("SELECT * FROM demands")
-            if row["demand_id"] in assessed and p.demand_filter(dict(row))
+            for row in p.all_demands
+            if row["demand_id"] in assessed and p.demand_filter(row)
         }
-    suitable = {row["demand_id"] for row in p.results if row["effective_band"] in BANDS[:3]}
+    suitable = {demand_id for demand_id, band in p.result_counts if band in BANDS[:3]}
     issues = {}
     for kind in ("DL", "CT"):
         issues[kind.lower()] = p.db.execute(
@@ -145,11 +122,6 @@ def demand(p: Population) -> dict[str, Any]:
     bu_region = Counter(
         (row["bu"] or "Unspecified", row["region"] or "Unspecified") for row in p.demands
     )
-    skills = [
-        skill
-        for row in p.demands
-        for skill in set(row["mandatory_skills"] + row["preferred_skills"])
-    ]
     grades = Counter(row["code_local_grade"] for row in p.demands)
     pipeline: Counter[str] = Counter()
     for row in p.demands:
@@ -161,7 +133,7 @@ def demand(p: Population) -> dict[str, Any]:
             {"bu": bu, "region": region, "count": count}
             for (bu, region), count in sorted(bu_region.items())
         ],
-        "top_skills": counts(skills, 5),
+        "top_skills": top_demand_skills(p),
         "grade_to_jd_count": [{"label": grade, "count": grades[grade]} for grade in p.grades],
         "top_accounts": counts([row["account_name"] or "Not recorded" for row in p.demands], 3),
         "start_pipeline": [
@@ -172,22 +144,33 @@ def demand(p: Population) -> dict[str, Any]:
     }
 
 
+def top_demand_skills(p: Population) -> list[dict[str, Any]]:
+    return counts(
+        [
+            skill
+            for row in p.demands
+            for skill in set(row["mandatory_skills"] + row["preferred_skills"])
+        ],
+        5,
+    )
+
+
 def bench(p: Population) -> dict[str, Any]:
     eligible = [row for row in p.resources if row["eligibility"] == "eligible"]
     supply = []
-    for item in demand(p)["top_skills"]:
-        holders = [
-            row
-            for row in eligible
-            if item["label"].casefold() in {s.casefold() for s in row["skills"]}
-        ]
-        yes = sum(capacity(row["available_capacity"]) == "Y" for row in holders)
+    supplies: dict[str, list[int]] = {}
+    for row in eligible:
+        for skill in {s.casefold() for s in row["skills"]}:
+            split = supplies.setdefault(skill, [0, 0])
+            split[0 if capacity(row["available_capacity"]) == "Y" else 1] += 1
+    for item in top_demand_skills(p):
+        yes, no = supplies.get(item["label"].casefold(), [0, 0])
         supply.append(
             {
                 "skill": item["label"],
                 "demand_count": item["count"],
                 "supply_y": yes,
-                "supply_n": len(holders) - yes,
+                "supply_n": no,
             }
         )
     timeline = []
@@ -249,17 +232,9 @@ def bench(p: Population) -> dict[str, Any]:
 
 
 def validation(p: Population) -> list[dict[str, Any]]:
-    ends, distances = [], []
-    for row in p.results:
-        inputs = {
-            record["component"]: json.loads(record["inputs_json"])
-            for record in p.db.execute(
-                "SELECT component,inputs_json FROM score_breakdowns WHERE result_id=?",
-                (row["result_id"],),
-            )
-        }
-        ends.append(inputs.get("bench_end", {}).get("parse_status"))
-        distances.append(inputs.get("grade", {}).get("distance"))
+    rows = p.validation_rows
+    ends = [row["end_status"] for row in rows]
+    distances = [row["grade_distance"] for row in rows]
     pending = ends.count("unparseable")
     checks = [
         (
@@ -283,13 +258,7 @@ def validation(p: Population) -> list[dict[str, Any]]:
         (
             "email-copy",
             "Every result has a CT email",
-            all(
-                p.db.execute(
-                    "SELECT email_address FROM resources WHERE resource_id=?", (row["resource_id"],)
-                ).fetchone()[0]
-                is not None
-                for row in p.results
-            ),
+            all(row["email_address"] is not None for row in rows),
             "Checks current CT values (resources.email_address), not historical email equality.",
         ),
         (
@@ -297,7 +266,7 @@ def validation(p: Population) -> list[dict[str, Any]]:
             "Every result has evidence and gaps/checks",
             all(
                 bool(row["matching_evidence"].strip() and row["gaps_checks"].strip())
-                for row in p.results
+                for row in rows
             ),
             "Persisted matching evidence and gaps/checks checked.",
         ),
@@ -308,14 +277,14 @@ def validation(p: Population) -> list[dict[str, Any]]:
                 isinstance(row["score"], (int, float))
                 and math.isfinite(row["score"])
                 and 0 <= row["score"] <= 100
-                for row in p.results
+                for row in rows
             ),
             "Persisted numeric scores checked before percentage formatting.",
         ),
         (
             "start-date",
             "Start Date is ISO or null",
-            all(iso_date(row["start_date"]) for row in p.results),
+            all(iso_date(row["start_date"]) for row in rows),
             "Scored display Start Dates checked (current values for legacy rows).",
         ),
     ]
@@ -338,7 +307,10 @@ def match(p: Population) -> dict[str, Any]:
         "band_distribution": []
         if p.run is None
         else [
-            {"label": band, "count": sum(row["effective_band"] == band for row in p.results)}
+            {
+                "label": band,
+                "count": sum(n for (_, label), n in p.result_counts.items() if label == band),
+            }
             for band in BANDS
         ],
         "email_status_counts": []

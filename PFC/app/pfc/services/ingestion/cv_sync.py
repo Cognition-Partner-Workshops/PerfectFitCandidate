@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pfc.adapters.sources.resume_folder import CandidateLookup, CVVersion, ResumeFolderSource
+from pfc.adapters.sources.resume_paths import read_resume, resume_files
 from pfc.adapters.vector.embeddings import Embedder
 from pfc.adapters.vector.stores import create_vector_store
 from pfc.api.schemas.cv import CVSyncCounts, CVVersionItem
@@ -24,7 +25,7 @@ from pfc.services.embeddings.chunking import OwnerType
 from pfc.services.embeddings.reembed import ReembedCounts, embed_owners
 from pfc.services.embeddings.runtime import EmbeddingModelUnavailable, create_embedder
 
-from .models import file_sha256
+from .limits import positive_setting
 
 EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?![\w-])")
 MIMES = {
@@ -182,9 +183,11 @@ def _persist(
         "SELECT resume_id,source_path FROM resumes WHERE file_sha256=?", (version.file_sha256,)
     ).fetchone()
     resume_id = resume["resume_id"]
-    original = root / resume["source_path"]
     try:
-        original_matches = original.is_file() and file_sha256(original) == version.file_sha256
+        content, _ = read_resume(root, resume["source_path"], version.file_size)
+        original_matches = (
+            content is not None and hashlib.sha256(content).hexdigest() == version.file_sha256
+        )
     except OSError:
         original_matches = False
     if not original_matches:
@@ -271,19 +274,21 @@ def sync(
     lookups = _lookups(settings, ids)
     inventory = set()
     if ids:
-        for path in root.rglob("*"):
+        for path in resume_files(root):
             context.raise_if_cancelled()
-            if (
-                path.is_file()
-                and not path.name.startswith("~$")
-                and path.suffix.lower() in {".pdf", ".docx", ".txt"}
-            ):
-                inventory.add(path.relative_to(root).as_posix())
+            inventory.add(path.relative_to(root.resolve()).as_posix())
     counts = CVSyncCounts(scanned=len(inventory))
+    with database(settings) as db:
+        source = ResumeFolderSource(
+            root,
+            work_dir=settings.data_dir / "work" / "cv-extraction",
+            max_file_bytes=max(1, int(positive_setting(db, "cv.max_file_mb", 20) * 1024**2)),
+            extract_timeout_s=positive_setting(db, "cv.extract_timeout_s", 30),
+        )
     embedding_counts = ReembedCounts()
     embedding_notes: list[str] = []
     matched: dict[str, dict[str, CVVersion]] = defaultdict(dict)
-    for result in ResumeFolderSource(root).scan(lookups):
+    for result in source.scan(lookups):
         context.raise_if_cancelled()
         for version in result.versions:
             matched[version.source_path][result.candidate_id] = version
@@ -292,7 +297,7 @@ def sync(
     )
     unmatched = inventory - matched.keys()
     if unmatched:
-        for result in ResumeFolderSource(root).scan(
+        for result in source.scan(
             [CandidateLookup(candidate_id="unmatched", source_paths=sorted(unmatched))]
         ):
             for version in result.versions:
@@ -303,10 +308,18 @@ def sync(
     identities: dict[str, set[str]] = defaultdict(set)
     for matches in matched.values():
         for identity, version in matches.items():
-            if identity != "unmatched":
+            if identity != "unmatched" and not {"too_large", "extraction_timeout"}.intersection(
+                version.flags
+            ):
                 identities[version.file_sha256].add(identity)
     for matches in matched.values():
         version = next(iter(matches.values()))
+        if "too_large" in version.flags:
+            counts.too_large += 1
+            continue
+        if "extraction_timeout" in version.flags:
+            counts.extraction_timeout += 1
+            continue
         if any(
             "extraction failed" in flag or flag == "no extractable text" for flag in version.flags
         ):

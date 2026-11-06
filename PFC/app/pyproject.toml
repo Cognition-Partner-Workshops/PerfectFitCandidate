@@ -13,6 +13,7 @@ dependencies = [
   "pydantic>=2.10",
   "pydantic-settings>=2.7",
   "openpyxl>=3.1",
+  "defusedxml>=0.7.1",
   "python-docx>=1.1",
   "pypdf>=5.1",
   "argon2-cffi>=23.1",
@@ -71,5 +72,6 @@ disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-m 'not perf'"
-markers = ["perf: offline 500 by 500 NFR-01 performance regression (explicit CI step)"]
+markers = ["perf: synthetic ingestion API and offline 500 by 500 NFR-01 performance regressions (select with -m perf)"]

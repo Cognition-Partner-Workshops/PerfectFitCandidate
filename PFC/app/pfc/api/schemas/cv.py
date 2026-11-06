@@ -30,5 +30,7 @@ class CVSyncCounts(BaseModel):
     ambiguous: int = 0
     unmatched: int = 0
     extraction_failed: int = 0
+    extraction_timeout: int = 0
+    too_large: int = 0
     embedded: int = 0
     warnings: int = 0

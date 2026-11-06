@@ -41,6 +41,8 @@ import type {
   ResourceTeamMember,
   Role,
   ScoringTemplate,
+  EmailTemplateDraft,
+  EmailTemplateVersion,
   SettingsPackageInfo,
   SetupAdminRequest,
   SetupStatus,
@@ -215,6 +217,15 @@ export interface ApiClient {
   listTemplates(): Promise<ScoringTemplate[]>
   /** POST /occ/scoring-templates then POST /occ/scoring-templates/{id}/activate */
   publishTemplate(draft: Omit<ScoringTemplate, 'templateId' | 'version' | 'status' | 'createdAt' | 'createdBy'>): Promise<ScoringTemplate[]>
+
+  /** GET /occ/email-templates (latest version per name; `all` lists every version) */
+  listEmailTemplates(all: boolean): Promise<EmailTemplateVersion[]>
+  /** GET /occ/email-templates/{id} */
+  getEmailTemplate(emailTemplateId: number): Promise<EmailTemplateVersion>
+  /** POST /occ/email-templates — appends the next version of `name` */
+  createEmailTemplate(draft: EmailTemplateDraft): Promise<EmailTemplateVersion>
+  /** POST /occ/email-templates/{id}/set-default */
+  setDefaultEmailTemplate(emailTemplateId: number): Promise<EmailTemplateVersion>
 
   /** GET /occ/resource-team */
   listResourceTeam(): Promise<ResourceTeamMember[]>
