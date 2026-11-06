@@ -32,6 +32,7 @@ SEED = 19401
 SIZE = 500
 SAMPLES = 3
 MATCH_LIMIT_SECONDS = 180.0
+DEMAND_LIST_LIMIT_SECONDS = 2.0
 ANALYTICS_LIMIT_SECONDS = {"summary": 2.0, "demand": 2.0, "bench": 2.0, "match": 2.0}
 NOW = datetime(2026, 11, 6, tzinfo=UTC)
 SKILLS = (
@@ -370,6 +371,20 @@ def test_nfr01_matching_and_analytics(tmp_path: Path) -> None:
                 "samples_seconds": samples,
                 "median_seconds": statistics.median(samples),
             }
+        list_samples = []
+        for _ in range(SAMPLES):
+            started = time.perf_counter()
+            listed: list[dict[str, Any]] = []
+            for page in range(1, -(-SIZE // 200) + 1):
+                response = client.get(f"/api/v1/demands?page={page}&page_size=200")
+                assert response.status_code == 200, response.text
+                listed += response.json()["items"]
+            list_samples.append(time.perf_counter() - started)
+        assert len(listed) == SIZE and {item["jd_status"] for item in listed} == {"Confirmed"}
+        demand_list = {
+            "samples_seconds": list_samples,
+            "median_seconds": statistics.median(list_samples),
+        }
         report = {
             "label": "Linux CI/VM, not target laptop",
             "seed": SEED,
@@ -378,13 +393,16 @@ def test_nfr01_matching_and_analytics(tmp_path: Path) -> None:
             "pairs_scored": pairs,
             "match_seconds": match_seconds,
             "analytics": analytics,
+            "demand_list": demand_list,
             "provenance": provenance(),
             "thresholds_seconds": {
                 "match": MATCH_LIMIT_SECONDS,
                 "analytics_median": ANALYTICS_LIMIT_SECONDS,
+                "demand_list_median": DEMAND_LIST_LIMIT_SECONDS,
             },
         }
         print("\nNFR01_RESULT=" + json.dumps(report, sort_keys=True))
         assert match_seconds <= MATCH_LIMIT_SECONDS
         for panel, timing in analytics.items():
             assert timing["median_seconds"] <= ANALYTICS_LIMIT_SECONDS[panel], panel
+        assert demand_list["median_seconds"] <= DEMAND_LIST_LIMIT_SECONDS

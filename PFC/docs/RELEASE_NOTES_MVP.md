@@ -16,7 +16,7 @@ merged PR, code/test evidence, status and remaining work.
   CV versioning, identity review, candidate detail and CV-status links. Structured
   CV extraction is incomplete, as detailed below.
 - Deterministic hybrid scoring, seeded synonyms, cached local ONNX embeddings,
-  explicit JD analyze/review/edit/confirm workflow (rule-based by default),
+  explicit local-LLM JD analyze/review/edit/confirm workflow (visible rule fallback),
   grade/eligibility/location checks, ranked profile shortlists, component evidence,
   persisted run metadata and audited overrides.
 - Demand/bench/match dashboards, filters, run exclusions/reasons, validation panel,
@@ -33,26 +33,54 @@ merged PR, code/test evidence, status and remaining work.
   shortlist variants, second analyst and masked issue reports. It does not supply
   analyst labels or establish achieved accuracy.
 
+REQ-MAT-02 is now Implemented+tested: merged #58 adds qualifications and extracted
+location/mandatory-onsite review/edit controls, saved and persisted through
+Confirm & Start. DL region is labelled separately. This closes the review UI
+gap, not extraction-quality or laptop/UAT acceptance.
+
 ## Deliverable inventory — PHASES §5.4
 
 | Deliverable | Evidence / readiness |
 |---|---|
-| Portable ZIP and release notes | Build/helpers and hosted-Windows dependency smoke workflow exist in `../packaging/`; these are draft release notes. Model-complete artifact and target-laptop acceptance remain open. |
+| Portable ZIP and release notes | Dispatch/tag model-complete build and offline standard-user smoke exist in `../packaging/`; execution evidence is tracked under REQ-PKG-02. Target-laptop acceptance remains open. These are draft release notes. |
 | Default assets | `../templates/` and `../config/` contain the default email template, scoring-template v1, synonyms and status priorities/mapping; seed/config/CRUD tests are cited in the matrix. |
 | Analyst and OCC guides | [USER_GUIDE_ANALYST.md](USER_GUIDE_ANALYST.md), [ADMIN_GUIDE_OCC.md](ADMIN_GUIDE_OCC.md). Some Pending notes predate merged fixes. |
 | UAT report and KPI baselines | Not supplied by this inventory. Real KPI-01 labels/holdout measurement and KPI-02–05 baselines are required. |
 | As-built designs and decisions | [FDD.md](FDD.md), [TDD.md](TDD.md), [GUI_OCC_DESIGN.md](GUI_OCC_DESIGN.md) exist. Full as-built reconciliation and explicit closure evidence for O-03/O-04/O-05/O-07 are not certified here. |
+
+## Installing the model-complete portable ZIP
+
+Use `pfc-windows-x64-with-models` from a manual/tag packaging run, not the
+model-free PR artifact. Extract it to a user-writable folder and start `PFC.cmd`.
+Embedded Python, CPU llama.cpp, the built frontend, and every GGUF/ONNX/tokenizer
+file pinned in `MODELS.lock` are included; runtime installation/downloads are not
+required. Complete the local first-admin setup and explicitly approve/select model
+candidates. Bundling a model does not silently approve it.
+
+See [packaging instructions](../packaging/README.md) for dispatch, hash verification,
+cache behavior and offline-smoke details. The Windows CI smoke uses a disposable
+standard account and synthetic re-embed data. It explicitly starts the locked GGUF
+with a small context for a tiny generation; production approval defaults remain
+unchanged. GitHub's `windows-latest` is not the locked-down corporate laptop.
+
+REQ-PKG-02 is Implemented+tested for the bundling criteria. #49's
+model-complete/offline-first-run dispatch
+[42203458140 passed](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/actions/runs/42203458140)
+at implementation `e6596e1`: ZIP 2,718,697,267 bytes, startup 0.548344 s, sampled
+aggregate peak RSS 4,716,417,024 bytes. PR artifacts intentionally remain
+model-free. This historical Windows CI evidence is not target-laptop UAT or a
+fresh-head dispatch. Before a fresh dispatch, the packaging owner must adapt
+`offline_smoke.py`'s exact health-JSON assertion to #56's added health details.
 
 ## Known limitations and release gates
 
 All Partial and UAT-only requirements below remain visible release work. None is
 silently accepted/deferred by these notes. The matrix has no Not started rows.
 
-- **REQ-IN-21/23, REQ-MAT-02/06 and Phase 1 REQ-LLM-02:** resume sync persists
+- **REQ-IN-21/23, REQ-MAT-06 and Phase 1 REQ-LLM-02:** resume sync persists
   normalized text and email facts, not the complete structured contact/experience/
-  qualifications/projects/evidence model. Default JD analysis keeps an empty LLM
-  matching port and falls back to rules. A running email-drafting provider does
-  not wire local-LLM JD/CV extraction or establish grounded extraction quality.
+  qualifications/projects/evidence model. MAT-02's completed JD review workflow
+  does not close these requirements' separate extraction/grounding gaps.
 - **REQ-MAT-07:** CV/vector reuse exists, but matching exposes full/demand scopes
   rather than dirty-pair incremental scoring/copy-forward. No verified OCC
   cached-CV-removal route was found.
@@ -64,9 +92,6 @@ silently accepted/deferred by these notes. The matrix has no Not started rows.
   storage controls, real child logs and residual decisions remain in
   [SECURITY_REVIEW.md](SECURITY_REVIEW.md). That review did not perform enterprise
   SonarQube SAST.
-- **REQ-PKG-02:** the default package command/CI omits `--with-models`. Optional
-  pinned downloads do not mean the default ZIP contains GGUF/ONNX/tokenizer assets.
-  A model-complete offline artifact/first run is not established.
 - **REQ-LLM-01, REQ-PKG-01 and Phase 1 REQ-EML-04:** real bundled GGUF quality/RAM,
   locked-down launch, and corporate Outlook approval/send/reconciliation need
   Phase 0 laptop UAT. **REQ-OUT-11** professional-look acceptance is also UAT-only;
@@ -75,7 +100,8 @@ silently accepted/deferred by these notes. The matrix has no Not started rows.
   500 × 500 matching at 25.070 s VM / 43.365 s GitHub; optimized API medians are
   0.054–0.557 s VM / 0.076–0.810 s GitHub. These use synthetic cached vectors;
   separate real ONNX validation is also Linux-only. No real-laptop timing,
-  browser-interaction acceptance or offline model-complete first run is established.
+  browser-interaction acceptance is established. Offline model-complete first run
+  is now separately evidenced on hosted Windows above, not on the target laptop.
   **P1-EX-06/07 remain open**.
 - **Masked-snapshot email check — REQ-OUT-10 / P1-EX-04:** the panel compares the
   persisted masked scoring email exactly and case-sensitively to the mask of

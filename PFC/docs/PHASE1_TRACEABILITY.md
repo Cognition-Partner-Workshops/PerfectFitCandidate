@@ -7,13 +7,24 @@ its PR is pending. Numbered PR links identify merged historical work.
 The original inventory was docs-only. The OCC follow-up adds executable edit/run
 and masking regressions; it does not supply laptop or UAT acceptance.
 
+REQ-PKG-02 follow-up: [dispatch 42203458140](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/actions/runs/42203458140)
+passed on branch `devin/1793960803-pfc-pkg02-models`, implementation `e6596e1`.
+That row and the counts below include this executed Windows CI evidence; the
+other rows retain the original inventory and OCC follow-up evidence and scope.
+
+Merge re-check: merged `origin/main` **c4835ac** includes #49, #53, #56 and #58.
+`gh api` confirmed these and the historical PRs credited in the three rechecked
+rows are merged into main. #55 is open and is not credited. MAT-02 now closes
+its review/edit gap; AUTH-06 remains Partial; PKG-02 credits the executed dispatch.
+The IN-21, IN-23, MAT-06 and LLM-02 verdicts and all UAT-only rows are retained.
+
 ## Summary and gates
 
 | Scope | Implemented+tested | Implemented, UAT only | Partial | Not started | Deferred |
 |---|---:|---:|---:|---:|---:|
-| Delivery Phase 1 | 70 | 3 | 8 | 0 | 0 |
+| Delivery Phase 1 | 72 | 3 | 6 | 0 | 0 |
 | Earlier Phase 1 increments | 6 | 1 | 1 | 0 | 0 |
-| Total | 76 | 4 | 9 | 0 | 0 |
+| Total | 78 | 4 | 7 | 0 | 0 |
 
 The actual §10 table assigns **81 IDs** to delivery Phase 1; its prose summary says
 79 and is stale. Eight additional IDs explicitly have a Phase 1 earlier increment;
@@ -26,11 +37,9 @@ PHASES priority column (notably REQ-OCC-03). Titles reproduce the requirement te
 
 - **REQ-IN-21** — Partial: Sync, grounded experience JSON and full-CV vectors now exist. Missing clause: extracted CV skills. CVFacts has no skills field; no production writer populates resource_skills, although matching reads its CV rows. Raw text/vectors do not prove skill extraction. #52 adds Linux VM live validation of grounded experience/final facts; CV skills remain missing. See [validation method](LLM_VALIDATION.md) and [results](PERFORMANCE.md#live-llm-extraction-linux-vm).
 - **REQ-IN-23** — Partial: Grounded name/phone/experience/qualifications/projects are now stored/displayed. Remaining: CV skills and literal manual entry (CT selection is not manual entry). Missing-name prompt and explicit missing-phone warning coverage are also not established; null/non-blocking facts alone do not prove those clauses. #52's Linux VM run reports zero final CV fact/span failures; identity values came from rules. It does not add skills or missing prompt/warning clauses. See [results](PERFORMANCE.md#live-llm-extraction-linux-vm).
-- **REQ-MAT-02** — Partial: Shared local-provider extraction, visible rule fallback, all backend categories, bulk analysis and confirmation-gated scoring are now tested. Missing review/edit clause: JdReview has no qualifications or extracted-location readout/controls, although the API supports both. Its header shows DL region, not extracted location. #52 live-validates extraction on Linux VM (10/10 JDs used the LLM, mandatory precision 94.1%, recall 100%); it adds no missing JdReview controls. Kept Partial despite #52's Implemented+tested assessment. See [results](PERFORMANCE.md#live-llm-extraction-linux-vm).
 - **REQ-MAT-06** — Partial: CV fact grounding and cautious missing/partial-match language are tested. Missing specialist-experience guardrail: _inputs turns experience/qualifications into generic mandatory items, without checking structured CV experience/duration. A schema-valid SQL/10-years experience item gets full exact credit from CT SQL alone. JD schema validation also does not enforce source grounding. #52 reports zero final CV fact/span failures but retains jd05's mandatory/preferred error; it does not add JD source grounding or a specialist experience gate. See [results](PERFORMANCE.md#live-llm-extraction-linux-vm).
 - **REQ-LLM-01** — Implemented, UAT only: Supervisor/selection/memory-limit contracts are tested with fakes; real bundled GGUF quality, RAM and child-log behavior on the 16 GB laptop remain unvalidated.
 - **REQ-PKG-01** — Implemented, UAT only: Portable build/helper and hosted-Windows dependency smoke evidence exists; no locked-down Windows 11 Phase 0 laptop unzip/run approval.
-- **REQ-PKG-02** — Partial: Default build and package CI omit --with-models; models are optional, not bundled by default. A model-complete offline release artifact and its full first-run smoke have not been demonstrated.
 - **REQ-EML-04** — Implemented, UAT only: Phase 1 Outlook COM code and fake-COM tests exist; actual corporate Outlook approval/send/reconciliation needs laptop UAT. SMTP is Phase 2.
 - **REQ-LLM-02** — Partial: JD extraction and CV-fact parsing use the shared local provider; email drafting uses it too, and scoring makes zero LLM calls. #52 supplies real-model Linux VM validation documented in [LLM_VALIDATION.md](LLM_VALIDATION.md) and [PERFORMANCE.md](PERFORMANCE.md#live-llm-extraction-linux-vm); this is not target-laptop/UAT acceptance. Summarisation is the only missing Phase 1 clause: no separate feature exists. Chat is Phase 2.
 
@@ -85,7 +94,7 @@ PHASES priority column (notably REQ-OCC-03). Titles reproduce the requirement te
 | REQ-ING-05 | Resume folder path configurable in Settings (see REQ-IN-20). | M | [#9](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/9), [#12](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/12), [#17](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/17) | `app/pfc/services/occ/settings.py`; `frontend/src/pages/settings/SettingsPage.tsx`; `app/pfc/services/ingestion/cv_sync.py` | `app/tests/integration/test_occ.py`; `app/tests/integration/test_ingestion.py`; `app/tests/unit/ingestion/test_sources.py` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
 | REQ-ING-06 | Every ingestion run is recorded (file name, hash, user, timestamp, counts, errors). Re-uploading an identical file (same hash) is a no-op. | S | [#3](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/3), [#12](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/12), [#18](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/18), [#25](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/25) | `app/pfc/services/ingestion/service.py`; `app/pfc/services/ingestion/approvals.py`; `app/pfc/api/routers/ingestion.py`; `frontend/src/pages/occ/OccApprovals.tsx` | `app/tests/integration/test_ingestion.py`; `app/tests/integration/test_ingestion_approvals.py`; `frontend/e2e/smoke.spec.ts` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
 | REQ-MAT-01 | JDs and CVs/CT skills are **embedded** and indexed (chunked) in a local vector store; matching uses **vector (semantic) search plus exact keyword / synonym matching** (hybrid). | M | [#6](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/6), [#10](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/10), [#21](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/21), [#28](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/28) | `app/pfc/domain/scoring/engine.py`; `app/pfc/services/matching/requirements.py`; `app/pfc/services/matching/runs.py`; `app/pfc/services/matching/results.py` | `app/tests/integration/test_matching_service.py`; `app/tests/unit/test_domain_scoring_ranking.py`; `app/tests/unit/services/embeddings/test_matching_bridge.py` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
-| REQ-MAT-02 | JD analysis is explicit: user clicks **Analyze JD** → local LLM extracts mandatory/preferred skills, experience, qualifications, domain, location/onsite requirement → user reviews/edits → **Confirm & Start** scores. Bulk "analyze all new demands" allowed, still requiring confirmation before scoring. | M | [#6](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/6), [#10](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/10), [#21](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/21), [#28](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/28), [#42](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/42), [#44](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/44), [#46](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/46), [#48](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/48), [#52](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/52) | `app/pfc/api/routers/match.py`; `app/pfc/services/matching/{llm_bridge,requirements}.py`; `frontend/src/pages/DemandListPage.tsx`; `app/scripts/validate_llm_extraction.py`; `docs/LLM_VALIDATION.md` | `app/tests/integration/test_jd_llm_extract.py::test_shared_provider_extraction`; `app/tests/integration/test_jd_llm_extract.py::test_confirmation_required_and_matching_makes_zero_llm_calls`; `app/tests/integration/test_matching_api.py::test_req_mat_02_bulk_llm_and_unavailable_are_atomic`; `frontend/e2e/smoke.spec.ts` (named workflow test below); `app/tests/unit/test_llm_validation.py::test_req_in_23_grounding_drops_are_not_rule_precedence`; `app/tests/unit/test_llm_validation.py::test_req_mat_02_real_jd_bridge_in_anyio_worker` | Partial | Shared local-provider extraction, visible rule fallback, all backend categories, bulk analysis and confirmation-gated scoring are now tested. Missing review/edit clause: JdReview has no qualifications or extracted-location readout/controls, although the API supports both. Its header shows DL region, not extracted location. #52 live-validates extraction on Linux VM (10/10 JDs used the LLM, mandatory precision 94.1%, recall 100%); it adds no missing JdReview controls. Kept Partial despite #52's Implemented+tested assessment. See [results](PERFORMANCE.md#live-llm-extraction-linux-vm). See clause audit. |
+| REQ-MAT-02 | JD analysis is explicit: user clicks **Analyze JD** → local LLM extracts mandatory/preferred skills, experience, qualifications, domain, location/onsite requirement → user reviews/edits → **Confirm & Start** scores. Bulk "analyze all new demands" allowed, still requiring confirmation before scoring. | M | [#6](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/6), [#10](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/10), [#21](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/21), [#28](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/28), [#42](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/42), [#44](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/44), [#46](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/46), [#48](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/48), [#52](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/52), [#53](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/53), [#58](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/58) | `app/pfc/api/routers/match.py`; `app/pfc/services/matching/{llm_bridge,requirements,runs}.py`; `frontend/src/pages/DemandListPage.tsx`; `docs/LLM_VALIDATION.md` | `app/tests/integration/test_jd_llm_extract.py::test_shared_provider_extraction`; `app/tests/integration/test_jd_llm_extract.py::test_confirmation_required_and_matching_makes_zero_llm_calls`; `app/tests/integration/test_matching_api.py::test_req_mat_02_bulk_llm_and_unavailable_are_atomic`; `frontend/src/pages/DemandListPage.test.tsx` (review/edit tests below); `frontend/src/pages/JdAnalyze.test.tsx`; `frontend/e2e/smoke.spec.ts` (named workflow test below) | Implemented+tested | #58 closes the previous qualifications and extracted-location/onsite review gap: JdReview displays/edits the fields, saves through requirements PUT, and Confirm & Start persists them through a real API E2E round-trip. #53 covers Not analysed / Draft / JD changed / Confirmed routing. Shared local-provider extraction, visible fallback, all categories, bulk analysis and confirmation-before-scoring remain covered. #52 Linux VM validation is extraction evidence, not perfect accuracy or target-laptop UAT. All functional clauses covered; see updated clause audit. |
 | REQ-MAT-03 | Output per demand: **ranked candidate list** with a numeric **0–100 % match score**, match band, matching evidence, gaps/checks and eligibility evidence. Normally the **top 5 unique candidate profiles** per requisition; one row per requisition–person combination (a person may appear under several requisitions). | M | [#6](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/6), [#10](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/10), [#21](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/21), [#28](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/28) | `app/pfc/domain/scoring/engine.py`; `app/pfc/services/matching/requirements.py`; `app/pfc/services/matching/runs.py`; `app/pfc/services/matching/results.py` | `app/tests/integration/test_matching_service.py`; `app/tests/unit/test_domain_scoring_ranking.py`; `app/tests/unit/services/embeddings/test_matching_bridge.py` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
 | REQ-MAT-04 | Candidates in the Weak band (below 61 %, see O-03) are included only when no strong candidates exist and the person has relevant transferable experience; labelled **Weak Match**. | M | [#6](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/6), [#10](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/10), [#21](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/21), [#28](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/28) | `app/pfc/domain/scoring/engine.py`; `app/pfc/services/matching/requirements.py`; `app/pfc/services/matching/runs.py`; `app/pfc/services/matching/results.py` | `app/tests/integration/test_matching_service.py`; `app/tests/unit/test_domain_scoring_ranking.py`; `app/tests/unit/services/embeddings/test_matching_bridge.py` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
 | REQ-MAT-05 | Skill-synonym / abbreviation tracker maintained by the system and editable in OCC (e.g. BA ↔ Business Analyst ↔ Business Analysis; PM ↔ Project Manager ↔ Project Management; Data Analysis ↔ Data Analyst ↔ DA; Databricks ↔ DataBricks; GenAI ↔ Generative AI ↔ AI; Data migration ↔ data mapping ↔ reconciliation ↔ profiling ↔ data quality; Delivery Lead ↔ Program Manager ↔ Project Manager where responsibilities are relevant). | M | [#6](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/6), [#9](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/9), [#17](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/17), [#20](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/20); current branch (PR pending) | `app/pfc/domain/normalise/synonyms.py`; `app/pfc/services/occ/synonyms.py`; `frontend/src/pages/occ/OccSynonyms.tsx`; `app/pfc/domain/config_loader.py`; `app/pfc/services/matching/runs.py`; `app/pfc/services/occ/domain.py`; `app/pfc/db/migrations/0004_synonym_edges.sql`; `app/pfc/services/occ/seed.py`; `app/pfc/services/packages/payloads.py` | `app/tests/unit/test_domain_normalise.py`; `app/tests/integration/test_occ.py`; `frontend/src/api/crud.test.ts`; `app/tests/integration/test_occ_domain_config.py`; `app/tests/integration/test_related_synonym_upgrade.py`; `app/tests/unit/services/packages/test_settings.py`; `app/tests/fixtures/settings_legacy_v1.json` | Implemented+tested | One DB-backed OCC builder drives ingestion/matching/analytics and JD resolution. OCC edit → new-run eligibility/points/evidence changes; old persisted results/exclusions remain byte-identical; config_hash changes (synonyms_version too for synonym approval). Composite synonym keys preserve all four seeded related associations, including Delivery Lead vs Project Manager (65.7 Avg). Fresh DB/file semantic parity, ID-preserving legacy migration, audit/ownership-protected one-time upgrade, and canonical-name package v2 roundtrip/rollback with v1 fixture import are covered. |
@@ -124,12 +133,12 @@ PHASES priority column (notably REQ-OCC-03). Titles reproduce the requirement te
 | REQ-AUTH-03 | OCC Admin uses a **strong password** (enforced complexity), changeable after login. No default admin password is shipped in the ZIP — first-run admin setup. | M | [#5](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/5), [#9](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/9), [#17](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/17), [#19](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/19), [#23](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/23), [#31](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/31) | `app/pfc/api/routers/auth.py`; `app/pfc/security/passwords.py`; `app/pfc/security/middleware.py`; `app/pfc/db/audit.py`; `app/pfc/config.py`; `app/pfc/launcher.py` | `app/tests/integration/test_auth.py`; `app/tests/integration/test_security_review.py`; `app/tests/unit/test_launcher.py`; `frontend/src/App.test.tsx` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
 | REQ-AUTH-04 | Passwords stored as salted slow hashes (e.g. Argon2/bcrypt); lock out after five consecutive failed attempts for 15 minutes; idle session timeout after 60 minutes. | M | [#5](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/5), [#9](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/9), [#17](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/17), [#19](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/19), [#23](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/23), [#31](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/31) | `app/pfc/api/routers/auth.py`; `app/pfc/security/passwords.py`; `app/pfc/security/middleware.py`; `app/pfc/db/audit.py`; `app/pfc/config.py`; `app/pfc/launcher.py` | `app/tests/integration/test_auth.py`; `app/tests/integration/test_security_review.py`; `app/tests/unit/test_launcher.py`; `frontend/src/App.test.tsx` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
 | REQ-AUTH-05 | Audit log for logins, unmasking, OCC changes, email approvals/sends, archival, settings changes and external LLM calls. | M | [#5](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/5), [#9](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/9), [#17](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/17), [#19](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/19), [#23](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/23), [#31](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/31) | `app/pfc/api/routers/auth.py`; `app/pfc/security/passwords.py`; `app/pfc/security/middleware.py`; `app/pfc/db/audit.py`; `app/pfc/config.py`; `app/pfc/launcher.py` | `app/tests/integration/test_auth.py`; `app/tests/integration/test_security_review.py`; `app/tests/unit/test_launcher.py`; `frontend/src/App.test.tsx` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
-| REQ-AUTH-06 | Sensitive local data (DB, tokens, CV cache) encrypted at rest where feasible; external provider tokens stored encrypted (e.g. Windows DPAPI). | S | [#11](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/11), [#23](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/23) | `app/pfc/security/secrets_store.py`; `app/pfc/services/packages/keys.py`; `app/pfc/services/occ/admin.py` | `app/tests/unit/security/test_secrets_store.py`; `app/tests/integration/test_security_review.py` | Partial | Credential encryption/write-only settings are tested; DB/CV cache are not encrypted wholesale, old plaintext needs resave/migration, native DPAPI/BitLocker controls remain unvalidated (SECURITY_REVIEW S4–S6). |
+| REQ-AUTH-06 | Sensitive local data (DB, tokens, CV cache) encrypted at rest where feasible; external provider tokens stored encrypted (e.g. Windows DPAPI). | S | [#11](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/11), [#23](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/23), [#56](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/56) | `app/pfc/security/{secrets_store,credentials,data_dir}.py`; `app/pfc/config.py`; `app/pfc/main.py`; `app/pfc/api/routers/health.py`; `frontend/src/pages/occ/OccOverview.tsx` | `app/tests/unit/security/test_secrets_store.py`; `app/tests/integration/test_security_review.py`; `app/tests/integration/test_credential_migration.py`; `app/tests/unit/security/test_data_at_rest.py`; `frontend/src/api/http.test.ts` (health status) | Partial | #56 closes S4 legacy credential migration and adds S6 profile storage, verified legacy copy, best-effort current-user/SYSTEM ACLs, and informational BitLocker status in health/OCC. Credentials use the platform-selected store; startup encryption is idempotent/audited and WAL checkpoint/VACUUM removes tested plaintext bytes. Remains Partial: DB/CV/upload files are not application-encrypted, ACL failure permits startup, and Not encrypted/Unknown volume status does not enforce encryption. Actual target-volume protection and native ACL verification remain open (S7); pre-migration backup cleanup is operator work. PHASES §10 explicitly scopes provider-token integration to Phase 3; it is not credited as implemented. #55 is excluded. See clause audit. |
 | REQ-AUTH-07 | The local web server binds to `127.0.0.1` only. | M | [#5](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/5), [#9](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/9), [#17](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/17), [#19](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/19), [#23](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/23), [#31](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/31) | `app/pfc/api/routers/auth.py`; `app/pfc/security/passwords.py`; `app/pfc/security/middleware.py`; `app/pfc/db/audit.py`; `app/pfc/config.py`; `app/pfc/launcher.py` | `app/tests/integration/test_auth.py`; `app/tests/integration/test_security_review.py`; `app/tests/unit/test_launcher.py`; `frontend/src/App.test.tsx` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
 | REQ-CLS-01 | Admin maintains an allowlist of internal email domains (e.g. `capgemini.com`; `@capgemini.com` input normalised); a default allowlist ships in the initial app ZIP. | S | [#6](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/6), [#9](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/9), [#17](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/17) | `app/pfc/services/occ/admin.py`; `app/pfc/services/occ/seed.py`; `frontend/src/pages/occ/OccInternalDomains.tsx` | `app/tests/integration/test_occ.py`; `app/tests/unit/test_occ_seed.py` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
 | REQ-CLS-02 | Candidate-level classification: Internal if any confirmed email matches the allowlist; External if an email exists but doesn't match; Unknown if no email. Shown on the dashboard; audited manual override; re-evaluated when the allowlist changes. Domain is a heuristic, not proof of employment. | S | [#9](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/9), [#12](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/12), [#18](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/18), [#22](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/22) | `app/pfc/services/occ/admin.py`; `app/pfc/services/ingestion/identity.py`; `app/pfc/services/analytics/population.py` | `app/tests/integration/test_occ.py`; `app/tests/integration/test_ingestion_approvals.py` | Partial | Stored classification/override display and preview_domains counts exist; add_domain/delete_domain do not reclassify candidates, and no verified audited classification-override workflow was found. |
 | REQ-PKG-01 | **Portable ZIP**: unzip-and-run, no admin rights, no installer, on **Windows 11 Pro**, locked-down, approved-software-only, mostly offline. | M | [#5](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/5), [#7](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/7) | `packaging/build_zip.py`; `app/pfc/launcher.py`; `packaging/README.md` | `packaging/tests/test_build_zip.py`; `app/tests/unit/test_launcher.py` | Implemented, UAT only | Portable build/helper and hosted-Windows dependency smoke evidence exists; no locked-down Windows 11 Phase 0 laptop unzip/run approval. |
-| REQ-PKG-02 | Bundles **embedded Python** runtime, **llama.cpp** binaries, a default **quantized model**, the built React frontend, default email template, default config and dummy placeholders for inactive settings. | M | [#7](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/7) | `packaging/build_zip.py`; `packaging/MODELS.lock`; `packaging/requirements.lock` | `packaging/tests/test_build_zip.py` | Partial | Default build and package CI omit --with-models; models are optional, not bundled by default. A model-complete offline release artifact and its full first-run smoke have not been demonstrated. |
+| REQ-PKG-02 | Bundles **embedded Python** runtime, **llama.cpp** binaries, a default **quantized model**, the built React frontend, default email template, default config and dummy placeholders for inactive settings. | M | [#7](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/7), [#9](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/9), [#49](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/49); [passing dispatch 42203458140](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/actions/runs/42203458140) | `packaging/build_zip.py::{build_package,build_frontend,bundle_models}`; `packaging/MODELS.lock`; `.github/workflows/package.yml`; `app/pfc/services/occ/seed.py`; `app/pfc/api/schemas/settings.py`; `app/pfc/adapters/llm/providers.py` | `packaging/tests/test_build_zip.py::test_with_models_verifies_lock_hashes`; `packaging/offline_smoke.ps1`; `packaging/offline_smoke.py`; `app/tests/unit/test_occ_seed.py::{test_seed_full_and_admin_edits,test_email_seed}`; `app/tests/integration/test_occ.py::test_personal_settings`; `app/tests/unit/adapters/llm/test_providers.py::test_disabled_and_fake` | Implemented+tested | #49 dispatch/tag release bundles embedded Python, CPU llama.cpp, pinned quantized GGUF plus ONNX/tokenizers, built frontend, copied config/templates and disabled placeholder configuration. Dispatch 42203458140 passed model-complete and offline-first-run jobs at e6596e1 (ZIP 2,718,697,267 bytes; startup 0.548344 s; sampled peak RSS 4,716,417,024 bytes). This covers bundling, not laptop UAT; PR artifacts remain model-free and production model approval stays explicit. Historical pass only: the current smoke's exact health-JSON assertion predates #56 details and needs owner follow-up before a fresh dispatch. See clause audit. |
 | REQ-PKG-03 | Starts via a `.bat` or `.cmd` launcher that starts the local FastAPI server and opens the default browser; `.cmd` execution is approved. Ollama is not assumed (installer requires admin). | M | [#5](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/5), [#7](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/7) | `packaging/build_zip.py`; `app/pfc/launcher.py`; `app/pfc/db/migrate.py` | `app/tests/unit/test_launcher.py`; `app/tests/unit/test_db.py`; `packaging/tests/test_build_zip.py` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
 | REQ-PKG-04 | Single instance per user (lock file); data folder inside or beside the extracted ZIP; upgrade = replace app folder, keep data folder. | M | [#5](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/5), [#7](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/7) | `packaging/build_zip.py`; `app/pfc/launcher.py`; `app/pfc/db/migrate.py` | `app/tests/unit/test_launcher.py`; `app/tests/unit/test_db.py`; `packaging/tests/test_build_zip.py` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
 | REQ-OCC-01 | OCC Admin can export one signed, versioned settings package named `PFC-settings-v<N>.pfcpkg` (ZIP containing versioned JSON, manifest and Ed25519 signature; monotonic integer version). Include synonyms, scoring template/weights, status list and mapping, grade list, resource-team list, internal-domain allowlist, approved provider/model settings without secrets/tokens, DL/CT approvals, and Analyst accounts (corporate email, role, salted slow hash of an Admin-issued one-time password, `must_change_password=true`). Generate the signing key pair on the Admin instance, protect the private key (DPAPI where available), and embed the matching public key in the distributed app ZIP. A shared/synced folder is the default distribution channel; if unavailable or unsuccessful, the Admin may send the file directly via MS Teams or email. Trust is based on signature validation, not the channel. | M | [#11](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/11), [#17](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/17), [#23](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/23) | `app/pfc/services/packages/export.py`; `app/pfc/services/packages/importer.py`; `app/pfc/services/packages/staging.py`; `app/pfc/services/packages/keys.py`; `frontend/src/pages/settings/SettingsPackagePanel.tsx` | `app/tests/unit/services/packages/test_settings.py`; `app/tests/unit/services/packages/test_staging.py`; `app/tests/unit/security/test_package_signing.py`; `frontend/src/App.test.tsx` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
@@ -152,7 +161,7 @@ scheduled there; it is not being newly deferred by this inventory.
 | REQ-LLM-03 | Settings allow **external providers** (e.g. Devin, ChatGPT/OpenAI) with a **user-supplied token**; placeholder plugin configuration in Phase 1, implementation in Phase 3. | M (config) / S (impl) | [#4](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/4), [#9](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/9) | `app/pfc/adapters/llm/providers.py`; `app/pfc/services/occ/settings.py` | `app/tests/unit/adapters/llm/test_providers.py`; `app/tests/integration/test_occ.py` | Implemented+tested | Phase 1 disabled external-provider placeholder only; implementation is Phase 3 (PHASES §10). |
 | REQ-LLM-06 | Admin benchmarks models (extraction accuracy, latency, RAM) and publishes an approved model list; users choose from it, with approximate disk/RAM shown. Model licences must permit internal distribution. | S | [#9](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/9), [#15](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/15), [#23](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/23) | `app/pfc/services/occ/llm.py`; `frontend/src/pages/occ/OccModels.tsx` | `app/tests/integration/test_occ.py`; `frontend/src/pages/occ/occScreens.test.tsx` | Implemented+tested | Phase 1 static approved-model list only; benchmark lab is Phase 3 (PHASES §10). |
 
-## Clause audit for the five-row refresh
+## Clause audit — original five rows and merged follow-ups
 
 The matrix preserves the full requirement texts from REQUIREMENTS_BASELINE.md;
 PHASES §10 maps their Phase 1 scope. Paths below are relative to `PFC/`.
@@ -181,10 +190,10 @@ Merged automated harness tests in `app/tests/unit/test_llm_validation.py` includ
 `test_req_in_23_invalid_and_missing_cv_responses` and
 `test_req_llm_02_reports_hand_computed_totals_and_empty_cases`.
 The script's `summarize` aggregates validation metrics; it is not an LLM
-summarisation feature. No application parsing/scoring/UI code changed in #52,
-so the specific gaps below persist. REQ-MAT-02 stays Partial, contrary to #52's
-matrix promotion; REQ-LLM-02's real-model evidence gap is now closed and its only
-missing Phase 1 clause is the separate summarisation feature.
+summarisation feature. #52 itself did not close the JD review UI gap; merged
+#58 now closes it, as audited below. IN-21, IN-23 and MAT-06 retain their prior
+verdicts. REQ-LLM-02's real-model evidence gap is closed and its only missing
+Phase 1 clause remains the separate summarisation feature.
 
 ### REQ-IN-21 — Partial → Partial
 
@@ -276,11 +285,11 @@ missing Phase 1 clause is the separate summarisation feature.
   integration test also verifies the canonical candidate phone stays NULL
   rather than being silently overwritten by extraction.
 
-### REQ-MAT-02 — Partial → Partial
+### REQ-MAT-02 — Partial → Implemented+tested
 
 - **Click Analyze JD:** `frontend/src/pages/DemandListPage.tsx::JdReview`
   uses the explicit row action; `frontend/src/pages/JdAnalyze.test.tsx` test
-  `analyzes a new demand once and shows the draft it returns` verifies this;
+  `analyzes a Not analysed demand once and shows the draft it returns` verifies this;
   `shows why analysis failed instead of loading forever` covers errors.
 - **Local LLM; mandatory/preferred skills, experience, qualifications, domain,
   location/onsite:** `app/pfc/api/routers/match.py::analyze` wraps the shared
@@ -299,11 +308,15 @@ missing Phase 1 clause is the separate summarisation feature.
   `warns with the backend reason on a rule-based fallback and hides the duplicate warning`
   prove visible provenance. The old empty-port-only explanation is obsolete.
 - **User reviews/edits:** `JdReview` has mandatory/preferred skill chips, years,
-  domain and onsite controls. **Qualifications and extracted location are not
-  rendered/editable there**; the header's `demand.region` is DL metadata.
-  The API does support both via requirements editing, covered by
-  `app/tests/integration/test_matching_api.py::test_req_mat_02_full_flow_drafts_results_overrides_exclusions`.
-  API-only editing is not proof of the complete click/review UI clause.
+  qualifications, domain, extracted location and mandatory-onsite controls. Merged
+  #58 closes the two previously missing controls and labels DL region separately.
+  `frontend/src/pages/DemandListPage.test.tsx` tests
+  `shows the extracted values and labels the DL region separately` and
+  `saves edited qualifications, location and onsite through the requirements PUT`
+  check populated/empty values, edits and all three saved fields.
+  `app/tests/integration/test_matching_api.py::test_req_mat_02_full_flow_drafts_results_overrides_exclusions`
+  covers requirements persistence. The E2E below additionally edits qualifications
+  and location, confirms, reopens the review and verifies their persisted values.
 - **Confirm & Start scores, only after confirmation:** the same API full-flow
   test exercises confirm and a completed run;
   `app/tests/integration/test_jd_llm_extract.py::test_confirmation_required_and_matching_makes_zero_llm_calls`
@@ -319,7 +332,120 @@ missing Phase 1 clause is the separate summarisation feature.
 - **OCC provenance:** merged #44 is exercised by
   `app/tests/integration/test_occ_domain_config.py::test_jd_resolution_uses_occ_synonyms`
   and `test_synonym_approval_changes_score_and_preserves_run`; it establishes
-  configured JD canonicalisation/scoring, not the missing review controls.
+  configured JD canonicalisation/scoring; #58 supplies the review-control evidence.
+- **Changed-JD review routing:** merged #53's `JdReview` uses status to choose
+  analysis versus reading the existing draft. `frontend/src/pages/JdAnalyze.test.tsx`
+  tests `re-analyzes a JD changed demand and says the JD changed`,
+  `reads a Draft without re-analyzing` and
+  `falls back to analysis when the status is stale and no requirements exist`.
+- **Verdict:** every functional baseline/PHASES clause is covered. #52's Linux VM
+  extraction metrics and the E2E's stand-in model are not perfect extraction
+  quality or locked-down-laptop acceptance.
+
+### REQ-AUTH-06 — Partial → Partial
+
+- **Scope:** the baseline names DB, tokens and CV cache encryption where feasible.
+  Merged #56 makes PHASES §10 explicit: Phase 1 uses BitLocker plus field-level
+  encryption (TDD Q-11), profile data storage, user-only ACLs, legacy credential
+  migration and visible volume status. Provider-token integration (S5) is Phase 3;
+  the encrypted-column schema is not credited as a working token vault.
+- **Credential encryption / encrypted writes:**
+  `app/pfc/security/secrets_store.py::SecretStore` dispatches to current-user DPAPI
+  on Windows, Fernet/file key for non-Windows development. It does not silently
+  fall back on Windows. `app/pfc/services/occ/admin.py` protects credential writes.
+  `app/tests/integration/test_security_review.py::test_secret_settings_encrypted_and_write_only`
+  verifies encrypted storage and redacted reads;
+  `test_secret_setting_failure_is_atomic` verifies rollback on storage failure.
+  `app/tests/unit/security/test_secrets_store.py::test_dpapi_dispatch_without_file_key`
+  tests dispatch with a fake native primitive; `test_decryption_fails_closed`
+  covers bad keys/ciphertext/platform formats. The credential integration tests
+  use the platform-selected store, not proof of the target user's volume policy.
+- **Legacy plaintext:** `app/pfc/main.py::create_app` lifespan calls
+  `app/pfc/security/credentials.py::encrypt_legacy_credentials` before normal use.
+  The registry currently contains `smtp.password`. It encrypts once, audits only
+  markers, checkpoints/truncates WAL, VACUUMs and checkpoints again.
+  `app/tests/integration/test_credential_migration.py` tests
+  `test_plaintext_is_encrypted_audited_and_gone_from_the_file` (DB/WAL byte check,
+  decryption, audit, nonsecret preservation and idempotence),
+  `test_startup_runs_the_migration_and_reads_stay_redacted` and
+  `test_registry_keys_are_the_ones_the_store_treats_as_secrets`.
+- **Profile directory / safe move:** `app/pfc/config.py::default_data_dir` and
+  `app/pfc/security/data_dir.py::{prepare_data_dir,migrate_legacy_data_dir}` are
+  invoked before migration by the launcher. They copy a stopped legacy installation,
+  verify file hashes and database row counts, and retain the original.
+  `app/tests/unit/security/test_data_at_rest.py` tests
+  `test_default_data_dir_uses_the_user_profile`,
+  `test_legacy_dir_is_copied_verified_and_kept`,
+  `test_failed_verification_leaves_the_original_untouched`,
+  `test_running_old_instance_blocks_the_move` and
+  `test_prepare_moves_only_the_default_location`.
+- **Access control, not encryption:** `restrict_acl` requests current user/SYSTEM
+  grants with `icacls` or POSIX 0700. Tests
+  `test_windows_acl_uses_icacls_argv_for_user_and_system`,
+  `test_posix_data_dir_is_owner_only` and
+  `test_failing_acl_step_warns_and_startup_continues` cover success/argv/failure
+  contracts. The Windows ACL command is mocked, not a real resulting-DACL check.
+- **Volume-encryption visibility, not enforcement:** `bitlocker_status` reads
+  the Shell property; `app/pfc/api/routers/health.py::health` returns details;
+  `frontend/src/pages/occ/OccOverview.tsx` displays them. Tests
+  `test_bitlocker_status_from_shell_property`,
+  `test_bitlocker_status_is_unknown_off_windows`,
+  `test_health_reports_volume_encryption` and frontend HTTP test
+  `reads the data volume encryption status and defaults to Unknown` cover states
+  and errors with injected probes. An unencrypted/unknown volume still starts.
+- **Missing:** actual protection of the target DB/CV/upload volume and effective
+  native ACL verification remain open (S7). There is no application-level
+  DB/CV encryption and BitLocker is not enabled/enforced by this code. Old backup
+  copies can retain plaintext; the live-DB migration does not sanitize them.
+  No #55 log-redaction or deferred provider-token implementation is credited.
+
+### REQ-PKG-02 — Partial → Implemented+tested
+
+- **Embedded Python and llama.cpp:**
+  `packaging/build_zip.py::build_package` downloads hash-pinned manifests,
+  extracts embedded Python, unpacks locked Windows wheels, and calls
+  `extract_llama_server` for the CPU executable/DLLs. Packaging helper tests
+  `test_verify_sha256_accepts_matching_digest`,
+  `test_verify_sha256_rejects_mismatch` and
+  `test_unpack_wheels_maps_package_and_data_files` exercise verification/layout.
+  The executed #49 dispatch below supplies real packaged-runtime evidence.
+- **Default quantized model:** `bundle_models` includes all five pinned
+  `packaging/MODELS.lock` artifacts (GGUF, ONNX and tokenizer files) for
+  `--with-models`; `test_with_models_verifies_lock_hashes` tests downloads/cache
+  hits and rejection of mismatches. `.github/workflows/package.yml` selects
+  this model-complete build for manual dispatch/release tags, not model-free PR
+  packages. Explicit Admin approval/selection remains unchanged.
+- **Built React frontend:** `build_frontend` runs npm ci/build and copies dist
+  into `web`; the launcher sets that frontend path. The offline first-run smoke
+  checks the served setup page; it is not browser UAT.
+- **Default email template/config:** `build_package` copies `PFC/templates` and
+  `PFC/config`; `app/pfc/services/occ/seed.py::seed_reference_data` loads them
+  at startup. `app/tests/unit/test_occ_seed.py::test_seed_full_and_admin_edits`
+  covers config seeding/idempotence and `test_email_seed` covers the default
+  email template. Config/template files are shipped, not downloaded at runtime.
+- **Inactive dummy configuration:** the bundled app contains
+  `app/pfc/api/schemas/settings.py::{WatchSource,WatchSettings}` disabled DL/CT
+  defaults and `app/pfc/services/occ/settings.py` rejects enabling Phase 2 watches;
+  `app/tests/integration/test_occ.py::test_personal_settings` asserts the null
+  paths/default patterns, disabled flags, save behavior and enable rejection.
+  `app/pfc/adapters/llm/providers.py::ExternalProviderPlaceholder` is disabled;
+  `app/tests/unit/adapters/llm/test_providers.py::test_disabled_and_fake` proves
+  it rejects generation and external embeddings. The built OCC Admin UI's
+  external-provider setting is read-only/disabled for Phase 3.
+- **Executed evidence:** `gh api` confirms #49 merged; dispatch
+  [42203458140](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/actions/runs/42203458140)
+  completed successfully at `e6596e1e43813829c63af2163e8a95dc1f170d90`.
+  Both `model-complete` and `offline-first-run` jobs passed. The PowerShell
+  wrapper runs `offline_smoke.py` under a non-admin/non-elevated account with
+  app-scoped egress blocks; Python verifies all model hashes, real ONNX re-embed,
+  tiny GGUF generation, served setup and child shutdown. ZIP 2,718,697,267 bytes;
+  startup 0.548344 s; sampled aggregate peak RSS 4,716,417,024 bytes.
+- **Boundary:** every bundling clause is covered; target-laptop acceptance is
+  separate (PKG-01/05, P1-EX-07) and UAT-only rows are unchanged. This is a
+  historical dispatch, not a fresh-head execution claim. Current
+  `offline_smoke.py::main` still compares health JSON exactly with
+  `{"status": "ok"}`; #56's health route now adds details. The packaging owner
+  must adapt that assertion before repeating the dispatch on this head.
 
 ### REQ-MAT-06 — Partial → Partial
 

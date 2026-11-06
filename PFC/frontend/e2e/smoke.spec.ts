@@ -83,12 +83,22 @@ test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({
 
   // Analyze JD → Confirm & Start → completed run (REQ-MAT-02/08), then Match Results (REQ-OUT-01/03/07, REQ-ELIG-08).
   await page.goto('/#/demands')
-  await page.getByRole('row', { name: /T10001/ }).getByRole('button', { name: 'Analyze JD' }).click()
+  const demandRow = page.getByRole('row', { name: /T10001/ })
+  await expect(demandRow).toContainText('Not analysed')
+  await demandRow.getByRole('button', { name: 'Analyze JD' }).click()
   const start = page.getByRole('button', { name: /Confirm & Start/ })
   await expect(start).toBeEnabled()
+  await expect(page.getByText(/DL region:/)).toBeVisible()
+  await page.getByLabel(/Qualifications/).fill('BSc Computing')
+  await page.getByLabel('Location (extracted from JD)').fill('Manchester')
   await start.click()
   await expect(start).toBeHidden()
   await waitForCompletedRun(page)
+  await expect(demandRow).toContainText('Confirmed')
+  await demandRow.getByRole('button', { name: 'Review JD' }).click()
+  await expect(page.getByLabel(/Qualifications/)).toHaveValue('BSc Computing')
+  await expect(page.getByLabel('Location (extracted from JD)')).toHaveValue('Manchester')
+  await page.getByRole('button', { name: 'Close' }).click()
 
   await page.goto('/#/matches')
   const result = page.getByRole('row', { name: /SmokeAlex/ })

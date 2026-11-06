@@ -14,6 +14,19 @@ RESOURCE_SELECT = (
     "SELECT resources.*, (SELECT count(*) FROM cv_versions "
     "WHERE cv_versions.candidate_id=resources.candidate_id) AS cv_versions_count FROM resources"
 )
+# One grouped join, not a query per row. Draft wins over Confirmed because the review drawer
+# opens the draft; "JD changed" means requirements exist only for an older demand version.
+DEMAND_SELECT = (
+    "SELECT demands.*, CASE WHEN jd.has_draft THEN 'Draft' WHEN jd.has_confirmed THEN 'Confirmed' "
+    "WHEN jd.has_older THEN 'JD changed' ELSE 'Not analysed' END AS jd_status FROM demands "
+    "LEFT JOIN (SELECT v.demand_id, "
+    "max(r.demand_version_id=d.current_version_id AND r.status='draft') AS has_draft, "
+    "max(r.demand_version_id=d.current_version_id AND r.status='confirmed') AS has_confirmed, "
+    "max(r.demand_version_id IS NOT d.current_version_id) AS has_older "
+    "FROM jd_requirements r JOIN demand_versions v ON v.demand_version_id=r.demand_version_id "
+    "JOIN demands d ON d.demand_id=v.demand_id GROUP BY v.demand_id"
+    ") jd ON jd.demand_id=demands.demand_id"
+)
 
 
 def _where(
@@ -49,8 +62,8 @@ def demands(
     with database(settings) as db:
         total = db.execute(f"SELECT count(*) FROM demands WHERE {where}", params).fetchone()[0]
         rows = db.execute(
-            f"SELECT * FROM demands WHERE {where} ORDER BY position_start_date IS NULL, "
-            "position_start_date DESC, demand_id LIMIT ? OFFSET ?",
+            f"{DEMAND_SELECT} WHERE {where} ORDER BY position_start_date IS NULL, "
+            "position_start_date DESC, demands.demand_id LIMIT ? OFFSET ?",
             [*params, page_size, (page - 1) * page_size],
         ).fetchall()
         return DemandPage(
@@ -60,7 +73,7 @@ def demands(
 
 def demand_detail(settings: Settings, demand_id: int) -> DemandDetail:
     with database(settings) as db:
-        row = db.execute("SELECT * FROM demands WHERE demand_id=?", (demand_id,)).fetchone()
+        row = db.execute(f"{DEMAND_SELECT} WHERE demands.demand_id=?", (demand_id,)).fetchone()
         if row is None:
             raise Problem(404, "DEMAND_NOT_FOUND", "Demand not found")
         versions = db.execute(
