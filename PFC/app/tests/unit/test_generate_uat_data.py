@@ -1,4 +1,6 @@
 import re
+import time
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -107,3 +109,21 @@ def test_cv_paragraphs_are_the_cv_lines(tmp_path: Path) -> None:
         "Email: person0001@example.com",
         "Phone: 07700 900001",
     ]
+
+
+def test_regenerated_cvs_are_byte_identical(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def files() -> list[tuple[str, bytes, int]]:
+        return [
+            (p.name, p.read_bytes(), p.stat().st_mtime_ns)
+            for p in sorted((tmp_path / "resumes").iterdir())
+        ]
+
+    generate(tmp_path, demands=3, resources=3)
+    first = files()
+    later = time.time() + 3600
+    monkeypatch.setattr(zipfile.time, "time", lambda: later)
+    monkeypatch.setattr(zipfile.time, "localtime", lambda *_: time.gmtime(later))
+    generate(tmp_path, demands=3, resources=3)
+    assert files() == first

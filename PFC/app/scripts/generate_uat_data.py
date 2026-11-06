@@ -8,7 +8,8 @@ import argparse
 import random
 import re
 import sys
-from datetime import date, timedelta
+import zipfile
+from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 
@@ -145,11 +146,21 @@ def cv_text(index: int, row: dict[str, object], rng: random.Random) -> str:
 
 
 def write_cv(path: Path, text: str) -> None:
-    """One paragraph per line of the CV text."""
+    """One paragraph per line, with fixed dates, so the same text gives the same bytes and mtime."""
     doc = Document()
     for line in text.splitlines():
         doc.add_paragraph(line)
-    doc.save(str(path))
+    stamp = datetime.combine(BASE_DATE, datetime.min.time())
+    doc.core_properties.created = doc.core_properties.modified = stamp
+    raw, out = BytesIO(), BytesIO()
+    doc.save(raw)
+    with zipfile.ZipFile(raw) as src, zipfile.ZipFile(out, "w") as dst:
+        for item in src.infolist():
+            fixed = zipfile.ZipInfo(item.filename, date_time=(1980, 1, 1, 0, 0, 0))
+            dst.writestr(fixed, src.read(item), zipfile.ZIP_DEFLATED)
+    data = out.getvalue()
+    if not path.exists() or path.read_bytes() != data:
+        path.write_bytes(data)
 
 
 def dirty_rows(
@@ -186,8 +197,9 @@ def generate(
     dl, ct = demand_rows(demands, rng), resource_rows(resources, rng)
     paths["dl"].write_bytes(workbook_bytes(list(DL), dl))
     paths["ct"].write_bytes(workbook_bytes(list(CT), ct))
+    current = {f"{row['Email Address']}.docx" for row in ct}
     for stale in resumes.iterdir():
-        if GENERATED_CV.fullmatch(stale.name):
+        if GENERATED_CV.fullmatch(stale.name) and stale.name not in current:
             stale.unlink()
     for index, row in enumerate(ct, start=1):
         write_cv(resumes / f"{row['Email Address']}.docx", cv_text(index, row, rng))

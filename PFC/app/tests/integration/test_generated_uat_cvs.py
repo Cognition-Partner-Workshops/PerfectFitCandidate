@@ -50,3 +50,7 @@ def test_generated_cvs_sync_and_link_to_their_ct_candidates(
         assert versions.status_code == 200, versions.text
         assert versions.json()[0]["facts"]["phone"]["value"] == "***" + phone(index)[-2:]
         assert phone(index) not in versions.text
+
+    generate(tmp_path / "uat", demands=5, resources=5)
+    rerun = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert (rerun["new_versions"], rerun["unchanged"]) == (0, 5)
