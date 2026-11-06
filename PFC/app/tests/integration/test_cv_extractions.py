@@ -256,6 +256,7 @@ def test_extraction_filenames_are_masked(client: TestClient, tmp_path: Path) -> 
     response = client.get(f"/api/v1/occ/candidates/{candidate}/cv-extractions")
     assert response.status_code == 200
     assert "alex@example.com" not in response.text
+    assert response.json()[0]["fileName"] == "al**@example.com.docx"
     detail = client.get(f"/api/v1/candidates/{candidate}")
     assert detail.status_code == 200
     assert response.json()[0]["fileName"] == detail.json()["cvVersions"][0]["fileName"]

@@ -8,7 +8,8 @@ from pfc.api.schemas.occ_approvals import CamelModel
 from pfc.config import Settings
 from pfc.db.audit import append_audit
 from pfc.security.problems import Problem
-from pfc.services.ingestion.identity import _masked_text
+from pfc.services.ingestion.masking import EMAIL
+from pfc.services.pii import mask_email
 
 
 class ExtractionItem(CamelModel):
@@ -40,7 +41,7 @@ def list_extractions(db: sqlite3.Connection, candidate_id: int) -> list[Extracti
     return [
         ExtractionItem(
             cv_version_id=row["cv_version_id"],
-            file_name=_masked_text(row["file_name"]),
+            file_name=EMAIL.sub(lambda match: mask_email(match[0]) or "***", row["file_name"]),
             version_no=row["version_no"],
             extracted_at=row["extracted_at"],
             removed=row["extraction_removed_at"] is not None,
