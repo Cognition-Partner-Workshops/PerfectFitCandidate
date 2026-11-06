@@ -110,6 +110,7 @@ export interface JdRequirements {
     jdReqId?: number | null
     evidence?: string | null
     evidenceUnverified?: boolean
+    classificationReason?: 'classification_adjusted' | null
   }[]
 }
 

@@ -25,7 +25,13 @@ const findItem = (items: JdRequirementItem[] | undefined, kind: JdRequirementIte
   items?.find((item) => item.kind === kind && persistedText(kind, item.text) === persistedText(kind, text))
 
 function RequirementMetadata({ item }: { item?: JdRequirementItem }) {
-  return item?.evidenceUnverified ? <span className="small" role="note">Evidence not found in JD text — check before confirming</span> : null
+  const moved = item?.classificationReason === 'classification_adjusted'
+    ? item.kind === 'preferred_skill' ? 'Preferred' : item.kind === 'mandatory_skill' ? 'Mandatory' : null
+    : null
+  return <>
+    {item?.evidenceUnverified && <span className="small" role="note">Evidence not found in JD text — check before confirming</span>}
+    {moved && <span className="small muted" role="note">Moved to {moved} based on JD wording</span>}
+  </>
 }
 
 function RequirementNotes({ items, kind, texts }: { items?: JdRequirementItem[]; kind: JdRequirementItem['kind']; texts: string[] }) {
