@@ -59,7 +59,7 @@ def test_req_llm_02_dotted_output_prefixes(tmp_path: Path, monkeypatch: pytest.M
         report = json.loads(Path(f"{prefix}.json").read_text(encoding="utf-8"))
         assert report["hardware"]["prefix"] == str(prefix)
         markdown = Path(f"{prefix}.md").read_text(encoding="utf-8")
-        assert str(prefix) in markdown
+        assert markdown == render_markdown(report)
         assert "→" in markdown
     assert not (tmp_path / "validation.json").exists()
     assert not (tmp_path / "validation.md").exists()
