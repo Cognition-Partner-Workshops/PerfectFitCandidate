@@ -29,6 +29,12 @@ from pfc.services.embeddings.runtime import create_embedder
 from pfc.config import Settings
 
 
+def assert_health_ok(response: Any) -> None:
+    assert response.status_code == 200
+    payload = response.json()
+    assert isinstance(payload, dict) and payload.get("status") == "ok"
+
+
 def token_elevated() -> bool:
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     security = ctypes.WinDLL("advapi32", use_last_error=True)
@@ -169,7 +175,7 @@ def main() -> None:
                         health = await client.get(
                             f"http://127.0.0.1:{kwargs['port']}/api/v1/health"
                         )
-                        assert health.status_code == 200 and health.json() == {"status": "ok"}
+                        assert_health_ok(health)
                         metrics["startup_seconds"] = time.perf_counter() - start
                         page = await client.get(f"http://127.0.0.1:{kwargs['port']}/setup")
                         assert page.status_code == 200
