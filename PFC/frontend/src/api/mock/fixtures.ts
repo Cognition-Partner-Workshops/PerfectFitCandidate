@@ -3,7 +3,7 @@
  * fictitious; email addresses use the reserved `example.com` / `example.org` domains (RFC 2606)
  * and stand in for values copied verbatim from a Candidate Tracker.
  */
-import type { BenchStatus, Demand, LlmModel, ResourceTeamMember, StatusMapEntry, Synonym } from '../types'
+import type { BenchStatus, Demand, LlmModel, ResourceTeamMember, StatusMapEntry, Synonym, AdminSettings, ApprovalEntry, Grade } from '../types'
 
 export interface RawResource {
   resourceId: number
@@ -97,6 +97,33 @@ export const MODELS: LlmModel[] = [
   { id: 'llama32-3b', name: 'Llama-3.2-3B-Instruct (Q4_K_M)', purpose: 'generation', ramGb: 3.0, diskGb: 2.0, licence: 'Llama 3.2 Community', approved: false, isDefault: false },
   { id: 'nomic-embed', name: 'nomic-embed-text-v1.5 (ONNX)', purpose: 'embedding', ramGb: 0.6, diskGb: 0.27, licence: 'Apache-2.0', approved: true, isDefault: true },
 ]
+
+/** OCC DL/CT approval queue seed (GUI_OCC_DESIGN.md §16.4). Fictitious data only. */
+export const APPROVALS: ApprovalEntry[] = [
+  { entryId: 501, source: 'DL', targetId: DEMANDS.find((d) => d.codeRequisition === 'T1A123')?.demandId ?? 1, key: 'T1A123', change: 'Updated', uploadedBy: 'Analyst upload', uploadedAt: '2026-11-05T09:12:00Z', state: 'Pending', conflict: false, fields: [{ field: 'Position Start Date', before: '2026-12-01', after: '2026-12-15' }] },
+  { entryId: 502, source: 'DL', targetId: 9001, key: 'T3N777', change: 'New', uploadedBy: 'Analyst upload', uploadedAt: '2026-11-05T09:12:00Z', state: 'Pending', conflict: false, fields: [{ field: 'Demand Request Name', before: null, after: 'Azure Platform Engineer' }, { field: 'Code Local Grade', before: null, after: 'C1' }] },
+  { entryId: 503, source: 'CT', targetId: RESOURCES.find((r) => r.shortName === 'ALEXANDER')?.resourceId ?? 1, key: 'ALEXANDER · Al******ander@example.com', change: 'Updated', uploadedBy: 'Analyst upload', uploadedAt: '2026-11-05T10:40:00Z', state: 'Pending', conflict: true, fields: [{ field: 'Bench Status', before: 'Available', after: 'CV with client - Proactive Proposed', adminValue: 'Available' }] },
+  { entryId: 504, source: 'CT', targetId: RESOURCES.find((r) => r.shortName === 'LMARTIN')?.resourceId ?? 2, key: 'LMARTIN · Lu******tin@example.com', change: 'Removed', uploadedBy: 'Analyst upload', uploadedAt: '2026-11-04T16:05:00Z', state: 'Pending', conflict: false, fields: [{ field: 'Row', before: 'present', after: null }] },
+]
+
+export const GRADE_SEED: Grade[] = ['A3', 'A4', 'B1', 'B2', 'C1', 'C2', 'D1', 'D2', 'E1'].map((code, i) => ({ code, order: i + 1, retired: false }))
+
+/** Admin settings defaults: TDD.md §9.2 password floors and lockout, GQ-03 idle timeout, REQ-OUT-03 masking, O-07 top 4 of 5. */
+export const ADMIN_SETTINGS: AdminSettings = {
+  analystMinPasswordLength: 10,
+  adminMinPasswordLength: 14,
+  lockoutAttempts: 5,
+  lockoutMinutes: 15,
+  idleTimeoutMinutes: 60,
+  maskKeep: 2,
+  maskCount: 6,
+  analystsMayUnmask: true,
+  topN: 5,
+  emailsPreselected: 4,
+  staleDataDays: 7,
+  emailTurnaroundHours: 24,
+  allowExternalProviders: false,
+}
 
 export const RESOURCE_TEAM: ResourceTeamMember[] = [
   { email: 'bench.team@example.com', displayName: 'Bench team', active: true, notes: 'Shared mailbox' },
