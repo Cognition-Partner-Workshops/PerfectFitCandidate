@@ -18,6 +18,7 @@ from pfc.api.routers.ingestion import router as ingestion_router
 from pfc.api.routers.llm import router as llm_router
 from pfc.api.routers.occ import router as occ_router
 from pfc.api.routers.packages import router as packages_router
+from pfc.api.routers.pii import router as pii_router
 from pfc.api.routers.resources import router as resources_router
 from pfc.api.routers.settings import router as settings_router
 from pfc.config import Settings
@@ -100,6 +101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(occ_router, prefix="/api/v1")
     app.include_router(settings_router, prefix="/api/v1")
     app.include_router(packages_router, prefix="/api/v1")
+    app.include_router(pii_router, prefix="/api/v1")
     app.include_router(llm_router, prefix="/api/v1")
     frontend = settings.frontend_dir.resolve()
     if (frontend / "index.html").is_file():

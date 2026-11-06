@@ -55,7 +55,6 @@ PENDING: dict[Route, str] = {
     ("POST", "/api/v1/demands/analyze"): "W2-1 ingestion",
     ("POST", "/api/v1/demands/{}/requirements/confirm"): "W2-1 ingestion",
     ("POST", "/api/v1/match-results/{}/overrides"): "W2-2 matching #10",
-    ("POST", "/api/v1/pii/unmask"): "W2-2 matching #10",
     ("PUT", "/api/v1/candidates/{}/identity"): "W2-1 ingestion",
     ("PUT", "/api/v1/demands/{}/requirements"): "W2-1 ingestion",
     ("PUT", "/api/v1/occ/bench-statuses"): (
