@@ -203,10 +203,22 @@ def _persist(
     text = normalise_text(version.text_norm)
     digest = hashlib.sha256(text.encode()).hexdigest()
     existing = db.execute(
-        "SELECT cv_version_id,candidate_id FROM cv_versions WHERE resume_id=? AND text_sha256=?",
+        "SELECT cv_version_id,candidate_id,extraction_removed_at FROM cv_versions "
+        "WHERE resume_id=? AND text_sha256=?",
         (resume_id, digest),
     ).fetchone()
     if existing:
+        if existing["extraction_removed_at"] is not None:
+            db.execute(
+                "UPDATE cv_versions SET text_norm=?,sections_json=NULL,facts_json=?,"
+                "extraction_removed_at=NULL,extracted_at=? WHERE cv_version_id=?",
+                (
+                    text,
+                    json.dumps({"emails": EMAIL.findall(version.text_norm)}),
+                    now,
+                    existing["cv_version_id"],
+                ),
+            )
         if existing["candidate_id"] is None and candidate_id is not None:
             number = db.execute(
                 "SELECT coalesce(max(version_no),0)+1 FROM cv_versions WHERE candidate_id=?",

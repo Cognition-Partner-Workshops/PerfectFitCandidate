@@ -1538,6 +1538,9 @@ Base path `/api/v1`; JSON; cookie session + `X-CSRF-Token` on writes; errors as 
 | CRUD | `/occ/bench-statuses` · `/occ/status-map` · `/occ/grades` · `/occ/location-aliases` | Reference data and editable source-status map | Adm | P1 | REQ-ELIG-03, REQ-ELIG-07 |
 | CRUD | `/occ/email-templates` · `/occ/resource-team` | Templates and CC list | Adm | P1 | REQ-EML-03/05 |
 | CRUD | `/occ/internal-domains` | Internal email domains; seeded default allowlist | Adm | P1 | REQ-CLS-01 |
+| GET | `/occ/candidates/{id}/cv-extractions` | List cached CV versions and removal flags for confirmation | Adm | P1 | REQ-MAT-07 |
+| DELETE | `/occ/candidates/{id}/cv-extractions` | Clear candidate extraction payloads and vectors; retain identities, files and snapshots; audited counts | Adm | P1 | REQ-MAT-07 |
+| DELETE | `/occ/cv-extractions` | Clear all extraction payloads and vectors; audited counts | Adm | P1 | REQ-MAT-07 |
 | CRUD | `/occ/llm-models` · `/occ/llm-providers` · POST `/occ/llm-models/{id}/benchmark` | Approved list; benchmark lab | Adm | P1 / P3 | REQ-LLM-06 |
 | GET / PUT | `/occ/settings` | Admin settings | Adm | P1 | REQ-ROLE-04 |
 | POST | `/occ/settings-package/export` | Create signed, versioned settings package | Adm | P1 | REQ-OCC-01 |

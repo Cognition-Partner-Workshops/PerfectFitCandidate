@@ -20,7 +20,7 @@ def settings(tmp_path: Path) -> Settings:
 
 
 def test_schema_and_pragmas(settings: Settings) -> None:
-    assert migrate(settings) == ["0001", "0002", "0003"]
+    assert migrate(settings) == ["0001", "0002", "0003", "0004"]
     assert migrate(settings) == []
     assert len(list((settings.data_dir / "backups").glob("*-pre-0002.db"))) == 1
     sql = Path("pfc/db/migrations/0001_initial.sql").read_text()
@@ -178,7 +178,7 @@ def test_classification_migration_preserves_existing_override(
             "('PFC-C-1','complete','External','Internal',?,?)",
             (NOW, NOW),
         )
-    assert migrate(settings) == ["0003"]
+    assert migrate(settings) == ["0003", "0004"]
     with database(settings) as db:
         row = db.execute("SELECT * FROM candidates").fetchone()
         assert row["classification"] == "External"
@@ -191,21 +191,21 @@ def test_backup_restore(settings: Settings, tmp_path: Path) -> None:
     migrate(settings)
     directory = tmp_path / "migrations"
     directory.mkdir()
-    (directory / "0004_bad.sql").write_text(
+    (directory / "0005_bad.sql").write_text(
         "CREATE TABLE should_rollback(id INTEGER);\nINSERT INTO missing VALUES(1);\n"
     )
     with pytest.raises(sqlite3.OperationalError):
         migrate(settings, directory)
-    backups = list((settings.data_dir / "backups").glob("pfc-*-pre-0004.db"))
+    backups = list((settings.data_dir / "backups").glob("pfc-*-pre-0005.db"))
     assert len(backups) == 1
     with database(settings) as db:
-        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 3
+        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 4
         assert (
             db.execute("SELECT 1 FROM sqlite_master WHERE name='should_rollback'").fetchone()
             is None
         )
-    (directory / "0004_bad.sql").write_text("CREATE TABLE success(id INTEGER);\n")
-    assert migrate(settings, directory) == ["0004"]
+    (directory / "0005_bad.sql").write_text("CREATE TABLE success(id INTEGER);\n")
+    assert migrate(settings, directory) == ["0005"]
     assert migrate(settings, directory) == []
 
 
