@@ -1,4 +1,4 @@
-"""REQ-LLM-01/04: one loopback llama-server, without crash auto-restart."""
+"""REQ-LLM-01/04: one loopback llama-server with bounded crash recovery."""
 
 from __future__ import annotations
 
@@ -125,7 +125,10 @@ def _close_job(handle: int | None) -> None:
 
 
 class LlamaServerSupervisor:
-    """TDD §8/§13: supervise a local child; failures stay unavailable until explicitly retried."""
+    """TDD §8/§13: retry crashes three times; explicit start/switch/schedule resets the budget.
+
+    Briefly healthy restarts do not reset it, preventing an endless crash loop.
+    """
 
     def __init__(
         self,
@@ -135,7 +138,12 @@ class LlamaServerSupervisor:
         transport: httpx.AsyncBaseTransport | None = None,
         poll_interval_s: float = 0.5,
         app_state: State | None = None,
+        restart_backoff_s: tuple[float, float, float] = (10, 60, 180),
     ) -> None:
+        if len(restart_backoff_s) != 3 or any(delay < 0 for delay in restart_backoff_s):
+            raise ValueError("Restart backoff requires three non-negative delays")
+        self.restart_backoff_s = restart_backoff_s
+        self._restart_attempts = 0
         self.settings = settings
         self.binary = settings.llama_dir / (
             "llama-server.exe" if sys.platform == "win32" else "llama-server"
@@ -206,12 +214,15 @@ class LlamaServerSupervisor:
 
     def schedule(self, model: tuple[str, Path] | None) -> None:
         """Last committed selection wins; the shared server restarts asynchronously."""
+        self._restart_attempts = 0
         self._publish(None)
         if self._operation is not None and not self._operation.done():
             self._operation.cancel()
         self._operation = asyncio.create_task(self.switch(*model) if model else self.stop())
 
     async def start(self, model_name: str, model_path: Path) -> None:
+        if asyncio.current_task() is not self._monitor:
+            self._restart_attempts = 0
         self._start_task = asyncio.current_task()
         try:
             async with self._lock:
@@ -247,7 +258,13 @@ class LlamaServerSupervisor:
                 "GGUF model missing or outside models directory",
             )
             return
-        self.state, self.detail = "starting", "starting"
+        if asyncio.current_task() is self._monitor:
+            self.state, self.detail = (
+                "restarting",
+                f"restarting (attempt {self._restart_attempts}/3)",
+            )
+        else:
+            self.state, self.detail = "starting", "starting"
         self.model_name, self.model_path = model_name, path
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
@@ -333,15 +350,26 @@ class LlamaServerSupervisor:
     async def _watch(self) -> None:
         while self.proc is not None and self.proc.poll() is None:
             await asyncio.sleep(self.poll_interval_s)
-        self._publish(None)
-        self.state, self.detail = "failed", "llama-server exited"
-        if self.provider is not None:
-            await self.provider.aclose()
-            self.provider = None
+        async with self._lock:
+            await self._cleanup()
+        while self._restart_attempts < 3:
+            delay = self.restart_backoff_s[self._restart_attempts]
+            self._restart_attempts += 1
+            self.state, self.detail = (
+                "restarting",
+                f"restarting (attempt {self._restart_attempts}/3)",
+            )
+            await asyncio.sleep(delay)
+            if self.model_name is None or self.model_path is None:
+                break
+            await self.start(self.model_name, self.model_path)
+            if self.state == "ready":
+                return
+        self.state, self.detail = ("unavailable", "llama-server exited; restart attempts exhausted")
 
     async def _cleanup(self) -> None:
         self._publish(None)
-        if self._monitor is not None:
+        if self._monitor is not None and self._monitor is not asyncio.current_task():
             self._monitor.cancel()
             with suppress(asyncio.CancelledError):
                 await self._monitor
@@ -376,6 +404,7 @@ class LlamaServerSupervisor:
             self.state, self.detail = "unavailable", "stopped"
 
     async def switch(self, model_name: str, model_path: Path) -> None:
+        self._restart_attempts = 0
         if (
             self.state == "ready"
             and self.model_name == model_name
@@ -398,7 +427,7 @@ class LlamaServerSupervisor:
                 status="unavailable", detail="llama-server exited", model=self.model_name
             )
         return LlmHealth(
-            status="degraded" if self.state == "starting" else "unavailable",
+            status="degraded" if self.state in {"starting", "restarting"} else "unavailable",
             detail=self.detail,
             model=self.model_name,
         )

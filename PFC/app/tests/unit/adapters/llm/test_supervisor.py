@@ -57,7 +57,13 @@ def settings(tmp_path: Path) -> Settings:
     )
 
 
-def supervisor(settings: Settings, tmp_path: Path, mode: str = "ready") -> LlamaServerSupervisor:
+def supervisor(
+    settings: Settings,
+    tmp_path: Path,
+    mode: str = "ready",
+    *,
+    restart_backoff_s: tuple[float, float, float] = (10, 60, 180),
+) -> LlamaServerSupervisor:
     script = tmp_path / "fake_server.py"
     script.write_text(SCRIPT)
     record = tmp_path / (mode + ".json")
@@ -78,6 +84,7 @@ def supervisor(settings: Settings, tmp_path: Path, mode: str = "ready") -> Llama
         transport=httpx.MockTransport(health),
         poll_interval_s=0.01,
         app_state=State(),
+        restart_backoff_s=restart_backoff_s,
     )
 
 
@@ -192,8 +199,102 @@ def test_unexpected_exit_clears_provider(settings: Settings, tmp_path: Path) -> 
                 break
             await asyncio.sleep(0.01)
         assert service.app_state.llm_provider is None
-        assert service.check().detail == "llama-server exited"
+        assert service.check().status == "degraded"
+        assert service.check().detail == "restarting (attempt 1/3)"
         await service.stop()
+
+    asyncio.run(scenario())
+
+
+def test_crash_restarts_and_republishes(settings: Settings, tmp_path: Path) -> None:
+    async def scenario() -> None:
+        service = supervisor(settings, tmp_path, restart_backoff_s=(0.05, 0.01, 0.01))
+        try:
+            await service.start("one", settings.models_dir / "one.gguf")
+            first = service.proc
+            assert first is not None
+            first.kill()
+            await asyncio.to_thread(first.wait)
+            async with asyncio.timeout(5):
+                while service.state != "restarting":
+                    await asyncio.sleep(0.001)
+                assert service.app_state.llm_provider is None
+                assert service.check().status == "degraded"
+                assert service.check().detail == "restarting (attempt 1/3)"
+                while service.check().status != "ok":
+                    await asyncio.sleep(0.001)
+            assert service.proc is not first
+            assert isinstance(service.app_state.llm_provider, FallbackProvider)
+            assert service._restart_attempts == 1
+        finally:
+            await service.stop()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("startup_fails", [False, True])
+def test_crash_restart_budget_exhausted(
+    settings: Settings, tmp_path: Path, startup_fails: bool
+) -> None:
+    async def scenario() -> None:
+        service = supervisor(settings, tmp_path, restart_backoff_s=(0.01, 0.01, 0.01))
+        try:
+            await service.start("one", settings.models_dir / "one.gguf")
+            if startup_fails:
+                settings.llm_startup_timeout_s = 0.05
+                service.transport = httpx.MockTransport(lambda _: httpx.Response(503))
+            for attempt in range(1 if startup_fails else 4):
+                proc = service.proc
+                assert proc is not None
+                proc.kill()
+                await asyncio.to_thread(proc.wait)
+                async with asyncio.timeout(5):
+                    while service.proc is proc or service.state not in {"ready", "unavailable"}:
+                        if service.check().detail.endswith("restart attempts exhausted"):
+                            break
+                        await asyncio.sleep(0.001)
+                if attempt < 3 and not startup_fails:
+                    assert service.check().status == "ok"
+                    assert service._restart_attempts == attempt + 1
+            assert service.check().status == "unavailable"
+            assert service.check().detail == "llama-server exited; restart attempts exhausted"
+            assert service.app_state.llm_provider is None
+            assert service._restart_attempts == 3
+            assert service.proc is not None and service.proc.poll() is not None
+        finally:
+            await service.stop()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("switch", [False, True])
+def test_stop_or_switch_cancels_restart_backoff(
+    settings: Settings, tmp_path: Path, switch: bool
+) -> None:
+    async def scenario() -> None:
+        service = supervisor(settings, tmp_path, restart_backoff_s=(0.1, 0.01, 0.01))
+        try:
+            await service.start("one", settings.models_dir / "one.gguf")
+            proc = service.proc
+            assert proc is not None
+            proc.kill()
+            await asyncio.to_thread(proc.wait)
+            async with asyncio.timeout(5):
+                while service.state != "restarting":
+                    await asyncio.sleep(0.001)
+            if switch:
+                await service.switch("two", settings.models_dir / "two.gguf")
+                assert service.check().status == "ok" and service.check().model == "two"
+                assert service._restart_attempts == 0
+            else:
+                await service.stop()
+                assert service.check().status == "unavailable"
+                assert service.app_state.llm_provider is None
+            stopped_or_switched = service.proc
+            await asyncio.sleep(0.15)
+            assert service.proc is stopped_or_switched
+        finally:
+            await service.stop()
 
     asyncio.run(scenario())
 
