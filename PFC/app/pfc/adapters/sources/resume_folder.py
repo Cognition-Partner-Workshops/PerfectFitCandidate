@@ -11,7 +11,7 @@ from pypdf import PdfReader
 
 from pfc.services.ingestion.models import file_sha256
 
-EMAIL_PATTERN = re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}")
+EMAIL_PATTERN = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?![\w-])")
 
 
 class CandidateLookup(BaseModel):

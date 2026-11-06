@@ -65,7 +65,12 @@ def test_req_in_25_email_boundary(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "filename,expected", [("alex@example.com.au.pdf", False), ("AlEx@Example.com.pdf", True)]
+    "filename,expected",
+    [
+        ("alex@example.com.au.pdf", False),
+        ("alex@example.com1.pdf", False),
+        ("AlEx@Example.com.pdf", True),
+    ],
 )
 def test_req_in_25_filename_email_exact_domain(
     tmp_path: Path, filename: str, expected: bool
