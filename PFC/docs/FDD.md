@@ -105,8 +105,8 @@ flowchart LR
 | FR-AUTH-04 | **First-run admin setup**: when no Admin account exists, the app shows a one-time setup page to create the Admin identifier and a strong password. No default admin password is shipped in the ZIP. | REQ-AUTH-03, REQ-PKG-02 |
 | FR-AUTH-05 | **Admin password policy** is enforced at setup and on change (proposed default: ≥ 12 characters with upper case, lower case, digit and symbol; must differ from the previous password). | REQ-AUTH-03 |
 | FR-AUTH-06 | Any logged-in user can **change their own password** in Settings by supplying the current password and the new password twice. Analyst passwords follow a basic policy (proposed default ≥ 10 characters). | REQ-AUTH-02, REQ-AUTH-03 |
-| FR-AUTH-07 | **Lockout**: after N consecutive failed attempts for an account the account is locked for T minutes (proposed default N = 5, T = 15). The Admin can unlock an analyst account in OCC → Users. | REQ-AUTH-04 |
-| FR-AUTH-08 | **Session timeout** after a configurable idle period (proposed default 30 minutes); the user is returned to the login screen and unsaved edits are kept as drafts where the screen supports it (JD requirement edits, email drafts). | REQ-AUTH-04 |
+| FR-AUTH-07 | **Lockout**: after five consecutive failed attempts for an account, the account is locked for 15 minutes. The Admin can unlock an analyst account in OCC → Users. | REQ-AUTH-04 |
+| FR-AUTH-08 | **Session timeout** after 60 minutes of inactivity; the user is returned to the login screen and unsaved edits are kept as drafts where the screen supports it (JD requirement edits, email drafts). | REQ-AUTH-04 |
 | FR-AUTH-09 | Passwords are stored only as salted slow hashes; they are never logged, displayed or exported. | REQ-AUTH-04 |
 | FR-AUTH-10 | Role capabilities follow the capability matrix (baseline §2). Analysts cannot reach OCC screens or change scoring weights, internal domains or admin settings; such API calls are rejected and audited. | REQ-ROLE-01..04 |
 | FR-AUTH-11 | Logins (success and failure), lockouts, unlocks and password changes are written to the audit log. | REQ-AUTH-05 |
@@ -155,7 +155,7 @@ flowchart LR
 | FR-ING-10 | **Value copying**: requisition ID, account, role, grade and email are stored exactly as in the source (only surrounding whitespace trimmed for comparison). An email address is never constructed, inferred or corrected. | REQ-IN-14, REQ-OUT-02 |
 | FR-ING-11 | **Skills list**: split on commas; empty tokens (e.g. `Data Analysis, , Project Manger`) are dropped; original spelling is retained and the synonym tracker is applied at matching time, not at import. | REQ-MAT-05, REQ-MAT-06 |
 | FR-ING-12 | **Preview before commit**: rows read, new / updated / unchanged / rejected / skipped-blank counts and the list of warnings and errors are shown. The user commits or cancels. | REQ-ING-02 |
-| FR-ING-13 | **Immediate effect**: committed changes are applied immediately for matching and analytics; affected demands/candidates are marked for incremental re-scoring. OCC can later approve or modify any entry (see §9). | REQ-ING-03, REQ-MAT-07 |
+| FR-ING-13 | **Immediate effect**: committed changes are applied immediately for matching and analytics; affected demands/candidates are marked for incremental re-scoring. OCC receives a notification flag and can later approve or modify any entry (see §9). | REQ-ING-03, REQ-MAT-07 |
 | FR-ING-14 | **Ingestion run record**: file name, SHA-256 hash, user, timestamp, file type, counts and messages. Re-uploading a file with an identical hash is a no-op and reported as such. | REQ-ING-06 |
 | FR-ING-15 | **JD versioning**: when a replaced DL row has a changed JD text, a new JD version is created; any previously confirmed requirements remain attached to the old version and the demand returns to "JD analysis required" (§3). | REQ-MAT-08 |
 | FR-ING-16 | **Demand absent from latest DL**: a demand present in the DB but not in a newly uploaded full DL is **not deleted**; it is flagged "Not in latest DL" and becomes an archival candidate (§11). | REQ-ARC-01 |
@@ -166,7 +166,7 @@ flowchart LR
 |---|---|---|---|
 | DL | Code Requisition | Required; format `T1XXXX`/`T2XXXX` checked | Missing = reject row; format mismatch = warning (O-02) |
 | DL | Position Start Date | Date per FR-ING-07; past dates allowed | Unparseable = warning, stored NULL |
-| DL | Code Local Grade | Member of OCC grade list (A3–D2 shipped) | Unknown grade = warning; demand cannot be scored until fixed |
+| DL | Code Local Grade | Member of OCC grade list (A3–E1 shipped) | Unknown grade = warning; demand cannot be scored until fixed |
 | DL | Region | Free text | Blank → Role Location "Unspecified" |
 | DL | JD | Required for scoring | Blank = warning; demand cannot be analysed |
 | CT | ShortName + Email Address | Both present for a full key | Missing email → row kept, key falls back to ShortName + internal ID, flagged "Incomplete identity" (see §2.4) |
@@ -257,13 +257,14 @@ Demand analysis states: `JD analysis required` → `Analysed (pending confirmati
 
 | FR | Rule | Traces to |
 |---|---|---|
-| FR-MAT-01 | A person is eligible only when **all** hold: Bench Status not excluded; Group ≠ `Not on Bench`; Bench End Date blank; Grade recorded; Skills sufficient (≥ 1 recognised skill token). | REQ-ELIG-01, D-01 |
+| FR-MAT-01 | A person is eligible only when **all** hold: Bench Status not excluded; Group ≠ `Not on Bench`; Bench End Date is blank or unparseable; Grade recorded; Skills sufficient (≥ 1 recognised skill token). An unparseable Bench End Date adds a "pending review" check flag and does not exclude the person. | REQ-ELIG-01, D-01 |
 | FR-MAT-02 | Excluded statuses: `Selected`, `Unknown`, `CV with Client - Sold - Pending Allocation` (case- and whitespace-insensitive comparison; the OCC status list holds the canonical values). | REQ-ELIG-02 |
 | FR-MAT-03 | **Available Capacity is never evaluated** in eligibility or scoring; it is display-only. The quality-checks panel confirms this per run. | REQ-ELIG-06, REQ-OUT-10 |
-| FR-MAT-04 | Every excluded person appears in "Excluded from matching" with **all** applicable reasons (e.g. JagmohanD: Status `Selected`; Group `Not on Bench`; Bench End Date 16 Nov 2026). | REQ-ELIG-07 |
+| FR-MAT-04 | Every excluded person appears in "Excluded from matching" with **all** applicable reasons. | REQ-ELIG-08 |
 | FR-MAT-05 | People with a status implying a CV with a client or proposal elsewhere (`CV with client - Demand Proposed`, `CV with client - Proactive Proposed`) remain eligible but always carry an Eligibility Evidence caveat and a Gaps / Checks entry. | REQ-ELIG-04 |
 | FR-MAT-06 | A blank Bench End Date is recorded as eligibility evidence but never as confirmation that the person can be submitted; every Eligibility Evidence text includes "subject to review". | REQ-ELIG-05 |
 | FR-MAT-07 | `Expected on Bench Soon` people are eligible; their availability is taken from Bench Start Date and feeds the Bench Start Date component. | REQ-ELIG-03 |
+| FR-MAT-08 | Resolve CT Bench Status through the editable OCC status map. A status not yet mapped remains eligible at priority 2 with the binary status score of 0 and is flagged as "Unmapped status" in Gaps / Checks and the OCC data-quality view; it is never silently excluded. | REQ-ELIG-07 |
 
 ### 4.2 Status priority
 
@@ -278,6 +279,8 @@ Eligible statuses are ordered (OCC-configurable list, REQ-ELIG-03):
 | 5 | Status - x (placeholder) |
 | 6 | Status - y (placeholder) |
 
+The map is seeded with the excluded and eligible statuses in REQ-ELIG-02/03. Unmapped values use priority 2 until an OCC Admin maps them.
+
 | FR | Rule | Traces to |
 |---|---|---|
 | FR-MAT-10 | Status priority is used for ordering and **tie-breaks** (equal Match %): lower priority number first, then exact grade before adjacent grade, then earlier Bench Start Date, then ShortName alphabetical. | REQ-ELIG-03, REQ-GRD-01 |
@@ -287,7 +290,7 @@ Eligible statuses are ordered (OCC-configurable list, REQ-ELIG-03):
 
 | FR | Rule | Traces to |
 |---|---|---|
-| FR-MAT-20 | Grade sequence `A3 < A4 < B1 < B2 < C1 < C2 < D1 < D2` (OCC-configurable list). Allowed grades for a demand = exact, one below, one above. More than one step away → excluded with reason "Grade outside ±1". Examples: D1 → C2, D1, D2; C2 → C1, C2, D1; C1 → B2, C1, C2. At the ends of the sequence only one neighbour exists. | REQ-GRD-01 |
+| FR-MAT-20 | Grade sequence `A3 < A4 < B1 < B2 < C1 < C2 < D1 < D2 < E1` (nine OCC-configurable grades). Allowed grades for a demand = exact, one below, one above. More than one step away → excluded with reason "Grade outside ±1". Examples: D2 → D1, D2, E1; C2 → C1, C2, D1; C1 → B2, C1, C2. At the ends of the sequence only one neighbour exists. | REQ-GRD-01 |
 | FR-MAT-21 | Exact grade = full grade points (10); ±1 = reduced points (template default 7). An adjacent-grade person is never auto-rejected; skills dominate, so an adjacent-grade candidate may outrank an exact-grade one. Gaps / Checks records "Adjacent grade (C2 vs C1) — confirm". | REQ-GRD-02 |
 | FR-MAT-22 | Demand or person with an unknown grade: person ineligible (no grade) / demand not scorable (flagged in data-quality summary). | REQ-ELIG-01, REQ-OUT-04 |
 
@@ -319,7 +322,7 @@ Eligible statuses are ordered (OCC-configurable list, REQ-ELIG-03):
 | Skills, experience and domain | 70 | FR-MAT-44 |
 | Grade alignment | 10 | Exact 10; ±1 → 7; > 1 → excluded |
 | Location alignment | 5 | Aligned 5 / Remote-unspecified 5 / Potential travel 3 / Location check 1 |
-| Bench Start Date | 5 | 5 if Bench Start Date ≤ Position Start Date (or person already on bench); reduced by a template-defined decay as the gap grows (proposed default −1 per full 7 days late, floor 0) |
+| Bench Start Date | 5 | Default tiers: 0 d = 5; ≤30 d = 4; ≤45 d = 3; ≤60 d = 2; ≤90 d = 1; beyond = 0 |
 | Bench End Date | 5 | 5 when blank (always for eligible people) |
 | Bench Status | 5 | `status_score_mode = binary` (default): Available 5, otherwise 0. `tiered`: points by priority (proposed default P1 5, P2 4, P3 3, P4 2, P5 1, P6 0) |
 | Available Capacity, Tracker, Group, Group Owner | 0 | Not scored |
@@ -338,13 +341,13 @@ Eligible statuses are ordered (OCC-configurable list, REQ-ELIG-03):
 | Potential | 70 – 89 % (i.e. ≥ 70 and < 90) |
 | Avg. | 61 – 69 % (i.e. ≥ 61 and < 70) |
 | Weak | < 61 % (60.x is Weak, O-03) |
-| Insufficient data | Assigned instead of a numeric band when bench data cannot support a reliable assessment (e.g. ≤ 1 skill token and no CV, or no confirmed mandatory requirements could be evaluated) |
+| Insufficient data | Assigned instead of a numeric band when the skill-term count is ≤ 1 or no confirmed mandatory requirement can be evaluated. A missing CV alone does not trigger this band. |
 
 | FR | Rule | Traces to |
 |---|---|---|
-| FR-MAT-60 | Shortlist per requisition = up to **5** eligible people, ordered by Match % then FR-MAT-10 tie-breaks; one row per requisition–person pair; a person may appear under several requisitions. | REQ-MAT-03 |
-| FR-MAT-61 | Persons below 60 % are included only if (a) the requisition has no Strong candidate **and** (b) the person has relevant transferable experience (≥ 1 mandatory requirement matched or partially matched). They are labelled **Weak Match**. | REQ-MAT-04 |
-| FR-MAT-62 | Requisitions with no eligible or qualifying person are counted as "no suitable candidate" in the dashboard header and listed with the reason. | REQ-OUT-04 |
+| FR-MAT-60 | Shortlist per requisition = up to **5 unique candidate profiles**, ordered by Match % then FR-MAT-10 tie-breaks; one row per requisition–person pair; a person may appear under several requisitions. | REQ-MAT-03 |
+| FR-MAT-61 | Persons below 61 % are included only if (a) the requisition has no Strong candidate **and** (b) the person has relevant transferable experience (≥ 1 mandatory requirement matched or partially matched). They are labelled **Weak Match**. | REQ-MAT-04 |
+| FR-MAT-62 | Requisitions with no Strong, Potential or Avg. candidate are counted as "no suitable candidate" in the dashboard header and listed with the reason; Weak-only requisitions are shown separately. | REQ-OUT-04 |
 | FR-MAT-63 | Each run stores LLM model/version, embedding model, template version, JD version, requirements version, CV version(s), timestamps and evidence. | REQ-MAT-08 |
 | FR-MAT-64 | Re-scoring is incremental: only demands/persons whose DL row, CT row, CV, requirements, synonyms or template changed are re-scored. | REQ-MAT-07, NFR-01 |
 | FR-MAT-65 | The engine never invents candidates, emails, skills, grades, locations or experience; every evidence string cites the source (CT Skills, CV version, JD snippet). | REQ-MAT-06 |
@@ -390,7 +393,7 @@ Per run, PFC evaluates and shows pass/fail for each check of REQ-OUT-10: every i
 | 15 | Gaps / Checks | Missing mandatory skills, adjacent grade, location/onsite, availability conflicts, CV not found, incomplete info, items to validate |
 | 16 | Eligibility Evidence | Blank Bench End Date, grade within range, relevant skills, status caveat, "subject to review" |
 
-Grade and location are filterable columns in addition to being score components (REQ-MAT-10).
+Code Requisition, Account Name, BU, Grade and Location are filterable columns in addition to being score components (REQ-MAT-10).
 
 ### 5.2 Masking
 
@@ -403,7 +406,7 @@ Grade and location are filterable columns in addition to being score components 
 
 ### 5.3 Filters
 
-BU, region, account, grade (demand and person), location / location assessment, band, bench status, candidate type (Internal / External / Unknown — Phase 2 classification, REQ-CLS-02), incomplete identity, mandatory-skill status (all met / gaps), score range, email status (REQ-OUT-08). Filters combine with AND; the active filter set is shown as removable chips and applies to exports.
+Code Requisition, Account Name, BU, region, grade (demand and person), location / location assessment, band, bench status, candidate type (Internal / External / Unknown — Phase 2 classification, REQ-CLS-02), incomplete identity, mandatory-skill status (all met / gaps), score range and email status (REQ-OUT-08). Filters combine with AND; the active filter set is shown as removable chips and applies to exports.
 
 ---
 
@@ -416,8 +419,8 @@ BU, region, account, grade (demand and person), location / location assessment, 
 | FR | Rule | Traces to |
 |---|---|---|
 | FR-DSH-01 | **Summary header**: number of requisitions assessed; number of role-to-person combinations; number of roles with no suitable candidate; material data-quality limitations in DL/CT (e.g. unparsed dates, formulas without cached values, invalid emails, unknown grades/statuses, empty skills). Each figure links to the underlying list. | REQ-OUT-04 |
-| FR-DSH-02 | **Demand analytics** (Analyst B): top 5 skills in demand (from confirmed requirements, synonym-normalised), top 3 accounts by JD count, open demands by BU / region, demand start-date pipeline. | REQ-OUT-05 |
-| FR-DSH-03 | **Bench analytics** (Analyst C): top 5 skills in pool (synonym-normalised), grade histogram, bench timeline bubble (Bench Start → End or today), bench aging, status distribution. Analytics use all CT rows with an eligibility filter toggle. | REQ-OUT-06 |
+| FR-DSH-02 | **Demand analytics** (Analyst B): top 5 skills in demand (from confirmed requirements, synonym-normalised), top 3 accounts by JD count, open demands by BU / region, demand start-date pipeline, Grade → JD count chart, and a bottom scrollable DL panel ordered by Position Start Date descending. | REQ-OUT-05 |
+| FR-DSH-03 | **Bench analytics** (Analyst C): overall top 5 skills in the pool; a "Top 5 skills in open demands vs. bench supply" chart that, for each of the 5 most demanded skills, counts all eligible bench people with that skill and shows a stacked split by Available Capacity Y/N (display only; never used for matching or availability); grade histogram, bench timeline bubble (Bench Start → End or today), bench aging, Bench Status distribution, and a bottom scrollable CT panel ordered by Bench Start Date descending. | REQ-OUT-06, REQ-ELIG-06 |
 | FR-DSH-04 | **Match / communication analytics**: match coverage (demands with ≥ 1 Strong or Potential), band distribution, email status counts, 24 h turnaround KPI. | REQ-OUT-07, REQ-EML-07, KPI-03, KPI-04 |
 | FR-DSH-05 | Global filters (§5.3) apply to all tabs; charts redraw within 2 s for the target volumes. | REQ-OUT-08, NFR-01 |
 | FR-DSH-06 | **CSV/Excel export** of match results (Phase 1) and **PDF report** of dashboard + match results (Phase 2) with header (generated by, date, filters, template version) and masked contacts by default. | REQ-OUT-09 |
@@ -436,7 +439,7 @@ BU, region, account, grade (demand and person), location / location assessment, 
 
 | FR | Rule | Traces to |
 |---|---|---|
-| FR-EML-01 | **Per-profile approve**: every candidate–demand email needs its own explicit Approve click; there is no bulk send without per-row approval. The top 4 of each shortlist are **pre-selected** for drafting (O-07); the analyst may change the selection. | REQ-EML-01 |
+| FR-EML-01 | **Per-profile approve**: every candidate–demand email needs its own explicit Approve click; there is no bulk send without per-row approval. The top 4 of the top-5 shortlist are **pre-selected** for drafting; the analyst may change the selection. | REQ-EML-01 |
 | FR-EML-02 | **LLM-drafted rich body**: match analysis, Match % and band, low-score gaps, CV/profile improvement pointers tailored to the JD, request to update the CV against the attached JD and share with `<SPOC-1>` and `<SPOC-2>`. The draft is fully editable before approval. | REQ-EML-02 |
 | FR-EML-03 | **Default template** shipped in the ZIP and editable (by Admin in OCC for the default; by the analyst per email): placeholders `{candidate_name}`, `{requisition}`, `{role}`, `{match_pct}`, `{gaps}`, `{pointers}`, `{spoc_1}`, `{spoc_2}`. The LLM fills `{gaps}`/`{pointers}`; other placeholders come from data. Unresolved placeholders block approval. | REQ-EML-03 |
 | FR-EML-04 | **Attachment**: the JD (rendered from the DL JD text to a document) is attached. | REQ-EML-02 |
@@ -445,7 +448,7 @@ BU, region, account, grade (demand and person), location / location assessment, 
 | FR-EML-07 | **Sent-flag state machine** per candidate–demand: Draft → Approved → Sent / Failed (diagram below), with timestamp and sender for each transition. No reply parsing. | REQ-EML-06 |
 | FR-EML-08 | **Duplicate-send prevention**: a pair in `Sent` cannot be sent again unless the user chooses **Re-send** and confirms a warning showing the previous send date; a re-send creates a new attempt record linked to the same pair. Approve and Send actions are idempotent (double click = single send). | REQ-EML-06 |
 | FR-EML-09 | **24 h turnaround KPI**: elapsed time from the demand's first ingestion to `Sent` is recorded; pairs approaching 24 h without being sent are highlighted. | REQ-EML-07, KPI-03 |
-| FR-EML-10 | **Calendar follow-up** (Phase 2): after a successful send, optionally create an Outlook calendar reminder/meeting at send + N business days (default 2) titled with requisition and candidate. | REQ-EML-08 |
+| FR-EML-10 | **Calendar follow-up** (Phase 2): after a successful send, optionally create an Outlook calendar reminder/meeting one business day later, titled with requisition and candidate. | REQ-EML-08 |
 | FR-EML-11 | Approvals, sends, failures and re-sends are audit-logged. | REQ-AUTH-05 |
 | FR-EML-12 | Approval is blocked when: no candidate email; row fails a quality check; candidate excluded/ineligible; unresolved placeholder; demand marked "Not in latest DL" (warning with override). | REQ-OUT-10, REQ-IN-14 |
 
@@ -493,7 +496,7 @@ stateDiagram-v2
 | FR-LLM-02 | **Tasks**: JD parsing (§3), CV parsing (§2.3), candidate/demand summaries, email drafting (§7), chat-with-data (Phase 2). Scoring never depends on free-form LLM output; LLM outputs used in scoring (extracted requirements/skills) are structured and human-confirmed (JD) or evidence-linked (CV). | REQ-LLM-02 |
 | FR-LLM-03 | **Chat-with-data** (Phase 2): natural-language questions over the local DB (e.g. "which C1 data engineers are available before 1 Dec?"); answers are read-only, cite the records used and respect masking. | REQ-LLM-02 |
 | FR-LLM-04 | **Provider settings**: list of providers (Local, plus external such as Devin, OpenAI/ChatGPT) with user-supplied token, endpoint and API version, enabled flag and order. Phase 1 stores this configuration only (external calls disabled). Tokens are stored encrypted. | REQ-LLM-03, REQ-AUTH-06 |
-| FR-LLM-05 | **Smart fallback** (Phase 3): on version conflict, auth failure, rate limit or timeout → retry with a compatible API version where possible → next configured provider → local model. The UI shows which provider served each request. | REQ-LLM-04 |
+| FR-LLM-05 | **Smart fallback** (Phase 3): on version conflict, auth failure, rate limit or timeout, retry compatible API versions where possible; if still unavailable, fall directly to the local model. Do not chain to another external provider. The UI shows which provider served each request. | REQ-LLM-04 |
 | FR-LLM-06 | **PII masking + encryption** (Phase 3): before any external call, names, emails, phones and identifiers are replaced by reversible tokens; payloads use TLS; cached requests/responses are encrypted at rest; re-identification happens only locally. External calls require explicit opt-in per user. | REQ-LLM-05, NFR-04 |
 | FR-LLM-07 | Each LLM call records task, provider, model/version, duration and (for external calls) the masked-payload hash in the audit log. | REQ-AUTH-05, REQ-MAT-08 |
 | FR-LLM-08 | **Local LLM unavailable** (model missing, out of memory): JD analysis falls back to manual entry, CV sync stores text-only with deterministic skill extraction, email uses the default template; the user is notified. | REQ-LLM-04 (principle) |
@@ -517,12 +520,14 @@ stateDiagram-v2
 | FR-OCC-05 | Internal email domains | Exact-match allowlist; `@capgemini.com` input normalised to `capgemini.com`; changes re-evaluate classification. | 2 | REQ-CLS-01, REQ-CLS-02 |
 | FR-OCC-06 | Approved models | Phase 1: static list shipped in the ZIP (name, file, disk, RAM, licence). Phase 3: model benchmark lab (extraction accuracy, latency, RAM) and publishing. | 1 / 3 | REQ-LLM-06 |
 | FR-OCC-07 | Users | Create analyst (email, display name, initial password), disable, unlock, reset password; change own admin password. | 1 | REQ-AUTH-02, REQ-AUTH-03 |
-| FR-OCC-08 | Status list | Maintain bench statuses: canonical name, eligible/excluded flag, priority, tiered points. Placeholders `Status - x`, `Status - y` editable. | 1 | REQ-ELIG-02, REQ-ELIG-03 |
-| FR-OCC-09 | Grade list and location groups | Maintain grade sequence (A3–D2 shipped, O-01) and location equivalence / travel-region groups used in FR-MAT-30. | 1 | REQ-GRD-01, REQ-LOC-01 |
+| FR-OCC-08 | Status list and map | Maintain the editable source-status-to-canonical-status map, eligible/excluded flag, priority and tiered points, including placeholders; seed with known statuses and handle unmapped values per FR-MAT-08. | 1 | REQ-ELIG-02, REQ-ELIG-03, REQ-ELIG-07 |
+| FR-OCC-09 | Grade list and location groups | Maintain grade sequence (A3–E1 shipped) and location equivalence / travel-region groups used in FR-MAT-30. | 1 | REQ-GRD-01, REQ-LOC-01 |
 | FR-OCC-10 | Default email template and SPOCs | Edit the shipped default template and default SPOC-1/SPOC-2 values. | 1 | REQ-EML-03 |
 | FR-OCC-11 | Candidate classification override | Audited manual Internal/External/Unknown override. | 2 | REQ-CLS-02 |
 | FR-OCC-12 | Archival | Manual trigger with preview (§11). | 2 | REQ-ARC-02 |
 | FR-OCC-13 | Licensing and ZIP generation | §13. | 3 | REQ-AUTH-08 |
+| FR-OCC-14 | Settings package export/import | Admin exports `PFC-settings-v<N>.pfcpkg`, a ZIP of versioned JSON, manifest and Ed25519 signature containing approved configuration, mappings, data approvals and Analyst accounts without provider secrets. Protect the Admin-instance private key (DPAPI where available) and ship the matching public key in the app ZIP. The shared/synced folder is the default distribution channel; Teams or email is the fallback, with trust based on the signature. Analyst imports from Settings or startup `inbox\`; validate signature/schema/app compatibility and monotonic version (signed rollback only), show a diff preview, atomically apply only on confirmation, report clear errors, audit-log the import and retain the previous version for one-click rollback. Imported one-time passwords require change at first login. Phase 3 metadata sync replaces or augments this Phase 1 manual flow. | 1 | REQ-OCC-01, REQ-OCC-02 |
+| FR-OCC-15 | Embedding model add-on | OCC Admin checks for and imports an approved signed `.pfcmodel` through the settings-package import flow; trigger re-embedding and retain per-vector model versions. | 1 | REQ-OCC-03 |
 
 All OCC changes are audit-logged (REQ-AUTH-05).
 
@@ -540,9 +545,9 @@ All OCC changes are audit-logged (REQ-AUTH-05).
 | FR-SET-02 | Resume folder path | Path validated (exists, readable); shows file count found. | 1 | REQ-ING-05 |
 | FR-SET-03 | Auto-sync (DL, CT) | Placeholder config (FR-ING-20); active in Phase 2. | 1 / 2 | REQ-ING-04 |
 | FR-SET-04 | Active LLM model | Select from approved list. | 1 | REQ-LLM-06 |
-| FR-SET-05 | External LLM providers | Token/endpoint/order placeholders (Phase 1), active Phase 3 with explicit opt-in. | 1 / 3 | REQ-LLM-03 |
+| FR-SET-05 | External LLM providers | Token/endpoint placeholders (Phase 1); active Phase 3 only when the Settings active flag is enabled. Fallback retries compatible API versions, then goes directly to local. | 1 / 3 | REQ-LLM-03, REQ-LLM-04, NFR-02 |
 | FR-SET-06 | Email transport | Outlook COM (default) or SMTP (Phase 2: host, port, TLS, account). | 1 / 2 | REQ-EML-04 |
-| FR-SET-07 | Follow-up offset | Business days after send for calendar follow-up (default 2), on/off. | 2 | REQ-EML-08 |
+| FR-SET-07 | Follow-up offset | One business day after send for calendar follow-up, on/off. | 2 | REQ-EML-08 |
 | FR-SET-08 | Display | Date display format (single app-wide format), theme. | 1 | REQ-OUT-02, NFR-06 |
 
 Analysts cannot change scoring weights, internal domains or admin settings (REQ-ROLE-04).
@@ -561,7 +566,7 @@ Analysts cannot change scoring weights, internal domains or admin settings (REQ-
 | FR-ARC-02 | **Manual trigger with preview**: the preview lists every record to be archived with the reason and counts; the Admin can deselect items before confirming. | REQ-ARC-02 |
 | FR-ARC-03 | Archived records leave active views and dashboards (unless "include archived" is toggled) but remain searchable and exportable. | REQ-ARC-02 |
 | FR-ARC-04 | A record that reappears in a later upload (same key) is restored from archive as a new version, preserving history. | REQ-IN-02, REQ-IN-11 |
-| FR-ARC-05 | **Housekeeping**: purge temp files and old logs past retention, remove orphaned vectors, DB vacuum and backup. Retention periods configurable (proposed defaults: logs 90 days, temp 7 days, backups last 5). Audit log entries are not purged by housekeeping. | REQ-ARC-03 |
+| FR-ARC-05 | **Housekeeping**: purge temp files after 7 days and logs after 45 days, remove orphaned vectors, DB vacuum and backup while retaining the last 3 backups. Retention periods are configurable and set by OCC Admin; audit log entries are retained. | REQ-ARC-03 |
 | FR-ARC-06 | Phase 3: scheduled archival and housekeeping with the same preview available as a report. | REQ-ARC-04 |
 | FR-ARC-07 | Each archival/housekeeping run is audit-logged with counts. | REQ-AUTH-05 |
 
@@ -672,7 +677,7 @@ Coverage scoring: match = 1, partial = 0.5, not recorded = 0. Skills = 70 × (0.
 | 2 | RutujaK | `ru******harade@capgemini.com` | Weak Match | < 61 %, no Strong candidate, transferable (Python, SQL) | Data engineering, Spark, ETL/ELT not recorded; Liverpool vs Manchester — confirm travel | Bench End Date blank; exact grade; Available; subject to review |
 | 3 | YesG | `ye******ole@capgemini.com` | Weak Match | < 61 %, no Strong candidate, transferable (SQL, DWH) | Python not recorded; Spark/ETL partial; CV with client — Proactive Proposed; Northampton vs Manchester | Bench End Date blank; grade C2 within ±1; **CV with client caveat**; subject to review |
 
-Observations: (1) AmitS (adjacent grade) outranks RutujaK (exact grade) because skills dominate (REQ-GRD-02). (2) Only three eligible people exist, so the shortlist has three rows. (3) Under KPI-04 this demand has **no** Strong/Potential match, so it counts against match coverage, but it is not a "no suitable candidate" role because a shortlist exists. (4) Data-quality summary for this upload would report: four requisition IDs not in `T1/T2XXXX` format; text dates parsed for RutujaK, ShanthiM, JagmohanD; AlexB Group Owner formula read from cached value or flagged; one blank trailing CT row skipped; empty skill token in ShanthiM; trailing space in AmitS location; mis-encoded `?` bullets in ABCD123's JD.
+Observations: (1) AmitS (adjacent grade) outranks RutujaK (exact grade) because skills dominate (REQ-GRD-02). (2) Only three eligible people exist, so the shortlist has three rows. (3) The Avg. candidate means this demand has a suitable candidate; any Weak-only demand is counted as "no suitable candidate" and shown separately. (4) All three Bench Start Dates are on or before the Position Start Date, so each receives 5 points under the approved tiers; the example totals and bands are unchanged. (5) Data-quality summary for this upload would report: four requisition IDs not in `T1/T2XXXX` format; text dates parsed for RutujaK, ShanthiM, JagmohanD; AlexB Group Owner formula read from cached value or flagged; one blank trailing CT row skipped; empty skill token in ShanthiM; trailing space in AmitS location; mis-encoded `?` bullets in ABCD123's JD.
 
 ---
 
@@ -726,7 +731,7 @@ Resume (CV) sync is orthogonal: a resource in any active state can have CV statu
 |---|---|---|
 | Roles | REQ-ROLE-01..04 | §1 FR-AUTH-10, §9, §10 |
 | Inputs DL/CT/CV | REQ-IN-01..03, 10..14, 20..25 | §2 FR-ING-01..52 |
-| Eligibility | REQ-ELIG-01..07 | §4.1–4.2 FR-MAT-01..11 |
+| Eligibility | REQ-ELIG-01..08 | §4.1–4.2 FR-MAT-01..11 |
 | Ingestion | REQ-ING-01..06 | §2 FR-ING-01..21, 30 |
 | Matching | REQ-MAT-01..10 | §3, §4.5–4.7 |
 | Grade / location | REQ-GRD-01..02, REQ-LOC-01 | §4.3–4.4 |
@@ -744,26 +749,26 @@ Resume (CV) sync is orthogonal: a resource in any active state can have CV statu
 
 ## 17. Open questions
 
-Items below are gaps or ambiguities found while writing this FDD; the FDD uses the stated proposed default until a decision is logged in the baseline.
+These items are retained for traceability; each has been resolved and recorded in the baseline decision log.
 
-| # | Question | Proposed default used in this FDD | Related |
+| # | Question | Resolution | Related |
 |---|---|---|---|
-| FQ-01 | Lockout threshold, lockout duration, session idle timeout. | 5 attempts / 15 min / 30 min idle | FR-AUTH-07, FR-AUTH-08, REQ-AUTH-04 |
-| FQ-02 | Admin and analyst password policies; forced change of admin-provided password at first login. | Admin ≥ 12 chars with 4 classes; analyst ≥ 10 chars; forced change at first login | FR-AUTH-05, FR-AUTH-06, FR-AUTH-12 |
-| FQ-03 | Can one account hold both Admin and Analyst roles, and what happens if the dropdown role differs from the account role? | One role per account; mismatch = generic login error | FR-AUTH-03 |
-| FQ-04 | Single instance per user (REQ-PKG-04) vs OCC managing users, approving DL/CT entries and distributing synonyms/templates/resource-team list: how does OCC configuration reach each analyst's instance in Phases 1–2 (before OneDrive metadata sync in Phase 3)? | OCC functions act on the instance where the Admin logs in; propose a signed config export/import package — needs decision in [ARCHITECTURE.md](ARCHITECTURE.md)/[TDD.md](TDD.md) | §9, REQ-ROLE-03 |
-| FQ-05 | Masking example in REQ-OUT-03 (`Al******der@capgemini.com`) does not match the stated rule "6 characters after the 2nd position", which yields `Al******er@capgemini.com` for `AlexBorder`. Also, rule for local parts ≤ 8 characters and phone masking pattern. | Apply the rule literally; short local parts mask everything after position 2; phone shows last 2 digits. **Resolved for the example:** baseline REQ-OUT-03 now uses `Al******er@capgemini.com`. | FR-RES-01 |
-| FQ-06 | Weak-match inclusion threshold says "below 60 %" (REQ-MAT-04) while the Weak band is "< 61 %" (O-03). Is a 60.x % person included unconditionally or subject to the weak-match rule? | Apply the weak-match rule to every Weak-band person (< 61 %). **Resolved:** baseline REQ-MAT-04 now refers to the Weak band (< 61 %). | FR-MAT-61 |
-| FQ-07 | Definition of "role with no suitable candidate" in the dashboard header. | No eligible or qualifying person after rules (shortlist empty) | FR-DSH-01, FR-MAT-62 |
-| FQ-08 | Bench Start Date decay rule when the person becomes available after the Position Start Date. | −1 point per full 7 days late, floor 0 (template) | §4.5 |
-| FQ-09 | Points per priority when `status_score_mode = tiered`. | P1 5, P2 4, P3 3, P4 2, P5 1, P6 0 | FR-MAT-51 |
-| FQ-10 | Location equivalence and travel regions (e.g. is Liverpool–Manchester "Aligned" or "Potential travel"? Is `Edinburgh/Glasgow` aligned with either city?). | OCC-maintained groups; any `/`-separated location equal to the demand location = Aligned; no groups shipped beyond exact match | FR-MAT-30, FR-OCC-09 |
-| FQ-11 | Criteria for "Insufficient data" band. | ≤ 1 skill token and no CV, or no confirmed mandatory requirement evaluable | §4.6 |
-| FQ-12 | Resume file naming convention in the SharePoint folder (used for CV lookup). | ShortName → email local part → extracted email | FR-ING-32 |
-| FQ-13 | Whether a DL upload is always a full snapshot (so absence = closed) or can be a partial delta. | Treat as full snapshot but only flag "Not in latest DL" — never auto-close | FR-ING-16 |
-| FQ-14 | Is a demand with a past Position Start Date still matched? | Yes, matched and flagged in Gaps / Checks | §2.1 |
-| FQ-15 | Can analysts remove CC recipients from the resource-team list per email? | No for mandatory entries; may add extra CC | FR-EML-05 |
-| FQ-16 | JD attachment format (DOCX vs PDF) for candidate email. | PDF rendered from the DL JD text | FR-EML-04 |
-| FQ-17 | Retention periods for logs, temp files, backups and audit log. | Logs 90 d, temp 7 d, last 5 backups, audit retained | FR-ARC-05 |
-| FQ-18 | Unparseable Bench End Date: treat as not eligible pending review, or eligible with check? | Not eligible pending review | §2.1 validations |
-| FQ-19 | Analyst visibility of the audit log. | Own events only | FR-AUD-03 |
+| FQ-01 | Lockout threshold, lockout duration, session idle timeout. | Resolved: 5 attempts / 15 min lockout / 60 min idle timeout. | FR-AUTH-07, FR-AUTH-08, REQ-AUTH-04 |
+| FQ-02 | Admin and analyst password policies; forced change of admin-provided password at first login. | Resolved: Admin ≥ 12 characters with 4 character classes; Analyst ≥ 10 characters; force change at first login. | FR-AUTH-05, FR-AUTH-06, FR-AUTH-12 |
+| FQ-03 | Can one account hold both Admin and Analyst roles, and what happens if the dropdown role differs from the account role? | Resolved: one role per account; a role mismatch produces a generic login error. | FR-AUTH-03 |
+| FQ-04 | Single instance per user (REQ-PKG-04) vs OCC managing users, approving DL/CT entries and distributing synonyms/templates/resource-team list: how does OCC configuration reach each analyst's instance in Phases 1–2 (before OneDrive metadata sync in Phase 3)? | Resolved: Phase 1 uses the signed settings-package export/import flow (REQ-OCC-01/02); Phase 3 metadata sync replaces or augments it. | §9, REQ-OCC-01/02 |
+| FQ-05 | Masking example in REQ-OUT-03 and the rules for short local parts and phone masking. | Resolved: apply the rule literally; short local parts mask everything after position 2; phone shows the last 2 digits. The baseline example is `Al******er@capgemini.com`. | FR-RES-01 |
+| FQ-06 | Weak-match inclusion threshold says "below 60 %" (REQ-MAT-04) while the Weak band is "< 61 %". Is a 60.x % person included unconditionally or subject to the weak-match rule? | Resolved: apply the weak-match rule to every Weak-band person (< 61 %). | FR-MAT-61 |
+| FQ-07 | Definition of "role with no suitable candidate" in the dashboard header. | Resolved: count when no Strong, Potential or Avg. candidate exists, including Weak-only; show Weak-only requisitions separately. | FR-DSH-01, FR-MAT-62 |
+| FQ-08 | Bench Start Date reduction when the person becomes available after the Position Start Date. | Resolved: 0 d = 5, ≤30 d = 4, ≤45 d = 3, ≤60 d = 2, ≤90 d = 1, beyond = 0; missing date = 0 + gap. | §4.5 |
+| FQ-09 | Points per priority when `status_score_mode = tiered`. | Resolved: P1 5, P2 4, P3 3, P4 2, P5 1, P6 0. | FR-MAT-51 |
+| FQ-10 | Location equivalence and travel regions. | Resolved: OCC-maintained groups; any `/`-separated location equal to the demand location is Aligned; no groups ship beyond exact match. | FR-MAT-30, FR-OCC-09 |
+| FQ-11 | Criteria for "Insufficient data" band. | Resolved: ≤1 skill token or no confirmed mandatory requirement can be evaluated; a missing CV alone does not trigger Insufficient data. | §4.6 |
+| FQ-12 | Resume file naming convention in the SharePoint folder (used for CV lookup). | Resolved: ShortName → email local part → extracted email. | FR-ING-32 |
+| FQ-13 | Whether a DL upload is always a full snapshot or can be a partial delta. | Resolved: treat as a full snapshot but only flag "Not in latest DL" — never auto-close. | FR-ING-16 |
+| FQ-14 | Is a demand with a past Position Start Date still matched? | Resolved: yes; match it and flag it in Gaps / Checks. | §2.1 |
+| FQ-15 | Can analysts remove CC recipients from the resource-team list per email? | Resolved: no for mandatory entries; analysts may add extra CC recipients. | FR-EML-05 |
+| FQ-16 | JD attachment format (DOCX vs PDF) for candidate email. | Resolved: PDF rendered from the DL JD text. | FR-EML-04 |
+| FQ-17 | Retention periods for logs, temp files, backups and audit log. | Resolved: logs 45 days, temp files 7 days, retain the last 3 backups, audit log retained. | FR-ARC-05 |
+| FQ-18 | Unparseable Bench End Date: treat as not eligible pending review, or eligible with check? | Resolved: eligible with a "pending review" check flag; do not exclude. | §2.1 validations |
+| FQ-19 | Analyst visibility of the audit log. | Resolved: analysts can view their own events only. | FR-AUD-03 |

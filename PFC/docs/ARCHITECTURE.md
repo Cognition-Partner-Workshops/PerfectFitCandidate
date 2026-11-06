@@ -37,7 +37,7 @@ Architecturally significant requirements:
 | Driver | Baseline | Architectural response |
 |---|---|---|
 | No installation, no admin rights, mostly offline | REQ-PKG-01..04, NFR-02 | Self-contained ZIP: embedded Python, prebuilt llama.cpp, bundled models, static SPA; localhost server; no services/daemons |
-| 16 GB RAM CPU-only laptop shared with Outlook/Teams | REQ-LLM-01, NFR-03 | Small quantized model in a separate, lazily started process; LLM kept out of the scoring loop |
+| 16 GB RAM CPU-only laptop shared with Outlook/Teams | REQ-LLM-01, NFR-03 | Small quantized model in a separate, lazily started process with a ≤8 GB model-process limit; LLM kept out of the scoring loop |
 | Explainable, reproducible, human-reviewed results | REQ-MAT-02/08, REQ-SCR-04, NFR-05 | Deterministic scoring engine; versioned inputs; confirm-before-score; per-profile email approval |
 | CV and personal data stay local by default | NFR-04, REQ-LLM-05 | Local inference default; explicit PII boundary with tokenisation + encryption for optional external providers (Phase 3) |
 | Extensibility (sources, providers, transports) | NFR-07, REQ-ING-04, REQ-LLM-03, REQ-EML-04 | Plugin interfaces in a modular monolith |
@@ -46,8 +46,8 @@ Architecturally significant requirements:
 
 | # | Principle | Meaning for PFC |
 |---|---|---|
-| P-1 | **Local-first** | All core features (ingestion, extraction, embedding, matching, dashboard, drafting) run on the laptop without network; network is used only for Outlook/SMTP sending, synced folders and optional external LLMs (NFR-02). |
-| P-2 | **Privacy by default** | CV text, inference and vectors stay local; email/phone masked in the GUI with audited unmasking (REQ-OUT-03); external calls disabled by default and, when enabled, only after PII masking + encryption and explicit opt-in (REQ-LLM-05, NFR-04). |
+| P-1 | **Local-first** | All core features (ingestion, extraction, embedding, matching, dashboard, drafting) run on the laptop without network; network-backed features are available only when their active Settings flag is enabled (NFR-02). |
+| P-2 | **Privacy by default** | CV text, inference and vectors stay local; email/phone masked in the GUI with audited unmasking (REQ-OUT-03); external calls require an enabled Settings flag and PII masking + encryption (REQ-LLM-05, NFR-04). Corporate approval is granted and no candidate privacy notice is required. |
 | P-3 | **Human-in-the-loop** | Output is a ranked shortlist for review, never a selection decision (§1 of the baseline). Analyze JD → review → Confirm & Start (REQ-MAT-02); per-profile Approve before any email (REQ-EML-01); audited overrides (REQ-MAT-09). |
 | P-4 | **Deterministic, explainable scoring** | Weighted score model 70/10/5/5/5/5 computed by pure code from stored inputs; LLM output is an input that humans confirm, never the score (REQ-LLM-02, D-02). |
 | P-5 | **Pluggable providers** | Ingestion sources, vector store, LLM providers and email transports sit behind interfaces, so watch-folder pickup, Qdrant, OpenAI/Devin and SMTP can be added without changing core services (NFR-07). |
@@ -71,8 +71,10 @@ flowchart LR
     OL --> EX["Corporate mail (Exchange)"]
     EX --> CAND["Candidates"]
     EX --> RT["Resource team (CC)"]
-    PFC -. "optional, Phase 3, masked" .-> EXT["External LLM providers (OpenAI, Devin)"]
-    PFC -. "Phase 3" .-> OD["OneDrive shared folder (metadata packages)"]
+    PFC -. "Phase 3, active Settings flag, masked" .-> EXT["External LLM providers"]
+    ADM --> PKG["Signed settings package (Phase 1)"]
+    PKG --> ANALYSTS["Analyst instances"]
+    PFC -. "Phase 3, replaces or augments packages" .-> OD["OneDrive metadata sync"]
 ```
 
 | External element | Interaction | Phase |
@@ -82,8 +84,9 @@ flowchart LR
 | Resume folder (SharePoint synced locally) | Per-candidate / global CV Sync reads PDF/DOCX | P1 |
 | Outlook desktop | COM automation for mail (P1) and calendar follow-ups (P2) | P1 / P2 |
 | SMTP server | Optional alternative transport | P2 |
-| External LLM providers | Masked, encrypted, opt-in generation calls with smart fallback | P3 |
-| OneDrive shared folder | Encrypted approved-metadata exchange packages to the admin repository | P3 |
+| External LLM providers | When their Settings active flag is enabled, retry compatible API versions, then fall directly to local model; no external-provider chain | P3 |
+| Signed settings package | OCC export and Analyst file-picker or startup-inbox import; channel may be shared folder, Teams or email | P1 |
+| OneDrive shared folder | Metadata sync replaces or augments manual settings packages | P3 |
 
 ## 4. Architecture overview
 
@@ -162,7 +165,7 @@ flowchart TB
 | Container | Technology | Responsibility | Lifecycle |
 |---|---|---|---|
 | SPA | TypeScript, React, CSS (built static files) | Dashboard, results grid, analytics, uploads, JD review, CV sync, email approval, OCC, settings | Served by FastAPI; runs in the user's browser |
-| API process | Embedded Python 3.13, FastAPI, Uvicorn (1 worker) | REST API, services, scoring, embeddings (ONNX Runtime in-process by default), job runner, COM worker | Started by `PFC.cmd`; one instance per user (lock file) |
+| API process | Embedded Python 3.13, FastAPI, Uvicorn (1 worker) | REST API, services, scoring, default nomic-embed-text-v1.5 embeddings via ONNX Runtime, job runner, COM worker | Started by `PFC.cmd`; one instance per user (lock file) |
 | Local LLM process | llama.cpp `llama-server.exe`, GGUF model | JD/CV extraction, email section drafting, chat (P2) | Started lazily by the API process; stopped on idle; restarted on crash |
 | Data store | SQLite file (WAL) with sqlite-vec and FTS5 | Business data, versions, results, audit log, vectors, keyword index | File in `data/db/` |
 | Outlook | Outlook desktop (user's profile) | Sending mail, calendar items | User-managed; driven via COM |
@@ -268,7 +271,7 @@ PFC-<version>\
 ├─ runtime\llama\              llama-server.exe + DLLs (CPU x64 build)
 ├─ models\                     default GGUF LLM, embedding model, MODELS.lock (hashes, licences)
 ├─ web\                        built React SPA (index.html, assets)
-├─ config\                     shipped defaults (grades, bench statuses, scoring template, synonyms seed, approved models)
+├─ config\                     shipped defaults (nine grades A3–E1, bench statuses + editable source-status map, scoring template, synonyms, internal domains, approved models)
 ├─ templates\                  email template, prompts, JSON schemas / grammars, report templates
 ├─ data\                       created at first run; preserved on upgrade (optionally %LOCALAPPDATA%\PFC\data)
 │  ├─ db\pfc.db                SQLite (WAL) incl. vectors and FTS index
@@ -283,7 +286,7 @@ PFC-<version>\
 | Process | Binding | Started by | Notes |
 |---|---|---|---|
 | `python.exe` (FastAPI/Uvicorn) | `127.0.0.1:8765` (fallback: free ephemeral port, recorded in `data/run/port`) | `PFC.cmd` | Never binds `0.0.0.0` (REQ-AUTH-07); single instance via `data/run/pfc.lock` (REQ-PKG-04) |
-| `llama-server.exe` | `127.0.0.1:<random>` with a per-launch API key | API process, lazily | ≤ 6 GB RAM budget (NFR-03); idle shutdown |
+| `llama-server.exe` | `127.0.0.1:<random>` with a per-launch API key | API process, lazily | ≤ 8 GB RAM budget (NFR-03); idle shutdown |
 | Browser | — | Launcher opens default browser | Any modern Chromium/Edge |
 | `OUTLOOK.EXE` | COM (no network port) | User / COM activation | Uses the user's existing profile and corporate mail policies |
 
@@ -317,7 +320,13 @@ flowchart LR
     EXT --> TLS2["TLS response with tokens"]
     TLS2 --> REID
     OUTL --> MAILX["Corporate mail to candidate and resource team"]
+    ADM["OCC Admin"] --> PKG["Signed settings package · Phase 1"]
+    PKG --> SHARE["Shared folder, Teams or email"]
+    SHARE --> IMPORT["Analyst import or startup inbox"]
+    IMPORT --> STORE
 ```
+
+The Phase 1 package is a signed `PFC-settings-v<N>.pfcpkg` ZIP containing versioned JSON, a manifest and Ed25519 signature. Import validates the signature, schema, app compatibility and monotonic version, previews changes, then applies atomically with audit and rollback; no secrets or tokens are included.
 
 | Data class | Examples | Stored | Leaves the laptop? |
 |---|---|---|---|
@@ -327,7 +336,8 @@ flowchart LR
 | Vectors | Chunk embeddings | sqlite-vec (local) | Never (embeddings are always local, REQ-LLM-07) |
 | Secrets | Provider tokens, SMTP credentials, encryption key | DPAPI-protected | Tokens only to their own provider over TLS |
 | Audit / logs | Events, redacted logs | SQLite / log files | No (diagnostics export is redacted and manual) |
-| Approved metadata (P3) | Pseudonymous skills/score statistics | Encrypted packages | To the OneDrive shared folder only, after organisational approval |
+| Settings package (P1) | Approved settings and Analyst accounts; no secrets/tokens | Signed ZIP with manifest and Ed25519 signature | Shared folder, Teams or email; signature provides authenticity |
+| Approved metadata (P3) | Pseudonymous skills/score statistics | Encrypted packages | OneDrive metadata sync replaces or augments manual packages |
 
 ## 9. Key sequences
 
@@ -410,7 +420,6 @@ sequenceDiagram
     participant GW as LLM gateway
     participant PG as PII guard
     participant P1 as External provider 1
-    participant P2 as External provider 2
     participant LOC as Local llama.cpp
     SVC->>GW: generate(request)
     GW->>PG: Tokenise and residual scan
@@ -418,12 +427,10 @@ sequenceDiagram
     GW->>P1: Request (API version v2)
     P1-->>GW: Version conflict error
     GW->>P1: Retry with compatible version v1
-    P1-->>GW: Timeout
-    GW->>P2: Request
-    P2-->>GW: Auth failure
+    P1-->>GW: Timeout or compatible API versions exhausted
     GW->>LOC: Request (unmasked, local)
     LOC-->>GW: Result
-    GW-->>SVC: Result, served_by local, fallback chain recorded
+    GW-->>SVC: Result, served_by local; no external-provider chain
 ```
 
 ## 10. Quality attributes
@@ -436,7 +443,7 @@ sequenceDiagram
 | **Reliability** | Consistent data, no duplicate emails (REQ-EML-06) | SQLite WAL + transactional upserts; backups before migrations and daily; idempotent ingestion (file hash) and email sending (idempotency key + `Sending` reconciliation); crash-isolated `llama-server` with supervised restart; degraded modes (no LLM → manual requirements; no Outlook → drafts retained; no vector extension → NumPy store). |
 | **Reproducibility / explainability** | Every score reproducible and explained (REQ-MAT-08, REQ-SCR-04, NFR-05) | Pure scoring engine; run records engine, template, embedding model, JD/CV versions, synonym-set hash and config hash; per-component breakdown with inputs; append-only versions. |
 | **Portability** | Portable ZIP on Windows 11 without admin (REQ-PKG-01..04) | Embedded signed Python + vendored wheels; prebuilt llama.cpp; static SPA; relative paths; data folder separable; no installers, services or registry writes. |
-| **Resource footprint** | Fits 16 GB with Outlook/Teams; model ≤ 6 GB (NFR-03) | 1.5B–3.8B Q4 models (~1.5–4.5 GB); lazy start and idle stop of the model process; one active model (REQ-LLM-01); small embedding model (~200–300 MB). |
+| **Resource footprint** | Fits 16 GB with Outlook/Teams; model process ≤ 8 GB (NFR-03) | Q4 model-size and memory figures are estimates pending benchmark; lazy start and idle stop of the model process; one active model (REQ-LLM-01); default nomic-embed-text-v1.5 embedding model (~137M parameters). |
 | **Maintainability / extensibility** | Plugin interfaces (NFR-07) | Modular monolith with routers → services → domain/adapters; interfaces for sources, vector stores, LLM providers, transports; versioned config, prompts and templates. |
 | **Usability** | Professional dashboard, accessibility (NFR-06) | SPA with charting per [DASHBOARD_RESEARCH.md](DASHBOARD_RESEARCH.md) and screens per [GUI_OCC_DESIGN.md](GUI_OCC_DESIGN.md); responsive API via background jobs and progress feedback. |
 
@@ -452,15 +459,17 @@ sequenceDiagram
 | ADR-06 | **Deterministic weighted scoring**; LLM only for extraction and drafting | Accepted (REQ-LLM-02, D-02) | LLM-as-judge scoring, learned ranking model | Reproducible, explainable, fast (no LLM per pair), auditable; weights from the metadata sheet (70/10/5/5/5/5); human-confirmed requirements bridge LLM output into scoring | Accuracy depends on requirement quality, synonyms and embeddings — tuned via the admin template against KPI-01 |
 | ADR-07 | **Modular monolith** in one Python process with an in-process job runner | Proposed | Microservices, Celery + Redis | ~5 users, single laptop, no admin rights; fewer processes and ports; simpler packaging | Long jobs share the process — bounded thread pool and job priorities required |
 | ADR-08 | **Embeddable Python + vendored wheels** packaging | Proposed (see [FEASIBILITY.md](FEASIBILITY.md)) | PyInstaller, Nuitka | python.org-signed interpreter is more likely to pass AV/AppLocker than unsigned frozen EXEs; no compiler toolchain | Many files in the ZIP; launcher is a `.cmd` file that must be permitted |
-| ADR-09 | **External LLMs behind PII guard with smart fallback to local** | Proposed, Phase 3 (REQ-LLM-03..05) | No external providers; unmasked external calls | Optional quality/speed boost while keeping privacy-by-default | Masking can reduce answer quality; embeddings remain local |
+| ADR-09 | **External LLMs behind PII guard with direct local fallback** | Accepted, Phase 3 (REQ-LLM-03..05) | No external providers; unmasked external calls; chaining external providers | Retry compatible API versions, then fall directly to local model; corporate approval granted and Settings active flag required | Masking can reduce answer quality; embeddings remain local |
+| ADR-10 | **Signed settings packages for Phase 1 cross-instance configuration** | Accepted (REQ-OCC-01/02) | Manual entry on each instance; Phase 3-only sync | Ed25519-signed, monotonic-version ZIP supports preview, atomic apply, audit and rollback; Phase 3 metadata sync replaces or augments it | Signing key protection and package delivery procedures are required |
+| ADR-11 | **nomic-embed-text-v1.5 as default embedding model** | Accepted (REQ-LLM-07) | bge-small / bge-base alternatives; other models | 137M, Apache-2.0, 768 dimensions with Matryoshka truncation option, 8192-token context; ONNX Runtime default, llama.cpp GGUF alternative and required task prefixes | Model import triggers re-embedding and records model version per vector |
 
 ## 12. Evolution by phase
 
 | Phase | Architectural additions |
 |---|---|
-| **Phase 1 — MVP** | SPA, FastAPI, SQLite + sqlite-vec + FTS5, ingestion (manual upload), resume extractor with CV Sync, embedding service, scoring engine, local llama.cpp gateway, Outlook COM email agent with approval and status tracking, auth/RBAC, audit log, OCC basics, CSV/XLSX export, launcher and ZIP packaging; placeholder config for watch folders and external providers. |
+| **Phase 1 — MVP** | SPA, FastAPI, SQLite + sqlite-vec + FTS5, ingestion (manual upload), resume extractor with CV Sync, nomic embedding service, scoring engine, local llama.cpp gateway, Outlook COM email agent with approval and status tracking, auth/RBAC, audit log, editable seeded status map, OCC basics, internal-domain allowlist, signed settings-package export/import, CSV/XLSX export, launcher and ZIP packaging with dummy placeholders for inactive settings. |
 | **Phase 2** | Watch-folder source plugin (auto-pickup), Outlook calendar follow-ups, PDF report generator, chat-with-data (local RAG over FTS5 + vectors), manual archival with preview, internal/external classification, CV version comparison, SMTP transport. |
-| **Phase 3** | External LLM provider adapters (OpenAI, Devin) with PII guard, encryption and smart fallback; advanced OCC (role-specific scoring templates, model benchmark lab); scheduled archival/housekeeping; licensing (per-user ZIP + Ed25519-signed device licence); OneDrive encrypted metadata sync packages and admin import. |
+| **Phase 3** | External LLM provider adapters with PII guard, encryption, compatible API-version retries and direct local fallback; advanced OCC (role-specific scoring templates, model benchmark lab); scheduled archival/housekeeping; licensing (per-user ZIP + Ed25519-signed device licence); OneDrive metadata sync replaces or augments settings packages. |
 
 Phase scope and sequencing are detailed in [PHASES.md](PHASES.md).
 
@@ -484,5 +493,5 @@ Phase scope and sequencing are detailed in [PHASES.md](PHASES.md).
 | AQ-02 | Is a separate `llama-server.exe` process allowed, or must inference run in-process? | Default separate process; in-process fallback via llama-cpp-python | ADR-03 |
 | AQ-03 | Embedding runtime: ONNX Runtime in-process or llama.cpp embeddings? | Benchmark with model selection | O-05 |
 | AQ-04 | Is full-database encryption (SQLCipher) required in addition to BitLocker? | Confirm with IT security; field-level encryption for secrets regardless | REQ-AUTH-06 |
-| AQ-05 | Corporate approval for CV processing, Outlook automation and external LLM use | Confirm before Phase 1 pilot | O-06 |
+| AQ-05 | Corporate approval for CV processing, Outlook automation and external LLM use | Resolved: corporate approval is granted; no candidate privacy notice is required and these approvals are not a Phase 1 pilot gate. | O-06 |
 | AQ-06 | Admin repository for Phase 3 OneDrive metadata packages: same app in admin mode or separate console? | Same codebase, admin-mode features gated by role/licence; to be confirmed in Phase 3 design | D-03, REQ-AUTH-08 |

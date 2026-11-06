@@ -1,6 +1,6 @@
 # PerfectFitCandidate (PFC)
 
-Internal, local-first web application that matches bench resources to open demands, with explainable 0–100 % match scores, human-approved candidate emails and demand/bench analytics. Runs from a portable ZIP on a locked-down Windows 11 laptop.
+Internal, local-first web application that matches bench resources to open demands, with explainable 0–100 % match scores, human-approved candidate emails and demand/bench analytics. Runs from a portable ZIP on a locked-down Windows 11 laptop, launched by a `.bat` / `.cmd` file. The default local embedding model is nomic-embed-text-v1.5, external network features require an active Settings flag, and the model process is limited to ≤8 GB.
 
 > Status: **documentation only** — no application code yet.
 

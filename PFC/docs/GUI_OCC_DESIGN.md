@@ -117,7 +117,7 @@ Colours are described in words with indicative values; final values must pass WC
 
 | Token | Description | Indicative value |
 |---|---|---|
-| `color-bg-app` | Very light cool grey page background | `#F5F7FA` |
+| `color-bg-app` | Cool grey page background in the premium-feel CSS design system | `#E6E6EB` |
 | `color-bg-surface` | White card/panel surface | `#FFFFFF` |
 | `color-bg-subtle` | Light grey for table header, zebra rows, read-only fields | `#EEF1F5` |
 | `color-border` | Soft grey divider and input border | `#D0D5DD` |
@@ -272,10 +272,11 @@ Legend: **F** = full access, **R** = read-only, **P** = partial (see note), **�
 | Login, change own password | F | F | REQ-AUTH-01..03 |
 | First-run admin setup | — | F (once) | Only when no admin exists (REQ-AUTH-03) |
 | Dashboard (KPIs, charts, filters) | F | F | REQ-OUT-04..08 |
+| Dashboard leadership view | R | R | Leadership users are assigned the Analyst role |
 | Dashboard PDF report download | F | F | Phase 2 (REQ-OUT-09) |
 | Demand List — view, upload, Analyze JD, Confirm & Start | F | F | REQ-ING-01, REQ-MAT-02; Admin may also define default extraction settings |
 | Bench List — view, upload, Sync, Show/Hide email | F | F | REQ-IN-21, REQ-OUT-03 (unmask logged) |
-| Excluded-from-matching view | R | R | REQ-ELIG-07 |
+| Excluded-from-matching view | R | R | REQ-ELIG-08 |
 | Match Results — view, filter, export CSV | F | F | REQ-OUT-01, REQ-OUT-09 |
 | Match Results — overrides (pin/unpin, exclude, adjust band) | F | F | REQ-MAT-09, audit-logged |
 | Candidate Profile | F | F | Incomplete-identity resolution by either role |
@@ -284,7 +285,7 @@ Legend: **F** = full access, **R** = read-only, **P** = partial (see note), **�
 | Chat | F | F | Phase 2 |
 | Settings — account, paths, auto-sync placeholders, email transport, email template | F | F | REQ-AUTH-02, REQ-ING-04/05, REQ-EML-03/04 |
 | Settings — choose active LLM model | P | F | Analyst chooses only from the admin-approved list (REQ-LLM-06) |
-| Settings — external LLM providers and tokens | F | F | Placeholder Phase 1, live Phase 3 (REQ-LLM-03) |
+| Settings — external LLM providers and tokens | F | F | Network-backed features require their active Settings flag; external LLM live Phase 3 (NFR-02, REQ-LLM-03) |
 | Active scoring-template version (display) | R | F | Shown read-only on Match Results for Analysts (REQ-ROLE-04) |
 | OCC (all sub-sections) | — | F | REQ-ROLE-03; tab not rendered for Analysts |
 | Audit log viewer | — | F | REQ-AUTH-05 |
@@ -507,9 +508,9 @@ flowchart TD
 |---|---|---|
 | Requisitions assessed | Count of requisitions with a confirmed, scored JD in the latest run vs. open requisitions in the DL (REQ-OUT-04) | Demand List filtered "Scored" |
 | Role-to-person combinations | Count of requisition–person rows produced (normally ≤ 5 per requisition, REQ-MAT-03) | Match Results |
-| Roles with no suitable candidate | Requisitions with no Strong/Potential/Avg. match (only Weak or none) (REQ-OUT-04) | Match Results filtered to those requisitions |
+| Roles with no suitable candidate | Requisitions with no Strong/Potential/Avg. match; Weak-only is shown separately (REQ-OUT-04) | Match Results filtered to those requisitions |
 | Data-quality limitations | Count of material issues in DL/CT (missing grade/skills/email, unparseable dates, ID-format warnings, ambiguous identities, CV not found) (REQ-OUT-04, KPI-05) | Data quality section |
-| Secondary strip | Eligible bench vs. excluded (REQ-ELIG-07), match coverage (KPI-04), email turnaround ≤ 24 h (KPI-03), auto-match accuracy (KPI-01) once labelled data exists | Respective views |
+| Secondary strip | Eligible bench vs. excluded (REQ-ELIG-08), match coverage (KPI-04), email turnaround ≤ 24 h (KPI-03), auto-match accuracy (KPI-01) once labelled data exists | Respective views |
 
 Exact definitions for counts (e.g. whether "no suitable candidate" includes Weak-only requisitions) follow [FDD.md](FDD.md); see [Open questions](#20-open-questions).
 
@@ -521,13 +522,17 @@ The final chart catalogue, chart types and interactions are recommended in [DASH
 |---|---|---|---|
 | Demand analytics | Open demands by BU / region | Grouped or stacked bar | REQ-OUT-05 |
 | Demand analytics | Top 5 skills in demand (synonym-normalised) | Horizontal bar | REQ-OUT-05 |
+| Demand analytics | Grade → JD count | Bar | REQ-OUT-05 |
 | Demand analytics | Top 3 accounts by JD count | Horizontal bar / ranked list | REQ-OUT-05 |
 | Demand analytics | Demand start-date pipeline | Column by week/month | REQ-OUT-05 |
+| Demand analytics | Scrollable DL rows ordered by Position Start Date descending | Table | REQ-OUT-05 |
 | Bench analytics | Top 5 skills in pool | Horizontal bar | REQ-OUT-06 |
-| Bench analytics | Grade histogram (bench pool, optional overlay of demand grades) | Column histogram A3 → D2 | REQ-OUT-06 |
+| Bench analytics | Top 5 demanded skills vs. eligible bench supply, stacked by Available Capacity Y/N (display only) | Stacked horizontal bar | REQ-OUT-06 |
+| Bench analytics | Grade histogram (bench pool, optional overlay of demand grades) | Column histogram A3 → E1 | REQ-OUT-06 |
 | Bench analytics | Bench timeline bubble (bench start → end/today, bubble size = number of people or days on bench) | Bubble / range timeline | REQ-OUT-06 |
 | Bench analytics | Bench aging (0–2, 2–4, 4–8, 8–12, > 12 weeks) | Column | REQ-OUT-06 |
 | Bench analytics | Bench status distribution (eligible statuses in priority order + excluded) | Bar | REQ-OUT-06 |
+| Bench analytics | Scrollable CT rows ordered by Bench Start Date descending | Table | REQ-OUT-06 |
 | Match & communication | Match coverage (demands with ≥ 1 Strong/Potential) | Progress ring + trend | REQ-OUT-07, KPI-04 |
 | Match & communication | Band distribution (Strong / Potential / Avg. / Weak / Insufficient data) | Doughnut with labels | REQ-OUT-07 |
 | Match & communication | Email status counts (Draft / Approved / Sent / Failed) | Stacked bar | REQ-OUT-07, REQ-EML-06 |
@@ -537,7 +542,7 @@ Chart-card behaviour: hover tooltip with exact values; click a bar/segment → c
 
 ### 8.3 Global filters
 
-Filter bar per REQ-OUT-08: BU, region, account, grade, location, band, status, candidate type (Internal/External/Unknown — Phase 2 with REQ-CLS-02), incomplete identity, mandatory-skill status (all met / some missing), score range slider. Active filters appear as removable chips; "Clear all"; "Save view" stores named filter presets per user (useful for personas B and C). Filters persist when navigating to Match Results via a "Carry filters" link.
+Filter bar per REQ-OUT-08 / REQ-MAT-10: Code Requisition, Account Name, BU, Grade, Location, region, band, status, candidate type, incomplete identity, mandatory-skill status and score range. Active filters appear as removable chips; "Clear all"; "Save view" stores named filter presets per user (useful for personas B and C). Filters persist when navigating to Match Results via a "Carry filters" link.
 
 ### 8.4 PDF report download (Phase 2)
 
@@ -949,7 +954,7 @@ Raised when CV extraction or identity resolution finds a missing name or email, 
 | Per-profile **Approve** | Mandatory explicit approval per candidate–demand email (REQ-EML-01). "Approve selected" exists for convenience but opens a confirmation listing every recipient; no email is ever sent without its own Approved state. |
 | **Send** | Enabled only for Approved items. Sends via **Outlook COM** (primary) or SMTP (Phase 2) per Settings (REQ-EML-04). Status → Sent (timestamp, sender) or Failed (reason, Retry). |
 | Duplicate guard | If the same candidate–demand pair was already Sent, Approve shows "Already sent on DD MMM YYYY by <user>. Re-send?" requiring explicit confirmation (REQ-EML-06). |
-| Calendar follow-up (Phase 2) | Checkbox "Create Outlook follow-up" with default +2 business days and editable date/time; creates a reminder/meeting after successful send (REQ-EML-08). |
+| Calendar follow-up (Phase 2) | Checkbox "Create Outlook follow-up" with default +1 business day and editable date/time; creates a reminder/meeting after successful send (REQ-EML-08). |
 | No reply parsing | Status stops at Sent/Failed; the UI never claims a reply was received (REQ-EML-06). |
 
 ### 13.2 Email status lifecycle
@@ -1044,12 +1049,13 @@ States: empty (suggested questions), thinking (streaming indicator, Stop), model
 |---|---|---|
 | Account | Name (read-only), corporate email (read-only), role (read-only), **Change password** (current, new, confirm, policy checklist) (REQ-AUTH-02/03); default landing section (e.g. Demand analytics for persona B). | 1 |
 | Data sources | **Resume folder path** with Browse/Test (REQ-IN-20, REQ-ING-05); **auto-sync placeholder** paths and file patterns for DL and CT separately, disabled by default with "Available in Phase 2" note (REQ-ING-04); Phase 2 enables the toggles, shows last pickup and errors. | 1 / 2 |
-| LLM provider | **Active local model** chosen from the admin-approved list with approximate RAM/disk per model and load status (REQ-LLM-01/06); **External providers** (e.g. Devin, OpenAI/ChatGPT): provider, endpoint/API version, **user-supplied token** (stored encrypted, write-only — shown as "•••• set" with Replace/Remove) (REQ-LLM-03, REQ-AUTH-06), fallback order list (drag to reorder; local model always last) (REQ-LLM-04), "PII masking is always applied" notice (REQ-LLM-05). Phase 1 shows this block as placeholder configuration; calls are enabled in Phase 3 and only for providers the Admin permits. | 1 (local) / 3 (external) |
+| LLM provider | **Active local model** chosen from the admin-approved list with approximate RAM/disk per model and load status (REQ-LLM-01/06); **External providers** (e.g. Devin, OpenAI/ChatGPT): provider, endpoint/API version, **user-supplied token** (stored encrypted, write-only — shown as "•••• set" with Replace/Remove) (REQ-LLM-03, REQ-AUTH-06); compatible API-version retries fall back directly to the local model, never to another external provider (REQ-LLM-04); "PII masking is always applied" notice (REQ-LLM-05). Each network-backed feature is available only when its active Settings flag is enabled (NFR-02). | 1 (local) / 3 (external) |
 | Email | Transport: **Outlook COM** (default; "Test Outlook" button) or **SMTP** (Phase 2: host, port, TLS, user, password stored encrypted, "Send test email") (REQ-EML-04); SPOC-1 / SPOC-2 values for the template; default follow-up offset (Phase 2, REQ-EML-08). | 1 / 2 |
 | Email template | Editor for the default template shipped in the ZIP (REQ-EML-03) with placeholder palette (`{candidate_name}`, `{requisition}`, `{role}`, `{match_pct}`, `{gaps}`, `{pointers}`, `{spoc_1}`, `{spoc_2}`), live preview against a sample match, validation of unknown placeholders, "Reset to shipped default", version history. | 1 |
+| Settings package | Import a signed package by file picker; show signature/version validation and a diff preview before atomic apply; show import errors, one-click rollback to the prior package, and imported-account force-password-change notices. Startup also checks `inbox\\`. | 1 |
 | Display | Density (Comfortable/Compact), table page size, left panel default collapsed, reduced motion. | 1 |
 
-Analysts cannot see or change: scoring weights/templates, status list/priority, grade list, internal email domains, resource-team list, approved models list, users, archival, audit log, licensing, admin settings (REQ-ROLE-04).
+Analysts cannot see or change OCC-only configuration such as scoring weights/templates, status list/map/priority, grade list, internal email domains, resource-team list, approved models list, users, archival, audit log, licensing, or admin settings (REQ-ROLE-04). Analysts can import signed settings packages in Settings.
 
 States: path test failure (inline error "Folder not found or not accessible"), save error (banner, values retained), token validation failure (Phase 3: "Token rejected by provider — check token or API version").
 
@@ -1061,7 +1067,7 @@ States: path test failure (inline error "Folder not found or not accessible"), s
 
 **Purpose.** Admin-only section inside the main GUI with full privileges (REQ-ROLE-03): approve/modify DL and CT entries, manage users, reference lists, scoring configuration, models, archival, audit and (Phase 3) licensing. The tab is not rendered for Analysts and all OCC routes are enforced server-side.
 
-**Layout.** OCC landing page = overview cards + sub-navigation (vertical, grouped). Every OCC change is audit-logged with before/after values (REQ-AUTH-05). Configuration objects that affect scoring (template, status list, grade list, synonyms) are **versioned**; saving a change creates a new version and offers "Rescore now / later" (REQ-MAT-08).
+**Layout.** OCC landing page = overview cards + sub-navigation (vertical, grouped). Every OCC change is audit-logged with before/after values (REQ-AUTH-05). Configuration objects that affect scoring (template, status list/map, grade list, synonyms) are **versioned**; saving a change creates a new version and offers "Rescore now / later" (REQ-MAT-08).
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
@@ -1097,7 +1103,7 @@ States: path test failure (inline error "Folder not found or not accessible"), s
 | 16.4 | DL & CT approvals | Review/approve/modify uploaded entries (diff queue) | 1 |
 | 16.5 | Skill-synonym tracker | Maintain synonyms/abbreviations/spelling variants | 1 |
 | 16.6 | Scoring template & weights | Versioned weights and rules | 1 (template library and advanced editor 3) |
-| 16.7 | Status list & priority | Bench statuses, eligibility, priority order | 1 |
+| 16.7 | Status list, mapping & priority | Bench statuses, source-status mapping, eligibility and priority order | 1 |
 | 16.8 | Grade list | Grade sequence | 1 |
 | 16.9 | Internal email domains | Allowlist for Internal/External classification | 2 |
 | 16.10 | Approved LLM models | Approved model list (static) / benchmark lab | 1 (list) / 3 (lab) |
@@ -1105,6 +1111,7 @@ States: path test failure (inline error "Folder not found or not accessible"), s
 | 16.12 | Audit log viewer | Search and export audit events | 1 |
 | 16.13 | Licensing | Generate User ZIP, device activation, signed licences | 3 |
 | 16.14 | Admin settings | Security, masking, thresholds, defaults | 1 |
+| 16.15 | Settings packages | Export signed package; view version history | 1 |
 
 ### 16.2 Users & passwords
 
@@ -1125,7 +1132,7 @@ Editable list of CC recipients for candidate emails (REQ-EML-05): email, display
 
 ### 16.4 DL & CT approvals (diff/approval queue)
 
-Uploaded changes apply immediately for matching (REQ-ING-03); the queue lets the Admin **review, approve or modify** each new/updated/removed entry after the fact.
+Uploaded changes apply immediately for matching (REQ-ING-03); the queue lets the Admin **review, approve or modify** each new/updated/removed entry after the fact. A notification flag identifies new or changed uploaded DL/CT data for OCC review.
 
 ```text
 ┌ DL & CT approvals ───────────────────────────────────────────────────────────────────┐
@@ -1217,19 +1224,19 @@ Ordered, editable list of Bench Status values (REQ-ELIG-02/03): status label (ex
 | — | Unknown | Excluded |
 | — | CV with Client - Sold - Pending Allocation | Excluded |
 
-Unknown statuses found in an upload appear in a "Unmapped statuses" banner with a quick "Add to list" action; until mapped they are treated per the decision recorded in [FDD.md](FDD.md) (see [Open questions](#20-open-questions)). Group value `Not on Bench` exclusion and filled Bench End Date exclusion are shown as fixed rules (not editable here) (REQ-ELIG-01). Saving creates a new version and offers rescoring.
+The editable, seeded source-status mapping table maps uploaded status text to canonical status, priority and excluded flag. Unknown statuses appear in an "Unmapped statuses" banner with an "Add to map" action; until mapped they remain eligible at priority 2 with binary status score 0, and are flagged "Unmapped status" in Gaps / Checks and OCC data quality (REQ-ELIG-07). Group value `Not on Bench` and a parseable filled Bench End Date are fixed eligibility rules (REQ-ELIG-01). Saving creates a new version and offers rescoring.
 
 ### 16.8 Grade list
 
-Ordered grade sequence used for grade alignment (REQ-GRD-01): seed `A3 < A4 < B1 < B2 < C1 < C2 < D1 < D2`. Drag to reorder, add/retire grades, with a live preview of the ±1 window ("D1 demand → C2, D1, D2"). `E1` is not seeded (O-01); adding it is an Admin action. Values found in uploads but missing from the list are flagged as data-quality issues. Versioned; rescoring offered on save.
+Ordered grade sequence used for grade alignment (REQ-GRD-01): seed `A3 < A4 < B1 < B2 < C1 < C2 < D1 < D2 < E1` (nine grades). Drag to reorder, add/retire grades, with a live preview of the ±1 window ("D1 demand → C2, D1, D2"). E1 is seeded. Values found in uploads but missing from the list are flagged as data-quality issues. Versioned; rescoring offered on save.
 
-### 16.9 Internal email domains (Phase 2)
+### 16.9 Internal email domains (Phase 1)
 
-Allowlist of internal domains (REQ-CLS-01): input accepts `capgemini.com` or `@capgemini.com` and normalises to `capgemini.com`; exact-match semantics with a note "Domain is a heuristic, not proof of employment" (REQ-CLS-02). Shows count of candidates classified Internal/External/Unknown and previews the reclassification impact before saving; saving triggers re-evaluation.
+The initial app ZIP ships the default internal-domain allowlist (REQ-CLS-01). Input accepts a domain and normalises it; exact-match semantics include the note "Domain is a heuristic, not proof of employment" (REQ-CLS-02). Shows count of candidates classified Internal/External/Unknown and previews the reclassification impact before saving; saving triggers re-evaluation.
 
 ### 16.10 Approved LLM models
 
-- **Phase 1 (static list):** table of models available in the ZIP/models folder: name, file, quantisation, size on disk, approximate RAM, licence, purpose (generation / embedding), status (Approved / Not approved), default flag. Admin approves which models Analysts may select (REQ-LLM-06); one active generation model at a time (REQ-LLM-01); embedding model change warns "Requires re-indexing all vectors" (REQ-LLM-07).
+- **Phase 1 (static list):** table of models available in the ZIP/models folder: name, file, quantisation, size on disk, approximate RAM, licence, purpose (generation / embedding), status (Approved / Not approved), default flag. Default embedding is nomic-embed-text-v1.5; bge-small and bge-base remain alternatives. Admin approves which models Analysts may select (REQ-LLM-06); one active generation model at a time (REQ-LLM-01); embedding model change warns "Requires re-indexing all vectors" (REQ-LLM-07).
 - **Phase 1 placeholder → Phase 3:** external providers allowed (Devin, OpenAI/ChatGPT, …) with enable toggle per provider and PII-masking policy display (REQ-LLM-03/05).
 - **Phase 3 (model benchmark lab, advanced OCC):** run a benchmark suite on a labelled sample: extraction accuracy, latency, RAM; side-by-side results table; "Approve" publishes to the list (REQ-LLM-06).
 
@@ -1272,7 +1279,15 @@ Per REQ-AUTH-08: **Generate User ZIP** (select user → builds a per-user packag
 | Privacy | Masking pattern (default: keep 2, mask 6) for email and phone (REQ-OUT-03); whether Analysts may unmask (default yes, logged, per capability matrix §2 of the baseline). |
 | Matching defaults | Top-N per requisition (default 5, REQ-MAT-03); emails pre-selected per JD (default 4, O-07); Weak-match inclusion rule display (REQ-MAT-04); default JD-extraction settings. |
 | Data | Stale-data banner threshold; date display format (single global format, REQ-OUT-02). |
-| Email | Turnaround target (default 24 h, REQ-EML-07); default follow-up offset (Phase 2). |
+| Email | Turnaround target (default 24 h, REQ-EML-07); default follow-up offset is one business day (Phase 2). |
+
+### 16.15 Settings packages
+
+The OCC Admin sees **Export settings package** with the monotonic package version, contents summary, signing status and save/share options. Export creates a signed `PFC-settings-v<N>.pfcpkg`; the package contains configuration, approvals and Analyst accounts, but no secrets or tokens. The paired Settings import screen supports file picker or the startup `inbox\\` folder, and displays signature, schema/app compatibility, package version, and a before/after diff. Confirmation applies the package atomically; any validation/apply error leaves the current settings unchanged and shows a clear error. Import history offers audit details and one-click rollback to the previous package; imported one-time passwords require a change at first login. OCC can also import an approved signed `.pfcmodel` add-on and see re-embedding progress.
+
+### 16.16 Cached CV extraction removal
+
+OCC Admin can manually remove cached CV extractions for a selected candidate from the candidate profile, with a confirmation showing the affected CV versions and an audit entry. The source CV file is not deleted.
 | External providers | Allow external LLM providers (default off; Phase 3). |
 | Feature flags | Read-only view of phase-gated features enabled in this build. |
 
@@ -1390,17 +1405,17 @@ Phase definitions are in [PHASES.md](PHASES.md).
 
 GUI-level gaps found while designing; none of these is decided here. Proposed defaults are suggestions for the decision owner.
 
-| # | Question | Proposed default for discussion | Related |
+| # | Question | Decision | Related |
 |---|---|---|---|
-| GQ-01 | "Roles with no suitable candidate" KPI: does a requisition with only Weak matches count as "no suitable candidate"? | Count requisitions with no Strong/Potential/Avg. match; show Weak-only separately. | REQ-OUT-04, REQ-MAT-04 |
-| GQ-02 | Instances are single-user (REQ-PKG-04). Until OneDrive metadata sync (Phase 3), how do OCC changes made on the Admin's instance (synonyms, template, users, resource-team list) reach Analysts' instances — or do Analyst accounts live on a shared instance? | Clarify in [ARCHITECTURE.md](ARCHITECTURE.md)/[TDD.md](TDD.md); GUI designed to work either way. | REQ-PKG-04, D-03 |
-| GQ-03 | Lockout threshold, lockout duration, session timeout and password policy values. | Admin-configurable; defaults set in [TDD.md](TDD.md). | REQ-AUTH-03/04 |
-| GQ-04 | Bench Status values not present in the OCC status list (new/misspelled statuses in an upload): include, exclude or mark Insufficient data until mapped? | Flag as data-quality issue and exclude from matching until mapped by Admin. | REQ-ELIG-02/03 |
-| GQ-05 | Can an Analyst override candidate classification (Internal/External/Unknown), or only the Admin? | Admin applies; Analyst can request via a note. | REQ-CLS-02 |
-| GQ-06 | Incomplete Candidate Information "manual entry": may an email not present in the CT be typed in, given "never construct, infer or correct an email"? | Only allow selecting an email that exists in the CT; free entry disabled. | REQ-IN-14, REQ-IN-23 |
-| GQ-07 | Email template: one template per instance (analyst-editable) or an Admin-managed default plus personal copies? | Admin-managed default in OCC; analysts edit a personal copy in Settings. | REQ-EML-03 |
-| GQ-08 | Should Analysts be able to override bands (REQ-MAT-09) or only pin/unpin/exclude? | Allow all overrides with mandatory reason and audit log. | REQ-MAT-09 |
-| GQ-09 | Whether the JD attachment in candidate emails is the original JD text, a generated PDF or a DOCX. | Generated PDF of normalised JD text (Phase 1 may attach plain text/DOCX if PDF generation is Phase 2). | REQ-EML-02, REQ-OUT-09 |
-| GQ-10 | Analyst unmasking of email/phone: always allowed (logged), or Admin-configurable per user? | Allowed and logged (baseline capability matrix); Admin setting to restrict. | REQ-OUT-03 |
-| GQ-11 | Exact date display format (e.g. `DD MMM YYYY` vs `DD/MM/YYYY`). | `DD MMM YYYY` in GUI; ISO or Excel date type in exports. | REQ-OUT-02 |
+| GQ-01 | "Roles with no suitable candidate" KPI: does a requisition with only Weak matches count as "no suitable candidate"? | Resolved: count Weak-only as no suitable; display Weak-only requisitions separately. | REQ-OUT-04, REQ-MAT-04 |
+| GQ-02 | Instances are single-user (REQ-PKG-04). Until OneDrive metadata sync (Phase 3), how do OCC changes made on the Admin's instance (synonyms, template, users, resource-team list) reach Analysts' instances — or do Analyst accounts live on a shared instance? | Resolved: use signed manual settings-package export/import in Phase 1; Phase 3 metadata sync replaces or augments the flow. | REQ-OCC-01/02, D-03 |
+| GQ-03 | Lockout threshold, lockout duration, session timeout and password policy values. | Resolved: five attempts, 15-minute lockout, 60-minute idle timeout; password policy as specified in TDD. | REQ-AUTH-03/04 |
+| GQ-04 | Bench Status values not present in the OCC status list (new/misspelled statuses in an upload): include, exclude or mark Insufficient data until mapped? | Resolved: include at priority 2 with binary score 0 until mapped; flag "Unmapped status" and provide a seeded editable mapping. | REQ-ELIG-07 |
+| GQ-05 | Can an Analyst override candidate classification (Internal/External/Unknown), or only the Admin? | Resolved: Admin applies the override; Analyst may request it with a note. | REQ-CLS-02 |
+| GQ-06 | Incomplete Candidate Information "manual entry": may an email not present in the CT be typed in, given "never construct, infer or correct an email"? | Resolved: select only an email present in the CT; free entry is disabled. | REQ-IN-14, REQ-IN-23 |
+| GQ-07 | Email template: one template per instance (analyst-editable) or an Admin-managed default plus personal copies? | Resolved: Admin-managed default in OCC; Analysts edit a personal copy in Settings. | REQ-EML-03 |
+| GQ-08 | Should Analysts be able to override bands (REQ-MAT-09) or only pin/unpin/exclude? | Resolved: allow all specified overrides with mandatory reason and audit log. | REQ-MAT-09 |
+| GQ-09 | Whether the JD attachment in candidate emails is the original JD text, a generated PDF or a DOCX. | Resolved: attach a generated PDF of confirmed JD text. | REQ-EML-02, REQ-OUT-09 |
+| GQ-10 | Analyst unmasking of email/phone: always allowed (logged), or Admin-configurable per user? | Resolved: allowed and logged by default; Admin may restrict by user. | REQ-OUT-03 |
+| GQ-11 | Exact date display format (e.g. `DD MMM YYYY` vs `DD/MM/YYYY`). | Resolved: `DD MMM YYYY` in GUI; ISO or Excel date type in exports. | REQ-OUT-02 |
 | GQ-12 | Is the Chat tab hidden or shown as "coming soon" in Phase 1? | Hidden via feature flag. | PHASES.md |

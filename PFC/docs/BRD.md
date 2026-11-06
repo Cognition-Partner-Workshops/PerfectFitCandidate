@@ -45,7 +45,7 @@ The bench management team currently matches **bench resources** to **open demand
 - drafts tailored candidate emails that are sent via Outlook **only after explicit per-candidate approval**;
 - provides demand, bench and match analytics dashboards for leadership and analysts.
 
-PFC runs as a **portable ZIP** on a locked-down **Windows 11 Pro** corporate laptop with **no admin rights**, mostly **offline**, using a **local LLM (llama.cpp)** so CV content stays on the device (REQ-PKG-01, REQ-LLM-01, NFR-02, NFR-04).
+PFC runs as a **portable ZIP** on a locked-down **Windows 11 Pro** corporate laptop with **no admin rights**, mostly **offline**, using a **local LLM (llama.cpp)** and a default nomic-embed-text-v1.5 embedding model so CV content stays on the device (REQ-PKG-01, REQ-LLM-01/07, NFR-02, NFR-04). The model process is limited to ≤8 GB.
 
 The **primary success metric is auto-match accuracy** (KPI-01): how well the system's top-5 shortlist agrees with the shortlist an experienced analyst would confirm. PFC's output is always a shortlist for human review — **never an automated staffing or selection decision** (REQ-SCR-05).
 
@@ -103,7 +103,7 @@ Analysts upload the latest DL/CT; PFC normalises and de-duplicates them, applies
 
 | Stakeholder | Description | Interest / role in PFC |
 |---|---|---|
-| Leadership (sponsor) | Bench/resource management leadership; sponsor and dashboard consumer | Funds and prioritises; consumes analytics; approves KPI targets and go-live |
+| Leadership (sponsor) | Bench/resource management leadership; sponsor and dashboard consumer | Assigned the Analyst role; funds and prioritises; consumes analytics; approves KPI targets and go-live |
 | Analyst A | Matching and candidate outreach (Analyst role) | Primary user of matching, shortlist review and email approval |
 | Analyst B | Demand analytics (Analyst role) | Uses demand dashboards; uploads DL |
 | Analyst C | Bench analytics (Analyst role) | Uses bench dashboards; uploads CT |
@@ -111,8 +111,8 @@ Analysts upload the latest DL/CT; PFC normalises and de-duplicates them, applies
 | Resource team / SPOCs | Resourcing contacts copied on candidate emails; `<SPOC-1>` / `<SPOC-2>` receive updated CVs | Receive CC emails and tailored CVs; follow up with candidates |
 | Candidates (bench resources) | People listed in the CT; data subjects | Receive outreach emails; update CVs; their personal data is processed |
 | Demand owners / account teams | `Owner` in the DL | Indirect beneficiaries; receive better-fitting profiles via SPOCs |
-| IT / Security | Endpoint, execution-policy and network owners | Approve portable execution, localhost binding, AV/EDR acceptance, Outlook automation |
-| Data governance / Privacy | Data protection, HR data policy | Approve CV processing, retention, masking and any external LLM use |
+| IT / Security | Endpoint, execution-policy and network owners | Own portable execution, localhost binding, AV/EDR and Outlook automation controls |
+| Data governance / Privacy | Data protection, HR data policy | Corporate approval for CV processing, Outlook automation and external LLM use is granted; no candidate privacy notice is required |
 | Delivery team | Product owner, developers, testers | Build, test and support PFC |
 
 ```mermaid
@@ -210,47 +210,48 @@ Priority uses MoSCoW (M/S/C) consistent with the baseline. Phase refers to [PHAS
 
 | ID | Business requirement | Traces to | Pri | Phase |
 |---|---|---|---|---|
-| BR-01 | The business needs two system roles — **Admin (OCC)** and **Analyst** — with Analyst personas A, B and C sharing the Analyst role; analysts cannot change weights, internal domains or admin settings. | REQ-ROLE-01, REQ-ROLE-02, REQ-ROLE-04 | M | 1 |
+| BR-01 | The business needs two system roles — **Admin (OCC)** and **Analyst** — with Analyst personas A, B and C and Leadership users sharing the Analyst role; only OCC Admin has Admin access, and analysts cannot change weights, internal domains or admin settings. | REQ-ROLE-01, REQ-ROLE-02, REQ-ROLE-04 | M | 1 |
 | BR-02 | An OCC Admin must be able to approve or modify DL and CT entries and maintain reference data (resource-team list, synonyms, scoring template, internal domains, approved models, users, settings). | REQ-ROLE-03, REQ-ING-03 | M | 1 |
 | BR-03 | Any analyst must be able to upload the latest DL and CT `.xlsx` as received, without reformatting them first (variable sheet names, offset headers, blank first header, text dates, formulas, mis-encoded bullets). | REQ-ING-01, REQ-IN-01, REQ-IN-03, REQ-IN-10, REQ-IN-12, REQ-IN-13 | M | 1 |
 | BR-04 | Re-uploads must replace existing entries using the business keys (`Code Requisition` for DL; `ShortName` + `Email Address` for CT), with a preview of new/updated/unchanged/rejected rows and a log of every upload. | REQ-IN-02, REQ-IN-11, REQ-ING-02, REQ-ING-06 | M | 1 |
 | BR-05 | Source values (requisition ID, dates, account, role, grade, email) must be reproduced exactly; emails are never constructed or corrected, and nothing is invented. | REQ-IN-14, REQ-OUT-02, REQ-MAT-06 | M | 1 |
 | BR-06 | Analysts must be able to point PFC at a synced CV folder and sync CVs per candidate or for a selected set; a missing CV must not block matching. | REQ-IN-20, REQ-IN-21, REQ-IN-22, REQ-ING-05 | M | 1 |
 | BR-07 | Candidate identity details must be extracted from CVs where available, with an "Incomplete Candidate Information" path and human confirmation of ambiguous identity matches; multiple CV versions per candidate are supported. | REQ-IN-23, REQ-IN-24, REQ-IN-25 | M/S | 1 (comparison 2) |
-| BR-08 | Only **eligible** bench resources are matched, applying the agreed exclusions and status priority order, with excluded people listed with their reason. | REQ-ELIG-01, REQ-ELIG-02, REQ-ELIG-03, REQ-ELIG-07 | M | 1 |
+| BR-08 | Only **eligible** bench resources are matched, applying the agreed exclusions and status priority order; unmapped statuses remain eligible at priority 2 with binary score 0 and a data-quality flag, and excluded people are listed with their reason. | REQ-ELIG-01, REQ-ELIG-02, REQ-ELIG-03, REQ-ELIG-07, REQ-ELIG-08 | M | 1 |
 | BR-09 | People who are allocated, proposed elsewhere or have a CV with a client remain eligible but must be flagged; a blank Bench End Date alone is not clearance; Available Capacity is display-only. | REQ-ELIG-04, REQ-ELIG-05, REQ-ELIG-06 | M | 1 |
 | BR-10 | Analysts must review and confirm the requirements extracted from each JD before scoring starts (Analyze JD → Confirm & Start), individually or in bulk. | REQ-MAT-02 | M | 1 |
 | BR-11 | Matching must combine semantic similarity with exact keyword and synonym matching, using an OCC-maintained skill-synonym tracker, and reuse previously extracted CVs. | REQ-MAT-01, REQ-MAT-05, REQ-MAT-07, REQ-LLM-07 | M | 1 |
-| BR-12 | Each demand must receive a ranked shortlist (normally top 5) with a 0–100 % score using the agreed weights, grade rule, location assessment and bands; Weak matches appear only when no strong candidates exist. | REQ-MAT-03, REQ-MAT-04, REQ-GRD-01, REQ-GRD-02, REQ-LOC-01, REQ-SCR-01, REQ-SCR-02 | M | 1 |
+| BR-12 | Each demand must receive a ranked shortlist of up to five unique candidate profiles with a 0–100 % score using the agreed weights, grade rule, location assessment and bands; Weak matches appear only when no Strong candidate exists, and Weak-only counts as no suitable candidate with a separate display. | REQ-MAT-03, REQ-MAT-04, REQ-OUT-04, REQ-GRD-01, REQ-GRD-02, REQ-LOC-01, REQ-SCR-01, REQ-SCR-02 | M | 1 |
 | BR-13 | Every score must be **explainable and reproducible**: per-component breakdown, evidence, distinct flagging of missing mandatory criteria, and persisted model/template/JD/CV versions. | REQ-SCR-03, REQ-SCR-04, REQ-MAT-08, NFR-05 | M | 1 |
 | BR-14 | Analysts must be able to override results (pin/unpin, exclude, adjust band) with an audit trail; scores are positioned as relative metrics, not predictions. | REQ-MAT-09, REQ-SCR-05 | S/M | 1 |
-| BR-15 | The match results view must show the agreed columns, with masked email immediately after the person's name, filterable grade/location columns and a per-run quality-check panel. | REQ-OUT-01, REQ-OUT-03, REQ-MAT-10, REQ-OUT-08, REQ-OUT-10 | M | 1 |
-| BR-16 | Leadership and analysts need a professional dashboard: header summary, demand analytics (Analyst B), bench analytics (Analyst C) and match/communication analytics. | REQ-OUT-04, REQ-OUT-05, REQ-OUT-06, REQ-OUT-07, REQ-OUT-11, NFR-06 | M | 1 (extended charts 2) |
+| BR-15 | The match results view must show the agreed columns, with masked email immediately after the person's name, filters for Code Requisition, Account Name, BU, Grade, Location, region, band, status, candidate type, incomplete identity, mandatory-skill status and score range, and a per-run quality-check panel. | REQ-OUT-01, REQ-OUT-03, REQ-MAT-10, REQ-OUT-08, REQ-OUT-10 | M | 1 |
+| BR-16 | Leadership and analysts need a premium-feel CSS dashboard: header summary, Grade → JD count and scrollable DL rows ordered by Position Start Date descending; overall top-five pool skills, demand-to-eligible-bench skill comparison stacked by Available Capacity Y/N for display only, Bench Status distribution and scrollable CT rows ordered by Bench Start Date descending; and match/communication analytics. | REQ-OUT-04, REQ-OUT-05, REQ-OUT-06, REQ-OUT-07, REQ-OUT-11, NFR-06 | M | 1 (extended charts 2) |
 | BR-17 | Results must be exportable to CSV/Excel (Phase 1) and dashboards/results downloadable as PDF reports (Phase 2). | REQ-OUT-09 | S | 1 / 2 |
 | BR-18 | Candidate outreach must be human-approved per candidate–demand pair, using an editable LLM-drafted email based on an editable template, sent via Outlook with the resource-team list in CC. | REQ-EML-01, REQ-EML-02, REQ-EML-03, REQ-EML-04, REQ-EML-05 | M | 1 (SMTP 2) |
 | BR-19 | Outreach status must be tracked per candidate–demand (Draft → Approved → Sent / Failed) without reply parsing, duplicates prevented, and the 24 h turnaround measured. | REQ-EML-06, REQ-EML-07 | M/S | 1 |
-| BR-20 | Analysts need Outlook calendar follow-up reminders after sending. | REQ-EML-08 | S | 2 |
-| BR-21 | AI features must run on a **local** model by default within laptop limits; scoring must be deterministic and not depend on free-form LLM output; analysts choose from an admin-approved model list. | REQ-LLM-01, REQ-LLM-02, REQ-LLM-06, NFR-03 | M | 1 (chat 2, lab 3) |
-| BR-22 | External LLM providers may be used only with user-supplied tokens, after **PII masking and encryption**, with smart fallback to the local model. | REQ-LLM-03, REQ-LLM-04, REQ-LLM-05, NFR-04 | M | 3 (config placeholder 1) |
+| BR-20 | Analysts need Outlook calendar follow-up reminders one business day after sending. | REQ-EML-08 | S | 2 |
+| BR-21 | AI features must run on a **local** model by default within the ≤8 GB model-process limit; default embeddings use nomic-embed-text-v1.5; scoring must be deterministic and not depend on free-form LLM output; analysts choose from an admin-approved model list. | REQ-LLM-01, REQ-LLM-02, REQ-LLM-06/07, NFR-03 | M | 1 (chat 2, lab 3) |
+| BR-22 | External LLM providers may be used only with user-supplied tokens, after **PII masking and encryption**; compatible API versions are retried, then requests fall directly to the local model without chaining to another external provider. Corporate approval is granted. | REQ-LLM-03, REQ-LLM-04, REQ-LLM-05, NFR-04 | M | 3 (config placeholder 1) |
 | BR-23 | Access must be protected by login (role dropdown, corporate email + admin-issued password, strong admin password, no default admin password), with salted hashes, lockout, session timeout, local-only binding and a full audit log. | REQ-AUTH-01, REQ-AUTH-02, REQ-AUTH-03, REQ-AUTH-04, REQ-AUTH-05, REQ-AUTH-07 | M | 1 |
 | BR-24 | Sensitive local data and provider tokens must be protected at rest where feasible. | REQ-AUTH-06 | S | 1 |
 | BR-25 | DL and CT should be picked up automatically from a configured synced folder (placeholder configuration in Phase 1, implementation in Phase 2). | REQ-ING-04 | M/S | 1 / 2 |
-| BR-26 | Candidates should be classified Internal / External / Unknown from an admin-maintained internal-domain allowlist, with audited override. | REQ-CLS-01, REQ-CLS-02 | S | 2 |
+| BR-26 | Candidates should be classified Internal / External / Unknown from a default internal-domain allowlist shipped in the initial ZIP, with audited override. | REQ-CLS-01, REQ-CLS-02 | S | 1 |
 | BR-27 | Closed demands and off-bench resources must be archivable (manual with preview in Phase 2, automated in Phase 3), with housekeeping of logs, temp files and vectors. | REQ-ARC-01, REQ-ARC-02, REQ-ARC-03, REQ-ARC-04 | M/S/C | 2 / 3 |
 | BR-28 | PFC must run from a **portable ZIP** on a locked-down Windows 11 Pro laptop with no admin rights, one instance per user, upgradeable without data loss; feasibility must be proven on a real corporate laptop first. | REQ-PKG-01, REQ-PKG-02, REQ-PKG-03, REQ-PKG-04, REQ-PKG-05, NFR-02 | M | 0 / 1 |
 | BR-29 | Distribution should be controlled through per-user ZIPs and signed, single-user, single-device licences (default 30 days). | REQ-AUTH-08 | S | 3 |
 | BR-30 | Full re-matching of 500 × 500 should complete within minutes and dashboard interactions within 2 s on target hardware; configuration and integrations should be pluggable. | NFR-01, NFR-07 | M | 1 |
+| BR-31 | OCC Admin exports signed, versioned settings packages for Analyst import and preview; imports are atomic, audited and rollbackable. Phase 3 metadata sync replaces or augments the Phase 1 manual flow. | REQ-OCC-01/02 | M | 1 / 3 |
 
 ## 7. Business rules
 
 All rules below restate the baseline; the baseline section is the authoritative definition.
 
-### 7.1 Eligibility (REQ-ELIG-01..07, D-01)
+### 7.1 Eligibility (REQ-ELIG-01..08, D-01)
 
 | Rule | Statement |
 |---|---|
-| BRL-01 | A person is matched only when **all** hold: Bench Status is not excluded; Group ≠ `Not on Bench`; Bench End Date is **blank**; Grade is recorded; Skills are sufficient for an assessment. |
-| BRL-02 | **Excluded statuses**: `Selected`, `Unknown`, `CV with Client - Sold - Pending Allocation`. Excluded people are listed in an "Excluded from matching" view with the reason. |
+| BRL-01 | A person is matched only when **all** hold: Bench Status is not excluded; Group ≠ `Not on Bench`; Bench End Date is blank or unparseable (unparseable date is flagged "pending review"); Grade is recorded; Skills are sufficient for an assessment. |
+| BRL-02 | **Excluded statuses**: `Selected`, `Unknown`, `CV with Client - Sold - Pending Allocation`. Unmapped statuses remain eligible at priority 2 with binary score 0 and a "Unmapped status" flag. Excluded people are listed in an "Excluded from matching" view with the reason. |
 | BRL-03 | Eligible statuses in **priority order** (ranking tie-breaks and ordering): 1 `Available` → 2 `Overall upskilling (New bench)` → 3 `CV with client - Demand Proposed` / `CV with client - Proactive Proposed` → 4 `Expected on Bench Soon` (available from Bench Start Date) → 5 `Status - x` → 6 `Status - y` (placeholders). List and priorities are OCC-configurable. |
 | BRL-04 | Allocated / proposed / CV-with-client people stay eligible but are flagged under Gaps / Checks / Eligibility Evidence. A blank Bench End Date alone is not confirmation that the person can be submitted without review. |
 | BRL-05 | **Available Capacity is not used** to determine availability; it is displayed only. |
@@ -259,7 +260,7 @@ All rules below restate the baseline; the baseline section is the authoritative 
 
 | Rule | Statement |
 |---|---|
-| BRL-06 | Grade sequence `A3 < A4 < B1 < B2 < C1 < C2 < D1 < D2`. Exact grade = 1st priority; **±1 grade** = 2nd priority; more than one grade away = **excluded** (e.g. D1 demand → C2, D1, D2). |
+| BRL-06 | Grade sequence `A3 < A4 < B1 < B2 < C1 < C2 < D1 < D2 < E1`. Exact grade = 1st priority; **±1 grade** = 2nd priority; more than one grade away = **excluded** (e.g. D1 demand → C2, D1, D2). |
 | BRL-07 | A strong adjacent-grade candidate must not be automatically rejected or materially downgraded; skills remain dominant and may outrank a weaker exact-grade candidate. |
 
 ### 7.3 Location (§6.3, REQ-LOC-01)
@@ -301,7 +302,7 @@ BRL-12: Normally the **top 5** people per requisition, one row per requisition�
 
 | Rule | Statement |
 |---|---|
-| BRL-13 | Nothing is sent without explicit **per-profile approval** for each candidate–demand email. The top 4 candidates per JD are pre-suggested (O-07); the analyst approves each. |
+| BRL-13 | Nothing is sent without explicit **per-profile approval** for each candidate–demand email. The top 4 candidates from the top-five shortlist per JD are pre-selected; the analyst approves each. |
 | BRL-14 | Email body is LLM-drafted from the editable template and is editable before approval; it includes match analysis, score/band, gaps, CV improvement pointers and the request to share the updated CV with `<SPOC-1>` and `<SPOC-2>`. |
 | BRL-15 | To = candidate (email exactly as in CT); CC = admin-defined resource-team list. |
 | BRL-16 | Status per pair: Draft → Approved → Sent / Failed, with timestamp and sender; duplicate sends prevented unless explicitly re-sent; replies are not parsed. |
@@ -358,7 +359,7 @@ KPI IDs match [REQUIREMENTS_BASELINE.md §14](REQUIREMENTS_BASELINE.md#14-succes
 | C-01 | Locked-down **Windows 11 Pro** corporate laptop, approved-software-only, **no admin rights**, no installer. | REQ-PKG-01 |
 | C-02 | **Mostly offline**; core features must work without network. | NFR-02 |
 | C-03 | Local server binds to `127.0.0.1` only; single instance per user. | REQ-AUTH-07, REQ-PKG-04 |
-| C-04 | Model and app must fit in 16 GB RAM alongside Outlook/Teams (target ≤ 6 GB for the model process). | NFR-03, REQ-LLM-01 |
+| C-04 | Model and app must fit in 16 GB RAM alongside Outlook/Teams (target ≤ 8 GB for the model process). | NFR-03, REQ-LLM-01 |
 | C-05 | Stack: Python FastAPI, TypeScript/React, CSS, shell/batch, SQLite, sqlite-vec or Qdrant, llama.cpp, Outlook COM. | Baseline §13, D-04 |
 | C-06 | No central database in Phase 1; no originals or raw CV text leave the device. | D-04, NFR-04 |
 | C-07 | Model licences must permit internal distribution. | REQ-LLM-06 |
@@ -368,19 +369,19 @@ KPI IDs match [REQUIREMENTS_BASELINE.md §14](REQUIREMENTS_BASELINE.md#14-succes
 | ID | Dependency | Needed by |
 |---|---|---|
 | DEP-01 | IT/Security approval for running portable executables (embedded Python, llama.cpp), localhost binding and AV/EDR acceptance — validated in [FEASIBILITY.md](FEASIBILITY.md). | Phase 0 exit |
-| DEP-02 | Data governance / privacy approval for local CV processing, retention and outreach emails (O-06). | Phase 1 pilot |
+| DEP-02 | Corporate approval for CV processing, Outlook automation and external LLM use is granted; no candidate privacy notice is required (O-06). | Resolved; not a Phase 1 pilot gate |
 | DEP-03 | Outlook COM availability and policy acceptance; SMTP details if used. | Phase 1 (COM), Phase 2 (SMTP) |
 | DEP-04 | Access to a representative DL, CT and CV set for development and KPI-01 labelling. | Phase 1 |
 | DEP-05 | SPOC names, resource-team email list and email template wording from the business. | Phase 1 |
 | DEP-06 | OneDrive sync client and SharePoint folder permissions for CVs (and later DL/CT auto-pickup and metadata packages). | Phase 1 / 2 / 3 |
-| DEP-07 | Approval to use external LLM providers and user tokens. | Phase 3 |
+| DEP-07 | External LLM use is corporately approved; provider active flags, user tokens, masking and encryption still apply. | Phase 3 |
 
 ## 10. Risks and mitigations
 
 | ID | Risk | Likelihood | Impact | Mitigation | Owner |
 |---|---|---|---|---|---|
-| R-01 | **Privacy / PII**: CVs and CT contain personal data; inappropriate processing, retention or disclosure. | Medium | High | Local-first processing (NFR-04); email/phone masking with audited unmasking (REQ-OUT-03); encryption at rest where feasible (REQ-AUTH-06); retention and archival rules (REQ-ARC-*); external LLM only after PII masking + encryption (REQ-LLM-05); data-governance sign-off before pilot (O-06). | Data gov. / Privacy |
-| R-02 | **Corporate execution policy** blocks unsigned portable executables, scripts or localhost servers. | Medium | High | Phase 0 feasibility spike on a real laptop (REQ-PKG-05); engage IT early; fallback options (signed launcher, allow-listing request) documented in [FEASIBILITY.md](FEASIBILITY.md). | IT / Security |
+| R-01 | **Privacy / PII**: CVs and CT contain personal data; inappropriate processing, retention or disclosure. | Medium | High | Local-first processing (NFR-04); email/phone masking with audited unmasking (REQ-OUT-03); encryption at rest where feasible (REQ-AUTH-06); retention and archival rules (REQ-ARC-*); external LLM only after PII masking + encryption (REQ-LLM-05). Corporate approvals are granted; no candidate privacy notice is required. | Data gov. / Privacy |
+| R-02 | **Corporate execution policy** blocks portable scripts or localhost servers. | Medium | High | Phase 0 feasibility spike on a real laptop (REQ-PKG-05); `.cmd` execution is approved; launchers are `.bat` / `.cmd` only; localhost/AV/EDR feasibility remains documented in [FEASIBILITY.md](FEASIBILITY.md). | IT / Security |
 | R-03 | **LLM accuracy and speed on CPU**: small local model extracts JD/CV requirements poorly or slowly. | Medium | High | Scoring is deterministic (REQ-LLM-02); analyst confirms extracted JD requirements (REQ-MAT-02); hybrid keyword + synonym matching (REQ-MAT-01, REQ-MAT-05); model benchmarking (O-05, REQ-LLM-06); LLM not used per pair (NFR-01). | Delivery team |
 | R-04 | **Data quality in CT/DL** (missing grades/skills, misspellings, text dates, formulas, inconsistent IDs). | High | Medium | Robust parsing (REQ-IN-10..13); upload preview and validation warnings (REQ-ING-02); synonym tracker; "Insufficient data" band; data-quality KPI-05 and header summary (REQ-OUT-04). | Analysts / OCC Admin |
 | R-05 | **Outlook COM unavailable** or blocked by policy / new Outlook client. | Medium | Medium | Validate in Phase 0; drafts still produced and copyable; optional SMTP transport in Phase 2 (REQ-EML-04). | IT / Delivery team |
@@ -406,18 +407,18 @@ KPI IDs match [REQUIREMENTS_BASELINE.md §14](REQUIREMENTS_BASELINE.md#14-succes
 
 ## 12. Open questions
 
-Baseline open items O-01 to O-07 ([REQUIREMENTS_BASELINE.md §17](REQUIREMENTS_BASELINE.md#17-open-items)) apply unchanged. Additional business questions raised while writing this BRD (no decision is taken here):
+Baseline decisions O-01 to O-11 are resolved in [REQUIREMENTS_BASELINE.md §16–17](REQUIREMENTS_BASELINE.md#16-decision-log). The following business decision rows are retained for traceability:
 
-| # | Question | Proposed handling |
+| # | Question | Decision |
 |---|---|---|
-| BQ-01 | Which system role do **leadership** users get? The baseline defines only Admin and Analyst. | Assume Analyst role (read and analytics) unless leadership decides otherwise; confirm with sponsor. |
-| BQ-02 | KPI-01 sample size, stratification and the number of labelling analysts. | Proposed ≥ 30 requisitions; agree at Phase 1 planning. |
-| BQ-03 | KPI-01 handling when fewer than 5 eligible candidates exist for a demand (precision@5 denominator). | Proposed: divide by the number of candidates the system actually returned for that demand (at most 5); confirm with leadership. |
-| BQ-04 | KPI-01, KPI-02, KPI-03, KPI-05 numeric targets. | Agreed by leadership at Phase 1 UAT (baseline KPI-01). |
-| BQ-05 | Is the 24 h turnaround measured from DL upload into PFC or from DL receipt by the business? | Baseline says "demand upload"; measure from PFC ingestion timestamp. |
-| BQ-06 | Does each analyst upload their own DL/CT copy, or is one analyst the designated uploader per cycle (given separate local instances)? | Define in [WORKFLOW.md](WORKFLOW.md) / pilot operating model. |
-| BQ-07 | Is a privacy notice or other communication to candidates required for CV processing and outreach? | Raise with data governance under O-06. |
-| BQ-08 | Retention period for archived demands, resources, CVs and email history. | Configurable (REQ-ARC-03); value set by data governance. |
+| BQ-01 | Which system role do **leadership** users get? The baseline defines only Admin and Analyst. | Resolved: Leadership users receive the Analyst role; OCC remains Admin-only. |
+| BQ-02 | KPI-01 sample size, stratification and the number of labelling analysts. | Resolved: use a labelled, stratified sample of at least 30 requisitions; record analyst count and sample design in Phase 1 UAT. |
+| BQ-03 | KPI-01 handling when fewer than 5 eligible candidates exist for a demand (precision@5 denominator). | Resolved: divide by the number of candidates actually returned for that demand (at most five); report demands with no suitable candidate separately. |
+| BQ-04 | KPI-01, KPI-02, KPI-03, KPI-05 numeric targets. | Resolved: baseline values during Phase 1 UAT and agree numeric targets before measuring go-live performance. |
+| BQ-05 | Is the 24 h turnaround measured from DL upload into PFC or from DL receipt by the business? | Resolved: measure from the PFC ingestion timestamp of the demand. |
+| BQ-06 | Does each analyst upload their own DL/CT copy, or is one analyst the designated uploader per cycle (given separate local instances)? | Resolved: every Analyst uploads their own DL and CT copies to their separate local instance. |
+| BQ-07 | Is a privacy notice or other communication to candidates required for CV processing and outreach? | Resolved: corporate approval is granted; no candidate privacy notice is required. |
+| BQ-08 | Retention period for archived demands, resources, CVs and email history. | Resolved: retention is configurable; OCC Admin sets the value. |
 
 ## 13. Glossary
 

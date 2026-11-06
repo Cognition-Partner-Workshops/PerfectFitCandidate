@@ -36,7 +36,7 @@ Guiding principles that apply to every step:
 
 - PFC produces a **shortlist for human review**; nothing is sent without explicit per-profile approval (REQ-EML-01, REQ-SCR-05).
 - Scoring is **deterministic** and reproducible; the LLM is used for extraction and drafting only (REQ-LLM-02, REQ-MAT-08).
-- Everything runs **locally**; network is needed only for Outlook/SMTP, synced folders and optional external LLMs (NFR-02).
+- Each Analyst uploads their own DL and CT copies to their separate local instance. Network-backed features are available only when their active flag is enabled in Settings; all core matching runs locally (NFR-02).
 
 ## 2. Overall workflow
 
@@ -69,19 +69,19 @@ flowchart TD
 
 | Step | Owner | Key rules | FDD |
 |---|---|---|---|
-| Upload | Analyst (any) / Admin | Manual upload default; auto-pickup Phase 2 | §2.1, §2.2 |
+| Upload | Each Analyst on their own instance | Upload own DL/CT copies; auto-pickup Phase 2 | §2.1, §2.2 |
 | Parse / validate | System | Header-row detection, varying sheet name, UK dates incl. `Wed 4/11/2026`, formula cached values | FR-ING-02..11 |
 | Dedupe | System | DL key `Code Requisition`; CT key `ShortName` + `Email Address`; replace with newest | FR-ING-06 |
 | Resume sync | Analyst triggers, System executes | Per-candidate / global Sync; missing CV not a blocker | §2.3 |
 | Embed / index | System | Local embedding model, versioned vectors | FR-MAT-42 |
 | JD analysis & confirm | Analyst A, System | Analyze JD → review/edit → Confirm & Start | §3 |
-| Eligibility | System | Exclude Selected / Unknown / CV with Client - Sold - Pending Allocation, Group Not on Bench, filled Bench End Date; grade ±1 | §4.1–4.3 |
+| Eligibility | System | Exclude mapped excluded statuses, Group Not on Bench, and parseable filled Bench End Date; unparseable Bench End Date stays eligible with "pending review"; unmapped status stays eligible at priority 2 / binary score 0 and is flagged; grade ±1 | §4.1–4.3 |
 | Match & score | System | 70/10/5/5/5/5, bands, top 5, weak-match rule | §4.5–4.6 |
 | Review / override | Analyst A, Admin | Pin, unpin, exclude, adjust band with comment | §4.7 |
 | Approve email | Analyst A | Per-profile approval, top 4 pre-selected | §7 |
 | Send | Outlook | COM primary, SMTP Phase 2 | FR-EML-06 |
 | Sent flag | System | Draft → Approved → Sent / Failed, no duplicates | FR-EML-07, FR-EML-08 |
-| Follow-up | Outlook | Calendar reminder at +2 business days (Phase 2) | FR-EML-10 |
+| Follow-up | Outlook | Calendar reminder at +1 business day (Phase 2) | FR-EML-10 |
 | Archive | OCC Admin | Manual with preview (Phase 2), automated (Phase 3) | §11 |
 
 ## 3. Responsibility matrix (swimlanes)
@@ -122,7 +122,7 @@ Trigger: an analyst receives a new DL or updates the CT (REQ-ING-01). Phase 2 ad
 3. System finds the sheet by headers (name varies), detects the header row (CT title row, blank first header → ShortName), reads rows until the last keyed row (REQ-IN-01, REQ-IN-10).
 4. System parses dates (Excel dates and `Wed 4/11/2026` day-first), reads cached values of formula cells, normalises JD text and skills, copies emails exactly (REQ-IN-03, REQ-IN-12..14).
 5. System shows the **preview**: new / updated / unchanged / rejected / skipped counts and warnings (REQ-ING-02).
-6. Analyst commits (or cancels). System applies replace-by-key, records the run, creates JD versions for changed JDs, flags demands absent from the DL as "Not in latest DL", and queues incremental re-scoring (REQ-IN-02, REQ-IN-11, REQ-ING-03, REQ-MAT-07).
+6. Analyst commits (or cancels). System applies replace-by-key, records the run, creates JD versions for changed JDs, flags demands absent from the DL as "Not in latest DL", sets an OCC Admin notification flag for the uploaded changes, and queues incremental re-scoring (REQ-IN-02, REQ-IN-11, REQ-ING-03, REQ-MAT-07).
 7. OCC Admin later sees changed entries in the approval queue (REQ-ROLE-03).
 
 ```mermaid
@@ -224,11 +224,11 @@ sequenceDiagram
 
 Rules applied (see [FDD.md §4](FDD.md#4-eligibility-and-matching)):
 
-- Eligibility: exclude `Selected`, `Unknown`, `CV with Client - Sold - Pending Allocation`, Group `Not on Bench`, filled Bench End Date, missing grade, insufficient skills. **Available Capacity is never used** (REQ-ELIG-01..06).
+- Eligibility: exclude mapped statuses marked excluded (seeded defaults include `Selected`, `Unknown`, `CV with Client - Sold - Pending Allocation`), Group `Not on Bench`, parseable filled Bench End Date, missing grade and no skills. An unparseable Bench End Date remains eligible with a "pending review" flag. An unmapped status remains eligible at priority 2 with binary status score 0 and is flagged "Unmapped status" in Gaps / Checks and OCC data quality. **Available Capacity is never used** for matching (REQ-ELIG-01..08).
 - Grade: exact or ±1 only (REQ-GRD-01); adjacent grade not materially downgraded (REQ-GRD-02).
 - Score: skills 70, grade 10, location 5, bench start 5, bench end 5, bench status 5 (`status_score_mode` binary by default) (REQ-SCR-01, D-02, D-07).
 - Bands: Strong ≥ 90, Potential 70–89, Avg. 61–69, Weak < 61, Insufficient data (REQ-SCR-02).
-- Top 5 per requisition; persons below 60 % only when no Strong candidate exists and transferable experience is present (REQ-MAT-03, REQ-MAT-04).
+- Up to five unique candidate profiles per requisition; Weak-only requisitions count as no suitable candidate and appear separately. Weak rows may be shown separately when no Strong candidate exists (REQ-MAT-03/04, REQ-OUT-04).
 
 ### 4.4 Review, filter and override
 
@@ -268,7 +268,7 @@ sequenceDiagram
         API-->>UI: Status Sent with timestamp and sender
         OL->>CD: Email delivered, CC resource team
         opt Phase 2 follow-up enabled
-            API->>OL: Create calendar follow-up at plus 2 business days
+            API->>OL: Create calendar follow-up at plus 1 business day
         end
     else Outlook error
         OL-->>API: Error
@@ -353,9 +353,11 @@ flowchart TD
 | Ambiguous CV match | Sync | Prompt to choose the correct file | Confirm or skip | REQ-IN-25 |
 | Incomplete name/email | CT import / sync | Incomplete Candidate Information prompt; no email = cannot be emailed | Manual entry, internal ID (default) or review later | REQ-IN-23 |
 | Resume folder offline (OneDrive not synced) | Sync | Sync disabled with message; CT-only matching continues | Reconnect / wait for sync | NFR-02 |
-| No eligible candidates for a demand | Scoring | Demand counted as "no suitable candidate"; Excluded view shows reasons (e.g. grade outside ±1, Selected) | Escalate outside PFC; revisit after next CT upload | REQ-OUT-04, REQ-ELIG-07 |
-| Only weak candidates | Scoring | Weak-match rule applied; rows labelled Weak Match | Review carefully before emailing | REQ-MAT-04 |
-| LLM unavailable (model missing, out of memory, external provider error) | JD analysis / CV sync / drafting | JD: manual requirement entry. CV: text-only deterministic extraction. Email: default template with deterministic gaps. Phase 3: smart fallback to next provider and finally local; user told which provider served | Continue manually | REQ-LLM-04, FR-LLM-08 |
+| Unmapped Bench Status | CT ingestion / matching | Keep eligible at priority 2, binary score 0; flag "Unmapped status" and surface it in Gaps / Checks and OCC data quality; editable seeded map supports Admin mapping | OCC Admin maps the source value | REQ-ELIG-07 |
+| Unparseable Bench End Date | CT ingestion / matching | Keep eligible and flag "pending review"; do not treat as a populated/valid end date | Correct source value when available | REQ-ELIG-01 |
+| No eligible candidates for a demand | Scoring | Demand counted as "no suitable candidate"; Excluded view shows reasons (e.g. grade outside ±1, mapped excluded status) | Escalate outside PFC; revisit after next CT upload | REQ-OUT-04, REQ-ELIG-08 |
+| Only weak candidates | Scoring | Count as "no suitable candidate"; show Weak-only rows separately | Review separately before emailing | REQ-MAT-04, REQ-OUT-04 |
+| LLM unavailable (model missing, out of memory, external provider error) | JD analysis / CV sync / drafting | JD: manual requirement entry. CV: text-only deterministic extraction. Email: default template with deterministic gaps. Phase 3: retry compatible API versions, then fall directly to local model; never chain to another external provider | Continue manually or use local fallback | REQ-LLM-04, FR-LLM-08 |
 | Outlook unavailable / COM blocked / security prompt cancelled | Send | Email stays `Approved` or moves to `Failed` with reason; SMTP offered if configured (Phase 2) | Start Outlook and retry | REQ-EML-04, FR-EML-06 |
 | Duplicate send attempt | Approve / Send | Blocked for `Sent` pairs; double click is idempotent; Re-send requires confirmation showing the previous send | Confirm Re-send only if intended | REQ-EML-06 |
 | Quality check fails for a row | Scoring | Approval blocked for that row | Investigate data, fix and re-score | REQ-OUT-10, FR-EML-12 |
@@ -455,10 +457,40 @@ flowchart TD
 | Daily | Approve or modify DL/CT entries changed by uploads | OCC approval queue | REQ-ROLE-03, REQ-ING-03 |
 | Daily | Accept/reject proposed synonyms (e.g. misspellings such as `Project Manger`) | Synonym tracker | REQ-MAT-05 |
 | Weekly | Review overrides and analyst-confirmed shortlists against top 5 to track auto-match accuracy; adjust template if needed (new version) | Scoring template | KPI-01, REQ-SCR-01 |
-| As needed | Maintain resource-team CC list, default template, SPOCs, status list, grade list, location groups | OCC lists | REQ-EML-03, REQ-EML-05, REQ-ELIG-03 |
+| As needed | Maintain resource-team CC list, default template, SPOCs, status list/map, grade list, location groups | OCC lists | REQ-EML-03, REQ-EML-05, REQ-ELIG-03/07 |
 | As needed | Create/disable/unlock users, reset passwords | Users | REQ-AUTH-02..04 |
-| Phase 2 | Maintain internal email domains; manual archival with preview | Domains, Archival | REQ-CLS-01, REQ-ARC-02 |
-| Phase 3 | Model benchmark lab, role-specific templates, Generate User ZIP and licences, OneDrive metadata packages | Advanced OCC, Licensing | REQ-LLM-06, REQ-AUTH-08 |
+| Phase 1 | Maintain seeded internal email allowlist; export signed settings packages | OCC domains and package export | REQ-CLS-01, REQ-OCC-01 |
+| Phase 1 | Model import and re-embedding through signed `.pfcmodel` add-on | OCC model settings | REQ-OCC-03 |
+| Phase 2 | Manual archival with preview | Archival | REQ-ARC-02 |
+| Phase 3 | Model benchmark lab, role-specific templates, Generate User ZIP and licences, OneDrive metadata sync replacing or augmenting package export/import | Advanced OCC, Licensing | REQ-LLM-06, REQ-AUTH-08, REQ-OCC-02 |
+
+### 7.5 Settings package export and import
+
+Phase 1 operating flow for separate local Analyst instances (REQ-OCC-01/02):
+
+```mermaid
+sequenceDiagram
+    actor Admin as OCC Admin
+    participant OCC as Admin PFC
+    participant Sign as Ed25519 signer
+    participant Share as Shared folder or Teams/email
+    actor Analyst
+    participant Settings as Analyst Settings
+    participant Apply as Atomic settings importer
+    Admin->>OCC: Export settings package
+    OCC->>Sign: Sign versioned JSON and manifest
+    Sign-->>OCC: PFC-settings-v<N>.pfcpkg
+    OCC->>Share: Share signed package
+    Analyst->>Settings: Select package or use startup inbox
+    Settings->>Settings: Validate signature, schema, app compatibility, version
+    Settings-->>Analyst: Preview changes and import result
+    Analyst->>Settings: Confirm import
+    Settings->>Apply: Apply all package changes atomically
+    Apply->>Apply: Audit import and retain previous version
+    Settings-->>Analyst: Imported; rollback available
+```
+
+The channel is not trusted in place of signature validation. Invalid or incompatible packages fail without partial application and show a clear error. A signed model add-on is imported through the same flow and triggers re-embedding with model version recorded per vector.
 
 ## 8. Phase applicability
 
@@ -477,11 +509,11 @@ See [PHASES.md](PHASES.md) for the delivery plan.
 
 ## 9. Open questions
 
-| # | Question | Proposed handling | Related |
+| # | Question | Decision | Related |
 |---|---|---|---|
-| WQ-01 | Exact start point of the 24 h SLA: first upload of the demand, or Confirm & Start? | First ingestion of the demand (as REQ-EML-07 states "demand upload") | §5, REQ-EML-07 |
-| WQ-02 | Are weekends/holidays excluded from the 24 h SLA? | Calendar hours; business-day option configurable | §5 |
-| WQ-03 | How do OCC approvals and configuration (synonyms, template, resource-team list) reach other analysts' single-user instances before Phase 3 sync? | Signed config export/import — to be decided in [ARCHITECTURE.md](ARCHITECTURE.md) / [TDD.md](TDD.md) (see FDD FQ-04) | §3, §7.4 |
-| WQ-04 | When several analysts upload overlapping DL/CT versions on separate instances, which is authoritative? | Each instance keeps its latest upload; OCC reconciliation via config/metadata packages | §4.1 |
-| WQ-05 | Should follow-up reminders be created for the analyst only or as meetings with the candidate? | Reminder for the sending analyst by default | §4.5, REQ-EML-08 |
-| WQ-06 | Escalation path for demands with no suitable candidate (outside PFC). | Listed in dashboard header and CSV export for manual escalation | §6 |
+| WQ-01 | Exact start point of the 24 h SLA: first upload of the demand, or Confirm & Start? | Resolved: first PFC ingestion of the demand, as REQ-EML-07 states "demand upload". | §5, REQ-EML-07 |
+| WQ-02 | Are weekends/holidays excluded from the 24 h SLA? | Resolved: the turnaround KPI uses elapsed calendar hours; the separate follow-up reminder skips weekends and OCC-configured holidays. | §5 |
+| WQ-03 | How do OCC approvals and configuration (synonyms, template, resource-team list) reach other analysts' single-user instances before Phase 3 sync? | Resolved: signed manual settings-package export/import in Phase 1; Phase 3 metadata sync replaces or augments it. | §3, §7.5 |
+| WQ-04 | When several analysts upload overlapping DL/CT versions on separate instances, which is authoritative? | Resolved: each instance keeps its latest upload; OCC Admin distributes approved configuration through signed packages and reconciles source data through the operating process. | §4.1 |
+| WQ-05 | Should follow-up reminders be created for the analyst only or as meetings with the candidate? | Resolved: create a reminder for the sending Analyst only, one business day after sending; do not create a candidate meeting. | §4.5, REQ-EML-08 |
+| WQ-06 | Escalation path for demands with no suitable candidate (outside PFC). | Resolved: list no-suitable demands in the dashboard header and CSV export for manual escalation. | §6 |

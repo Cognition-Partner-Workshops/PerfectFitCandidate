@@ -46,7 +46,7 @@ This TDD describes **how** PFC is built: its components, the SQLite schema, the 
 | Driver | Baseline reference | Design consequence |
 |---|---|---|
 | Portable ZIP, no admin rights, Windows 11 Pro, mostly offline | REQ-PKG-01..04, NFR-02 | Embedded Python + vendored wheels, prebuilt llama.cpp binaries, localhost-only server, no installers or services |
-| 16 GB RAM, CPU-only inference | REQ-LLM-01, NFR-03 | Small quantized GGUF model (≤ 6 GB process), small CPU embedding model, LLM never in the per-pair scoring loop |
+| 16 GB RAM, CPU-only inference | REQ-LLM-01, NFR-03 | Small quantized GGUF model (≤ 8 GB process), medium CPU-optimized embedding model, LLM never in the per-pair scoring loop |
 | Auto-match accuracy is the primary KPI | KPI-01 | Hybrid retrieval (vector + keyword + synonyms), human-confirmed JD requirements, evaluation harness, tunable admin template |
 | Explainable, reproducible scores | REQ-MAT-08, REQ-SCR-04, NFR-05 | Deterministic scoring engine with persisted inputs, versions and per-component breakdown |
 | Human-in-the-loop | REQ-MAT-02, REQ-EML-01 | Explicit Analyze JD → Confirm & Start; per-profile email Approve; no automated selection |
@@ -57,9 +57,9 @@ This TDD describes **how** PFC is built: its components, the SQLite schema, the 
 
 Each feature is tagged **P1** (MVP), **P2** or **P3** consistent with the phase summary in [PHASES.md](PHASES.md):
 
-- **P1** — manual DL/CT upload, CV sync per candidate/global, JD analysis + confirm, matching + scores, email approval via Outlook COM, advanced dashboard, auth, OCC basics, CSV export.
+- **P1** — manual DL/CT upload, CV sync per candidate/global, JD analysis + confirm, matching + scores, email approval via Outlook COM, advanced dashboard, auth, OCC basics, signed settings-package export/import, CSV export.
 - **P2** — synced-folder auto-pickup, Outlook calendar follow-ups, PDF reports, chat-with-data, manual archival, internal/external classification, CV version comparison, SMTP transport.
-- **P3** — external LLM providers with PII masking/encryption and smart fallback, advanced OCC (role-specific scoring templates, model benchmark lab), archival automation, licensing (per-user ZIP + signed device licence), OneDrive metadata sync packages.
+- **P3** — external LLM providers with PII masking/encryption and local-only fallback, advanced OCC (role-specific scoring templates, model benchmark lab), archival automation, licensing (per-user ZIP + signed device licence), OneDrive metadata sync packages that replace or augment the Phase 1 settings-package flow.
 
 ### 1.4 Terminology
 
@@ -120,7 +120,7 @@ flowchart TB
 | C6 | **Embedding service** | Normalise and chunk JD/CV/CT text, compute embeddings with the local embedding model, skip unchanged chunks via content hashes, record model version per vector | ONNX Runtime or llama.cpp embeddings (see §6.4) | P1 | REQ-MAT-01, REQ-LLM-07 |
 | C7 | **Vector store adapter** | `VectorStore` interface (`upsert`, `delete`, `knn`, `get_vectors`) with `SqliteVecStore` (default), `QdrantLocalStore` (alternative) and `NumpyStore` (fallback) implementations; FTS5 keyword index | sqlite-vec, SQLite FTS5, qdrant-client local mode (optional), NumPy | P1 | REQ-MAT-01 |
 | C8 | **Matching and scoring engine** | Eligibility gates, grade filter, hybrid skill matching, component scoring, bands, ranking, shortlist, evidence/gaps text, run persistence; incremental re-scoring | Pure Python + NumPy; no LLM in the scoring path | P1 | REQ-MAT-*, REQ-GRD-*, REQ-LOC-01, REQ-SCR-*, REQ-ELIG-* |
-| C9 | **LLM gateway** | Provider interface (`generate`, `embed`, `health`, `capabilities`), prompt templates, JSON-schema/GBNF constrained output, concurrency limits, timeouts, fallback chain (P3), PII masking (P3) | httpx, llama.cpp `llama-server`, JSON Schema | P1 / P3 | REQ-LLM-01..07 |
+| C9 | **LLM gateway** | Provider interface (`generate`, `embed`, `health`, `capabilities`), prompt templates, JSON-schema/GBNF constrained output, concurrency limits, timeouts, compatible API-version retry then direct local-model fallback (P3), PII masking (P3) | httpx, llama.cpp `llama-server`, JSON Schema | P1 / P3 | REQ-LLM-01..07 |
 | C10 | **Email agent** | Draft generation (template + LLM sections), per-profile approval, send via Outlook COM (P1) or SMTP (P2), idempotency, status tracking, calendar follow-ups (P2) | pywin32 (`win32com.client`), smtplib | P1 / P2 | REQ-EML-01..08 |
 | C11 | **Scheduler and job runner** | In-process background jobs (ingestion commit, bulk JD analysis, CV sync, embedding, match runs, PDF), periodic tasks (session cleanup, housekeeping, follow-up creation, watch-folder polling), progress reporting | `asyncio` + bounded `ThreadPoolExecutor`; APScheduler (in-memory) for periodic jobs | P1 / P2 | REQ-ARC-03, REQ-EML-08, REQ-ING-04 |
 | C12 | **Auth/session module** | First-run admin setup, login with role dropdown, Argon2id hashing, sessions, lockout, RBAC dependency, CSRF, Host/Origin checks | argon2-cffi, `secrets`, FastAPI dependencies | P1 | REQ-AUTH-01..07, REQ-ROLE-* |
@@ -159,11 +159,11 @@ Proposed layout of the future codebase under `PFC/` (description only — nothin
 | `PFC/app/pfc/launcher.py` | Single-instance lock, port selection, process supervision, browser open |
 | `PFC/app/tests/` | `unit/`, `integration/`, `golden/` (scoring snapshots), `fixtures/` (sample DL/CT workbooks, CVs) |
 | `PFC/frontend/` | Vite + React + TypeScript SPA: `src/pages/`, `src/components/`, `src/features/` (results, analytics, occ, emails, uploads), `src/api/` (generated client), `src/styles/` (tokens, CSS) ; `tests/` (Vitest, Playwright) |
-| `PFC/config/` | Shipped read-only defaults: `defaults.toml`, `grades.yaml` (A3–D2), `bench_statuses.yaml` (priorities, exclusions), `scoring_template.default.json`, `skill_synonyms.seed.csv`, `location_aliases.yaml`, `llm_models.approved.json`, `email.toml` |
+| `PFC/config/` | Shipped read-only defaults: `defaults.toml`, `grades.yaml` (A3–E1), `bench_statuses.yaml` and `status_map.yaml` (priorities, exclusions and source mappings), `scoring_template.default.json`, `skill_synonyms.seed.csv`, `location_aliases.yaml`, `llm_models.approved.json`, `email.toml`, and inactive-setting placeholders |
 | `PFC/templates/` | `email/candidate_default.html` (REQ-EML-03), `prompts/*.md` (JD/CV extraction, email sections, chat), `grammars/*.gbnf` and `schemas/*.json` (constrained outputs), `reports/*.html` (PDF) |
 | `PFC/models/` | Not in git. Build-time download target for the default GGUF LLM and the embedding model, with `MODELS.lock` (name, URL, SHA-256, licence) |
 | `PFC/data/` | Not in git. Runtime data folder created at first run (DB, vector files, logs, backups, cache, exports) — see §13.4 |
-| `PFC/packaging/` | Build scripts (PowerShell/Bash), `requirements.lock` (hashed), wheel vendoring, `python3xx._pth` template, `PFC.cmd` launcher, llama.cpp binary manifest, ZIP assembly, licence/third-party notices |
+| `PFC/packaging/` | Build scripts, `requirements.lock` (hashed), wheel vendoring, `python3xx._pth` template, `PFC.cmd` launcher, llama.cpp binary manifest, ZIP assembly, licence/third-party notices |
 | `PFC/docs/` | This documentation set |
 
 ---
@@ -383,14 +383,16 @@ CREATE TABLE resources (                          -- one CT row
   skills_raw          TEXT,                       -- 'Skills (comma separated)' as read
   available_capacity  TEXT,                       -- displayed only, never used for availability (REQ-ELIG-06)
   bench_start_date    TEXT,
-  bench_end_date      TEXT,
+  bench_end_date      TEXT,                        -- parsed date; NULL when blank or unparseable
+  bench_end_date_parse_status TEXT NOT NULL DEFAULT 'blank'
+                                                    CHECK (bench_end_date_parse_status IN ('valid','blank','unparseable')),
   tracker_text        TEXT,                       -- cached value / link text, formulas never executed (REQ-IN-13)
   tracker_url         TEXT,
   group_name          TEXT,                       -- RG1..RG5 or 'Not on Bench'
   group_owner         TEXT,
   candidate_id        INTEGER REFERENCES candidates(candidate_id),
   eligibility         TEXT NOT NULL CHECK (eligibility IN ('eligible','excluded')),
-  exclusion_reason    TEXT,                       -- REQ-ELIG-07
+  exclusion_reason    TEXT,                       -- REQ-ELIG-08
   row_hash            TEXT NOT NULL,
   lifecycle           TEXT NOT NULL DEFAULT 'active' CHECK (lifecycle IN ('active','off_bench','archived')),
   first_ingestion_id  INTEGER REFERENCES ingestion_runs(ingestion_run_id),
@@ -501,9 +503,9 @@ CREATE INDEX ix_resource_skills_canon ON resource_skills(canonical_skill_id);
 ### 4.8 Reference data
 
 ```sql
-CREATE TABLE grades (                              -- configurable in OCC (O-01); default A3..D2
+CREATE TABLE grades (                              -- configurable in OCC; default A3..E1 (nine grades)
   code     TEXT PRIMARY KEY,
-  ordinal  INTEGER NOT NULL UNIQUE,                -- A3=1, A4=2, B1=3, B2=4, C1=5, C2=6, D1=7, D2=8
+  ordinal  INTEGER NOT NULL UNIQUE,                -- A3=1, A4=2, B1=3, B2=4, C1=5, C2=6, D1=7, D2=8, E1=9, E1=9
   active   INTEGER NOT NULL DEFAULT 1
 );
 
@@ -514,6 +516,15 @@ CREATE TABLE bench_statuses (                      -- REQ-ELIG-02/03, OCC-config
   priority      INTEGER,                           -- 1..6 for eligible statuses; NULL when excluded
   flag_in_gaps  INTEGER NOT NULL DEFAULT 0,        -- 1 for CV-with-client / proposed statuses (REQ-ELIG-04)
   available_from_bench_start INTEGER NOT NULL DEFAULT 0   -- 1 for 'Expected on Bench Soon'
+);
+
+CREATE TABLE status_map (                           -- REQ-ELIG-07, OCC-editable source-to-canonical map
+  source_value       TEXT PRIMARY KEY COLLATE NOCASE, -- normalised source status from CT
+  canonical_code     TEXT REFERENCES bench_statuses(code),
+  priority           INTEGER NOT NULL DEFAULT 2,      -- unmapped values default to priority 2
+  is_excluded        INTEGER NOT NULL DEFAULT 0,
+  mapped_by          INTEGER REFERENCES users(user_id),
+  updated_at         TEXT NOT NULL
 );
 ```
 
@@ -532,14 +543,14 @@ Default seed for `bench_statuses` (from the baseline):
 | Unknown | 1 | NULL | — | — |
 | CV with Client - Sold - Pending Allocation | 1 | NULL | — | — |
 
-Unrecognised status text → resource flagged with an ingestion warning and treated as **excluded** with reason "Unrecognised Bench Status — OCC to map" (safe default; see §19 Q-03).
+Seed `status_map` from all known statuses above. An unmapped source value remains eligible at priority 2 and has binary status score 0; flag it as "Unmapped status" in Gaps / Checks and the OCC data-quality view. Never silently exclude an unmapped status (REQ-ELIG-07).
 
 ### 4.9 Embeddings metadata and indexes
 
 ```sql
 CREATE TABLE embedding_models (
   embedding_model_id INTEGER PRIMARY KEY,
-  name               TEXT NOT NULL,                 -- e.g. 'bge-small-en-v1.5'
+  name               TEXT NOT NULL,                 -- default 'nomic-embed-text-v1.5'
   runtime            TEXT NOT NULL CHECK (runtime IN ('onnx','llamacpp')),
   file_sha256        TEXT NOT NULL,
   dim                INTEGER NOT NULL,
@@ -768,6 +779,21 @@ CREATE TABLE settings (
 );
 CREATE UNIQUE INDEX ux_settings_key ON settings(scope, IFNULL(user_id,0), key);
 
+CREATE TABLE settings_packages (
+  package_id         INTEGER PRIMARY KEY,
+  package_version    INTEGER NOT NULL UNIQUE,       -- monotonic integer
+  schema_version     TEXT NOT NULL,
+  app_version        TEXT NOT NULL,
+  package_sha256     TEXT NOT NULL,
+  signing_key_id     TEXT NOT NULL,
+  imported_by        INTEGER NOT NULL REFERENCES users(user_id),
+  imported_at        TEXT NOT NULL,
+  previous_package_id INTEGER REFERENCES settings_packages(package_id),
+  is_active          INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX ux_settings_packages_active
+  ON settings_packages(is_active) WHERE is_active = 1;
+
 CREATE TABLE llm_models (                          -- approved model list (REQ-LLM-06)
   model_id         INTEGER PRIMARY KEY,
   name             TEXT NOT NULL UNIQUE,           -- e.g. 'qwen2.5-1.5b-instruct-q4_k_m'
@@ -788,7 +814,7 @@ CREATE TABLE llm_providers (                       -- REQ-LLM-03/04
   name              TEXT NOT NULL UNIQUE,          -- 'local', 'openai', 'devin'
   kind              TEXT NOT NULL CHECK (kind IN ('llamacpp','openai_compatible','devin')),
   enabled           INTEGER NOT NULL DEFAULT 0,    -- external disabled by default; P1 = placeholder config only
-  fallback_order    INTEGER NOT NULL,              -- lower = tried first; local is always last
+  fallback_order    INTEGER NOT NULL,              -- external requests fall back directly to local; no external-provider chain
   base_url          TEXT,
   api_version       TEXT,                          -- preferred API version
   compatible_versions_json TEXT,                   -- ordered fallbacks for version-conflict retry
@@ -995,7 +1021,7 @@ Applied to JD text, CV text and CT skill strings (pipeline version recorded in `
 | CT skills (`ct_skills`) | One chunk with the full skill list + one chunk per skill term | Short | Always present, so people without a CV are still matched (REQ-IN-22) |
 | Skill dictionary (`skill`) | One vector per canonical skill name (+ approved synonyms concatenated) | Short | Used for synonym suggestions and semantic fallback |
 
-The token limit is chosen to fit small embedding models (512-token maximum for bge-small; MiniLM is effective at ~256 word pieces).
+JD and CV chunks are capped at 256 tokens for retrieval quality and predictable CPU use; the default embedding model accepts up to 8192 tokens. Add `search_document:` to document text and `search_query:` to query text before embedding.
 
 Volume estimate for 500 demands + 500 resources: ~500 × 6 JD chunks + ~500 × 12 JD items + ~500 × 15 CV chunks + ~500 × 10 CT chunks ≈ **20k chunks** → 20k × 384 × 4 bytes ≈ **30 MB** of vectors.
 
@@ -1003,11 +1029,12 @@ Volume estimate for 500 demands + 500 resources: ~500 × 6 JD chunks + ~500 × 1
 
 | Model | Params | Dim | Max tokens | Disk (approx.) | RAM in use (approx.) | CPU throughput (indicative, to benchmark) | Licence | Runtime |
 |---|---|---|---|---|---|---|---|---|
-| **bge-small-en-v1.5** (default candidate) | 33 M | 384 | 512 | ~130 MB ONNX fp32 / ~35–70 MB GGUF Q8/F16 | ~200–300 MB | ~50–150 chunks/s (256-token chunks, 4–8 threads) | MIT | ONNX Runtime or llama.cpp |
+| bge-small-en-v1.5 (alternative) | 33 M | 384 | 512 | ~130 MB ONNX fp32 / ~35–70 MB GGUF Q8/F16 | ~200–300 MB | ~50–150 chunks/s (256-token chunks, 4–8 threads) | MIT | ONNX Runtime or llama.cpp |
 | all-MiniLM-L6-v2 | 22 M | 384 | 256 (trained 128) | ~90 MB ONNX / ~25–45 MB GGUF | ~150–250 MB | fastest (~1.5–2× bge-small) | Apache-2.0 | ONNX Runtime or llama.cpp |
-| nomic-embed-text-v1.5 | 137 M | 768 (Matryoshka: 512/256 possible) | 8192 | ~270 MB F16 / ~140 MB Q8 GGUF | ~400–700 MB | ~3–5× slower than bge-small | Apache-2.0 | llama.cpp (GGUF) or ONNX; requires task prefixes (`search_query:` / `search_document:`) |
+| bge-base-en-v1.5 (alternative) | 109 M | 768 | 512 | varies by format | varies by runtime | benchmark before use | MIT | ONNX Runtime or llama.cpp |
+| **nomic-embed-text-v1.5 (default)** | ~137 M | 768 (Matryoshka truncation option) | 8192 | ~270 MB F16 / ~140 MB Q8 GGUF (estimates) | ~400–700 MB (estimate) | benchmark in Phase 1 | Apache-2.0 | ONNX Runtime default or llama.cpp (GGUF); requires `search_document:` / `search_query:` task prefixes |
 
-Figures are indicative and must be confirmed in the Phase 1 benchmark (O-05). Recommendation: start with **bge-small-en-v1.5**, evaluate against KPI-01 on a labelled sample, and keep nomic-embed-text as the quality upgrade path. Runtime choice: **ONNX Runtime in-process** (CPU wheel, no extra process) is the default proposal; **llama.cpp `llama-server --embeddings`** with a GGUF embedding model is the alternative when only one native runtime is allowed. Both are hidden behind `EmbeddingProvider.embed(texts) -> float32[n, d]`.
+Nomic file-size and memory figures are estimates pending measurement of the packaged ONNX model. Evaluate the default against KPI-01 on a labelled sample; bge-small and bge-base remain alternatives. Runtime choice: **ONNX Runtime in-process** (CPU wheel, no extra process) is the default; **llama.cpp `llama-server --embeddings`** with a GGUF embedding model is the alternative. Both are hidden behind `EmbeddingProvider.embed(texts) -> float32[n, d]`.
 
 Determinism: vectors are L2-normalised, rounded to float32 and **persisted**; scoring always reads stored vectors, so results are reproducible regardless of thread scheduling during embedding.
 
@@ -1084,7 +1111,7 @@ For scoring, retrieval is **exhaustive** rather than top-k: at 500 × 500 every 
 }
 ```
 
-Fixed by the baseline: the six weights, grade exact = 10 / adjacent default 7 / > 1 excluded, location 5/5/3/1, Bench End blank = 5, status binary 5/0 default with `status_score_mode` switch, band thresholds, top 5, top 4 email pre-selection. **Proposed defaults** (to tune in Phase 1 UAT against KPI-01, see O-04 and §19): skill sub-weights, semantic thresholds, related-synonym credit, Bench Start tiers, tiered status points, `min_evidence_terms`, weak-inclusion threshold, `mandatory_gap_policy` (`flag_only` default; `cap_band` optional switch that caps the band at Potential when a mandatory item is missing).
+Fixed by the baseline: the six weights, grade exact = 10 / adjacent default 7 / > 1 excluded, location 5/5/3/1, Bench Start tiers, Bench End blank = 5, status binary 5/0 default with `status_score_mode` switch, band thresholds, top 5, top 4 email pre-selection. Default skill sub-weights are mandatory / preferred / semantic = 0.60 / 0.15 / 0.25; thresholds 0.45–0.80, with related-synonym credit tuned in Phase 1 UAT against KPI-01. `min_evidence_terms`, weak-inclusion threshold, and `mandatory_gap_policy` (`flag_only` default; `cap_band` optional switch that caps the band at Potential when a mandatory item is missing) are OCC template settings.
 
 ### 7.3 Algorithm (pseudo-code)
 
@@ -1095,16 +1122,19 @@ FUNCTION run_match(scope, template, as_of_date):
     demands   := open demands in scope WITH confirmed jd_requirements      # REQ-MAT-02
     resources := all active resources (CT rows)
 
-    # 1. Global eligibility gates (REQ-ELIG-01/02, D-01) — Available Capacity is NEVER read (REQ-ELIG-06)
+    # 1. Global eligibility gates (REQ-ELIG-01/02/07, D-01) — Available Capacity is NEVER read (REQ-ELIG-06)
     FOR r IN resources ORDERED BY resource_id:
         reason := NULL
-        IF status_of(r) is excluded (Selected | Unknown | CV with Client - Sold - Pending Allocation)
+        IF status_map marks status_of(r) excluded (e.g. Selected | Unknown | CV with Client - Sold - Pending Allocation)
                                                     -> reason := STATUS_EXCLUDED
         ELSE IF r.group = 'Not on Bench'            -> reason := NOT_ON_BENCH
-        ELSE IF r.bench_end_date IS NOT NULL        -> reason := BENCH_END_SET
+        ELSE IF r.bench_end_date_parse_status = 'valid' AND r.bench_end_date IS NOT NULL
+                                                    -> reason := BENCH_END_SET
         ELSE IF r.grade IS NULL                     -> reason := NO_GRADE
         ELSE IF no skills from CT and no CV skills  -> reason := NO_SKILLS
         IF reason: record eligibility_exclusion(run, r, NULL, reason); CONTINUE
+        IF status_of(r) has no status_map entry: set priority 2, binary status score 0,
+            flag 'Unmapped status' in Gaps / Checks and OCC data-quality view
         eligible.add(r)
 
     FOR d IN demands ORDERED BY code_requisition:
@@ -1181,8 +1211,9 @@ FUNCTION score_basis(d, req, r, basis, grade_pts, t, as_of_date):
 
 
 FUNCTION assign_band(score, basis, t):
-    IF count(distinct recognised skill terms in basis) < t.min_evidence_terms
-       AND basis has no CV:                      RETURN 'Insufficient data'   # REQ-SCR-02
+    IF count(distinct recognised skill terms in basis) <= 1
+       OR no confirmed mandatory requirement can be evaluated:
+                                                  RETURN 'Insufficient data'   # REQ-SCR-02
     IF score >= 90:  RETURN 'Strong'
     IF score >= 70:  RETURN 'Potential'
     IF score >= 61:  RETURN 'Avg'
@@ -1255,15 +1286,15 @@ Process settings (proposed): `--ctx-size 4096` (8192 for long CVs), `--threads <
 | Llama-3.2-3B-Instruct | 3.2 B | ~2.0 GB | ~2.5–3.5 GB | ~8–15 tok/s | Llama 3.2 Community Licence (acceptable-use + attribution) | Good instruction following |
 | Phi-3.5-mini-instruct | 3.8 B | ~2.2–2.4 GB | ~3.0–4.5 GB | ~6–12 tok/s | MIT | Strong reasoning for size; larger KV cache at long context |
 
-All candidates fit the **≤ 6 GB model-process budget** (NFR-03) with headroom. Final choice is a Phase 1 benchmark (O-05; REQ-LLM-06) measuring JSON-extraction F1 against analyst-labelled JDs/CVs, latency per JD/CV and peak RAM. Model licence compatibility with internal distribution is a gating criterion (REQ-LLM-06).
+All candidates fit the **≤ 8 GB model-process budget** (NFR-03) with headroom. Final choice is a Phase 1 benchmark (O-05; REQ-LLM-06) measuring JSON-extraction F1 against analyst-labelled JDs/CVs, latency per JD/CV and peak RAM. Model licence compatibility with internal distribution is a gating criterion (REQ-LLM-06).
 
 ### 8.4 External providers (P3; placeholder config in P1)
 
 | Provider | Adapter | Capabilities | Notes |
 |---|---|---|---|
-| OpenAI / ChatGPT API | `openai_compatible` (httpx; `POST /v1/chat/completions`, structured outputs via JSON schema) | generate (sync), json_schema | User-supplied API key (REQ-LLM-03), stored DPAPI-encrypted; base URL configurable (also covers Azure OpenAI-style gateways where approved) |
-| Devin API | `devin` (session-based REST API with the user's token) | generate (asynchronous task model: create session → poll for result) | Suited to non-interactive tasks (e.g. batch summarisation); not used for latency-sensitive calls; capability flags mark it `async_only` |
-| Local llama.cpp | `llamacpp` | generate, embed, grammar, json_schema | Always the last element of the chain |
+| OpenAI / ChatGPT API | `openai_compatible` (httpx; `POST /v1/chat/completions`, structured outputs via JSON schema) | generate (sync), json_schema | User-supplied API key (REQ-LLM-03), stored DPAPI-encrypted; base URL configurable (also covers Azure OpenAI-style gateways where approved); never chains to another external provider |
+| Devin API | `devin` (session-based REST API with the user's token) | generate (asynchronous task model: create session → poll for result) | Suited to non-interactive tasks (e.g. batch summarisation); not used for latency-sensitive calls; capability flags mark it `async_only`; never chains to another external provider |
+| Local llama.cpp | `llamacpp` | generate, embed, grammar, json_schema | Direct fallback when an enabled external request cannot be served |
 
 In Phase 1 the **Settings → LLM providers** page and `llm_providers` rows exist (disabled), so configuration is forward-compatible; the gateway refuses to route to external providers until Phase 3 code and explicit admin enablement + user opt-in exist (NFR-04). **Embeddings are never sent to external providers** (vectors must come from the same local model to be comparable, REQ-LLM-07).
 
@@ -1278,30 +1309,28 @@ flowchart TB
     E1 -- ok --> RH["Re-identify locally"]
     E1 -- "version conflict" --> VC["Retry with next compatible API version"]
     VC -- ok --> RH
-    VC -- "still failing" --> E2["Provider 2"]
-    E1 -- "auth failure" --> E2
+    VC -- "still failing" --> L["Local model"]
+    E1 -- "auth failure" --> L
     E1 -- "rate limit" --> BO["Backoff per Retry-After, max 2"]
     BO -- ok --> RH
-    BO -- "exhausted" --> E2
+    BO -- "exhausted" --> L
     E1 -- "timeout or 5xx" --> RT["Retry once with jitter"]
     RT -- ok --> RH
-    RT -- "failed" --> E2
-    E2 -- ok --> RH
-    E2 -- failed --> L
+    RT -- "failed" --> L
     L --> N["Result + served_by notice to user"]
     RH --> N
 ```
 
 | Error class | Detection | Action |
 |---|---|---|
-| **API / token version conflict** | HTTP 400/404/410/422 whose error code or message indicates an unsupported API version, deprecated endpoint, unknown model or a schema/parameter mismatch; or token scope incompatible with the requested API version | Look up `compatible_versions_json` (ordered list) and `capabilities()`; retry **once per compatible version** with the request adapted (e.g. older structured-output parameter); remember the working version for the session; if none works → next provider |
-| Auth failure | 401/403 | Mark token invalid for the session, notify user ("token rejected by <provider>"), next provider |
-| Rate limit | 429 | Honour `Retry-After` up to 2 attempts within the request timeout, then next provider |
-| Timeout / 5xx / network | `httpx` timeout, connection error, 5xx | Retry once with jitter, then next provider; circuit breaker opens after 3 consecutive failures for 5 minutes |
-| Invalid structured output | JSON schema validation failure | One repair retry with the validation error in the prompt; then next provider |
+| **API / token version conflict** | HTTP 400/404/410/422 indicating an unsupported API version, deprecated endpoint, unknown model or schema/parameter mismatch; or token scope incompatible with the requested API version | Look up `compatible_versions_json`; retry each compatible API version with the request adapted; if none works → local model |
+| Auth failure | 401/403 | Mark token invalid for the session, notify user ("token rejected by <provider>"), use local model |
+| Rate limit | 429 | Honour `Retry-After` for up to 2 attempts within the request timeout, then use local model |
+| Timeout / 5xx / network | `httpx` timeout, connection error, 5xx | Retry once with jitter, then use local model; circuit breaker opens after 3 consecutive failures for 5 minutes |
+| Invalid structured output | JSON schema validation failure | One repair retry with the validation error in the prompt; then use local model |
 | PII guard rejection | Residual PII detected after masking | Do **not** send; route to local; audit `rejected_pii` |
 
-Every hop is a row in `llm_calls` (`fallback_from` chain) and every external call is an audit event (REQ-AUTH-05). The GUI shows which provider served the result (REQ-LLM-04).
+Each external attempt is a row in `llm_calls`; a failed external provider is never chained to another external provider. Every external call is an audit event (REQ-AUTH-05). The GUI shows which provider served the result (REQ-LLM-04).
 
 ### 8.6 PII masking, tokenisation and encryption (P3, REQ-LLM-05)
 
@@ -1349,13 +1378,13 @@ Every hop is a row in `llm_calls` (`fallback_from` chain) and every external cal
 | Hash | **Argon2id** via `argon2-cffi` (RFC 9106 low-memory profile: m = 64 MiB, t = 3, p = 4; parameters stored in the encoded hash, re-hash on login when parameters change). bcrypt (cost 12) only as fallback if the Argon2 wheel is unavailable (REQ-AUTH-04) |
 | Admin policy | ≥ 14 characters, at least 3 of 4 character classes, not containing the email local part, checked against a small bundled common-password list (REQ-AUTH-03) |
 | Analyst policy | ≥ 10 characters, same blocklist |
-| Lockout | 5 consecutive failures → locked 15 minutes (configurable); Admin can unlock; every failure and lockout audited |
+| Lockout | 5 consecutive failures → locked 15 minutes; Admin can unlock; every failure and lockout audited |
 | Timing | Constant-time verify; generic "invalid credentials" message |
 
 ### 9.3 Sessions, cookies and CSRF
 
 - Session token: 256-bit random (`secrets.token_urlsafe(32)`), stored hashed (SHA-256) in `sessions`; cookie `pfc_session` with `HttpOnly`, `SameSite=Strict`, `Path=/`. (`Secure` is not applicable on `http://127.0.0.1`; loopback traffic does not leave the machine.)
-- Idle timeout 30 min, absolute 12 h (configurable); sliding refresh on activity; logout revokes.
+- Idle timeout 60 min, absolute 12 h (configurable); sliding refresh on activity; logout revokes.
 - **CSRF**: synchroniser token returned by `/auth/me` and required in `X-CSRF-Token` on every state-changing request, plus `SameSite=Strict` and an `Origin` check.
 - **DNS-rebinding / cross-site protection**: middleware rejects requests whose `Host` is not `127.0.0.1:<port>` or `localhost:<port>`, and whose `Origin` (when present) differs.
 - Security headers: strict `Content-Security-Policy` (`default-src 'self'`), `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`.
@@ -1434,7 +1463,7 @@ stateDiagram-v2
 
 ### 10.5 Calendar follow-ups (P2, REQ-EML-08)
 
-After `Sent`, if enabled, create an Outlook `AppointmentItem` (`CreateItem(1)`) as a **reminder in the analyst's own calendar** at +2 business days (configurable, skipping weekends and configured holidays) with the candidate/requisition in the subject; optional `meeting` mode creates a meeting request (`MeetingStatus = olMeeting`) only after an additional confirmation. Stored in `follow_ups` with `UNIQUE(message_id, kind)` for idempotency.
+After `Sent`, if enabled, create an Outlook `AppointmentItem` (`CreateItem(1)`) as a **reminder in the analyst's own calendar** at +1 business day (configurable, skipping weekends and configured holidays) with the candidate/requisition in the subject; optional `meeting` mode creates a meeting request (`MeetingStatus = olMeeting`) only after an additional confirmation. Stored in `follow_ups` with `UNIQUE(message_id, kind)` for idempotency.
 
 ---
 
@@ -1479,7 +1508,7 @@ Base path `/api/v1`; JSON; cookie session + `X-CSRF-Token` on writes; errors as 
 | GET / PUT | `/demands/{id}/requirements` | Read / edit draft requirements | A | P1 | REQ-MAT-02 |
 | POST | `/demands/{id}/requirements/confirm` | Confirm & Start (queues scoring) | A | P1 | REQ-MAT-02 |
 | GET | `/resources` · `/resources/{id}` | Bench list (filters) / detail | A | P1 | REQ-OUT-06 |
-| GET | `/resources/excluded` | Excluded-from-matching view with reasons | A | P1 | REQ-ELIG-07 |
+| GET | `/resources/excluded` | Excluded-from-matching view with reasons | A | P1 | REQ-ELIG-08 |
 | POST | `/resources/{id}/cv-sync` · `/resources/cv-sync` (body: ids ≥ 1) | Per-candidate / global sync | A | P1 | REQ-IN-21 |
 | GET | `/candidates/{id}` · `/candidates/{id}/cv-versions` | Identity, CV versions, scores | A | P1 / P2 | REQ-IN-24 |
 | PUT | `/candidates/{id}/identity` | Resolve incomplete/ambiguous identity | A | P1 | REQ-IN-23/25 |
@@ -1506,11 +1535,14 @@ Base path `/api/v1`; JSON; cookie session + `X-CSRF-Token` on writes; errors as 
 | CRUD | `/occ/users` (+ `/unlock`, `/reset-password`) | User management | Adm | P1 | REQ-ROLE-03 |
 | CRUD | `/occ/scoring-templates` (+ `/activate`) | Versioned templates | Adm | P1 (single) / P3 (role-specific) | REQ-SCR-01 |
 | CRUD | `/occ/synonyms` (+ approve/reject suggestions) | Synonym tracker | Adm | P1 | REQ-MAT-05 |
-| CRUD | `/occ/bench-statuses` · `/occ/grades` · `/occ/location-aliases` | Reference data | Adm | P1 | REQ-ELIG-03, O-01 |
+| CRUD | `/occ/bench-statuses` · `/occ/status-map` · `/occ/grades` · `/occ/location-aliases` | Reference data and editable source-status map | Adm | P1 | REQ-ELIG-03, REQ-ELIG-07 |
 | CRUD | `/occ/email-templates` · `/occ/resource-team` | Templates and CC list | Adm | P1 | REQ-EML-03/05 |
-| CRUD | `/occ/internal-domains` | Internal email domains | Adm | P2 | REQ-CLS-01 |
+| CRUD | `/occ/internal-domains` | Internal email domains; seeded default allowlist | Adm | P1 | REQ-CLS-01 |
 | CRUD | `/occ/llm-models` · `/occ/llm-providers` · POST `/occ/llm-models/{id}/benchmark` | Approved list; benchmark lab | Adm | P1 / P3 | REQ-LLM-06 |
 | GET / PUT | `/occ/settings` | Admin settings | Adm | P1 | REQ-ROLE-04 |
+| POST | `/occ/settings-package/export` | Create signed, versioned settings package | Adm | P1 | REQ-OCC-01 |
+| POST | `/settings/settings-package/import` · `/preview` · `/rollback` | Validate/preview import, atomic apply, or restore previous package | A | P1 | REQ-OCC-02 |
+| POST | `/occ/embedding-models/import` | Import approved signed `.pfcmodel`, re-embed and record model version per vector | Adm | P1 | REQ-OCC-03 |
 | GET | `/occ/audit-log` | Audit viewer + export | Adm | P1 | REQ-AUTH-05 |
 | POST | `/occ/archive/preview` · `/occ/archive/run` · GET `/archive/...` | Archival | Adm | P2 | REQ-ARC-01/02 |
 | POST | `/occ/housekeeping` | Purge/vacuum/backup | Adm | P2 | REQ-ARC-03 |
@@ -1530,13 +1562,21 @@ The OpenAPI document generated by FastAPI is the contract for the generated Type
 | Python runtime | **Python embeddable distribution** (python.org `python-3.13.x-embed-amd64.zip`, Authenticode-signed `python.exe`); `python313._pth` edited to add `..\app` and `Lib\site-packages`, with `import site` enabled |
 | Dependencies | Wheels resolved on a build machine from a **hashed lock file** (`pip install --require-hashes --only-binary=:all: --platform win_amd64 --python-version 3.13 --target runtime/python/Lib/site-packages`); no network access needed at runtime; no compilers |
 | llama.cpp | Prebuilt Windows CPU release binaries (x64, AVX2-capable build; recent releases include CPU-feature variants), pinned release tag + SHA-256 in a manifest; only `llama-server.exe` and required DLLs shipped |
-| Models | Default GGUF LLM + embedding model in `models/` with `MODELS.lock` (name, source, SHA-256, licence); verified at startup |
+| Models | Approved local LLM plus default nomic-embed-text-v1.5 ONNX model in `models/`, with `MODELS.lock` (name, source, SHA-256, licence); verified at startup |
 | Frontend | `vite build` output copied to `web/`; served by FastAPI `StaticFiles` (SPA fallback to `index.html`) |
-| Defaults | `config/` (defaults, statuses, grades, synonyms seed, template), `templates/` (email, prompts, grammars, report templates) |
-| Launcher | `PFC.cmd` at ZIP root → `runtime\python\python.exe -m pfc.launcher` (no PowerShell dependency; works if `.cmd` execution is permitted) |
-| Size estimate | Python + wheels ~150–250 MB, llama.cpp ~30–60 MB, LLM 1–2.5 GB, embedding model 35–130 MB, frontend < 10 MB → **~1.3–3 GB** ZIP |
+| Defaults | `config/` (defaults, statuses, status map, grades, synonyms seed, template, and dummy placeholders for inactive settings), `templates/` (email, prompts, grammars, report templates) |
+| Launcher | Windows launchers are `.bat` / `.cmd` only; `PFC.cmd` at ZIP root → `runtime\python\python.exe -m pfc.launcher` (no PowerShell dependency; `.cmd` execution is approved) |
+| Size estimate | Rough estimate only: Python + wheels ~150–250 MB, llama.cpp ~30–60 MB, LLM 1–2.5 GB, nomic embedding ONNX ~270 MB estimated, frontend < 10 MB. Re-measure the ZIP after selecting and packaging the ONNX artifact; no packaged-size measurement is implied. |
 
-### 13.2 ZIP folder layout
+### 13.2 Signed settings packages (REQ-OCC-01..03)
+
+- OCC Admin export produces one `PFC-settings-v<N>.pfcpkg` ZIP containing versioned JSON, a manifest and an Ed25519 signature. Its monotonic integer version and schema/app compatibility are recorded in `settings_packages`.
+- Include synonyms, scoring template and weights, status list and mapping, grades, resource teams, internal-domain allowlist, approved provider/model settings without secrets or tokens, DL/CT approvals, and Analyst accounts (corporate email, role, salted slow hash of an Admin-issued one-time password, `must_change_password=true`).
+- Generate the signing key pair on the Admin instance; protect the private key (DPAPI where available) and embed the matching public key in the distributed application ZIP. Default distribution is a shared/synced folder; if unavailable or unsuccessful, Admin may send the file by MS Teams or email. Trust depends on signature verification, not the transport.
+- Analyst imports from Settings using a file picker, or startup detects a package in `inbox\\`. Validate signature, schema, app-version compatibility and monotonic version; reject older/equal versions unless an Admin-signed rollback is used. Show a diff preview, apply all changes atomically on confirmation, report any failure without partial application, audit the import, and retain the previous version for one-click rollback. Imported one-time passwords require a change at first login.
+- A signed `.pfcmodel` add-on uses the same approved import flow; after import, trigger re-embedding and retain the model version for every vector. Phase 3 metadata sync replaces or augments the Phase 1 manual package flow.
+
+### 13.3 ZIP folder layout
 
 | Path | Contents | Replaced on upgrade |
 |---|---|---|
@@ -1552,7 +1592,7 @@ The OpenAPI document generated by FastAPI is the contract for the generated Type
 
 Data-folder location: default `data/` beside the app; configurable to `%LOCALAPPDATA%\PFC\data` (recommended when the ZIP is extracted inside a OneDrive-synced folder, because syncing a live SQLite database corrupts it — see [FEASIBILITY.md](FEASIBILITY.md)).
 
-### 13.3 Launcher behaviour
+### 13.4 Launcher behaviour
 
 1. Acquire **single-instance lock**: `data/run/pfc.lock` opened exclusively (`msvcrt.locking`) holding PID and port. If held by a live process → open the browser at the existing port and exit (REQ-PKG-04).
 2. Ensure data directories; run DB backup + migrations.
@@ -1562,11 +1602,11 @@ Data-folder location: default `data/` beside the app; configurable to `%LOCALAPP
 6. Supervise `llama-server` (lazy start, idle stop, restart on crash with back-off).
 7. Graceful shutdown on console close / "Quit" in the GUI: stop jobs, stop `llama-server`, release lock.
 
-### 13.4 Upgrade strategy
+### 13.5 Upgrade strategy
 
 Upgrade = extract the new ZIP and copy over the old `data/` folder (or point to the same external data folder). On first start the launcher detects `schema_migrations` < app version, takes a backup (`data/backups/pfc-<ts>-pre-<ver>.db`), applies forward-only migrations in a transaction, and on failure restores the backup and shows an error. Embedding pipeline changes trigger a background re-embed (§6.6).
 
-### 13.5 Packaging options compared
+### 13.6 Packaging options compared
 
 | Option | How it runs | Pros | Cons on locked-down Windows | Verdict |
 |---|---|---|---|---|
@@ -1599,16 +1639,16 @@ Target hardware: Windows 11 laptop, 16 GB RAM, modern 8-core x64 CPU, SSD, CPU-o
 | DL upload preview (500 rows, long JDs) | ≤ 10 s | openpyxl read-only, bounded empty-row scan |
 | CT upload preview (500 rows) | ≤ 5 s | — |
 | Commit + eligibility recompute | ≤ 5 s | single transaction |
-| Embedding, full initial (≈ 20k chunks) | ≤ 5–10 min (background) | bge-small CPU; incremental thereafter seconds |
+| Embedding, full initial (≈ 20k chunks) | ≤ 5–10 min (background) | nomic-embed-text-v1.5 CPU; benchmark target, incremental thereafter seconds |
 | Embedding, incremental (one JD / CV) | ≤ 5 s | hash reuse |
-| **Full re-match 500 × 500** (vectors cached) | **≤ 2 min**, target < 60 s | ~94k grade-compatible pairs (±1 of 8 grades); NumPy item × chunk similarity; no LLM |
+| **Full re-match 500 × 500** (vectors cached) | **≤ 2 min**, target < 60 s | ~94k grade-compatible pairs (±1 of nine grades); NumPy item × chunk similarity; no LLM |
 | Incremental re-match (one demand) | ≤ 3 s | dirty pairs only |
 | Analyze JD (local LLM, 1.5B–3B) | ≤ 30–90 s per JD (interactive); bulk runs in background | ~400–800 output tokens |
 | CV extraction (local LLM) | ≤ 60–180 s per CV (background) | rule-based skills available immediately |
 | Dashboard / grid interactions | < 2 s (target < 500 ms API) | pre-aggregated run summaries, indexed queries, server paging |
 | PDF report | ≤ 30 s | P2 |
 | App memory (excluding model) | ≤ 1 GB | — |
-| Model process | ≤ 6 GB (expected 1.5–4.5 GB) | NFR-03 |
+| Model process | ≤ 8 GB (expected 1.5–4.5 GB) | NFR-03 |
 
 Bulk LLM extraction of 500 new JDs/CVs is the one long-running operation (hours on CPU with a 3B model). Mitigations: incremental processing (only new/changed hashes, REQ-MAT-07), smaller model for bulk, rule-based skill pre-extraction so analysts can start immediately, and prioritising demands by start date. This is flagged for validation in [FEASIBILITY.md](FEASIBILITY.md).
 
@@ -1655,37 +1695,38 @@ Bulk LLM extraction of 500 new JDs/CVs is the one long-running operation (hours 
 | REQ-ROLE-*, REQ-AUTH-01..07 | §9, §4.3, §12 |
 | REQ-IN-01..14, REQ-ING-01..06 | §5.1, §4.4–4.6 |
 | REQ-IN-20..25 | §5.2, §4.6 |
-| REQ-ELIG-01..07, D-01 | §7.3, §4.8, §4.10 |
+| REQ-ELIG-01..08, D-01 | §7.3, §4.8, §4.10 |
 | REQ-MAT-01, REQ-LLM-07 | §6 |
 | REQ-MAT-02..10, REQ-GRD-*, REQ-LOC-01, REQ-SCR-*, D-02, D-07 | §7, §4.10 |
 | REQ-OUT-01..11 | §7.5, §7.7, §12, [GUI_OCC_DESIGN.md](GUI_OCC_DESIGN.md) |
 | REQ-EML-01..08 | §10, §4.11 |
-| REQ-LLM-01..06 | §8, §4.12 |
+| REQ-LLM-01..07 | §6, §8, §4.12 |
 | REQ-CLS-01..02 | §4.6, §4.11, §12 |
 | REQ-ARC-01..04 | §4.13, §11 |
 | REQ-PKG-01..05 | §13, [FEASIBILITY.md](FEASIBILITY.md) |
 | REQ-AUTH-08 | §4.14, §2 (C19) |
+| REQ-OCC-01..03 | §4.12, §12, §13.2 |
 | NFR-01..07, KPI-01..05 | §15, §16, §17 |
 
 ---
 
 ## 19. Open questions
 
-| # | Question | Proposed default in this TDD | Related |
+| # | Question | Decision | Related |
 |---|---|---|---|
-| Q-01 | Skill sub-weights within the 70 points (mandatory / preferred / semantic) and semantic thresholds | 0.50 / 0.20 / 0.30; thresholds 0.45–0.80; tune in Phase 1 UAT against KPI-01 | O-04 |
-| Q-02 | Bench Start Date reduction curve ("reduced as the gap grows") | Tiers 0 d = 5, ≤14 d = 4, ≤30 d = 3, ≤60 d = 2, ≤90 d = 1, beyond = 0; missing date = 0 + gap | REQ-SCR-01 |
-| Q-03 | Treatment of unrecognised Bench Status values | Exclude with reason "Unrecognised Bench Status — OCC to map" | REQ-ELIG-02/03 |
-| Q-04 | Points per priority when `status_score_mode = tiered` | 5/4/3/2/1/0 for priorities 1–6 | D-07 |
-| Q-05 | "Insufficient data" vs eligibility "sufficient skills": where is the line? | No skills at all → excluded (`NO_SKILLS`); fewer than 3 recognised skill terms and no CV → scored but band = Insufficient data | REQ-ELIG-01, REQ-SCR-02 |
-| Q-06 | Weak inclusion: does "no strong candidates" mean no **Strong** band, or no Strong/Potential? Threshold for "transferable experience"? | No Strong-band candidate and fewer than top-N non-Weak rows; transferable = profile semantic similarity ≥ 0.60 | REQ-MAT-04 |
-| Q-07 | Should a missing mandatory skill cap the band? | `mandatory_gap_policy = flag_only` (default) with `cap_band` switch | REQ-SCR-03 |
-| Q-08 | Embedding runtime: ONNX Runtime in-process vs llama.cpp embeddings | ONNX Runtime default, llama.cpp (GGUF, as sized in FEASIBILITY.md) alternative; decide with O-05 benchmark | O-05 |
-| Q-09 | sqlite-vec DLL loading permitted under corporate policy? | Verify in feasibility; fallback `NumpyStore` | REQ-PKG-05 |
-| Q-10 | Outlook Object Model Guard prompts on programmatic send | Verify; fallback "Display" mode with manual send + reconciliation | REQ-EML-04, O-06 |
-| Q-11 | Full-database encryption (SQLCipher) required, or BitLocker + field-level encryption sufficient? | BitLocker + field-level; confirm with IT security | REQ-AUTH-06 |
-| Q-12 | Qwen2.5-3B licence acceptability for internal distribution | Prefer Apache/MIT models (Qwen3-4B-Instruct-2507 default candidate, Qwen2.5-1.5B lite; Phi-3.5-mini exceeds the RAM target at 8k context per FEASIBILITY.md) until legal review | REQ-LLM-06 |
-| Q-13 | Travel clusters for "Potential travel" (which locations are reachable) | OCC-maintained `location_aliases.yaml` clusters, empty by default (→ Location check) | §6.3 of baseline |
-| Q-14 | JD attachment format in candidate emails | Generated `.docx` from JD text | REQ-EML-02 |
-| Q-15 | Business-day calendar for follow-ups (UK bank holidays?) | Weekends skipped; holiday list configurable | REQ-EML-08 |
-| Q-16 | Grade list incl. `E1`? | Configurable `grades` table; ship A3–D2 | O-01 |
+| Q-01 | Skill sub-weights within the 70 points (mandatory / preferred / semantic) and semantic thresholds | Resolved: weights are 0.60 / 0.15 / 0.25; semantic thresholds 0.45–0.80, with related-synonym credit tuned in Phase 1 UAT against KPI-01. | O-04 |
+| Q-02 | Bench Start Date reduction curve ("reduced as the gap grows") | Resolved: 0 days = 5; ≤30 = 4; ≤45 = 3; ≤60 = 2; ≤90 = 1; beyond 90 = 0. | REQ-SCR-01 |
+| Q-03 | Treatment of unrecognised Bench Status values | Resolved: include at priority 2 with binary status score 0 until mapped; flag "Unmapped status" and use the editable seeded status map. | REQ-ELIG-07 |
+| Q-04 | Points per priority when `status_score_mode = tiered` | Resolved: 5/4/3/2/1/0 for priorities 1–6. | D-07 |
+| Q-05 | "Insufficient data" vs eligibility "sufficient skills": where is the line? | Resolved: the band is Insufficient data when skill-term count is ≤1 or no confirmed mandatory requirement can be evaluated. A missing CV alone does not trigger it. | REQ-ELIG-01, REQ-SCR-02 |
+| Q-06 | Weak inclusion: does "no strong candidates" mean no **Strong** band, or no Strong/Potential? Threshold for "transferable experience"? | Resolved: no Strong-band candidate enables the configured Weak-only shortlist; Weak-only requisitions count as no suitable candidate and are displayed separately. | REQ-MAT-04 |
+| Q-07 | Should a missing mandatory skill cap the band? | Resolved: `mandatory_gap_policy = flag_only` by default; `cap_band` remains an optional OCC template switch. | REQ-SCR-03 |
+| Q-08 | Embedding runtime: ONNX Runtime in-process vs llama.cpp embeddings | Resolved: nomic-embed-text-v1.5 via ONNX Runtime is the default; llama.cpp GGUF is the alternative. | REQ-LLM-07 |
+| Q-09 | sqlite-vec DLL loading permitted under corporate policy? | Resolved: use sqlite-vec where permitted; retain `NumpyStore` as the fallback if extension loading is blocked. | REQ-PKG-05 |
+| Q-10 | Outlook Object Model Guard prompts on programmatic send | Resolved: corporate approval for Outlook automation is granted; use Outlook COM, with Display/manual-send fallback if the local guard prevents automation. | REQ-EML-04 |
+| Q-11 | Full-database encryption (SQLCipher) required, or BitLocker + field-level encryption sufficient? | Resolved: Phase 1 uses BitLocker plus field-level encryption; SQLCipher is not required. | REQ-AUTH-06 |
+| Q-12 | Qwen2.5-3B licence acceptability for internal distribution | Resolved: distribute only licence-reviewed approved models; retain the listed Qwen candidates subject to the approved model list. | REQ-LLM-06 |
+| Q-13 | Travel clusters for "Potential travel" (which locations are reachable) | Resolved: OCC-maintained `location_aliases.yaml` clusters, empty by default (→ Location check). | §6.3 of baseline |
+| Q-14 | JD attachment format in candidate emails | Resolved: generate a PDF from confirmed JD text. | REQ-EML-02 |
+| Q-15 | Business-day calendar for follow-ups (UK bank holidays?) | Resolved: follow up after one business day; skip weekends and the OCC-configurable holiday list. | REQ-EML-08 |
+| Q-16 | Grade list incl. `E1`? | Resolved: the configurable `grades` table ships with A3–E1 (nine grades). | O-01 |

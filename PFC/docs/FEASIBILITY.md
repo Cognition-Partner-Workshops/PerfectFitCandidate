@@ -32,8 +32,8 @@
 ## 1. Executive summary
 
 - **Feasible, with conditions.** Nothing in PFC needs admin rights: an unzip-and-run bundle of the **python.org embeddable package**, vendored wheels, **llama.cpp prebuilt CPU binaries** and a **quantized GGUF model** satisfies REQ-PKG-01/02/03. The real risk is **policy**, not technology: application control (AppLocker / App Control for Business), Defender ASR "prevalence" rules and SmartScreen / Mark-of-the-Web can block unsigned executables launched from user-writable folders. These must be tested on a real corporate laptop in **Phase 0** (REQ-PKG-05) before Phase 1 build-out.
-- **Recommended distribution:** portable ZIP = embedded CPython 3.13 + vendored wheels + `llama-server.exe` (CPU build, Vulkan build optional) + one bundled Q4_K_M model + embedding model + built React UI, launched by a `.bat`/`.cmd` (or a small code-signed launcher EXE). Estimated **≈ 2.8 GB ZIP / ≈ 3.0 GB unpacked** (standard) or **≈ 1.3 GB** (lite model). See [§8](#8-recommendation).
-- **PyInstaller / Nuitka** are viable but add AV false-positive risk and rebuild friction without removing the need for signing; they are fallbacks, not the default.
+- **Recommended distribution:** portable ZIP = embedded CPython 3.13 + vendored wheels + `llama-server.exe` (CPU build, Vulkan build optional) + one bundled Q4_K_M model + nomic-embed-text-v1.5 embedding model + built React UI, launched by a `.bat` or `.cmd` only (`.cmd` execution is approved). Updated ZIP/unpacked size is an estimate to be recalculated from the selected embedding artifact and package contents; previous bge-small totals are not applicable. See [§8](#8-recommendation).
+- **PFC launches exclusively via `.bat` / `.cmd` files.** No executable launcher is used.
 - **Ollama** installs per-user without admin [S-10] but is an additional product (background app, auto-update, ~1.7 GB installer) that typically falls under "approved software only" — **likely not allowed** on the target estate (Assumption). It is not assumed (REQ-PKG-03).
 - **LLM sizing:** a 16 GB CPU-only laptop comfortably runs 1.5–4 B parameter models at Q4_K_M. Measured on an 8-vCPU AVX2 VM: 1.5 B ≈ 48 tok/s, 3–4 B ≈ 16–24 tok/s generation. A proposed default candidate is **Qwen3-4B-Instruct-2507 Q4_K_M (Apache-2.0)** with **Qwen2.5-1.5B-Instruct (Apache-2.0)** as the lite option; the final choice stays open per **O-05** and is benchmarked in Phase 1. **Qwen2.5-3B is under a non-commercial "Qwen Research" licence** and should not be the default without legal approval.
 - **AMD iGPU with 512 MB VRAM**: treat as CPU-only (REQ-LLM-01). The Vulkan build is kept optional for a Phase 0 experiment only.
@@ -44,8 +44,8 @@
 |---|---|---|
 | OS | Windows 11 Pro, x64, corporate-managed (Intune/GPO assumed) | Policies may be pushed by MDM even on Pro edition (Assumption — confirm with IT) |
 | Rights | Standard user, **no admin**, approved-software-only | No installers, no services, no drivers, no machine-wide PATH/registry changes |
-| Network | **Mostly offline**; corporate proxy when online (Assumption) | All core features offline (NFR-02); no runtime downloads (no pip, no model pulls) |
-| RAM | 16 GB shared with Outlook, Teams, browser | Model process target ≤ 6 GB (NFR-03) |
+| Network | **Mostly offline**; corporate proxy when online (Assumption) | Core features run offline (NFR-02); network-backed features are available only when their active Settings flag is enabled; no runtime downloads (no pip, no model pulls) |
+| RAM | 16 GB shared with Outlook, Teams, browser | Model process target ≤ 8 GB (NFR-03) |
 | CPU | Modern laptop x64 CPU (AMD Ryzen assumed because of AMD iGPU) — AVX2 certain, AVX-512 on Zen 4 or newer (Assumption) | llama.cpp CPU build auto-selects an optimised kernel (see §6.1) |
 | GPU | AMD integrated GPU, **512 MB dedicated VRAM** (UMA frame buffer) | GPU offload negligible → CPU inference |
 | Disk | SSD, user profile (`%USERPROFILE%`, `%LOCALAPPDATA%`) writable | ≈ 3–4 GB free needed for app + model + data |
@@ -59,11 +59,11 @@
 |---|---|---|---|---|
 | C-01 | **AppLocker** | Default rules allow executables only from the Windows and Program Files folders for standard users; they are a starter policy that admins extend [S-01]. | **High** if enforced: an EXE in `%LOCALAPPDATA%`/Downloads is blocked. | Ask IT for a **publisher rule** (signed binaries) or **hash rules**; alternatively IT deploys the unzipped folder to an admin-writable path (still "portable"). Keep the number of distinct EXEs minimal (`python.exe`/`pythonw.exe`, `llama-server.exe`). |
 | C-02 | **App Control for Business (WDAC)** | Path rules are only honoured for admin-writable paths unless the runtime check is disabled; file rules can be hash- or certificate-based [S-02]. | **High** if enforced. User-profile paths will not satisfy path rules. | Same as C-01: signer or hash allowlisting. Prefer binaries already signed by a known publisher (python.org binaries — Assumption, verify with `Get-AuthenticodeSignature`). |
-| C-03 | **SmartScreen / Smart App Control** | SmartScreen performs reputation checks on downloaded programs and their signatures [S-03]; Smart App Control blocks unknown unsigned code but allows code signed by a Trusted-Root CA [S-04]. | **Medium**: "Windows protected your PC" prompt for unsigned EXEs, outright block if Smart App Control is enforcing. | Code-sign launcher and our own binaries; distribute via an internal channel; `Unblock` the ZIP before extraction (C-04). |
+| C-03 | **SmartScreen / Smart App Control** | SmartScreen performs reputation checks on downloaded programs and their signatures [S-03]; Smart App Control blocks unknown unsigned code but allows code signed by a Trusted-Root CA [S-04]. | **Medium**: "Windows protected your PC" prompt for unsigned EXEs, outright block if Smart App Control is enforcing. | Use only the approved `.bat` / `.cmd` launcher; sign or allow-list bundled binaries as needed; distribute via an internal channel; `Unblock` the ZIP before extraction (C-04). |
 | C-04 | **Mark-of-the-Web (MotW)** on downloaded ZIPs | Downloaded files carry a `Zone.Identifier` alternate data stream (zone 3 = Internet); `Unblock-File` / the *Unblock* checkbox removes it [S-05][S-06]. Explorer propagates MotW to files extracted from a marked ZIP (Assumption — widely documented behaviour, verify). | **Medium**: every extracted `.exe`/`.bat` triggers "Open File – Security Warning" or SmartScreen. | Instruct users to *Properties → Unblock* the ZIP **before** extracting (permitted for own files); prefer delivery via a OneDrive/SharePoint *sync* folder or file share designated Local intranet [S-06]. |
 | C-05 | **Defender AV / EDR** | ASR rule *"Block executable files from running unless they meet a prevalence, age, or trusted list criterion"* exists for Windows 10 1803+ [S-07]. | **High** for freshly built, low-prevalence binaries (every PyInstaller/Nuitka rebuild is a "new" file). | Ship upstream binaries that already have prevalence (python.org, llama.cpp releases) plus code-signing; request EDR allowlisting by hash/certificate. Expect first-launch scanning of the 2–3 GB model (slower first start — Assumption). |
 | C-06 | **PowerShell execution policy** | Default on Windows clients is `RemoteSigned`: downloaded scripts need a trusted signature [S-08]. The policy is not a security boundary [S-08] but GPO may set `AllSigned`/`Restricted`. | **Medium** for `.ps1` launchers. | **Do not depend on PowerShell.** Launch via `.cmd`/`.bat` or a small EXE; PowerShell only for optional diagnostics. |
-| C-07 | **CMD / batch restrictions** | Some estates block `cmd.exe` or script rules in AppLocker (Assumption). | **Low–Medium**. | Fallback: Windows shortcut (`.lnk`) that calls `pythonw.exe -m pfc.launcher` directly, or a signed launcher EXE. |
+| C-07 | **CMD / batch restrictions** | Some estates block `cmd.exe` or script rules in AppLocker (Assumption); `.cmd` execution is approved for PFC. | **Low–Medium**. | Use the approved `.bat` / `.cmd` launcher only; if a policy blocks both, resolve with IT rather than substituting a shortcut or executable launcher. |
 | C-08 | **localhost binding / firewall prompt** | Windows Firewall prompts the first time an app listens or communicates without an allow rule; for non-admins the prompt results in **block rules** whatever is chosen [S-09]. | **Low** (Assumption): binding to `127.0.0.1` only is not expected to raise a prompt and loopback traffic is not filtered by default — must be verified. | Bind FastAPI and `llama-server` to `127.0.0.1` only (REQ-AUTH-07; llama-server default host is `127.0.0.1` [S-15]). Pick a free port at start-up; never bind `0.0.0.0`. |
 | C-09 | **User-writable locations** | `%LOCALAPPDATA%`, `%USERPROFILE%` are writable; Desktop/Documents are often redirected to OneDrive (Known Folder Move — Assumption). | **Medium**: SQLite DB inside a OneDrive-synced folder risks sync conflicts/corruption; Controlled Folder Access may block writes to Documents (Assumption). | Recommend extraction to `%LOCALAPPDATA%\PFC\` (not synced). Data folder sits beside the app folder (REQ-PKG-04). Detect and warn if the data folder is under a OneDrive path. |
 | C-10 | **OneDrive / SharePoint sync** | Files On-Demand can leave files as cloud-only placeholders until opened [S-11]. | **Medium**: resume reads may fail offline or trigger downloads. | Treat "cloud-only and offline" as *CV not found* (REQ-IN-22) with a clear message; recommend *Always keep on this device* for the resume folder. |
@@ -118,7 +118,7 @@ Ratings: ✔ good · ◐ acceptable / conditional · ✖ poor. Sizes exclude the
 | App size (zipped, excl. model) | ≈ 90 MB (11 MB Python + 53 MB wheels + 25 MB llama.cpp) | ≈ 80–120 MB (Assumption) | ≈ 70–100 MB single EXE (Assumption) | ≈ 70–120 MB (Assumption) | 150–700 MB | + 10 MB (Tauri) / + 100 MB (Electron) on top of backend |
 | Startup time | ◐ 1–3 s Python import + model load (Assumption) | ◐ similar to (a) | ✖ +unpack to `%TEMP%` every launch [S-18] | ✔ slightly faster imports | ◐ | ◐ |
 | AV / EDR false-positive risk | ✔ upstream binaries with prevalence; no packer | ◐ bootloader frequently flagged [S-20] | ✖ most-reported mode [S-19] | ✖ vendor acknowledges frequent flags [S-23] | ◐ | ◐ new EXE |
-| Code-signing need | ◐ only our launcher EXE (if used) + optional llama.cpp re-sign; `.bat` needs none | ✖ must sign every build | ✖ must sign every build | ✖ must sign every build | ◐ | ✖ shell EXE must be signed |
+| Code-signing need | `.bat` / `.cmd` launcher needs no EXE signing; optionally re-sign llama.cpp binaries | ✖ every build | ✖ every build | ✖ every build | ◐ | ✖ shell EXE must be signed |
 | Allowlisting effort for IT | ✔ few, stable hashes/publishers (python, llama.cpp) | ◐ new hash each release | ✖ new hash each release + `%TEMP%` execution | ✖ new hash each release | ◐ | ◐ |
 | Update ease | ✔ replace `app\` folder; data kept (REQ-PKG-04) | ✔ | ◐ replace whole EXE | ◐ | ◐ | ◐ |
 | Build complexity | ✔ scripted copy + `pip install --target` | ◐ spec files, hidden imports | ◐ | ✖ C compiler, long compile | ◐ | ✖ Rust / Node toolchains |
@@ -191,25 +191,25 @@ Interpretation for PFC workloads (NFR-01):
 
 | Model | Params | Dim | Max tokens | GGUF size | Licence | Fit |
 |---|---|---|---|---|---|---|
-| **bge-small-en-v1.5** | 33 M | 384 | 512 | 67 MB (f16) | MIT | **Proposed default**: fast, small; chunk JDs/CVs to ≤ 512 tokens |
+| bge-small-en-v1.5 | 33 M | 384 | 512 | 67 MB (f16) | MIT | Alternative compact model |
 | all-MiniLM-L6-v2 | 23 M | 384 | 256 (Assumption) | 21–46 MB | Apache-2.0 | Smaller/faster, lower quality (Assumption) |
-| nomic-embed-text-v1.5 | 137 M | 768 | 8,192 | 84 MB (Q4_K_M) / 146 MB (Q8_0) | Apache-2.0 | **Alternative** for long JDs without chunking; needs task prefixes |
+| **nomic-embed-text-v1.5** | **~137 M** | **768** (Matryoshka truncation option) | **8,192** | Format-specific size to be estimated for the selected ONNX / GGUF artifact | **Apache-2.0** | **Default**; task prefixes `search_document:` / `search_query:`; ONNX Runtime default, llama.cpp GGUF alternative |
 | snowflake-arctic-embed-s | 33 M | 384 | 512 (Assumption) | – | Apache-2.0 | Benchmark candidate |
 | multilingual-e5-small | 118 M | 384 | 512 (Assumption) | – | MIT | Only if non-English CVs appear |
 
-Parameters, dimensions and context from model configs / Hugging Face API [S-39]. Embedding 1,000 short documents with a 33 M model on CPU is a matter of seconds to a minute (Assumption — measure in Phase 1). Served by a second `llama-server --embedding` instance or in-process (6.2/6.4).
+Parameters, dimensions and context from model configs / Hugging Face API [S-39]. Embedding throughput and package size for nomic-embed-text-v1.5 are estimates until benchmarked with the selected model artifact; ONNX Runtime is the default, with llama.cpp GGUF as an alternative.
 
 ## 8. Recommendation
 
-**Self-contained portable ZIP = embedded CPython 3.13 + vendored wheels + llama.cpp CPU `llama-server.exe` + bundled Q4_K_M model + small embedding model + built React UI, started by `PFC.cmd`.**
+**Self-contained portable ZIP = embedded CPython 3.13 + vendored wheels + llama.cpp CPU `llama-server.exe` + bundled Q4_K_M model + nomic-embed-text-v1.5 embedding model + built React UI, started by `PFC.cmd`.**
 
 Justification:
 
 1. **No admin, no installer, offline** — satisfies REQ-PKG-01/02/03 and NFR-02; nothing is downloaded at runtime.
-2. **Smallest attack surface for allowlisting** — only two upstream executables (`pythonw.exe`, `llama-server.exe`) plus an optional signed launcher; hashes stay stable between PFC releases because app code is data (`.py`) not a rebuilt EXE.
+2. **Smallest attack surface for allowlisting** — only two upstream executables (`pythonw.exe`, `llama-server.exe`); the launcher is a `.bat` / `.cmd` script, not an EXE; hashes stay stable between PFC releases because app code is data (`.py`) not a rebuilt EXE.
 3. **Lowest AV/EDR friction** — no self-extracting packer, no `%TEMP%` execution, upstream binaries with existing prevalence (vs. PyInstaller one-file / Nuitka, §4).
 4. **Updatable** — replace `app\`, keep `data\` (REQ-PKG-04); models are swappable files (REQ-LLM-06).
-5. **Built-in fallbacks** — if `llama-server.exe` is blocked, switch to in-process llama-cpp-python; if COM is blocked, drafts/`.eml`; if `.cmd` blocked, `.lnk` → `pythonw.exe`.
+5. **Built-in fallbacks** — if `llama-server.exe` is blocked, switch to in-process llama-cpp-python; if COM is blocked, drafts/`.eml`; `.cmd` execution is approved and `.bat` is the only alternate launcher format.
 
 ### 8.1 ZIP size estimate
 
@@ -220,10 +220,10 @@ Justification:
 | llama.cpp CPU build (server + DLLs) | 25 MB | ≈ 64 MB (≈ 35 MB if trimmed to server only) | Measured [S-30] |
 | llama.cpp Vulkan build (optional) | 38 MB | ≈ 90 MB (Assumption) | Measured zip [S-30] |
 | Generative model, Qwen3-4B-Instruct-2507 Q4_K_M | ≈ 2.45 GB (GGUF barely compresses — Assumption) | 2.50 GB | [S-37] |
-| Embedding model, bge-small-en-v1.5 f16 | 60 MB | 67 MB | [S-37] |
+| Embedding model, nomic-embed-text-v1.5 | Estimate pending selected ONNX / GGUF artifact | Estimate pending selected ONNX / GGUF artifact | New model package size is not yet measured |
 | React build, templates, default config | ≈ 5 MB (Assumption) | ≈ 10 MB | — |
-| **Total — standard** | **≈ 2.6–2.7 GB** | **≈ 2.9–3.0 GB** | |
-| **Total — lite** (Qwen2.5-1.5B Q4_K_M) | **≈ 1.15 GB** | **≈ 1.35 GB** | |
+| **Total — standard** | **Estimate; recalculate after model artifacts are selected** | **Estimate; recalculate after model artifacts are selected** | Earlier totals used bge-small and do not apply |
+| **Total — lite** (Qwen2.5-1.5B Q4_K_M) | **Estimate; recalculate after model artifacts are selected** | **Estimate; recalculate after model artifacts are selected** | Earlier totals used bge-small and do not apply |
 
 Plus `data\` growth (SQLite + vectors + CV cache): tens to a few hundred MB for 500 + 500 records with history (Assumption). ZIPs > 4 GB need Zip64 — not reached. Recommendation: offer **standard** and **lite** ZIPs, or ship the model as a separate file the user drops into `models\` (keeps the code ZIP < 100 MB for faster updates).
 
@@ -244,7 +244,7 @@ Plus `data\` growth (SQLite + vectors + CV cache): tens to a few hundred MB for 
 │  └─ config\defaults.toml          <- default config, scoring template v1, approved-model list
 ├─ models\                          <- swappable; kept on upgrade
 │  ├─ qwen3-4b-instruct-2507-Q4_K_M.gguf
-│  └─ bge-small-en-v1.5-f16.gguf
+│  └─ nomic-embed-text-v1.5\  (selected ONNX artifact; size estimate pending)
 └─ data\                            <- kept on upgrade (REQ-PKG-04)
    ├─ pfc.sqlite                    <- app DB + sqlite-vec tables
    ├─ cv-cache\  uploads\  exports\  logs\  backups\
@@ -288,7 +288,7 @@ flowchart TD
     C -->|Yes| D{"Bind 127.0.0.1 without firewall block?"}
     C -->|No| C1["Fallback: in-process llama-cpp-python"]
     C1 --> D
-    D -->|Yes| E{"Model RAM within 6 GB and speed acceptable?"}
+    D -->|Yes| E{"Model process within 8 GB and speed acceptable?"}
     D -->|No| D1["Request loopback firewall or EDR exception"]
     D1 --> E
     E -->|Yes| F{"Outlook COM send works?"}
@@ -309,14 +309,14 @@ Run on **at least two real corporate laptops** (one standard build, one with the
 | F-02 | Extraction | Extract to `%LOCALAPPDATA%\PFC` | ≈ 3 GB extracted, no files quarantined | Check Defender history; request exclusion/allowlist |
 | F-03 | Python execution | Run `app\python\python.exe -c "print(1)"` and `pythonw.exe` | Runs, no SmartScreen/AppLocker block event (Event Viewer → AppLocker / CodeIntegrity) | Allowlist request (§11); IT path deployment |
 | F-04 | Signature check | `Get-AuthenticodeSignature` on `python.exe`, `llama-server.exe` | Report signer/status (informational) | Feeds allowlisting request |
-| F-05 | Launcher | Double-click `PFC.cmd` | Browser opens login page within 15 s (excluding first model load) | `.lnk` to `pythonw.exe`; signed launcher EXE |
+| F-05 | Launcher | Double-click `PFC.cmd` | Browser opens login page within 15 s (excluding first model load) | Use the approved `.bat` launcher if `.cmd` cannot be used |
 | F-06 | PowerShell policy | `Get-ExecutionPolicy -List` | Informational (PFC must not need PowerShell) | n/a |
 | F-07 | localhost bind | Start FastAPI on `127.0.0.1:<port>`; browse | Page loads; **no firewall prompt**; no EDR alert | Different port; request loopback exception; desktop-shell spike (WebView2) |
 | F-08 | llama-server | Start `llama-server.exe -m model --host 127.0.0.1` | Starts; `/health` OK; no quarantine | In-process llama-cpp-python (§6.2) → ONNX Runtime (§6.4) |
 | F-09 | pywin32 under embedded Python | `import win32com.client` from embedded Python | Import succeeds | Adjust DLL search path in launcher; alternative: `comtypes` (pure Python) |
 | F-10 | Outlook COM | Create draft; send a test mail to self via COM | Draft created; send without Object Model Guard prompt, or with an acceptable prompt | Draft-only mode; `.eml`/`.msg` export; SMTP (Phase 2) |
 | F-11 | Outlook flavour | Check whether the user runs classic or new Outlook | Classic Outlook available | Same as F-10 fallbacks [S-13] |
-| F-12 | LLM performance (CPU) | `llama-bench` with default and lite model, 8 threads, AC power | Default model ≥ 8 tok/s generation and ≤ 6 GB RSS; lite ≥ 20 tok/s (proposed thresholds, agree in Phase 0) | Use lite model; reduce context to 4 k |
+| F-12 | LLM performance (CPU) | `llama-bench` with default and lite model, 8 threads, AC power | Default model ≥ 8 tok/s generation and ≤ 8 GB RSS; lite ≥ 20 tok/s (proposed thresholds, agree in Phase 0) | Use lite model; reduce context to 4 k |
 | F-13 | Vulkan iGPU (optional) | Run Vulkan build with `-ngl` small values | Informational: faster than CPU? stable? | Stay on CPU build |
 | F-14 | Memory coexistence | Run PFC + Outlook + Teams + Edge; extract 10 JDs | No paging storm; system remains responsive; free RAM > 2 GB | Lite model; smaller context; close-on-idle for llama-server |
 | F-15 | First-start AV scan | Time first and second start of llama-server with model | Second start < 15 s | Ask for model-file hash exclusion (§11) |
@@ -333,11 +333,11 @@ Run on **at least two real corporate laptops** (one standard build, one with the
 | # | Item | Ask | Owner (proposed) | Blocks |
 |---|---|---|---|---|
 | IT-01 | **Application control allowlisting** | Publisher or hash rules for `python.exe`, `pythonw.exe`, `llama-server.exe` (+ `ggml-*.dll` if DLL rules are on) and PFC launcher; or IT-managed deployment path | Desktop engineering / EUC security | F-03, F-08 |
-| IT-02 | **Code signing** | Use the corporate code-signing certificate for the PFC launcher EXE (if used) and optionally re-sign llama.cpp binaries; timestamped signatures | PKI / release engineering | C-03, C-05 |
+| IT-02 | **Code signing** | Use the corporate code-signing certificate for bundled binaries if required; launcher is `.bat` / `.cmd`, not an EXE | PKI / release engineering | C-03, C-05 |
 | IT-03 | **EDR / Defender exceptions** | Allowlist the binaries by hash/cert; consider exclusion of `models\*.gguf` from on-access re-scanning after first scan; confirm ASR "prevalence" rule behaviour [S-07] | SecOps | F-15 |
 | IT-04 | **Loopback listening** | Confirm `127.0.0.1` listeners are permitted for user processes | Network / EUC security | F-07 |
 | IT-05 | **Outlook programmatic access** | Confirm Object Model Guard policy and whether classic Outlook stays available [S-12][S-13] | M365 / Exchange team | F-10, F-11 |
-| IT-06 | **Data-processing approval (DPIA)** | Processing of CVs/personal data locally; email automation; retention; future external LLM use with PII masking (REQ-LLM-05) — baseline O-06 | Data protection officer / InfoSec | Phase 1 pilot |
+| IT-06 | **Data-processing approval (DPIA)** | Corporate approval for CV processing, Outlook automation and external LLM use is granted; no candidate privacy notice is required (O-06). Retention, PII masking and Settings active flags still apply. | Data protection officer / InfoSec | Resolved; not a Phase 1 pilot gate |
 | IT-07 | **Model licence approval** | Approve licences of bundled models (Apache-2.0 / MIT preferred; Llama/Gemma terms need review; Qwen Research licence not for business use) | Legal / OSS office | Packaging |
 | IT-08 | **OSS component review** | SBOM of wheels + llama.cpp + React bundle (licences: MIT/BSD/Apache/PSF) | OSS office | Packaging |
 | IT-09 | **Distribution channel** | Approved channel for the ZIP (SharePoint library, Software Center, file share) that avoids MotW issues | EUC | F-01 |
