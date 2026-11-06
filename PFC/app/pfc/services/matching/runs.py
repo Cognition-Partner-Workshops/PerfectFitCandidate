@@ -481,6 +481,7 @@ def start_run(
                     template,
                 )
                 with database(settings) as db:
+                    db.execute("BEGIN IMMEDIATE")
                     context.raise_if_cancelled()
                     carry_forward(db, run_id, plan)
                     _persist(db, run_id, result, metadata, config, skipped, display_emails)
