@@ -2,9 +2,13 @@
 
 import json
 import math
+import sqlite3
 import threading
 import time
+from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, Literal, NoReturn
 
 import pytest
 
@@ -13,7 +17,7 @@ from pfc.db.audit import verify_chain
 from pfc.db.connection import database
 from pfc.db.migrate import migrate
 from pfc.domain.config_loader import load_domain_config
-from pfc.jobs.runner import JobCancelled, JobRunner
+from pfc.jobs.runner import Job, JobCancelled, JobContext, JobRunner
 from pfc.services.matching import (
     MatchingPorts,
     add_override,
@@ -27,8 +31,10 @@ from pfc.services.matching import (
     list_runs,
     result_detail,
     revoke_override,
+    runs,
     start_run,
 )
+from pfc.services.matching.ports import ChunkOwner
 from pfc.services.matching.runs import _inputs
 
 NOW = datetime(2026, 11, 6, tzinfo=UTC)
@@ -37,15 +43,15 @@ STAMP = NOW.isoformat()
 
 class FakeEmbedder:
     name = "deterministic-test"
-    runtime = "onnx"
+    runtime: Literal["onnx", "llamacpp"] = "onnx"
     file_sha256 = "a" * 64
     dim = 2
     pipeline_version = "test-v1"
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.calls = 0
 
-    def embed(self, texts):
+    def embed(self, texts: list[str]) -> list[list[float]]:
         self.calls += 1
         return [[0.0, 1.0] if text.startswith("Skill:") else [1.0, 0.0] for text in texts]
 
@@ -53,10 +59,10 @@ class FakeEmbedder:
 class FakeLlm:
     model = "test-llm-v1"
 
-    def __init__(self, *, fail=False, invalid=False):
+    def __init__(self, *, fail: bool = False, invalid: bool = False) -> None:
         self.fail, self.invalid = fail, invalid
 
-    def extract_jd(self, text):
+    def extract_jd(self, text: str) -> dict[str, Any]:
         if self.fail:
             raise RuntimeError("offline")
         if self.invalid:
@@ -73,18 +79,18 @@ class FakeLlm:
 
 
 class FakeStore:
-    def __init__(self):
-        self.values = {}
+    def __init__(self) -> None:
+        self.values: dict[ChunkOwner, list[float]] = {}
 
-    def get_vectors(self, owners):
+    def get_vectors(self, owners: list[ChunkOwner]) -> list[list[float] | None]:
         return [self.values.get(owner) for owner in owners]
 
-    def upsert(self, owners, vectors):
+    def upsert(self, owners: list[ChunkOwner], vectors: list[list[float]]) -> None:
         self.values.update(zip(owners, vectors, strict=True))
 
 
 @pytest.fixture
-def settings(tmp_path):
+def settings(tmp_path: Path) -> Settings:
     result = Settings(data_dir=tmp_path, job_workers=1)
     migrate(result)
     with database(result) as db:
@@ -102,22 +108,22 @@ def settings(tmp_path):
 
 
 @pytest.fixture
-def runner(settings):
+def runner(settings: Settings) -> Iterator[JobRunner]:
     result = JobRunner(settings)
     yield result
     result.shutdown()
 
 
 def seed_demand(
-    db,
-    code="T1TEST",
+    db: sqlite3.Connection,
+    code: str = "T1TEST",
     *,
-    grade="C1",
-    mandatory=("SQL",),
-    preferred=(),
-    jd="Required: SQL\nPreferred: Python",
-    confirmed=True,
-):
+    grade: str = "C1",
+    mandatory: Sequence[str] = ("SQL",),
+    preferred: Sequence[str] = (),
+    jd: str = "Required: SQL\nPreferred: Python",
+    confirmed: bool = True,
+) -> int:
     cursor = db.execute(
         "INSERT INTO demands(code_requisition,id_format_ok,position_start_date,account_name,"
         "code_local_grade,demand_request_name,region,row_hash,created_at,updated_at) "
@@ -149,19 +155,19 @@ def seed_demand(
 
 
 def seed_resource(
-    db,
-    name="Person",
+    db: sqlite3.Connection,
+    name: str = "Person",
     *,
-    skills="SQL, Python",
-    grade="C1",
-    status="Available",
-    group="RG1",
-    end=None,
-    end_status="blank",
-    location="Manchester",
-    candidate=None,
-    email=None,
-):
+    skills: str | None = "SQL, Python",
+    grade: str | None = "C1",
+    status: str | None = "Available",
+    group: str | None = "RG1",
+    end: str | None = None,
+    end_status: str = "blank",
+    location: str | None = "Manchester",
+    candidate: int | None = None,
+    email: str | None = None,
+) -> int:
     cursor = db.execute(
         "INSERT INTO resources(short_name,short_name_key,email_address,grade,location,bench_status,"
         "skills_raw,bench_start_date,bench_end_date,bench_end_date_parse_status,group_name,"
@@ -186,7 +192,7 @@ def seed_resource(
     return cursor.lastrowid
 
 
-def seed_candidate(db):
+def seed_candidate(db: sqlite3.Connection) -> int:
     cursor = db.execute(
         "INSERT INTO candidates(internal_ref,identity_status,created_at,updated_at)"
         " VALUES ('PFC-C-TEST','incomplete',?,?)",
@@ -195,7 +201,13 @@ def seed_candidate(db):
     return cursor.lastrowid
 
 
-def seed_cv(db, resource_id, candidate_id, *, skills=("SQL", "Python", "AWS")):
+def seed_cv(
+    db: sqlite3.Connection,
+    resource_id: int,
+    candidate_id: int,
+    *,
+    skills: Sequence[str] = ("SQL", "Python", "AWS"),
+) -> int:
     cursor = db.execute(
         "INSERT INTO resumes"
         "(candidate_id,source_path,file_name,file_sha256,mime_type,discovered_at)"
@@ -218,7 +230,7 @@ def seed_cv(db, resource_id, candidate_id, *, skills=("SQL", "Python", "AWS")):
     return cv_id
 
 
-def wait_done(runner, job_id):
+def wait_done(runner: JobRunner, job_id: int) -> Job:
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
         job = runner.get(job_id)
@@ -228,7 +240,12 @@ def wait_done(runner, job_id):
     pytest.fail("Matching job did not finish")
 
 
-def execute(settings, runner, ports=None, **kwargs):
+def execute(
+    settings: Settings,
+    runner: JobRunner,
+    ports: MatchingPorts | None = None,
+    **kwargs: Any,
+) -> int:
     run_id, job_id = start_run(
         settings,
         runner,
@@ -243,7 +260,10 @@ def execute(settings, runner, ports=None, **kwargs):
 
 
 @pytest.mark.parametrize("llm", [FakeLlm(), FakeLlm(fail=True), FakeLlm(invalid=True), None])
-def test_req_mat_02_analyze_revisions_confirmation(settings, llm):
+def test_req_mat_02_analyze_revisions_confirmation(
+    settings: Settings,
+    llm: FakeLlm | None,
+) -> None:
     with database(settings) as db:
         demand_id = seed_demand(db, confirmed=False)
         first = analyze_jd(db, demand_id, MatchingPorts(None, llm), 1, NOW)
@@ -298,7 +318,7 @@ def test_req_mat_02_analyze_revisions_confirmation(settings, llm):
         assert verify_chain(db)
 
 
-def test_req_mat_02_empty_and_invalid_requirements(settings):
+def test_req_mat_02_empty_and_invalid_requirements(settings: Settings) -> None:
     with database(settings) as db:
         demand_id = seed_demand(db, confirmed=False, jd="")
         assert get_requirements(db, demand_id) is None
@@ -364,7 +384,10 @@ def test_req_mat_01_item_kinds_follow_tdd_7_3(settings: Settings) -> None:
     }
 
 
-def test_req_mat_03_run_persistence_uniqueness_cv_exclusions(settings, runner):
+def test_req_mat_03_run_persistence_uniqueness_cv_exclusions(
+    settings: Settings,
+    runner: JobRunner,
+) -> None:
     with database(settings) as db:
         demand_id = seed_demand(db, mandatory=("SQL", "Python", "AWS"))
         weak_id = seed_demand(
@@ -428,7 +451,7 @@ def test_req_mat_03_run_persistence_uniqueness_cv_exclusions(settings, runner):
         assert verify_chain(db)
 
 
-def test_req_mat_08_scope_template_and_cache(settings, runner):
+def test_req_mat_08_scope_template_and_cache(settings: Settings, runner: JobRunner) -> None:
     embedder, store = FakeEmbedder(), FakeStore()
     ports = MatchingPorts(embedder, vector_store=store)
     with database(settings) as db:
@@ -513,7 +536,11 @@ def test_req_mat_08_results_preserve_scored_facts(settings: Settings, runner: Jo
         {"shortlisted_only": True},
     ],
 )
-def test_req_out_01_filters(settings, runner, filters):
+def test_req_out_01_filters(
+    settings: Settings,
+    runner: JobRunner,
+    filters: dict[str, Any],
+) -> None:
     with database(settings) as db:
         seed_demand(db)
         seed_resource(db)
@@ -530,7 +557,11 @@ def test_req_out_01_filters(settings, runner, filters):
             list_results(db, run_id, limit=0)
 
 
-def test_req_mat_09_overrides_effective_values_and_audit(settings, runner, monkeypatch):
+def test_req_mat_09_overrides_effective_values_and_audit(
+    settings: Settings,
+    runner: JobRunner,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     with database(settings) as db:
         demand_id = seed_demand(db)
         seed_resource(db)
@@ -569,7 +600,7 @@ def test_req_mat_09_overrides_effective_values_and_audit(settings, runner, monke
         assert demand_matches(db, demand_id)["items"][0]["effective_band"] == "Strong"
         assert result_detail(db, 99999) is None and get_run(db, 99999) is None
 
-        def fail(*args, **kwargs):
+        def fail(*args: Any, **kwargs: Any) -> NoReturn:
             raise RuntimeError("audit failed")
 
         monkeypatch.setattr("pfc.services.matching.common.append_audit", fail)
@@ -588,7 +619,7 @@ def test_req_mat_09_overrides_effective_values_and_audit(settings, runner, monke
         )
 
 
-def test_req_mat_09_include_and_revoke_band(settings, runner):
+def test_req_mat_09_include_and_revoke_band(settings: Settings, runner: JobRunner) -> None:
     with database(settings) as db:
         seed_demand(db)
         seed_resource(db)
@@ -607,9 +638,13 @@ def test_req_mat_09_include_and_revoke_band(settings, runner):
 
 
 @pytest.mark.parametrize("kind", ["raises", "wrong_count", "wrong_dim", "nan", "zero", "cancelled"])
-def test_req_mat_08_failed_or_cancelled_jobs(settings, runner, kind):
+def test_req_mat_08_failed_or_cancelled_jobs(
+    settings: Settings,
+    runner: JobRunner,
+    kind: str,
+) -> None:
     class Broken(FakeEmbedder):
-        def embed(self, texts):
+        def embed(self, texts: list[str]) -> list[list[float]]:
             if kind == "raises":
                 raise RuntimeError("Embedding failed")
             if kind == "cancelled":
@@ -634,7 +669,7 @@ def test_req_mat_08_failed_or_cancelled_jobs(settings, runner, kind):
         assert list_results(db, run_id)["items"] == []
 
 
-def test_req_mat_08_empty_run_and_missing_embedder(settings, runner):
+def test_req_mat_08_empty_run_and_missing_embedder(settings: Settings, runner: JobRunner) -> None:
     with pytest.raises(ValueError, match="embedder"):
         start_run(settings, runner, MatchingPorts(None))
     with pytest.raises(ValueError, match="Scope"):
@@ -647,11 +682,11 @@ def test_req_mat_08_empty_run_and_missing_embedder(settings, runner):
         assert demand_matches(db, 999)["items"] == []
 
 
-def test_req_mat_08_real_job_cancellation(settings, runner):
+def test_req_mat_08_real_job_cancellation(settings: Settings, runner: JobRunner) -> None:
     entered, release = threading.Event(), threading.Event()
 
     class Blocking(FakeEmbedder):
-        def embed(self, texts):
+        def embed(self, texts: list[str]) -> list[list[float]]:
             entered.set()
             assert release.wait(5)
             return super().embed(texts)
@@ -677,10 +712,11 @@ def test_req_mat_08_real_job_cancellation(settings, runner):
         release.set()
 
 
-def test_req_mat_08_cancellation_during_persistence_rolls_back(settings, runner, monkeypatch):
-    from pfc.jobs.runner import JobContext
-    from pfc.services.matching import runs
-
+def test_req_mat_08_cancellation_during_persistence_rolls_back(
+    settings: Settings,
+    runner: JobRunner,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     with database(settings) as db:
         seed_demand(db)
         seed_resource(db)
@@ -688,11 +724,11 @@ def test_req_mat_08_cancellation_during_persistence_rolls_back(settings, runner,
     original_persist = runs._persist
     original_check = JobContext.raise_if_cancelled
 
-    def persist_then_cancel(*args, **kwargs):
+    def persist_then_cancel(*args: Any, **kwargs: Any) -> None:
         original_persist(*args, **kwargs)
         persisted.set()
 
-    def check(context):
+    def check(context: JobContext) -> None:
         if persisted.is_set():
             context.cancelled.set()
         original_check(context)
@@ -718,7 +754,10 @@ def test_req_mat_08_cancellation_during_persistence_rolls_back(settings, runner,
             assert db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
 
 
-def test_req_mat_08_late_job_cancellation_overrides_completion(settings, runner):
+def test_req_mat_08_late_job_cancellation_overrides_completion(
+    settings: Settings,
+    runner: JobRunner,
+) -> None:
     with database(settings) as db:
         demand_id = seed_demand(db)
         seed_resource(db)
@@ -736,7 +775,7 @@ def test_req_mat_08_late_job_cancellation_overrides_completion(settings, runner)
         assert row["status"] == "cancelled" and row["finished_at"] == STAMP
 
 
-def test_req_mat_08_submission_failure(settings, runner):
+def test_req_mat_08_submission_failure(settings: Settings, runner: JobRunner) -> None:
     runner.shutdown()
     with pytest.raises(RuntimeError, match="closed"):
         start_run(settings, runner, MatchingPorts(FakeEmbedder()), clock=lambda: NOW)
@@ -744,10 +783,10 @@ def test_req_mat_08_submission_failure(settings, runner):
         assert list_runs(db)[0]["status"] == "failed"
 
 
-def test_req_mat_08_queued_cancellation_reconciles(settings, runner):
+def test_req_mat_08_queued_cancellation_reconciles(settings: Settings, runner: JobRunner) -> None:
     entered, release = threading.Event(), threading.Event()
 
-    def blocker(context):
+    def blocker(context: JobContext) -> None:
         entered.set()
         assert release.wait(5)
 
@@ -780,7 +819,7 @@ def test_req_mat_08_queued_cancellation_reconciles(settings, runner):
         wait_done(runner, blocker_id)
 
 
-def test_req_mat_08_restart_interruption_reconciles(settings):
+def test_req_mat_08_restart_interruption_reconciles(settings: Settings) -> None:
     # Persist the state left by a process exit, without a live worker racing recovery.
     with database(settings) as db:
         template = load_domain_config().template.model_dump(mode="json")
@@ -814,10 +853,12 @@ def test_req_mat_08_restart_interruption_reconciles(settings):
         restarted.shutdown()
 
 
-def test_req_mat_08_job_freezes_inputs_before_dispatch(settings, runner):
+def test_req_mat_08_job_freezes_inputs_before_dispatch(
+    settings: Settings, runner: JobRunner
+) -> None:
     release, started = threading.Event(), threading.Event()
 
-    def blocker(context):
+    def blocker(context: JobContext) -> None:
         started.set()
         assert release.wait(5)
 

@@ -16,7 +16,9 @@ from test_matching_service import (
     settings as settings,
 )
 
+from pfc.config import Settings
 from pfc.db.connection import database
+from pfc.jobs.runner import JobRunner
 from pfc.services.matching import MatchingPorts, demand_matches, excluded_view
 
 
@@ -24,11 +26,11 @@ class FddEmbedder(FakeEmbedder):
     dim = 6
     name = "fdd-geometry"
 
-    def embed(self, texts):
+    def embed(self, texts: list[str]) -> list[list[float]]:
         self.calls += 1
         return [self.vector(text) for text in texts]
 
-    def vector(self, text):
+    def vector(self, text: str) -> list[float]:
         if text.startswith("Skill:"):
             term = text.split("\n")[0].removeprefix("Skill: ")
             axis = {"Azure": 1, "JIRA": 2, "Data Architect": 3}.get(term, 0)
@@ -66,7 +68,7 @@ class FddEmbedder(FakeEmbedder):
         return vector
 
 
-def test_req_scr_01_fdd_idfne323_sql(settings, runner):
+def test_req_scr_01_fdd_idfne323_sql(settings: Settings, runner: JobRunner) -> None:
     with database(settings) as db:
         demand_id = seed_demand(
             db,

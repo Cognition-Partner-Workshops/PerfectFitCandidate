@@ -1,9 +1,12 @@
 """Authenticated matching API contracts (REQ-AUTH-01/04, REQ-MAT-02/09, REQ-OUT-03)."""
 
 import json
+from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from httpx import Response
 from test_matching_service import (
     NOW,
     FakeEmbedder,
@@ -24,10 +27,11 @@ from pfc.services.matching import MatchingPorts
 
 PASSWORD = "Strong!Random4567"
 SAMPLE_EMAIL = "AlexBorder@capgemini.com"
+Api = tuple[TestClient, dict[str, str]]
 
 
 @pytest.fixture(params=["Analyst", "Admin"])
-def api(request, tmp_path):
+def api(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[Api]:
     role = request.param
     settings = Settings(
         data_dir=tmp_path,
@@ -77,14 +81,14 @@ def api(request, tmp_path):
         yield client, {"X-CSRF-Token": logged_in.json()["csrf_token"]}
 
 
-def problem(response, status, code=None):
+def problem(response: Response, status: int, code: str | None = None) -> None:
     assert response.status_code == status, response.text
     assert response.headers["content-type"].startswith("application/problem+json")
     if code:
         assert response.json()["code"] == code
 
 
-def test_req_auth_01_matching_requires_login(api):
+def test_req_auth_01_matching_requires_login(api: Api) -> None:
     client, _ = api
     client.cookies.clear()
     for method, path, body in [
@@ -104,7 +108,7 @@ def test_req_auth_01_matching_requires_login(api):
         problem(response, 401, "AUTH_REQUIRED")
 
 
-def test_req_auth_04_matching_writes_require_csrf(api):
+def test_req_auth_04_matching_writes_require_csrf(api: Api) -> None:
     client, _ = api
     for method, path, body in [
         ("POST", "/match/analyze-jd/1", None),
@@ -115,7 +119,7 @@ def test_req_auth_04_matching_writes_require_csrf(api):
         problem(client.request(method, "/api/v1" + path, json=body), 403, "CSRF_INVALID")
 
 
-def test_req_mat_02_09_full_api_flow_and_weak_only(api):
+def test_req_mat_02_09_full_api_flow_and_weak_only(api: Api) -> None:
     client, headers = api
     settings = client.app.state.settings
     with database(settings) as db:
@@ -223,7 +227,7 @@ def test_req_mat_02_09_full_api_flow_and_weak_only(api):
         )
 
 
-def test_req_mat_02_ports_absent_and_conflicts(api):
+def test_req_mat_02_ports_absent_and_conflicts(api: Api) -> None:
     client, headers = api
     with database(client.app.state.settings) as db:
         demand_id = seed_demand(db, confirmed=False)
@@ -272,7 +276,7 @@ def test_req_mat_02_ports_absent_and_conflicts(api):
         problem(client.post("/api/v1/match/runs", headers=headers, json=body), 422)
 
 
-def test_req_out_01_empty_missing_validation_and_openapi(api):
+def test_req_out_01_empty_missing_validation_and_openapi(api: Api) -> None:
     client, headers = api
     assert client.get("/api/v1/results").json()["items"] == []
     assert client.get("/api/v1/results/excluded").json() == []
