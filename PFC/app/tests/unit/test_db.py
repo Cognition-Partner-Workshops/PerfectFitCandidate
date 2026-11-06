@@ -49,10 +49,23 @@ def test_schema_and_pragmas(settings: Settings) -> None:
             "'python', 'hash', 1, 1, ?)",
             (NOW,),
         )
-        db.execute("INSERT INTO fts_chunks(fts_chunks) VALUES ('rebuild')")
         assert (
             db.execute("SELECT rowid FROM fts_chunks WHERE fts_chunks MATCH 'python'").fetchone()[0]
             == 1
+        )
+        db.execute("UPDATE embedding_chunks SET text='rust' WHERE chunk_id=1")
+        assert (
+            db.execute("SELECT rowid FROM fts_chunks WHERE fts_chunks MATCH 'python'").fetchall()
+            == []
+        )
+        assert (
+            db.execute("SELECT rowid FROM fts_chunks WHERE fts_chunks MATCH 'rust'").fetchone()[0]
+            == 1
+        )
+        db.execute("DELETE FROM embedding_chunks WHERE chunk_id=1")
+        assert (
+            db.execute("SELECT rowid FROM fts_chunks WHERE fts_chunks MATCH 'rust'").fetchall()
+            == []
         )
 
 

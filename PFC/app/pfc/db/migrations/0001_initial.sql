@@ -323,6 +323,25 @@ CREATE VIRTUAL TABLE fts_chunks USING fts5(text, owner_type UNINDEXED, owner_id 
                                            content='embedding_chunks', content_rowid='chunk_id',
                                            tokenize='unicode61 remove_diacritics 2');
 
+-- REQ-MAT-05: keep hybrid keyword retrieval aligned with embedding content.
+CREATE TRIGGER embedding_chunks_fts_insert AFTER INSERT ON embedding_chunks
+BEGIN
+  INSERT INTO fts_chunks(rowid, text, owner_type, owner_id)
+  VALUES (new.chunk_id, new.text, new.owner_type, new.owner_id);
+END;
+CREATE TRIGGER embedding_chunks_fts_delete AFTER DELETE ON embedding_chunks
+BEGIN
+  INSERT INTO fts_chunks(fts_chunks, rowid, text, owner_type, owner_id)
+  VALUES ('delete', old.chunk_id, old.text, old.owner_type, old.owner_id);
+END;
+CREATE TRIGGER embedding_chunks_fts_update AFTER UPDATE ON embedding_chunks
+BEGIN
+  INSERT INTO fts_chunks(fts_chunks, rowid, text, owner_type, owner_id)
+  VALUES ('delete', old.chunk_id, old.text, old.owner_type, old.owner_id);
+  INSERT INTO fts_chunks(rowid, text, owner_type, owner_id)
+  VALUES (new.chunk_id, new.text, new.owner_type, new.owner_id);
+END;
+
 
 CREATE TABLE scoring_templates (                   -- admin-only, versioned (REQ-SCR-01, REQ-ROLE-04)
   template_id     INTEGER PRIMARY KEY,
