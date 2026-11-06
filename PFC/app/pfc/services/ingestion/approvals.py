@@ -52,6 +52,19 @@ DISPLAY = {
 }
 
 
+def _review_state(values: dict[str, Any]) -> dict[str, Any]:
+    metadata = {
+        "first_ingestion_id",
+        "last_ingestion_id",
+        "created_at",
+        "updated_at",
+        "occ_reviewed_by",
+        "occ_reviewed_at",
+        "row_hash",
+    }
+    return {k: v for k, v in values.items() if k not in metadata}
+
+
 def snapshot(db: sqlite3.Connection, entity: str) -> dict[int, dict[str, Any]]:
     return {r[f"{entity}_id"]: dict(r) for r in db.execute(f"SELECT * FROM {entity}s")}
 
@@ -81,6 +94,14 @@ def record_changes(
             (entity, entity_id),
         ).fetchone()
         if pending:
+            original = json.loads(pending["before_json"]) if pending["before_json"] else None
+            if original is not None and _review_state(original) == _review_state(after):
+                db.execute("DELETE FROM occ_approvals WHERE entry_id=?", (pending["entry_id"],))
+                db.execute(
+                    f"UPDATE {entity}s SET occ_reviewed_by=?,occ_reviewed_at=? WHERE {entity}_id=?",
+                    (original["occ_reviewed_by"], original["occ_reviewed_at"], entity_id),
+                )
+                continue
             change = "New" if pending["before_json"] is None else change
             db.execute(
                 "UPDATE occ_approvals SET ingestion_run_id=?,after_json=?,change=?,conflict=1,"

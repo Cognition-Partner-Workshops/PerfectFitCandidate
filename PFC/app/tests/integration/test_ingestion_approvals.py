@@ -728,6 +728,53 @@ def test_req_ing_03_admin_modify_preserves_source_hash_and_unchanged_rows(
     assert restored["row_hash"] == source_hash and restored[stored_field] == "Admin"
 
 
+@pytest.mark.parametrize(
+    "kind,entity,field", [("dl", "demand", "Account Name"), ("ct", "resource", "Location")]
+)
+@pytest.mark.parametrize("change", ["Updated", "Removed"])
+def test_req_ing_03_restored_upload_clears_pending_and_restores_review(
+    client, kind, entity, field, change
+):
+    ingest(client, kind, [{field: "Original"}])
+    decision(client, queue(client)[0], "approve")
+    original = row(client, entity)
+    other = (
+        {"Code Requisition": "T21234"}
+        if kind == "dl"
+        else {"ShortName": "Other", "Email Address": "other@example.com"}
+    )
+    ingest(client, kind, [{field: "Changed"}] if change == "Updated" else [other])
+    pending = next(e for e in queue(client) if e["targetId"] == 1 and e["state"] == "Pending")
+    assert pending["change"] == change
+    assert row(client, entity)["occ_reviewed_at"] is None
+    restored_run = ingest(client, kind, [{field: "Original"}, other])
+    assert not any(e["entryId"] == pending["entryId"] for e in queue(client))
+    restored = row(client, entity)
+    assert restored["occ_reviewed_by"] == original["occ_reviewed_by"] == 1
+    assert restored["occ_reviewed_at"] == original["occ_reviewed_at"]
+    assert restored["row_hash"] == original["row_hash"]
+    assert restored["lifecycle"] == original["lifecycle"]
+    assert restored["last_ingestion_id"] == restored_run["ingestion_run_id"]
+    with database(client.app.state.settings) as db:
+        assert verify_chain(db)
+
+
+def test_req_ing_03_restoring_admin_values_keeps_latest_source_hash(client):
+    ingest(client, "dl", [{"Account Name": "Source"}])
+    decision(
+        client, queue(client)[0], "modify", comment="Corrected", values={"accountName": "Admin"}
+    )
+    before = row(client, "demand")
+    ingest(client, "dl", [{"Account Name": "Changed"}])
+    assert queue(client)[0]["conflict"]
+    ingest(client, "dl", [{"Account Name": "Admin"}])
+    assert not any(e["state"] == "Pending" for e in queue(client))
+    restored = row(client, "demand")
+    assert restored["account_name"] == "Admin"
+    assert restored["occ_reviewed_at"] == before["occ_reviewed_at"]
+    assert restored["row_hash"] != before["row_hash"]
+
+
 def test_req_role_03_audit_contains_business_changes_but_no_emails(client):
     ingest(client, "dl", [{"Account Name": "Original"}])
     decision(client, queue(client)[0], "approve")
