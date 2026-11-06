@@ -6,10 +6,12 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import IO
 from unittest.mock import Mock
 
 import httpx
 import pytest
+from conftest import HeldPipe
 from fastapi.testclient import TestClient
 from starlette.datastructures import State
 
@@ -100,7 +102,9 @@ def supervisor(
     )
 
 
-def test_start_switch_stop(settings: Settings, tmp_path: Path, caplog) -> None:
+def test_start_switch_stop(
+    settings: Settings, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     async def scenario() -> None:
         service = supervisor(settings, tmp_path)
         try:
@@ -302,15 +306,15 @@ def test_inherited_output_pipe_does_not_block_lifecycle(
     settings: Settings,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    held_pipe,
+    held_pipe: HeldPipe,
     operation: str,
-    caplog,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     monkeypatch.setattr("pfc.adapters.llm.child_logs.DRAIN_TIMEOUT_S", 0.1)
     original_start = ChildLogCapture.start
-    captures = []
+    captures: list[ChildLogCapture] = []
 
-    def start(capture: ChildLogCapture, stream) -> None:
+    def start(capture: ChildLogCapture, stream: IO[bytes]) -> None:
         if not captures:
             captures.append(capture)
             stream.close()

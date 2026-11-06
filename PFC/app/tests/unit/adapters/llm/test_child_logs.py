@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 import pytest
+from conftest import HeldPipe
 
 from pfc.adapters.llm.child_logs import (
     LOG_BACKUPS,
@@ -180,7 +181,7 @@ def test_log_write_errors_do_not_echo_payload_or_stop_draining(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     capture = ChildLogCapture(tmp_path / "llm.log", [], [])
-    calls = []
+    calls: list[str] = []
 
     def fail(text: str) -> None:
         calls.append(text)
@@ -196,13 +197,16 @@ def test_log_write_errors_do_not_echo_payload_or_stop_draining(
 
 
 def test_close_bounds_non_eof_pipe_and_discards_late_output(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, held_pipe, caplog
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    held_pipe: HeldPipe,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     monkeypatch.setattr("pfc.adapters.llm.child_logs.DRAIN_TIMEOUT_S", 0.1)
     capture = ChildLogCapture(tmp_path / "llm.log", [], [])
     capture.start(held_pipe)
     assert held_pipe.blocked.wait(1)
-    errors = []
+    errors: list[Exception] = []
 
     def close() -> None:
         try:
