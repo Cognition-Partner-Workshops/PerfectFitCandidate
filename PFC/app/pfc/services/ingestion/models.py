@@ -43,6 +43,7 @@ class ParsedRow(BaseModel):
     issues: list[RowIssue] = Field(default_factory=list)
     rejected: bool = False
     superseded: bool = False
+    jd_text_raw: str | None = None
 
 
 class Diff(BaseModel):
