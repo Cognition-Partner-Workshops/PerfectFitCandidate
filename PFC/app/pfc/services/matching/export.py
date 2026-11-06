@@ -45,6 +45,10 @@ def safe_cell(value: str) -> str:
     return value
 
 
+def evidence_parts(value: str) -> list[str]:
+    return [part.strip() for part in value.split("; ") if part.strip()]
+
+
 def evidence(value: str) -> str:
     return "; ".join(part for part in value.split("; ") if part.strip())
 

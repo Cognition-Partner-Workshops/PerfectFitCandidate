@@ -1,6 +1,5 @@
 """REQ-IN-23..25 / REQ-OUT-03: explicit human identity decisions, never inferred email."""
 
-import json
 import re
 import sqlite3
 from pathlib import PurePosixPath
@@ -17,6 +16,7 @@ from pfc.api.schemas.candidates import (
 from pfc.db.audit import append_audit
 from pfc.security.problems import Problem
 from pfc.services.candidates.classification import get_classification, reclassify_candidate
+from pfc.services.matching.export import evidence_parts
 
 from .browse import _mask
 from .cv_facts import public_facts
@@ -155,10 +155,12 @@ def _matches(db: sqlite3.Connection, candidate: sqlite3.Row) -> list[dict[str, A
                 "band": r["band"],
                 "gradeRelation": r["grade_relation"],
                 "locationAssessment": r["location_assessment"],
-                "matchingEvidence": [_masked_text(v) for v in json.loads(r["matching_evidence"])],
-                "gapsChecks": [_masked_text(v) for v in json.loads(r["gaps_checks"])],
+                "matchingEvidence": [
+                    _masked_text(v) for v in evidence_parts(r["matching_evidence"])
+                ],
+                "gapsChecks": [_masked_text(v) for v in evidence_parts(r["gaps_checks"])],
                 "eligibilityEvidence": [
-                    _masked_text(v) for v in json.loads(r["eligibility_evidence"])
+                    _masked_text(v) for v in evidence_parts(r["eligibility_evidence"])
                 ],
                 "mandatoryMissing": r["mandatory_missing"],
                 "candidateType": candidate["classification_override"]

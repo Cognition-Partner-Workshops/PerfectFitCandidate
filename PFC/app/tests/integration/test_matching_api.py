@@ -191,6 +191,49 @@ def finish(client: TestClient, response: Response) -> int:
     return response.json()["runId"]
 
 
+def test_candidate_profile_parses_match_evidence_and_masks_email(api: Api) -> None:
+    client, headers = api
+    settings = client.app.state.settings
+    with database(settings) as db:
+        seed_demand(db, mandatory=("SQL", "Python", "Rust"))
+        candidate_id = seed_candidate(db)
+        seed_resource(db, grade="C2", candidate=candidate_id, email=SAMPLE_EMAIL)
+    run_id = finish(
+        client, client.post("/api/v1/match-runs", headers=headers, json={"scope": "full"})
+    )
+    response = client.get(f"/api/v1/match-runs/{run_id}/results")
+    assert response.status_code == 200, response.text
+    row = response.json()[0]
+    keys = ("matchingEvidence", "gapsChecks", "eligibilityEvidence")
+    columns = ("matching_evidence", "gaps_checks", "eligibility_evidence")
+    with database(settings) as db:
+        stored = db.execute(
+            "SELECT * FROM match_results WHERE result_id=?", (row["resultId"],)
+        ).fetchone()
+        for column in columns:
+            assert isinstance(stored[column], str) and "; " in stored[column]
+    profile = client.get(f"/api/v1/candidates/{candidate_id}")
+    assert profile.status_code == 200, profile.text
+    match = next(m for m in profile.json()["matches"] if m["resultId"] == row["resultId"])
+    for key in keys:
+        assert len(row[key]) >= 2
+        assert match[key] == row[key]
+
+    with database(settings) as db:
+        db.execute(
+            "UPDATE match_results SET matching_evidence=matching_evidence || ?,"
+            "gaps_checks=gaps_checks || ?,eligibility_evidence=eligibility_evidence || ? "
+            "WHERE result_id=?",
+            (f"; Contact {SAMPLE_EMAIL}",) * 3 + (row["resultId"],),
+        )
+    masked = client.get(f"/api/v1/candidates/{candidate_id}")
+    assert masked.status_code == 200, masked.text
+    assert SAMPLE_EMAIL not in masked.text
+    match = next(m for m in masked.json()["matches"] if m["resultId"] == row["resultId"])
+    for key in keys:
+        assert match[key] == [*row[key], "Contact Al******er@capgemini.com"]
+
+
 def test_req_mat_02_full_flow_drafts_results_overrides_exclusions(api: Api) -> None:
     client, headers = api
     settings = client.app.state.settings
