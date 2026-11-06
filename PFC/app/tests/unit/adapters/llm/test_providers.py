@@ -177,3 +177,23 @@ def test_fallback_provider_contract() -> None:
         assert result.text == "primary" and result.api_version == "explicit"
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "error", [ProviderError("failed"), httpx.ConnectError("offline"), TimeoutError()]
+)
+def test_same_provider_failure_is_not_retried(error: Exception) -> None:
+    class Failing(FakeProvider):
+        calls = 0
+
+        async def generate(
+            self, request: PromptRequest, *, api_version: str | None = None
+        ) -> GenerateResult:
+            self.calls += 1
+            raise error
+
+    provider = Failing()
+    with pytest.raises(type(error)) as caught:
+        asyncio.run(FallbackProvider(provider, provider).generate(PromptRequest([])))
+    assert caught.value is error
+    assert provider.calls == 1

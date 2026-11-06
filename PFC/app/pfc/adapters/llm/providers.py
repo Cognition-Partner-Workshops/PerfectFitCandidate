@@ -291,6 +291,8 @@ class FallbackProvider:
                 return replace(result, fallback_chain=tuple(attempts[:-1]))
             except (ProviderError, httpx.HTTPError, TimeoutError) as exc:
                 if not isinstance(exc, ProviderError) or not exc.version_conflict:
+                    if self.local is self.primary:
+                        raise
                     break
         result = await self.local.generate(request)
         return replace(result, fallback_chain=tuple(attempts))
