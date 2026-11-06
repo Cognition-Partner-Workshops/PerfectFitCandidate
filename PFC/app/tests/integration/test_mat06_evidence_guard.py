@@ -179,7 +179,9 @@ def test_experience_snapshot_rejects_misaligned_items(api: Api) -> None:
             snapshot_experience(db, {"demand": {"jd_req_id": confirmed["jd_req_id"]}}, [])
 
 
-@pytest.mark.parametrize("cv", ["absent", "short", "unrelated", "grounded", "quote_only", "fabricated"])
+@pytest.mark.parametrize(
+    "cv", ["absent", "short", "unrelated", "grounded", "quote_only", "fabricated"]
+)
 def test_sql_ten_years_keeps_score_and_adds_validation_gap(
     api: Api, cv: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
