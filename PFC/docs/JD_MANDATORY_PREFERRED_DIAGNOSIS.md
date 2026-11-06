@@ -198,7 +198,7 @@ held-out five.** Their regression test only reads JSON and checks IDs, labels,
 cue coverage and source-text presence;
 it never invokes extraction or scoring on them.
 
-## Follow-up: blind before baseline and LLM-only correction
+## Follow-up: before, failed first attempt and duplicate-only after2
 
 Before any production edits, both live baselines completed at unchanged `8db7dda`.
 Reports are outside git under `~/pfc-models/llm/before/`:
@@ -212,15 +212,54 @@ Reports are outside git under `~/pfc-models/llm/before/`:
   was redirected; these results were not opened, printed, summarized or used to
   choose the fix. `source-head.txt` records the baseline commit.
 
-The fix changes only the LLM path in `JdLlmBridge`: generic exclusive-list and
-verbatim-evidence instructions, followed by grounded cue/heading classification
-after JSON-schema validation. Ambiguous/unlocatable contexts are left alone;
-conflicting grounded classifications for the same normalized skill are also
-left unchanged. When moving a duplicate, the existing correctly placed item's
-metadata wins. No evidence is fabricated. Schema, scoring, fallback and API
-fields remain unchanged. There is no existing warning/provenance channel in
-this strict bridge return contract, so no new fields were added for moves.
+The first attempt at `563a1c5e988067cf9316de1321abec0f5d60a8f5` changed the
+prompt and applied general classification moves. Its original-ten quality gate
+blocked: the raw model combined atomic skills into `Python and SQL`,
+`Kubernetes and Linux skills` and `Java and Spring`. Mandatory precision/recall
+fell to 76.92%/62.50%; preferred to 90%/90%. The compound output was already
+present before post-processing. The held-out reports were first inspected after
+that implementation was final, not used to tune it.
 
-Offline tests include the captured jd05 raw response and generic synthetic cue,
-heading, grounding, ambiguity, deduplication and fallback cases. **No after-fix
-live harness has been run, and the held-out before results remain unread.**
+After2 at `dfeb978e07d0bd6e5dfa4030a02d368406baad8d` restores the original
+prompt byte-identically and limits correction to normalized cross-list
+duplicates. Grounded evidence, otherwise the skill's clause, otherwise its
+preceding heading supplies context. Only one unambiguous cue category removes
+the wrong-list copy; both/neither cues and single-list items stay unchanged.
+No evidence is fabricated. The generation-schema JSON remains byte-identical
+to the before revision; temperature and seed are both 0. Scoring and fallback
+logic are unchanged.
+
+The retained item's nullable `classification_reason` records
+`classification_adjusted` in existing revision `extraction_json`, exposed as
+the additive API item field `classificationReason`. Unset keys are omitted from
+stored JSON. Validated `source_jd_req_id` ancestry preserves it through manual
+revisions; client assertions do not. No migration was necessary.
+`extractionMethod` and `fallbackReason` remain unchanged. Offline tests cover
+the API, two saves and confirmation, duplicate-only cases, ambiguous/empty/error
+inputs, ungrounded evidence and unchanged fallback behavior.
+
+**The extraction-quality gate passes.** Original-ten mandatory precision is now
+100%; all other original-ten quality measures remain 100%, with zero schema
+failures and 10/10 LLM use. The only final skill-list change is jd05 dropping
+PostgreSQL from mandatory while retaining it preferred. Held-out precision/recall
+remain mandatory 10%/11.11%, preferred 20%/20%, with zero schema failures and
+5/5 LLM use. The held-out fixtures remain unchanged.
+
+All 20 original and five held-out raw response texts are byte-identical before
+versus after2. Original-ten median/max latency rose from 13.022/24.890 s to
+20.073/39.086 s; held-out from 20.696/23.622 s to 22.728/24.825 s. This is
+**VM timing noise, not the post-check**: both splits slowed despite identical
+outputs. Latency is report-only, not an extraction-quality gate. Neither
+latency nor RSS doubled. These measurements are **Linux VM, not target laptop**.
+
+A fresh default-seeded DB (13 skills, 31 synonym rows) resolved none of the 13
+held-out missed/extra phrases in either phase. Production whole-term synonym
+resolution does not rescue these expanded phrases. **This is a finding only;
+no canonicalization or scoring change was made.**
+
+Full before/after2 tables, artifact hashes, source commits and the complete
+canonicalization table for both phases are in
+[LLM_VALIDATION.md](LLM_VALIDATION.md#duplicate-only-correction-validation),
+also recorded in the LLM section of [PERFORMANCE.md](PERFORMANCE.md).
+External after2 reports and `comparison.json` are under
+`~/pfc-models/llm/after2/`. The measurements predate the subsequent merge of main.
