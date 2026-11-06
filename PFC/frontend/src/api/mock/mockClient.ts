@@ -766,9 +766,7 @@ export class MockApiClient implements ApiClient {
 
   async listEmails(): Promise<EmailList> {
     this.currentUser()
-    const n = this.policy().emailsPreselected
-    const items = this.state.emails.map((e) => (e.status === 'Draft' && e.rank ? { ...e, preselected: e.rank <= n } : e))
-    return this.done({ items, transport: { transport: 'Outlook COM', outlookDetected: true } })
+    return this.done({ items: this.state.emails, transport: { transport: 'Outlook COM', outlookDetected: true } })
   }
 
   private email(id: number): EmailDraft {
@@ -926,6 +924,9 @@ export class MockApiClient implements ApiClient {
     const before = this.state.adminSettings
     const changed = (Object.keys(next) as (keyof AdminSettings)[]).filter((k) => next[k] !== before[k])
     this.state.adminSettings = { ...next }
+    // A changed pre-select count resets the default selection on pending drafts (REQ-EML-01).
+    if (before.emailsPreselected !== next.emailsPreselected)
+      for (const e of this.state.emails) if (e.status === 'Draft' && e.rank) e.preselected = e.rank <= next.emailsPreselected
     this.audit(`Admin settings saved (${changed.join(', ') || 'no changes'})`, undefined, { action: 'update', entity: 'admin_settings', details: JSON.stringify(Object.fromEntries(changed.map((k) => [k, { from: before[k], to: next[k] }]))) })
     return this.done(this.state.adminSettings)
   }
