@@ -1095,12 +1095,12 @@ For scoring, retrieval is **exhaustive** rather than top-k: at 500 × 500 every 
   "grade": {"exact": 10, "adjacent": 7, "max_distance": 1},
   "location_points": {"Aligned": 5, "Remote/unspecified": 5, "Potential travel": 3, "Location check": 1},
   "skills": {
-    "sub_weights": {"mandatory": 0.50, "preferred": 0.20, "semantic": 0.30},
+    "sub_weights": {"mandatory": 0.60, "preferred": 0.15, "semantic": 0.25},
     "semantic_low": 0.45, "semantic_high": 0.80, "semantic_item_cap": 0.80,
     "related_synonym_credit": 0.60,
     "min_evidence_terms": 3
   },
-  "bench_start": {"tiers_days": [[0, 5], [14, 4], [30, 3], [60, 2], [90, 1]], "beyond": 0, "missing": 0},
+  "bench_start": {"tiers_days": [[0, 5], [30, 4], [45, 3], [60, 2], [90, 1]], "beyond": 0, "missing": 0},
   "status_score_mode": "binary",
   "status_tiered_points": {"1": 5, "2": 4, "3": 3, "4": 2, "5": 1, "6": 0},
   "bands": {"Strong": 90, "Potential": 70, "Avg": 61},
