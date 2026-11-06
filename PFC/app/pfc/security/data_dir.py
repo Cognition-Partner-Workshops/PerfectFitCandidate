@@ -150,16 +150,21 @@ def restrict_acl(path: Path, *, run: Runner = subprocess.run, platform: str = sy
         logger.warning("Data directory permissions not restricted: current user unknown")
         return False
     account = f"{domain}\\{user}" if domain else user
-    argv = [
-        "icacls",
-        str(path),
-        "/inheritance:r",
-        "/grant:r",
-        f"{account}:(OI)(CI)F",
-        f"{SYSTEM_SID}:(OI)(CI)F",
+    # /reset drops explicit grants to other accounts (here and below); /grant:r alone would keep them.
+    commands = [
+        ["icacls", str(path), "/reset", "/T", "/C", "/Q"],
+        [
+            "icacls",
+            str(path),
+            "/inheritance:r",
+            "/grant:r",
+            f"{account}:(OI)(CI)F",
+            f"{SYSTEM_SID}:(OI)(CI)F",
+        ],
     ]
     try:
-        run(argv, check=True, capture_output=True, text=True, timeout=30)
+        for argv in commands:
+            run(argv, check=True, capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.SubprocessError):
         logger.warning("Data directory permissions not restricted; startup continues")
         return False

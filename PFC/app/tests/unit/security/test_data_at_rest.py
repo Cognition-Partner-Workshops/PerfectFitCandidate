@@ -128,7 +128,8 @@ def test_windows_acl_uses_icacls_argv_for_user_and_system(
     monkeypatch.setenv("USERDOMAIN", "CORP")
     run = Recorder()
     assert restrict_acl(tmp_path, run=run, platform="win32") is True
-    ((argv, kwargs),) = run.calls
+    (reset, _), (argv, kwargs) = run.calls
+    assert reset == ["icacls", str(tmp_path), "/reset", "/T", "/C", "/Q"]
     assert argv == [
         "icacls",
         str(tmp_path),
@@ -138,7 +139,7 @@ def test_windows_acl_uses_icacls_argv_for_user_and_system(
         "*S-1-5-18:(OI)(CI)F",
     ]
     assert "shell" not in kwargs and kwargs["check"] is True
-    assert restrict_acl(tmp_path, run=run, platform="linux") is True and len(run.calls) == 1
+    assert restrict_acl(tmp_path, run=run, platform="linux") is True and len(run.calls) == 2
 
 
 def test_failing_acl_step_warns_and_startup_continues(
