@@ -22,7 +22,7 @@ describe('JD requirement classification provenance', () => {
     ['mandatory_skill', 'Mandatory', 'Preferred'],
     ['preferred_skill', 'Preferred', 'Mandatory'],
   ] as const)('shows the correct note for %s and not the same text in the other kind', async (kind, target, other) => {
-    await open([{ kind, text: ' ＳＱＬ ', classificationReason: 'classification_adjusted' }])
+    await open([{ kind, text: 'SQL', classificationReason: 'classification_adjusted' }])
     const group = within(screen.getByRole('group', { name: `${target} skills: SQL` }))
     expect(group.getByRole('note').textContent).toBe(`Moved to ${target} based on JD wording`)
     expect(within(screen.getByRole('group', { name: `${other} skills: SQL` })).queryByRole('note')).toBeNull()
@@ -34,8 +34,9 @@ describe('JD requirement classification provenance', () => {
     await open(items)
     const save = vi.spyOn(mock, 'saveRequirements')
     const confirm = vi.spyOn(mock, 'confirmRequirements')
-    expect(screen.getByText('Evidence not found in JD text — check before confirming')).toBeTruthy()
-    expect(screen.getByText('Moved to Mandatory based on JD wording')).toBeTruthy()
+    const group = within(screen.getByRole('group', { name: 'Mandatory skills: SQL' }))
+    expect(group.getByText('Evidence not found in JD text — check before confirming')).toBeTruthy()
+    expect(group.getByText('Moved to Mandatory based on JD wording')).toBeTruthy()
     const add = screen.getByLabelText('Add mandatory skills')
     fireEvent.change(add, { target: { value: 'Rust' } })
     fireEvent.keyDown(add, { key: 'Enter' })
@@ -46,12 +47,34 @@ describe('JD requirement classification provenance', () => {
     expect(save.mock.calls[0][0].mandatorySkills).toContain('Rust')
   })
 
-  it('does not attach adjustment notes to a removed and re-added chip', async () => {
+  it('keeps the saved adjustment note for an identically re-added chip', async () => {
     await open([{ kind: 'mandatory_skill', text: 'Python', classificationReason: 'classification_adjusted' }])
     fireEvent.click(screen.getByRole('button', { name: 'Remove Python' }))
     const add = screen.getByLabelText('Add mandatory skills')
     fireEvent.change(add, { target: { value: 'Python' } })
     fireEvent.keyDown(add, { key: 'Enter' })
+    expect(screen.getByText('Moved to Mandatory based on JD wording')).toBeTruthy()
+  })
+
+  it.each(['Rust', 'python', 'Ｐｙｔｈｏｎ'])('drops the note when the analyst replaces Python with %s and still confirms', async (text) => {
+    const items: JdRequirementItem[] = [{ kind: 'mandatory_skill', text: 'Python', jdReqId: 8, classificationReason: 'classification_adjusted' }]
+    await open(items)
+    const save = vi.spyOn(mock, 'saveRequirements')
+    const confirm = vi.spyOn(mock, 'confirmRequirements')
+    expect(screen.getByText('Moved to Mandatory based on JD wording')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Python' }))
+    const add = screen.getByLabelText('Add mandatory skills')
+    fireEvent.change(add, { target: { value: text } })
+    fireEvent.keyDown(add, { key: 'Enter' })
+    expect(screen.queryByText(/Moved to/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /Confirm & Start/ }))
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith(1))
+    expect(save.mock.calls[0][0].mandatorySkills).toEqual(['SQL', text])
+    expect(save.mock.calls[0][0].items).toEqual(items)
+  })
+
+  it.each(['sql', ' SQL ', 'ＳＱＬ'])('does not normalize saved skill metadata %s to SQL', async (text) => {
+    await open([{ kind: 'mandatory_skill', text, classificationReason: 'classification_adjusted' }])
     expect(screen.queryByText(/Moved to/)).toBeNull()
   })
 
