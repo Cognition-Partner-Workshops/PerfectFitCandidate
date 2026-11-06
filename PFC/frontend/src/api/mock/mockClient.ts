@@ -1199,7 +1199,7 @@ export class MockApiClient implements ApiClient {
     if (next.lockoutAttempts < 3 || next.lockoutAttempts > 10) errors.push('Lockout attempts must be 3–10')
     if (next.lockoutMinutes < 5 || next.lockoutMinutes > 120) errors.push('Lockout duration must be 5–120 minutes')
     if (next.idleTimeoutMinutes < 5 || next.idleTimeoutMinutes > 480) errors.push('Idle timeout must be 5–480 minutes')
-    if (next.maskKeep !== 2 || next.maskCount !== 6) errors.push('Masking rule is fixed at keep 2 / mask 6 (REQ-OUT-03)')
+    if (next.maskKeep !== 2) errors.push('Masking rule is fixed: keep first 2, mask rest of local part (REQ-OUT-03)')
     if (next.topN !== 5) errors.push('Shortlist size is fixed at 5 per requisition (REQ-MAT-03)')
     if (next.emailsPreselected < 1 || next.emailsPreselected > next.topN) errors.push(`Pre-selected emails must be 1–${next.topN}`)
     if (next.allowExternalProviders) errors.push('External providers are configuration placeholders until Phase 3 (REQ-LLM-03)')

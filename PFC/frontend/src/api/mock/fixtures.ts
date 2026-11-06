@@ -116,7 +116,6 @@ export const ADMIN_SETTINGS: AdminSettings = {
   lockoutMinutes: 15,
   idleTimeoutMinutes: 60,
   maskKeep: 2,
-  maskCount: 6,
   analystsMayUnmask: true,
   topN: 5,
   emailsPreselected: 4,
