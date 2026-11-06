@@ -12,7 +12,7 @@ All data access goes through the typed `ApiClient` in `src/api/` whose methods m
 
 | `VITE_PFC_API` | Client | Notes |
 |---|---|---|
-| `mock` (default) | `MockApiClient` | In-browser fixtures (fictitious people, `example.com`/`example.org` emails), persisted in `localStorage` key `pfc.mock.v1`. The first-run setup code is shown on the setup screen and in the console. |
+| `mock` (default) | `MockApiClient` | In-browser fixtures (fictitious people, `example.com`/`example.org` emails), persisted in `localStorage` key `pfc.mock.v2`. The first-run setup code is shown on the setup screen and in the console. |
 | `http` | `HttpApiClient` | Real backend; cookie session + `X-CSRF-Token`, RFC 9457 errors. `VITE_PFC_API_BASE` overrides `/api/v1`. |
 
 ```bash

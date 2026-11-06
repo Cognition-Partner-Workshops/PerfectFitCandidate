@@ -51,7 +51,8 @@ import { checkPassword } from '../../lib/password'
 import { formatPct } from '../../lib/format'
 import { maskEmail, maskPhone } from '../../lib/mask'
 
-const STORAGE_KEY = 'pfc.mock.v1'
+// Bump when persisted mock shapes or IDs change so stale state is discarded.
+const STORAGE_KEY = 'pfc.mock.v2'
 const LOCKOUT_ATTEMPTS = 5
 const LOCKOUT_MINUTES = 15
 
