@@ -215,6 +215,7 @@ export class HttpApiClient implements ApiClient {
   listMatchRuns: ApiClient['listMatchRuns'] = () => this.request('GET', '/match-runs')
   getMatchRun: ApiClient['getMatchRun'] = (runId) => this.request('GET', `/match-runs/${runId}`)
   getResults: ApiClient['getResults'] = (runId) => this.request('GET', `/match-runs/${runId}/results`)
+  getRunExcluded: ApiClient['getRunExcluded'] = (runId) => this.request('GET', `/match-runs/${runId}/excluded`)
   addOverride: ApiClient['addOverride'] = (id, o) => this.request('POST', `/match-results/${id}/overrides`, o)
   unmask: ApiClient['unmask'] = async (entity, id, field) =>
     (await this.request<{ value: string }>('POST', '/pii/unmask', { entity, id, field })).value

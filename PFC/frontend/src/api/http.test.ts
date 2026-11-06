@@ -469,3 +469,13 @@ describe('HttpApiClient — OCC email templates (REQ-EML-03)', () => {
     await expect(api.createEmailTemplate({ name: 'x', subject: '{nope}', bodyHtml: '' })).rejects.toMatchObject({ code: 'UNKNOWN_PLACEHOLDER' })
   })
 })
+
+describe('HttpApiClient — run excluded list (REQ-ELIG-08)', () => {
+  it('reads GET /match-runs/{id}/excluded', async () => {
+    const api = new HttpApiClient('/api/v1')
+    const row = { runId: 4, resourceId: 1, shortName: 'Alex', demandId: null, codeRequisition: null, reasonCode: 'NO_GRADE', detail: 'Person grade not recorded or unknown', scope: 'global' }
+    fetchMock.mockResolvedValueOnce(json([row]))
+    expect(await api.getRunExcluded(4)).toEqual([row])
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/match-runs/4/excluded')
+  })
+})

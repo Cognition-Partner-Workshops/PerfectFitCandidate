@@ -15,6 +15,7 @@ import { formatDate, formatDateTime, roleLocation } from '../lib/format'
 import { BAND_ORDER, bandLabel } from '../lib/bands'
 import { useAuth } from '../auth/context'
 import { canEdit } from '../lib/permissions'
+import { groupExcluded, type ExcludedPerson } from '../lib/excluded'
 
 function OverrideDialog({ row, onClose }: { row: MatchResult; onClose: () => void }) {
   const qc = useQueryClient()
@@ -180,6 +181,51 @@ function exportError(error: unknown): string {
   return error instanceof Error ? error.message : 'Export failed.'
 }
 
+/** Per-run excluded view (REQ-ELIG-08): who the run did not score, and why. */
+function ExcludedPanel({ rows, loading, error }: { rows: ExcludedPerson[]; loading: boolean; error: unknown }) {
+  if (loading) return <Spinner />
+  if (error) return <ErrorState error={error} />
+  if (rows.length === 0) return <EmptyState message="No one was excluded from this run." />
+  return (
+    <div className="table-wrap">
+      <table className="data" aria-label="Excluded from matching">
+        <thead>
+          <tr>
+            <th>Person</th>
+            <th>Grade</th>
+            <th>Bench status</th>
+            <th>Scope</th>
+            <th>Reasons</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.key}>
+              <td>
+                {r.candidateId ? <Link to={`/candidates/${r.candidateId}`}>{r.name ?? r.shortName}</Link> : (r.name ?? r.shortName)}
+                {r.name && <span className="mono muted small"> {r.shortName}</span>}{' '}
+                <MaskedValue masked={r.emailAddressMasked} entity="resource" id={r.resourceId} />
+              </td>
+              <td>{r.grade ?? '—'}</td>
+              <td>{r.benchStatus ?? '—'}</td>
+              <td>{r.codeRequisition ? <span className="mono">{r.codeRequisition}</span> : 'All requisitions'}</td>
+              <td>
+                <div className="row">
+                  {r.reasons.map((x) => (
+                    <Chip key={`${x.code}|${x.detail ?? ''}`} tone="danger" title={x.detail ?? undefined}>
+                      {x.label}
+                    </Chip>
+                  ))}
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 export function MatchResultsPage() {
   const { user } = useAuth()
   const [params] = useSearchParams()
@@ -202,6 +248,10 @@ export function MatchResultsPage() {
     if (progress.data && !isActive(progress.data)) void qc.invalidateQueries({ queryKey: ['runs'] })
   }, [progress.data, qc])
   const results = useQuery({ queryKey: ['results', run?.runId], queryFn: () => api.getResults(run?.runId ?? 0), enabled: !!run })
+  const [tab, setTab] = useState<'results' | 'excluded'>('results')
+  const excluded = useQuery({ queryKey: ['run-excluded', run?.runId], queryFn: () => api.getRunExcluded(run?.runId ?? 0), enabled: !!run })
+  const bench = useQuery({ queryKey: ['resources'], queryFn: () => api.listResources(), enabled: !!run })
+  const excludedRows = useMemo(() => groupExcluded(excluded.data ?? [], bench.data ?? []), [excluded.data, bench.data])
   const [selection, setSelection] = useState<Set<number> | null>(null)
   const send = useMutation({
     mutationFn: (ids: number[]) => api.createDrafts(ids, run?.runId),
@@ -286,6 +336,17 @@ export function MatchResultsPage() {
         </button>
       </div>
       {exporter.isError && <Banner tone="danger">{exportError(exporter.error)}</Banner>}
+      <div className="tabs" role="tablist" aria-label="Run view">
+        <button role="tab" aria-selected={tab === 'results'} onClick={() => setTab('results')}>
+          Results ({all.length})
+        </button>
+        <button role="tab" aria-selected={tab === 'excluded'} onClick={() => setTab('excluded')}>
+          Excluded from matching ({excludedRows.length})
+        </button>
+      </div>
+      {tab === 'excluded' && <ExcludedPanel rows={excludedRows} loading={excluded.isLoading || bench.isLoading} error={excluded.error ?? bench.error} />}
+      {tab === 'results' && (
+      <>
       <div className="card stack">
         <FilterBar value={filters} onChange={setFilters} options={options} splitGrade />
         <div className="row small">
@@ -341,6 +402,8 @@ export function MatchResultsPage() {
           </tbody>
         </table>
       </div>
+      </>
+      )}
       {send.isError && <Banner tone="danger">{(send.error as Error).message}</Banner>}
       <p className="disclaimer">{DISCLAIMER}</p>
       {overrideRow && <OverrideDialog row={overrideRow} onClose={() => setOverrideRow(null)} />}

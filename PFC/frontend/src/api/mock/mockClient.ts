@@ -682,6 +682,27 @@ export class MockApiClient implements ApiClient {
     return this.done(this.computeResults())
   }
 
+  async getRunExcluded(runId: number) {
+    this.currentUser()
+    if (runId !== 1) fail(404, 'Run not found', 'NOT_FOUND')
+    return this.done(
+      this.resources()
+        .filter((r) => r.eligibility === 'excluded' || r.eligibility === 'insufficient')
+        .flatMap((r) =>
+          r.exclusionReasons.map((detail) => ({
+            runId,
+            resourceId: r.resourceId,
+            shortName: r.shortName,
+            demandId: null,
+            codeRequisition: null,
+            reasonCode: 'EXCLUDED',
+            detail,
+            scope: 'global' as const,
+          })),
+        ),
+    )
+  }
+
   async addOverride(resultId: number, o: Omit<MatchOverride, 'createdBy' | 'createdAt'>) {
     const u = this.currentUser()
     if (!o.reason.trim()) fail(422, 'A reason is required', 'OVERRIDE_REASON_REQUIRED')

@@ -1,4 +1,5 @@
 import type {
+  ExcludedEntry,
   AdminSettings,
   ApprovalDecision,
   ApprovalEntry,
@@ -142,6 +143,8 @@ export interface ApiClient {
   getMatchRun(runId: number): Promise<MatchRun>
   /** GET /match-runs/{id}/results */
   getResults(runId: number): Promise<MatchResult[]>
+  /** GET /match-runs/{id}/excluded — people the run did not score, with reason codes (REQ-ELIG-08). */
+  getRunExcluded(runId: number): Promise<ExcludedEntry[]>
   /** POST /match-results/{id}/overrides */
   addOverride(resultId: number, override: Omit<MatchOverride, 'createdBy' | 'createdAt'>): Promise<MatchResult>
   /** POST /pii/unmask — audited (REQ-OUT-03, REQ-AUTH-05) */
