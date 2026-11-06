@@ -166,7 +166,7 @@ Deliver the end-to-end manual matching loop for Analyst A, the analytics dashboa
 
 ### 5.4 Deliverables
 
-- Portable PFC ZIP (MVP release) and release notes.
+- Portable PFC ZIP (MVP release) and [MVP release notes / readiness draft](RELEASE_NOTES_MVP.md).
 - Default email template, default scoring template v1, default synonym list, default status priority list.
 - User guide (Analyst) and admin guide (OCC).
 - UAT report including **KPI-01 measurement** and baselines for KPI-02 to KPI-05.
@@ -176,7 +176,7 @@ Deliver the end-to-end manual matching loop for Analyst A, the analytics dashboa
 
 | # | Criterion |
 |---|---|
-| P1-EX-01 | All Phase 1 REQ IDs in [§10](#10-requirement-traceability-req-id--phase) pass UAT test cases (Must = 100 %; Should items either passed or explicitly deferred by the product owner). |
+| P1-EX-01 | All Phase 1 REQ IDs in [§10](#10-requirement-traceability-req-id--phase) pass UAT test cases (Must = 100 %; Should items either passed or explicitly deferred by the product owner). Source/test evidence and remaining gaps: [Phase 1 traceability](PHASE1_TRACEABILITY.md). |
 | P1-EX-02 | **KPI-01 measured** in UAT using the method in [BRD.md §8.1](BRD.md#81-kpi-01-measurement-method-proposed): labelled sample of demands, blind analyst shortlist, hit-rate@5 and precision@5 reported on a held-out set; target agreed by Leadership and either met or a remediation plan accepted. Measurement CLI and definitions: [KPI01.md](KPI01.md). |
 | P1-EX-03 | Baselines captured for KPI-02 (analyst effort), KPI-03 (24 h email turnaround), KPI-04 (match coverage), KPI-05 (data quality). |
 | P1-EX-04 | Quality-check panel (REQ-OUT-10) passes on the UAT dataset: valid filled Bench End Date excluded, unparseable dates remain eligible with pending-review flag, ±1 grade, emails copied exactly, masked email after name, evidence and gaps on every row. |
