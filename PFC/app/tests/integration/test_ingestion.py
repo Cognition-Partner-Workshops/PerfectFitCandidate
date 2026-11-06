@@ -1140,3 +1140,38 @@ def test_req_ing_03_failed_commit_preserves_original_preview_sidecar(client: Tes
             == 2
         )
         assert verify_chain(db)
+
+
+def test_req_ing_06_noop_and_failed_uploads_do_not_retain_workbooks(client: TestClient) -> None:
+    payload = data("dl", [{}])
+    first = client.post("/api/v1/uploads/dl", files={"file": ("dl.xlsx", payload)}).json()
+    commit(client, first)
+    directory = client.app.state.settings.data_dir / "uploads"
+    retained = set(directory.iterdir())
+    for _ in range(3):
+        response = client.post("/api/v1/uploads/dl", files={"file": ("dl.xlsx", payload)})
+        assert response.status_code == 200
+        run = response.json()
+        assert run["status"] == "no_op" and run["no_op"]
+        assert not (directory / f"{run['ingestion_run_id']}.xlsx").exists()
+        assert client.get(f"/api/v1/ingestion-runs/{run['ingestion_run_id']}").json() == run
+    workbook = Workbook()
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
+    for invalid in (b"not a workbook", output.getvalue()):
+        response = client.post("/api/v1/uploads/dl", files={"file": ("bad.xlsx", invalid)})
+        assert response.status_code == 422
+        failed = client.get("/api/v1/ingestion-runs").json()["items"][0]
+        assert failed["status"] == "failed"
+        assert not (directory / f"{failed['ingestion_run_id']}.xlsx").exists()
+        assert not (directory / f"{failed['ingestion_run_id']}.json").exists()
+    assert set(directory.iterdir()) == retained
+    assert (directory / f"{first['ingestion_run_id']}.xlsx").read_bytes() == payload
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT count(*) FROM ingestion_runs").fetchone()[0] == 6
+        assert (
+            db.execute("SELECT count(*) FROM audit_log WHERE action='INGEST_NO_OP'").fetchone()[0]
+            == 3
+        )
+        assert verify_chain(db)

@@ -57,8 +57,8 @@ def upload(
         assert cursor.lastrowid is not None
         run_id = cursor.lastrowid
         path = repo.upload_path(settings, run_id)
-        path.write_bytes(data)
         if not no_op:
+            path.write_bytes(data)
             try:
                 preview = repo.parse(db, path, kind)
                 repo.save_review(db, settings, run_id, preview)
@@ -81,6 +81,8 @@ def upload(
             )
         result = repo.run_response(db, settings, run_id)
     if failed:
+        path.unlink(missing_ok=True)
+        repo.snapshot_path(settings, run_id).unlink(missing_ok=True)
         raise Problem(422, "INVALID_WORKBOOK", f"Workbook could not be parsed (run {run_id})")
     return result
 
