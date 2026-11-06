@@ -287,7 +287,7 @@ def validation(p: Population) -> list[dict[str, Any]]:
             email_ok
             and bool(source)
             and (
-                snapshot == expected
+                required_mask(snapshot) == expected
                 if row["has_email_snapshot"]
                 else row["person_email"] == expected
             )

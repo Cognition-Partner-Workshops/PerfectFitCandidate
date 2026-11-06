@@ -1,7 +1,9 @@
 """REQ-OUT-03, REQ-AUTH-05: single-record unmasking without PII in audit details."""
 
 import json
+import re
 import sqlite3
+from typing import Any
 
 from pfc.db.audit import append_audit
 from pfc.security.problems import Problem
@@ -72,3 +74,21 @@ def unmask(
         details={"field": field},
     )
     return str(row[0])
+
+
+STORED_EMAIL = re.compile(r"[\w.+*-]+@[\w.-]+")
+
+
+def mask_emails_in(text: str) -> str:
+    """REQ-OUT-03: mask stored text's emails, re-masking copies saved under the old 2+6 rule."""
+    return STORED_EMAIL.sub(lambda match: mask_email(match[0]) or "***", text)
+
+
+def mask_emails_in_json(value: Any) -> Any:
+    if isinstance(value, str):
+        return mask_emails_in(value)
+    if isinstance(value, list):
+        return [mask_emails_in_json(item) for item in value]
+    if isinstance(value, dict):
+        return {key: mask_emails_in_json(item) for key, item in value.items()}
+    return value

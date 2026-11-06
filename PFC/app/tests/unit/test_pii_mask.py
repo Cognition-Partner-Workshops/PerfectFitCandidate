@@ -2,7 +2,7 @@
 
 import pytest
 
-from pfc.services.pii import mask_email
+from pfc.services.pii import mask_email, mask_emails_in, mask_emails_in_json
 
 
 @pytest.mark.parametrize(
@@ -28,3 +28,14 @@ def test_long_address_shows_no_local_part_character_after_the_second() -> None:
     assert domain == "example.com"
     assert shown == "ch" + "*" * (len(local) - 2)
     assert set(shown[2:]) == {"*"}
+
+
+def test_stored_text_masked_under_the_old_rule_is_remasked() -> None:
+    text = "Contact Al******er@capgemini.com or jo******.smithers@example.com; AB@x.com"
+    assert mask_emails_in(text) == (
+        "Contact Al********@capgemini.com or jo***************@example.com; **@x.com"
+    )
+    assert mask_emails_in(mask_emails_in(text)) == mask_emails_in(text)
+    assert mask_emails_in_json({"a": ["Al******er@capgemini.com", 3]}) == {
+        "a": ["Al********@capgemini.com", 3]
+    }
