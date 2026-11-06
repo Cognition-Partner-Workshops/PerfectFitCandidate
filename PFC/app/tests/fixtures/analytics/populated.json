@@ -1,0 +1,4319 @@
+{
+  "band": {
+    "bench": {
+      "aging": [
+        {
+          "count": 0,
+          "label": "0\u20132 wks"
+        },
+        {
+          "count": 0,
+          "label": "2\u20134 wks"
+        },
+        {
+          "count": 3,
+          "label": "4\u20138 wks"
+        },
+        {
+          "count": 0,
+          "label": "8\u201312 wks"
+        },
+        {
+          "count": 0,
+          "label": "> 12 wks"
+        }
+      ],
+      "demandVsSupply": [
+        {
+          "demandCount": 3,
+          "skill": "Python",
+          "supplyN": 2,
+          "supplyY": 1
+        },
+        {
+          "demandCount": 3,
+          "skill": "SQL",
+          "supplyN": 2,
+          "supplyY": 1
+        }
+      ],
+      "gradeHistogram": [
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "A3"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "A4"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "B1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "B2"
+        },
+        {
+          "bench": 3,
+          "demand": 3,
+          "grade": "C1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "C2"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "D1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "D2"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "E1"
+        }
+      ],
+      "rows": [
+        {
+          "availableCapacity": "Y",
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 1,
+          "shortName": "Person0",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": "N",
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 2,
+          "shortName": "Person1",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": null,
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 3,
+          "shortName": "Person2",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": null,
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Selected",
+          "benchStatusPriority": 2,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "excluded",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 4,
+          "shortName": "Person3",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        }
+      ],
+      "statusDistribution": [
+        {
+          "count": 3,
+          "excluded": false,
+          "status": "Available"
+        },
+        {
+          "count": 1,
+          "excluded": true,
+          "status": "Selected"
+        }
+      ],
+      "timeline": [
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person0",
+          "start": "2026-10-01"
+        },
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person1",
+          "start": "2026-10-01"
+        },
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person2",
+          "start": "2026-10-01"
+        }
+      ],
+      "topSkills": [
+        {
+          "count": 3,
+          "label": "Python"
+        },
+        {
+          "count": 3,
+          "label": "SQL"
+        }
+      ]
+    },
+    "demand": {
+      "gradeToJdCount": [
+        {
+          "count": 0,
+          "label": "A3"
+        },
+        {
+          "count": 0,
+          "label": "A4"
+        },
+        {
+          "count": 0,
+          "label": "B1"
+        },
+        {
+          "count": 0,
+          "label": "B2"
+        },
+        {
+          "count": 3,
+          "label": "C1"
+        },
+        {
+          "count": 0,
+          "label": "C2"
+        },
+        {
+          "count": 0,
+          "label": "D1"
+        },
+        {
+          "count": 0,
+          "label": "D2"
+        },
+        {
+          "count": 0,
+          "label": "E1"
+        }
+      ],
+      "openByBuRegion": [
+        {
+          "bu": "Data",
+          "count": 3,
+          "region": "Manchester"
+        }
+      ],
+      "rows": [
+        {
+          "accountName": "Account",
+          "bestBand": "Weak",
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10001",
+          "demandId": 2,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Scored",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 1,
+          "owner": null,
+          "positionStartDate": "2026-11-16",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        },
+        {
+          "accountName": "Account",
+          "bestBand": null,
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10002",
+          "demandId": 3,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Confirmed \u2014 scoring",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 0,
+          "owner": null,
+          "positionStartDate": "2026-11-16",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        },
+        {
+          "accountName": "Account",
+          "bestBand": null,
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10000",
+          "demandId": 1,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Scored",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 0,
+          "owner": null,
+          "positionStartDate": "2026-11-05",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        }
+      ],
+      "startPipeline": [
+        {
+          "count": 1,
+          "label": "Overdue"
+        },
+        {
+          "count": 2,
+          "label": "2026-11"
+        }
+      ],
+      "topAccounts": [
+        {
+          "count": 3,
+          "label": "Account"
+        }
+      ],
+      "topSkills": [
+        {
+          "count": 3,
+          "label": "Python"
+        },
+        {
+          "count": 3,
+          "label": "SQL"
+        }
+      ]
+    },
+    "match": {
+      "bandDistribution": [
+        {
+          "count": 0,
+          "label": "Strong"
+        },
+        {
+          "count": 0,
+          "label": "Potential"
+        },
+        {
+          "count": 0,
+          "label": "Avg"
+        },
+        {
+          "count": 1,
+          "label": "Weak"
+        },
+        {
+          "count": 0,
+          "label": "Insufficient data"
+        }
+      ],
+      "coveragePct": 0.0,
+      "emailStatusCounts": [
+        {
+          "count": 3,
+          "label": "Sent"
+        },
+        {
+          "count": 1,
+          "label": "Approved"
+        }
+      ],
+      "validation": [
+        {
+          "detail": "0 pending-review unparseable end dates; scored inputs checked.",
+          "id": "bench-end",
+          "label": "Bench End is blank or unparseable with pending review",
+          "passed": true
+        },
+        {
+          "detail": "Structural Resource fields and persisted score-breakdown input keys checked.",
+          "id": "capacity",
+          "label": "Available Capacity is not a matching/filter input",
+          "passed": true
+        },
+        {
+          "detail": "Persisted grade distances checked for 1 results.",
+          "id": "grade",
+          "label": "Every included person is within one grade",
+          "passed": true
+        },
+        {
+          "detail": "Masked scoring snapshot compared exactly with the mask of resources.email_address; legacy rows use live CT serialization. Raw historical email bytes are not persisted, so equality of hidden characters cannot be proven.",
+          "id": "email-copy",
+          "label": "Result email agrees with the CT source (masked snapshot)",
+          "passed": true
+        },
+        {
+          "detail": "Serialized export column order and REQ-OUT-03 mask checked against CT source.",
+          "id": "masked-email",
+          "label": "Masked email immediately follows the person's name",
+          "passed": true
+        },
+        {
+          "detail": "Persisted matching evidence and gaps/checks checked.",
+          "id": "evidence",
+          "label": "Every result has evidence and gaps/checks",
+          "passed": true
+        },
+        {
+          "detail": "Persisted scores and the CSV serializer's formatted percentage checked.",
+          "id": "score",
+          "label": "Match percentage is percentage-formatted and within 0\u2013100",
+          "passed": true
+        },
+        {
+          "detail": "Scored Start Dates and ISO serializer checked (current values for legacy rows).",
+          "id": "start-date",
+          "label": "Start Date is ISO or null",
+          "passed": true
+        }
+      ]
+    },
+    "summary": {
+      "dataQualityIssues": {
+        "ct": 1,
+        "dl": 1,
+        "total": 2
+      },
+      "eligibleBench": 3,
+      "emailsWithin24hPct": 25.0,
+      "excludedBench": 1,
+      "matchCoveragePct": 0.0,
+      "openRequisitions": 3,
+      "requisitionsAssessed": 2,
+      "roleToPersonCombinations": 3,
+      "rolesWithNoSuitableCandidate": 2,
+      "run": {
+        "demandsAssessed": 2,
+        "finishedAt": "2026-11-06T00:00:00+00:00",
+        "llmModel": "test-model",
+        "pairsScored": 3,
+        "rolesWithoutCandidate": 1,
+        "runId": 1,
+        "status": "completed",
+        "templateVersion": 1
+      },
+      "weakOnlyRequisitions": 1
+    }
+  },
+  "demand": {
+    "bench": {
+      "aging": [
+        {
+          "count": 0,
+          "label": "0\u20132 wks"
+        },
+        {
+          "count": 0,
+          "label": "2\u20134 wks"
+        },
+        {
+          "count": 3,
+          "label": "4\u20138 wks"
+        },
+        {
+          "count": 0,
+          "label": "8\u201312 wks"
+        },
+        {
+          "count": 0,
+          "label": "> 12 wks"
+        }
+      ],
+      "demandVsSupply": [
+        {
+          "demandCount": 3,
+          "skill": "Python",
+          "supplyN": 2,
+          "supplyY": 1
+        },
+        {
+          "demandCount": 3,
+          "skill": "SQL",
+          "supplyN": 2,
+          "supplyY": 1
+        }
+      ],
+      "gradeHistogram": [
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "A3"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "A4"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "B1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "B2"
+        },
+        {
+          "bench": 3,
+          "demand": 3,
+          "grade": "C1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "C2"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "D1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "D2"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "E1"
+        }
+      ],
+      "rows": [
+        {
+          "availableCapacity": "Y",
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 1,
+          "shortName": "Person0",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": "N",
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 2,
+          "shortName": "Person1",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": null,
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 3,
+          "shortName": "Person2",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": null,
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Selected",
+          "benchStatusPriority": 2,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "excluded",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 4,
+          "shortName": "Person3",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        }
+      ],
+      "statusDistribution": [
+        {
+          "count": 3,
+          "excluded": false,
+          "status": "Available"
+        },
+        {
+          "count": 1,
+          "excluded": true,
+          "status": "Selected"
+        }
+      ],
+      "timeline": [
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person0",
+          "start": "2026-10-01"
+        },
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person1",
+          "start": "2026-10-01"
+        },
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person2",
+          "start": "2026-10-01"
+        }
+      ],
+      "topSkills": [
+        {
+          "count": 3,
+          "label": "Python"
+        },
+        {
+          "count": 3,
+          "label": "SQL"
+        }
+      ]
+    },
+    "demand": {
+      "gradeToJdCount": [
+        {
+          "count": 0,
+          "label": "A3"
+        },
+        {
+          "count": 0,
+          "label": "A4"
+        },
+        {
+          "count": 0,
+          "label": "B1"
+        },
+        {
+          "count": 0,
+          "label": "B2"
+        },
+        {
+          "count": 3,
+          "label": "C1"
+        },
+        {
+          "count": 0,
+          "label": "C2"
+        },
+        {
+          "count": 0,
+          "label": "D1"
+        },
+        {
+          "count": 0,
+          "label": "D2"
+        },
+        {
+          "count": 0,
+          "label": "E1"
+        }
+      ],
+      "openByBuRegion": [
+        {
+          "bu": "Data",
+          "count": 3,
+          "region": "Manchester"
+        }
+      ],
+      "rows": [
+        {
+          "accountName": "Account",
+          "bestBand": "Weak",
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10001",
+          "demandId": 2,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Scored",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 1,
+          "owner": null,
+          "positionStartDate": "2026-11-16",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        },
+        {
+          "accountName": "Account",
+          "bestBand": null,
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10002",
+          "demandId": 3,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Confirmed \u2014 scoring",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 0,
+          "owner": null,
+          "positionStartDate": "2026-11-16",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        },
+        {
+          "accountName": "Account",
+          "bestBand": "Strong",
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10000",
+          "demandId": 1,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Scored",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 2,
+          "owner": null,
+          "positionStartDate": "2026-11-05",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        }
+      ],
+      "startPipeline": [
+        {
+          "count": 1,
+          "label": "Overdue"
+        },
+        {
+          "count": 2,
+          "label": "2026-11"
+        }
+      ],
+      "topAccounts": [
+        {
+          "count": 3,
+          "label": "Account"
+        }
+      ],
+      "topSkills": [
+        {
+          "count": 3,
+          "label": "Python"
+        },
+        {
+          "count": 3,
+          "label": "SQL"
+        }
+      ]
+    },
+    "match": {
+      "bandDistribution": [
+        {
+          "count": 1,
+          "label": "Strong"
+        },
+        {
+          "count": 0,
+          "label": "Potential"
+        },
+        {
+          "count": 1,
+          "label": "Avg"
+        },
+        {
+          "count": 1,
+          "label": "Weak"
+        },
+        {
+          "count": 0,
+          "label": "Insufficient data"
+        }
+      ],
+      "coveragePct": 33.3,
+      "emailStatusCounts": [
+        {
+          "count": 3,
+          "label": "Sent"
+        },
+        {
+          "count": 1,
+          "label": "Approved"
+        }
+      ],
+      "validation": [
+        {
+          "detail": "0 pending-review unparseable end dates; scored inputs checked.",
+          "id": "bench-end",
+          "label": "Bench End is blank or unparseable with pending review",
+          "passed": true
+        },
+        {
+          "detail": "Structural Resource fields and persisted score-breakdown input keys checked.",
+          "id": "capacity",
+          "label": "Available Capacity is not a matching/filter input",
+          "passed": true
+        },
+        {
+          "detail": "Persisted grade distances checked for 3 results.",
+          "id": "grade",
+          "label": "Every included person is within one grade",
+          "passed": true
+        },
+        {
+          "detail": "Masked scoring snapshot compared exactly with the mask of resources.email_address; legacy rows use live CT serialization. Raw historical email bytes are not persisted, so equality of hidden characters cannot be proven.",
+          "id": "email-copy",
+          "label": "Result email agrees with the CT source (masked snapshot)",
+          "passed": true
+        },
+        {
+          "detail": "Serialized export column order and REQ-OUT-03 mask checked against CT source.",
+          "id": "masked-email",
+          "label": "Masked email immediately follows the person's name",
+          "passed": true
+        },
+        {
+          "detail": "Persisted matching evidence and gaps/checks checked.",
+          "id": "evidence",
+          "label": "Every result has evidence and gaps/checks",
+          "passed": true
+        },
+        {
+          "detail": "Persisted scores and the CSV serializer's formatted percentage checked.",
+          "id": "score",
+          "label": "Match percentage is percentage-formatted and within 0\u2013100",
+          "passed": true
+        },
+        {
+          "detail": "Scored Start Dates and ISO serializer checked (current values for legacy rows).",
+          "id": "start-date",
+          "label": "Start Date is ISO or null",
+          "passed": true
+        }
+      ]
+    },
+    "summary": {
+      "dataQualityIssues": {
+        "ct": 1,
+        "dl": 1,
+        "total": 2
+      },
+      "eligibleBench": 3,
+      "emailsWithin24hPct": 25.0,
+      "excludedBench": 1,
+      "matchCoveragePct": 33.3,
+      "openRequisitions": 3,
+      "requisitionsAssessed": 2,
+      "roleToPersonCombinations": 3,
+      "rolesWithNoSuitableCandidate": 1,
+      "run": {
+        "demandsAssessed": 2,
+        "finishedAt": "2026-11-06T00:00:00+00:00",
+        "llmModel": "test-model",
+        "pairsScored": 3,
+        "rolesWithoutCandidate": 1,
+        "runId": 1,
+        "status": "completed",
+        "templateVersion": 1
+      },
+      "weakOnlyRequisitions": 1
+    }
+  },
+  "empty": {
+    "bench": {
+      "aging": [
+        {
+          "count": 0,
+          "label": "0\u20132 wks"
+        },
+        {
+          "count": 0,
+          "label": "2\u20134 wks"
+        },
+        {
+          "count": 3,
+          "label": "4\u20138 wks"
+        },
+        {
+          "count": 0,
+          "label": "8\u201312 wks"
+        },
+        {
+          "count": 0,
+          "label": "> 12 wks"
+        }
+      ],
+      "demandVsSupply": [],
+      "gradeHistogram": [
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "A3"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "A4"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "B1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "B2"
+        },
+        {
+          "bench": 3,
+          "demand": 0,
+          "grade": "C1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "C2"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "D1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "D2"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "E1"
+        }
+      ],
+      "rows": [
+        {
+          "availableCapacity": "Y",
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 1,
+          "shortName": "Person0",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": "N",
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 2,
+          "shortName": "Person1",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": null,
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 3,
+          "shortName": "Person2",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": null,
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Selected",
+          "benchStatusPriority": 2,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "excluded",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 4,
+          "shortName": "Person3",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        }
+      ],
+      "statusDistribution": [
+        {
+          "count": 3,
+          "excluded": false,
+          "status": "Available"
+        },
+        {
+          "count": 1,
+          "excluded": true,
+          "status": "Selected"
+        }
+      ],
+      "timeline": [
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person0",
+          "start": "2026-10-01"
+        },
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person1",
+          "start": "2026-10-01"
+        },
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person2",
+          "start": "2026-10-01"
+        }
+      ],
+      "topSkills": [
+        {
+          "count": 3,
+          "label": "Python"
+        },
+        {
+          "count": 3,
+          "label": "SQL"
+        }
+      ]
+    },
+    "demand": {
+      "gradeToJdCount": [
+        {
+          "count": 0,
+          "label": "A3"
+        },
+        {
+          "count": 0,
+          "label": "A4"
+        },
+        {
+          "count": 0,
+          "label": "B1"
+        },
+        {
+          "count": 0,
+          "label": "B2"
+        },
+        {
+          "count": 0,
+          "label": "C1"
+        },
+        {
+          "count": 0,
+          "label": "C2"
+        },
+        {
+          "count": 0,
+          "label": "D1"
+        },
+        {
+          "count": 0,
+          "label": "D2"
+        },
+        {
+          "count": 0,
+          "label": "E1"
+        }
+      ],
+      "openByBuRegion": [],
+      "rows": [],
+      "startPipeline": [],
+      "topAccounts": [],
+      "topSkills": []
+    },
+    "match": {
+      "bandDistribution": [
+        {
+          "count": 0,
+          "label": "Strong"
+        },
+        {
+          "count": 0,
+          "label": "Potential"
+        },
+        {
+          "count": 0,
+          "label": "Avg"
+        },
+        {
+          "count": 0,
+          "label": "Weak"
+        },
+        {
+          "count": 0,
+          "label": "Insufficient data"
+        }
+      ],
+      "coveragePct": 0.0,
+      "emailStatusCounts": [],
+      "validation": [
+        {
+          "detail": "0 pending-review unparseable end dates; scored inputs checked.",
+          "id": "bench-end",
+          "label": "Bench End is blank or unparseable with pending review",
+          "passed": true
+        },
+        {
+          "detail": "Structural Resource fields and persisted score-breakdown input keys checked.",
+          "id": "capacity",
+          "label": "Available Capacity is not a matching/filter input",
+          "passed": true
+        },
+        {
+          "detail": "Persisted grade distances checked for 0 results.",
+          "id": "grade",
+          "label": "Every included person is within one grade",
+          "passed": true
+        },
+        {
+          "detail": "Masked scoring snapshot compared exactly with the mask of resources.email_address; legacy rows use live CT serialization. Raw historical email bytes are not persisted, so equality of hidden characters cannot be proven.",
+          "id": "email-copy",
+          "label": "Result email agrees with the CT source (masked snapshot)",
+          "passed": true
+        },
+        {
+          "detail": "Serialized export column order and REQ-OUT-03 mask checked against CT source.",
+          "id": "masked-email",
+          "label": "Masked email immediately follows the person's name",
+          "passed": true
+        },
+        {
+          "detail": "Persisted matching evidence and gaps/checks checked.",
+          "id": "evidence",
+          "label": "Every result has evidence and gaps/checks",
+          "passed": true
+        },
+        {
+          "detail": "Persisted scores and the CSV serializer's formatted percentage checked.",
+          "id": "score",
+          "label": "Match percentage is percentage-formatted and within 0\u2013100",
+          "passed": true
+        },
+        {
+          "detail": "Scored Start Dates and ISO serializer checked (current values for legacy rows).",
+          "id": "start-date",
+          "label": "Start Date is ISO or null",
+          "passed": true
+        }
+      ]
+    },
+    "summary": {
+      "dataQualityIssues": {
+        "ct": 1,
+        "dl": 1,
+        "total": 2
+      },
+      "eligibleBench": 3,
+      "emailsWithin24hPct": 0.0,
+      "excludedBench": 1,
+      "matchCoveragePct": 0.0,
+      "openRequisitions": 0,
+      "requisitionsAssessed": 2,
+      "roleToPersonCombinations": 3,
+      "rolesWithNoSuitableCandidate": 0,
+      "run": {
+        "demandsAssessed": 2,
+        "finishedAt": "2026-11-06T00:00:00+00:00",
+        "llmModel": "test-model",
+        "pairsScored": 3,
+        "rolesWithoutCandidate": 1,
+        "runId": 1,
+        "status": "completed",
+        "templateVersion": 1
+      },
+      "weakOnlyRequisitions": 0
+    }
+  },
+  "explicit_run": {
+    "bench": {
+      "aging": [
+        {
+          "count": 0,
+          "label": "0\u20132 wks"
+        },
+        {
+          "count": 0,
+          "label": "2\u20134 wks"
+        },
+        {
+          "count": 3,
+          "label": "4\u20138 wks"
+        },
+        {
+          "count": 0,
+          "label": "8\u201312 wks"
+        },
+        {
+          "count": 0,
+          "label": "> 12 wks"
+        }
+      ],
+      "demandVsSupply": [
+        {
+          "demandCount": 3,
+          "skill": "Python",
+          "supplyN": 2,
+          "supplyY": 1
+        },
+        {
+          "demandCount": 3,
+          "skill": "SQL",
+          "supplyN": 2,
+          "supplyY": 1
+        }
+      ],
+      "gradeHistogram": [
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "A3"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "A4"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "B1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "B2"
+        },
+        {
+          "bench": 3,
+          "demand": 3,
+          "grade": "C1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "C2"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "D1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "D2"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "E1"
+        }
+      ],
+      "rows": [
+        {
+          "availableCapacity": "Y",
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 1,
+          "shortName": "Person0",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": "N",
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 2,
+          "shortName": "Person1",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": null,
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 3,
+          "shortName": "Person2",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": null,
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Selected",
+          "benchStatusPriority": 2,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "excluded",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 4,
+          "shortName": "Person3",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        }
+      ],
+      "statusDistribution": [
+        {
+          "count": 3,
+          "excluded": false,
+          "status": "Available"
+        },
+        {
+          "count": 1,
+          "excluded": true,
+          "status": "Selected"
+        }
+      ],
+      "timeline": [
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person0",
+          "start": "2026-10-01"
+        },
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person1",
+          "start": "2026-10-01"
+        },
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person2",
+          "start": "2026-10-01"
+        }
+      ],
+      "topSkills": [
+        {
+          "count": 3,
+          "label": "Python"
+        },
+        {
+          "count": 3,
+          "label": "SQL"
+        }
+      ]
+    },
+    "demand": {
+      "gradeToJdCount": [
+        {
+          "count": 0,
+          "label": "A3"
+        },
+        {
+          "count": 0,
+          "label": "A4"
+        },
+        {
+          "count": 0,
+          "label": "B1"
+        },
+        {
+          "count": 0,
+          "label": "B2"
+        },
+        {
+          "count": 3,
+          "label": "C1"
+        },
+        {
+          "count": 0,
+          "label": "C2"
+        },
+        {
+          "count": 0,
+          "label": "D1"
+        },
+        {
+          "count": 0,
+          "label": "D2"
+        },
+        {
+          "count": 0,
+          "label": "E1"
+        }
+      ],
+      "openByBuRegion": [
+        {
+          "bu": "Data",
+          "count": 3,
+          "region": "Manchester"
+        }
+      ],
+      "rows": [
+        {
+          "accountName": "Account",
+          "bestBand": "Weak",
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10001",
+          "demandId": 2,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Scored",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 1,
+          "owner": null,
+          "positionStartDate": "2026-11-16",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        },
+        {
+          "accountName": "Account",
+          "bestBand": null,
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10002",
+          "demandId": 3,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Confirmed \u2014 scoring",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 0,
+          "owner": null,
+          "positionStartDate": "2026-11-16",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        },
+        {
+          "accountName": "Account",
+          "bestBand": "Strong",
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10000",
+          "demandId": 1,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Scored",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 2,
+          "owner": null,
+          "positionStartDate": "2026-11-05",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        }
+      ],
+      "startPipeline": [
+        {
+          "count": 1,
+          "label": "Overdue"
+        },
+        {
+          "count": 2,
+          "label": "2026-11"
+        }
+      ],
+      "topAccounts": [
+        {
+          "count": 3,
+          "label": "Account"
+        }
+      ],
+      "topSkills": [
+        {
+          "count": 3,
+          "label": "Python"
+        },
+        {
+          "count": 3,
+          "label": "SQL"
+        }
+      ]
+    },
+    "match": {
+      "bandDistribution": [
+        {
+          "count": 1,
+          "label": "Strong"
+        },
+        {
+          "count": 0,
+          "label": "Potential"
+        },
+        {
+          "count": 1,
+          "label": "Avg"
+        },
+        {
+          "count": 1,
+          "label": "Weak"
+        },
+        {
+          "count": 0,
+          "label": "Insufficient data"
+        }
+      ],
+      "coveragePct": 33.3,
+      "emailStatusCounts": [
+        {
+          "count": 3,
+          "label": "Sent"
+        },
+        {
+          "count": 1,
+          "label": "Approved"
+        }
+      ],
+      "validation": [
+        {
+          "detail": "0 pending-review unparseable end dates; scored inputs checked.",
+          "id": "bench-end",
+          "label": "Bench End is blank or unparseable with pending review",
+          "passed": true
+        },
+        {
+          "detail": "Structural Resource fields and persisted score-breakdown input keys checked.",
+          "id": "capacity",
+          "label": "Available Capacity is not a matching/filter input",
+          "passed": true
+        },
+        {
+          "detail": "Persisted grade distances checked for 3 results.",
+          "id": "grade",
+          "label": "Every included person is within one grade",
+          "passed": true
+        },
+        {
+          "detail": "Masked scoring snapshot compared exactly with the mask of resources.email_address; legacy rows use live CT serialization. Raw historical email bytes are not persisted, so equality of hidden characters cannot be proven.",
+          "id": "email-copy",
+          "label": "Result email agrees with the CT source (masked snapshot)",
+          "passed": true
+        },
+        {
+          "detail": "Serialized export column order and REQ-OUT-03 mask checked against CT source.",
+          "id": "masked-email",
+          "label": "Masked email immediately follows the person's name",
+          "passed": true
+        },
+        {
+          "detail": "Persisted matching evidence and gaps/checks checked.",
+          "id": "evidence",
+          "label": "Every result has evidence and gaps/checks",
+          "passed": true
+        },
+        {
+          "detail": "Persisted scores and the CSV serializer's formatted percentage checked.",
+          "id": "score",
+          "label": "Match percentage is percentage-formatted and within 0\u2013100",
+          "passed": true
+        },
+        {
+          "detail": "Scored Start Dates and ISO serializer checked (current values for legacy rows).",
+          "id": "start-date",
+          "label": "Start Date is ISO or null",
+          "passed": true
+        }
+      ]
+    },
+    "summary": {
+      "dataQualityIssues": {
+        "ct": 1,
+        "dl": 1,
+        "total": 2
+      },
+      "eligibleBench": 3,
+      "emailsWithin24hPct": 25.0,
+      "excludedBench": 1,
+      "matchCoveragePct": 33.3,
+      "openRequisitions": 3,
+      "requisitionsAssessed": 2,
+      "roleToPersonCombinations": 3,
+      "rolesWithNoSuitableCandidate": 1,
+      "run": {
+        "demandsAssessed": 2,
+        "finishedAt": "2026-11-06T00:00:00+00:00",
+        "llmModel": "test-model",
+        "pairsScored": 3,
+        "rolesWithoutCandidate": 1,
+        "runId": 1,
+        "status": "completed",
+        "templateVersion": 1
+      },
+      "weakOnlyRequisitions": 1
+    }
+  },
+  "mandatory_gap": {
+    "bench": {
+      "aging": [
+        {
+          "count": 0,
+          "label": "0\u20132 wks"
+        },
+        {
+          "count": 0,
+          "label": "2\u20134 wks"
+        },
+        {
+          "count": 3,
+          "label": "4\u20138 wks"
+        },
+        {
+          "count": 0,
+          "label": "8\u201312 wks"
+        },
+        {
+          "count": 0,
+          "label": "> 12 wks"
+        }
+      ],
+      "demandVsSupply": [
+        {
+          "demandCount": 3,
+          "skill": "Python",
+          "supplyN": 2,
+          "supplyY": 1
+        },
+        {
+          "demandCount": 3,
+          "skill": "SQL",
+          "supplyN": 2,
+          "supplyY": 1
+        }
+      ],
+      "gradeHistogram": [
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "A3"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "A4"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "B1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "B2"
+        },
+        {
+          "bench": 3,
+          "demand": 3,
+          "grade": "C1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "C2"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "D1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "D2"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "E1"
+        }
+      ],
+      "rows": [
+        {
+          "availableCapacity": "Y",
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 1,
+          "shortName": "Person0",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": "N",
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 2,
+          "shortName": "Person1",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": null,
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 3,
+          "shortName": "Person2",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": null,
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Selected",
+          "benchStatusPriority": 2,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "excluded",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 4,
+          "shortName": "Person3",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        }
+      ],
+      "statusDistribution": [
+        {
+          "count": 3,
+          "excluded": false,
+          "status": "Available"
+        },
+        {
+          "count": 1,
+          "excluded": true,
+          "status": "Selected"
+        }
+      ],
+      "timeline": [
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person0",
+          "start": "2026-10-01"
+        },
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person1",
+          "start": "2026-10-01"
+        },
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person2",
+          "start": "2026-10-01"
+        }
+      ],
+      "topSkills": [
+        {
+          "count": 3,
+          "label": "Python"
+        },
+        {
+          "count": 3,
+          "label": "SQL"
+        }
+      ]
+    },
+    "demand": {
+      "gradeToJdCount": [
+        {
+          "count": 0,
+          "label": "A3"
+        },
+        {
+          "count": 0,
+          "label": "A4"
+        },
+        {
+          "count": 0,
+          "label": "B1"
+        },
+        {
+          "count": 0,
+          "label": "B2"
+        },
+        {
+          "count": 3,
+          "label": "C1"
+        },
+        {
+          "count": 0,
+          "label": "C2"
+        },
+        {
+          "count": 0,
+          "label": "D1"
+        },
+        {
+          "count": 0,
+          "label": "D2"
+        },
+        {
+          "count": 0,
+          "label": "E1"
+        }
+      ],
+      "openByBuRegion": [
+        {
+          "bu": "Data",
+          "count": 3,
+          "region": "Manchester"
+        }
+      ],
+      "rows": [
+        {
+          "accountName": "Account",
+          "bestBand": null,
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10001",
+          "demandId": 2,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Scored",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 0,
+          "owner": null,
+          "positionStartDate": "2026-11-16",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        },
+        {
+          "accountName": "Account",
+          "bestBand": null,
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10002",
+          "demandId": 3,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Confirmed \u2014 scoring",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 0,
+          "owner": null,
+          "positionStartDate": "2026-11-16",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        },
+        {
+          "accountName": "Account",
+          "bestBand": null,
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10000",
+          "demandId": 1,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Scored",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 0,
+          "owner": null,
+          "positionStartDate": "2026-11-05",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        }
+      ],
+      "startPipeline": [
+        {
+          "count": 1,
+          "label": "Overdue"
+        },
+        {
+          "count": 2,
+          "label": "2026-11"
+        }
+      ],
+      "topAccounts": [
+        {
+          "count": 3,
+          "label": "Account"
+        }
+      ],
+      "topSkills": [
+        {
+          "count": 3,
+          "label": "Python"
+        },
+        {
+          "count": 3,
+          "label": "SQL"
+        }
+      ]
+    },
+    "match": {
+      "bandDistribution": [
+        {
+          "count": 0,
+          "label": "Strong"
+        },
+        {
+          "count": 0,
+          "label": "Potential"
+        },
+        {
+          "count": 0,
+          "label": "Avg"
+        },
+        {
+          "count": 0,
+          "label": "Weak"
+        },
+        {
+          "count": 0,
+          "label": "Insufficient data"
+        }
+      ],
+      "coveragePct": 0.0,
+      "emailStatusCounts": [
+        {
+          "count": 3,
+          "label": "Sent"
+        },
+        {
+          "count": 1,
+          "label": "Approved"
+        }
+      ],
+      "validation": [
+        {
+          "detail": "0 pending-review unparseable end dates; scored inputs checked.",
+          "id": "bench-end",
+          "label": "Bench End is blank or unparseable with pending review",
+          "passed": true
+        },
+        {
+          "detail": "Structural Resource fields and persisted score-breakdown input keys checked.",
+          "id": "capacity",
+          "label": "Available Capacity is not a matching/filter input",
+          "passed": true
+        },
+        {
+          "detail": "Persisted grade distances checked for 0 results.",
+          "id": "grade",
+          "label": "Every included person is within one grade",
+          "passed": true
+        },
+        {
+          "detail": "Masked scoring snapshot compared exactly with the mask of resources.email_address; legacy rows use live CT serialization. Raw historical email bytes are not persisted, so equality of hidden characters cannot be proven.",
+          "id": "email-copy",
+          "label": "Result email agrees with the CT source (masked snapshot)",
+          "passed": true
+        },
+        {
+          "detail": "Serialized export column order and REQ-OUT-03 mask checked against CT source.",
+          "id": "masked-email",
+          "label": "Masked email immediately follows the person's name",
+          "passed": true
+        },
+        {
+          "detail": "Persisted matching evidence and gaps/checks checked.",
+          "id": "evidence",
+          "label": "Every result has evidence and gaps/checks",
+          "passed": true
+        },
+        {
+          "detail": "Persisted scores and the CSV serializer's formatted percentage checked.",
+          "id": "score",
+          "label": "Match percentage is percentage-formatted and within 0\u2013100",
+          "passed": true
+        },
+        {
+          "detail": "Scored Start Dates and ISO serializer checked (current values for legacy rows).",
+          "id": "start-date",
+          "label": "Start Date is ISO or null",
+          "passed": true
+        }
+      ]
+    },
+    "summary": {
+      "dataQualityIssues": {
+        "ct": 1,
+        "dl": 1,
+        "total": 2
+      },
+      "eligibleBench": 3,
+      "emailsWithin24hPct": 25.0,
+      "excludedBench": 1,
+      "matchCoveragePct": 0.0,
+      "openRequisitions": 3,
+      "requisitionsAssessed": 2,
+      "roleToPersonCombinations": 3,
+      "rolesWithNoSuitableCandidate": 2,
+      "run": {
+        "demandsAssessed": 2,
+        "finishedAt": "2026-11-06T00:00:00+00:00",
+        "llmModel": "test-model",
+        "pairsScored": 3,
+        "rolesWithoutCandidate": 1,
+        "runId": 1,
+        "status": "completed",
+        "templateVersion": 1
+      },
+      "weakOnlyRequisitions": 1
+    }
+  },
+  "mandatory_met": {
+    "bench": {
+      "aging": [
+        {
+          "count": 0,
+          "label": "0\u20132 wks"
+        },
+        {
+          "count": 0,
+          "label": "2\u20134 wks"
+        },
+        {
+          "count": 3,
+          "label": "4\u20138 wks"
+        },
+        {
+          "count": 0,
+          "label": "8\u201312 wks"
+        },
+        {
+          "count": 0,
+          "label": "> 12 wks"
+        }
+      ],
+      "demandVsSupply": [
+        {
+          "demandCount": 3,
+          "skill": "Python",
+          "supplyN": 2,
+          "supplyY": 1
+        },
+        {
+          "demandCount": 3,
+          "skill": "SQL",
+          "supplyN": 2,
+          "supplyY": 1
+        }
+      ],
+      "gradeHistogram": [
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "A3"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "A4"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "B1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "B2"
+        },
+        {
+          "bench": 3,
+          "demand": 3,
+          "grade": "C1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "C2"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "D1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "D2"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "E1"
+        }
+      ],
+      "rows": [
+        {
+          "availableCapacity": "Y",
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 1,
+          "shortName": "Person0",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": "N",
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 2,
+          "shortName": "Person1",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": null,
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 3,
+          "shortName": "Person2",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": null,
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Selected",
+          "benchStatusPriority": 2,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "excluded",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 4,
+          "shortName": "Person3",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        }
+      ],
+      "statusDistribution": [
+        {
+          "count": 3,
+          "excluded": false,
+          "status": "Available"
+        },
+        {
+          "count": 1,
+          "excluded": true,
+          "status": "Selected"
+        }
+      ],
+      "timeline": [
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person0",
+          "start": "2026-10-01"
+        },
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person1",
+          "start": "2026-10-01"
+        },
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person2",
+          "start": "2026-10-01"
+        }
+      ],
+      "topSkills": [
+        {
+          "count": 3,
+          "label": "Python"
+        },
+        {
+          "count": 3,
+          "label": "SQL"
+        }
+      ]
+    },
+    "demand": {
+      "gradeToJdCount": [
+        {
+          "count": 0,
+          "label": "A3"
+        },
+        {
+          "count": 0,
+          "label": "A4"
+        },
+        {
+          "count": 0,
+          "label": "B1"
+        },
+        {
+          "count": 0,
+          "label": "B2"
+        },
+        {
+          "count": 3,
+          "label": "C1"
+        },
+        {
+          "count": 0,
+          "label": "C2"
+        },
+        {
+          "count": 0,
+          "label": "D1"
+        },
+        {
+          "count": 0,
+          "label": "D2"
+        },
+        {
+          "count": 0,
+          "label": "E1"
+        }
+      ],
+      "openByBuRegion": [
+        {
+          "bu": "Data",
+          "count": 3,
+          "region": "Manchester"
+        }
+      ],
+      "rows": [
+        {
+          "accountName": "Account",
+          "bestBand": "Weak",
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10001",
+          "demandId": 2,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Scored",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 1,
+          "owner": null,
+          "positionStartDate": "2026-11-16",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        },
+        {
+          "accountName": "Account",
+          "bestBand": null,
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10002",
+          "demandId": 3,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Confirmed \u2014 scoring",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 0,
+          "owner": null,
+          "positionStartDate": "2026-11-16",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        },
+        {
+          "accountName": "Account",
+          "bestBand": "Strong",
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10000",
+          "demandId": 1,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Scored",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 2,
+          "owner": null,
+          "positionStartDate": "2026-11-05",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        }
+      ],
+      "startPipeline": [
+        {
+          "count": 1,
+          "label": "Overdue"
+        },
+        {
+          "count": 2,
+          "label": "2026-11"
+        }
+      ],
+      "topAccounts": [
+        {
+          "count": 3,
+          "label": "Account"
+        }
+      ],
+      "topSkills": [
+        {
+          "count": 3,
+          "label": "Python"
+        },
+        {
+          "count": 3,
+          "label": "SQL"
+        }
+      ]
+    },
+    "match": {
+      "bandDistribution": [
+        {
+          "count": 1,
+          "label": "Strong"
+        },
+        {
+          "count": 0,
+          "label": "Potential"
+        },
+        {
+          "count": 1,
+          "label": "Avg"
+        },
+        {
+          "count": 1,
+          "label": "Weak"
+        },
+        {
+          "count": 0,
+          "label": "Insufficient data"
+        }
+      ],
+      "coveragePct": 33.3,
+      "emailStatusCounts": [
+        {
+          "count": 3,
+          "label": "Sent"
+        },
+        {
+          "count": 1,
+          "label": "Approved"
+        }
+      ],
+      "validation": [
+        {
+          "detail": "0 pending-review unparseable end dates; scored inputs checked.",
+          "id": "bench-end",
+          "label": "Bench End is blank or unparseable with pending review",
+          "passed": true
+        },
+        {
+          "detail": "Structural Resource fields and persisted score-breakdown input keys checked.",
+          "id": "capacity",
+          "label": "Available Capacity is not a matching/filter input",
+          "passed": true
+        },
+        {
+          "detail": "Persisted grade distances checked for 3 results.",
+          "id": "grade",
+          "label": "Every included person is within one grade",
+          "passed": true
+        },
+        {
+          "detail": "Masked scoring snapshot compared exactly with the mask of resources.email_address; legacy rows use live CT serialization. Raw historical email bytes are not persisted, so equality of hidden characters cannot be proven.",
+          "id": "email-copy",
+          "label": "Result email agrees with the CT source (masked snapshot)",
+          "passed": true
+        },
+        {
+          "detail": "Serialized export column order and REQ-OUT-03 mask checked against CT source.",
+          "id": "masked-email",
+          "label": "Masked email immediately follows the person's name",
+          "passed": true
+        },
+        {
+          "detail": "Persisted matching evidence and gaps/checks checked.",
+          "id": "evidence",
+          "label": "Every result has evidence and gaps/checks",
+          "passed": true
+        },
+        {
+          "detail": "Persisted scores and the CSV serializer's formatted percentage checked.",
+          "id": "score",
+          "label": "Match percentage is percentage-formatted and within 0\u2013100",
+          "passed": true
+        },
+        {
+          "detail": "Scored Start Dates and ISO serializer checked (current values for legacy rows).",
+          "id": "start-date",
+          "label": "Start Date is ISO or null",
+          "passed": true
+        }
+      ]
+    },
+    "summary": {
+      "dataQualityIssues": {
+        "ct": 1,
+        "dl": 1,
+        "total": 2
+      },
+      "eligibleBench": 3,
+      "emailsWithin24hPct": 25.0,
+      "excludedBench": 1,
+      "matchCoveragePct": 33.3,
+      "openRequisitions": 3,
+      "requisitionsAssessed": 2,
+      "roleToPersonCombinations": 3,
+      "rolesWithNoSuitableCandidate": 1,
+      "run": {
+        "demandsAssessed": 2,
+        "finishedAt": "2026-11-06T00:00:00+00:00",
+        "llmModel": "test-model",
+        "pairsScored": 3,
+        "rolesWithoutCandidate": 1,
+        "runId": 1,
+        "status": "completed",
+        "templateVersion": 1
+      },
+      "weakOnlyRequisitions": 1
+    }
+  },
+  "none": {
+    "bench": {
+      "aging": [
+        {
+          "count": 0,
+          "label": "0\u20132 wks"
+        },
+        {
+          "count": 0,
+          "label": "2\u20134 wks"
+        },
+        {
+          "count": 3,
+          "label": "4\u20138 wks"
+        },
+        {
+          "count": 0,
+          "label": "8\u201312 wks"
+        },
+        {
+          "count": 0,
+          "label": "> 12 wks"
+        }
+      ],
+      "demandVsSupply": [
+        {
+          "demandCount": 3,
+          "skill": "Python",
+          "supplyN": 2,
+          "supplyY": 1
+        },
+        {
+          "demandCount": 3,
+          "skill": "SQL",
+          "supplyN": 2,
+          "supplyY": 1
+        }
+      ],
+      "gradeHistogram": [
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "A3"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "A4"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "B1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "B2"
+        },
+        {
+          "bench": 3,
+          "demand": 3,
+          "grade": "C1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "C2"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "D1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "D2"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "E1"
+        }
+      ],
+      "rows": [
+        {
+          "availableCapacity": "Y",
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 1,
+          "shortName": "Person0",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": "N",
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 2,
+          "shortName": "Person1",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": null,
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 3,
+          "shortName": "Person2",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": null,
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Selected",
+          "benchStatusPriority": 2,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "excluded",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 4,
+          "shortName": "Person3",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        }
+      ],
+      "statusDistribution": [
+        {
+          "count": 3,
+          "excluded": false,
+          "status": "Available"
+        },
+        {
+          "count": 1,
+          "excluded": true,
+          "status": "Selected"
+        }
+      ],
+      "timeline": [
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person0",
+          "start": "2026-10-01"
+        },
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person1",
+          "start": "2026-10-01"
+        },
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person2",
+          "start": "2026-10-01"
+        }
+      ],
+      "topSkills": [
+        {
+          "count": 3,
+          "label": "Python"
+        },
+        {
+          "count": 3,
+          "label": "SQL"
+        }
+      ]
+    },
+    "demand": {
+      "gradeToJdCount": [
+        {
+          "count": 0,
+          "label": "A3"
+        },
+        {
+          "count": 0,
+          "label": "A4"
+        },
+        {
+          "count": 0,
+          "label": "B1"
+        },
+        {
+          "count": 0,
+          "label": "B2"
+        },
+        {
+          "count": 3,
+          "label": "C1"
+        },
+        {
+          "count": 0,
+          "label": "C2"
+        },
+        {
+          "count": 0,
+          "label": "D1"
+        },
+        {
+          "count": 0,
+          "label": "D2"
+        },
+        {
+          "count": 0,
+          "label": "E1"
+        }
+      ],
+      "openByBuRegion": [
+        {
+          "bu": "Data",
+          "count": 3,
+          "region": "Manchester"
+        }
+      ],
+      "rows": [
+        {
+          "accountName": "Account",
+          "bestBand": "Weak",
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10001",
+          "demandId": 2,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Scored",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 1,
+          "owner": null,
+          "positionStartDate": "2026-11-16",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        },
+        {
+          "accountName": "Account",
+          "bestBand": null,
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10002",
+          "demandId": 3,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Confirmed \u2014 scoring",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 0,
+          "owner": null,
+          "positionStartDate": "2026-11-16",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        },
+        {
+          "accountName": "Account",
+          "bestBand": "Strong",
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10000",
+          "demandId": 1,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Scored",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 2,
+          "owner": null,
+          "positionStartDate": "2026-11-05",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        }
+      ],
+      "startPipeline": [
+        {
+          "count": 1,
+          "label": "Overdue"
+        },
+        {
+          "count": 2,
+          "label": "2026-11"
+        }
+      ],
+      "topAccounts": [
+        {
+          "count": 3,
+          "label": "Account"
+        }
+      ],
+      "topSkills": [
+        {
+          "count": 3,
+          "label": "Python"
+        },
+        {
+          "count": 3,
+          "label": "SQL"
+        }
+      ]
+    },
+    "match": {
+      "bandDistribution": [
+        {
+          "count": 1,
+          "label": "Strong"
+        },
+        {
+          "count": 0,
+          "label": "Potential"
+        },
+        {
+          "count": 1,
+          "label": "Avg"
+        },
+        {
+          "count": 1,
+          "label": "Weak"
+        },
+        {
+          "count": 0,
+          "label": "Insufficient data"
+        }
+      ],
+      "coveragePct": 33.3,
+      "emailStatusCounts": [
+        {
+          "count": 3,
+          "label": "Sent"
+        },
+        {
+          "count": 1,
+          "label": "Approved"
+        }
+      ],
+      "validation": [
+        {
+          "detail": "0 pending-review unparseable end dates; scored inputs checked.",
+          "id": "bench-end",
+          "label": "Bench End is blank or unparseable with pending review",
+          "passed": true
+        },
+        {
+          "detail": "Structural Resource fields and persisted score-breakdown input keys checked.",
+          "id": "capacity",
+          "label": "Available Capacity is not a matching/filter input",
+          "passed": true
+        },
+        {
+          "detail": "Persisted grade distances checked for 3 results.",
+          "id": "grade",
+          "label": "Every included person is within one grade",
+          "passed": true
+        },
+        {
+          "detail": "Masked scoring snapshot compared exactly with the mask of resources.email_address; legacy rows use live CT serialization. Raw historical email bytes are not persisted, so equality of hidden characters cannot be proven.",
+          "id": "email-copy",
+          "label": "Result email agrees with the CT source (masked snapshot)",
+          "passed": true
+        },
+        {
+          "detail": "Serialized export column order and REQ-OUT-03 mask checked against CT source.",
+          "id": "masked-email",
+          "label": "Masked email immediately follows the person's name",
+          "passed": true
+        },
+        {
+          "detail": "Persisted matching evidence and gaps/checks checked.",
+          "id": "evidence",
+          "label": "Every result has evidence and gaps/checks",
+          "passed": true
+        },
+        {
+          "detail": "Persisted scores and the CSV serializer's formatted percentage checked.",
+          "id": "score",
+          "label": "Match percentage is percentage-formatted and within 0\u2013100",
+          "passed": true
+        },
+        {
+          "detail": "Scored Start Dates and ISO serializer checked (current values for legacy rows).",
+          "id": "start-date",
+          "label": "Start Date is ISO or null",
+          "passed": true
+        }
+      ]
+    },
+    "summary": {
+      "dataQualityIssues": {
+        "ct": 1,
+        "dl": 1,
+        "total": 2
+      },
+      "eligibleBench": 3,
+      "emailsWithin24hPct": 25.0,
+      "excludedBench": 1,
+      "matchCoveragePct": 33.3,
+      "openRequisitions": 3,
+      "requisitionsAssessed": 2,
+      "roleToPersonCombinations": 3,
+      "rolesWithNoSuitableCandidate": 1,
+      "run": {
+        "demandsAssessed": 2,
+        "finishedAt": "2026-11-06T00:00:00+00:00",
+        "llmModel": "test-model",
+        "pairsScored": 3,
+        "rolesWithoutCandidate": 1,
+        "runId": 1,
+        "status": "completed",
+        "templateVersion": 1
+      },
+      "weakOnlyRequisitions": 1
+    }
+  },
+  "person": {
+    "bench": {
+      "aging": [
+        {
+          "count": 0,
+          "label": "0\u20132 wks"
+        },
+        {
+          "count": 0,
+          "label": "2\u20134 wks"
+        },
+        {
+          "count": 3,
+          "label": "4\u20138 wks"
+        },
+        {
+          "count": 0,
+          "label": "8\u201312 wks"
+        },
+        {
+          "count": 0,
+          "label": "> 12 wks"
+        }
+      ],
+      "demandVsSupply": [
+        {
+          "demandCount": 3,
+          "skill": "Python",
+          "supplyN": 2,
+          "supplyY": 1
+        },
+        {
+          "demandCount": 3,
+          "skill": "SQL",
+          "supplyN": 2,
+          "supplyY": 1
+        }
+      ],
+      "gradeHistogram": [
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "A3"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "A4"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "B1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "B2"
+        },
+        {
+          "bench": 3,
+          "demand": 3,
+          "grade": "C1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "C2"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "D1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "D2"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "E1"
+        }
+      ],
+      "rows": [
+        {
+          "availableCapacity": "Y",
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 1,
+          "shortName": "Person0",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": "N",
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 2,
+          "shortName": "Person1",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": null,
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 3,
+          "shortName": "Person2",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        }
+      ],
+      "statusDistribution": [
+        {
+          "count": 3,
+          "excluded": false,
+          "status": "Available"
+        }
+      ],
+      "timeline": [
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person0",
+          "start": "2026-10-01"
+        },
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person1",
+          "start": "2026-10-01"
+        },
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person2",
+          "start": "2026-10-01"
+        }
+      ],
+      "topSkills": [
+        {
+          "count": 3,
+          "label": "Python"
+        },
+        {
+          "count": 3,
+          "label": "SQL"
+        }
+      ]
+    },
+    "demand": {
+      "gradeToJdCount": [
+        {
+          "count": 0,
+          "label": "A3"
+        },
+        {
+          "count": 0,
+          "label": "A4"
+        },
+        {
+          "count": 0,
+          "label": "B1"
+        },
+        {
+          "count": 0,
+          "label": "B2"
+        },
+        {
+          "count": 3,
+          "label": "C1"
+        },
+        {
+          "count": 0,
+          "label": "C2"
+        },
+        {
+          "count": 0,
+          "label": "D1"
+        },
+        {
+          "count": 0,
+          "label": "D2"
+        },
+        {
+          "count": 0,
+          "label": "E1"
+        }
+      ],
+      "openByBuRegion": [
+        {
+          "bu": "Data",
+          "count": 3,
+          "region": "Manchester"
+        }
+      ],
+      "rows": [
+        {
+          "accountName": "Account",
+          "bestBand": "Weak",
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10001",
+          "demandId": 2,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Scored",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 1,
+          "owner": null,
+          "positionStartDate": "2026-11-16",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        },
+        {
+          "accountName": "Account",
+          "bestBand": null,
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10002",
+          "demandId": 3,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Confirmed \u2014 scoring",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 0,
+          "owner": null,
+          "positionStartDate": "2026-11-16",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        },
+        {
+          "accountName": "Account",
+          "bestBand": "Strong",
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10000",
+          "demandId": 1,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Scored",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 2,
+          "owner": null,
+          "positionStartDate": "2026-11-05",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        }
+      ],
+      "startPipeline": [
+        {
+          "count": 1,
+          "label": "Overdue"
+        },
+        {
+          "count": 2,
+          "label": "2026-11"
+        }
+      ],
+      "topAccounts": [
+        {
+          "count": 3,
+          "label": "Account"
+        }
+      ],
+      "topSkills": [
+        {
+          "count": 3,
+          "label": "Python"
+        },
+        {
+          "count": 3,
+          "label": "SQL"
+        }
+      ]
+    },
+    "match": {
+      "bandDistribution": [
+        {
+          "count": 1,
+          "label": "Strong"
+        },
+        {
+          "count": 0,
+          "label": "Potential"
+        },
+        {
+          "count": 1,
+          "label": "Avg"
+        },
+        {
+          "count": 1,
+          "label": "Weak"
+        },
+        {
+          "count": 0,
+          "label": "Insufficient data"
+        }
+      ],
+      "coveragePct": 33.3,
+      "emailStatusCounts": [
+        {
+          "count": 3,
+          "label": "Sent"
+        },
+        {
+          "count": 1,
+          "label": "Approved"
+        }
+      ],
+      "validation": [
+        {
+          "detail": "0 pending-review unparseable end dates; scored inputs checked.",
+          "id": "bench-end",
+          "label": "Bench End is blank or unparseable with pending review",
+          "passed": true
+        },
+        {
+          "detail": "Structural Resource fields and persisted score-breakdown input keys checked.",
+          "id": "capacity",
+          "label": "Available Capacity is not a matching/filter input",
+          "passed": true
+        },
+        {
+          "detail": "Persisted grade distances checked for 3 results.",
+          "id": "grade",
+          "label": "Every included person is within one grade",
+          "passed": true
+        },
+        {
+          "detail": "Masked scoring snapshot compared exactly with the mask of resources.email_address; legacy rows use live CT serialization. Raw historical email bytes are not persisted, so equality of hidden characters cannot be proven.",
+          "id": "email-copy",
+          "label": "Result email agrees with the CT source (masked snapshot)",
+          "passed": true
+        },
+        {
+          "detail": "Serialized export column order and REQ-OUT-03 mask checked against CT source.",
+          "id": "masked-email",
+          "label": "Masked email immediately follows the person's name",
+          "passed": true
+        },
+        {
+          "detail": "Persisted matching evidence and gaps/checks checked.",
+          "id": "evidence",
+          "label": "Every result has evidence and gaps/checks",
+          "passed": true
+        },
+        {
+          "detail": "Persisted scores and the CSV serializer's formatted percentage checked.",
+          "id": "score",
+          "label": "Match percentage is percentage-formatted and within 0\u2013100",
+          "passed": true
+        },
+        {
+          "detail": "Scored Start Dates and ISO serializer checked (current values for legacy rows).",
+          "id": "start-date",
+          "label": "Start Date is ISO or null",
+          "passed": true
+        }
+      ]
+    },
+    "summary": {
+      "dataQualityIssues": {
+        "ct": 1,
+        "dl": 1,
+        "total": 2
+      },
+      "eligibleBench": 3,
+      "emailsWithin24hPct": 25.0,
+      "excludedBench": 0,
+      "matchCoveragePct": 33.3,
+      "openRequisitions": 3,
+      "requisitionsAssessed": 2,
+      "roleToPersonCombinations": 3,
+      "rolesWithNoSuitableCandidate": 1,
+      "run": {
+        "demandsAssessed": 2,
+        "finishedAt": "2026-11-06T00:00:00+00:00",
+        "llmModel": "test-model",
+        "pairsScored": 3,
+        "rolesWithoutCandidate": 1,
+        "runId": 1,
+        "status": "completed",
+        "templateVersion": 1
+      },
+      "weakOnlyRequisitions": 1
+    }
+  },
+  "score": {
+    "bench": {
+      "aging": [
+        {
+          "count": 0,
+          "label": "0\u20132 wks"
+        },
+        {
+          "count": 0,
+          "label": "2\u20134 wks"
+        },
+        {
+          "count": 3,
+          "label": "4\u20138 wks"
+        },
+        {
+          "count": 0,
+          "label": "8\u201312 wks"
+        },
+        {
+          "count": 0,
+          "label": "> 12 wks"
+        }
+      ],
+      "demandVsSupply": [
+        {
+          "demandCount": 3,
+          "skill": "Python",
+          "supplyN": 2,
+          "supplyY": 1
+        },
+        {
+          "demandCount": 3,
+          "skill": "SQL",
+          "supplyN": 2,
+          "supplyY": 1
+        }
+      ],
+      "gradeHistogram": [
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "A3"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "A4"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "B1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "B2"
+        },
+        {
+          "bench": 3,
+          "demand": 3,
+          "grade": "C1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "C2"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "D1"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "D2"
+        },
+        {
+          "bench": 0,
+          "demand": 0,
+          "grade": "E1"
+        }
+      ],
+      "rows": [
+        {
+          "availableCapacity": "Y",
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 1,
+          "shortName": "Person0",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": "N",
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 2,
+          "shortName": "Person1",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": null,
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Available",
+          "benchStatusPriority": 1,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "eligible",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 3,
+          "shortName": "Person2",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        },
+        {
+          "availableCapacity": null,
+          "benchEndDate": null,
+          "benchStartDate": "2026-10-01",
+          "benchStatus": "Selected",
+          "benchStatusPriority": 2,
+          "candidateId": 0,
+          "candidateType": "Unknown",
+          "cvCount": 0,
+          "cvStatus": "Not synced",
+          "eligibility": "excluded",
+          "emailAddressMasked": "pe*****@example.com",
+          "exclusionReasons": [],
+          "grade": "C1",
+          "groupName": "RG1",
+          "groupOwner": null,
+          "identityStatus": "incomplete",
+          "location": "Manchester",
+          "name": null,
+          "resourceId": 4,
+          "shortName": "Person3",
+          "skills": [
+            "SQL",
+            "Python"
+          ],
+          "unmappedStatus": false
+        }
+      ],
+      "statusDistribution": [
+        {
+          "count": 3,
+          "excluded": false,
+          "status": "Available"
+        },
+        {
+          "count": 1,
+          "excluded": true,
+          "status": "Selected"
+        }
+      ],
+      "timeline": [
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person0",
+          "start": "2026-10-01"
+        },
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person1",
+          "start": "2026-10-01"
+        },
+        {
+          "days": 36,
+          "end": "2026-11-06",
+          "name": "Person2",
+          "start": "2026-10-01"
+        }
+      ],
+      "topSkills": [
+        {
+          "count": 3,
+          "label": "Python"
+        },
+        {
+          "count": 3,
+          "label": "SQL"
+        }
+      ]
+    },
+    "demand": {
+      "gradeToJdCount": [
+        {
+          "count": 0,
+          "label": "A3"
+        },
+        {
+          "count": 0,
+          "label": "A4"
+        },
+        {
+          "count": 0,
+          "label": "B1"
+        },
+        {
+          "count": 0,
+          "label": "B2"
+        },
+        {
+          "count": 3,
+          "label": "C1"
+        },
+        {
+          "count": 0,
+          "label": "C2"
+        },
+        {
+          "count": 0,
+          "label": "D1"
+        },
+        {
+          "count": 0,
+          "label": "D2"
+        },
+        {
+          "count": 0,
+          "label": "E1"
+        }
+      ],
+      "openByBuRegion": [
+        {
+          "bu": "Data",
+          "count": 3,
+          "region": "Manchester"
+        }
+      ],
+      "rows": [
+        {
+          "accountName": "Account",
+          "bestBand": "Weak",
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10001",
+          "demandId": 2,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Scored",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 1,
+          "owner": null,
+          "positionStartDate": "2026-11-16",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        },
+        {
+          "accountName": "Account",
+          "bestBand": null,
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10002",
+          "demandId": 3,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Confirmed \u2014 scoring",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 0,
+          "owner": null,
+          "positionStartDate": "2026-11-16",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        },
+        {
+          "accountName": "Account",
+          "bestBand": "Avg",
+          "bu": "Data",
+          "codeLocalGrade": "C1",
+          "codeRequisition": "T10000",
+          "demandId": 1,
+          "demandRequestName": "Data role",
+          "idFormatOk": true,
+          "jdStatus": "Scored",
+          "jdText": "Required: SQL\nPreferred: Python",
+          "mandatorySkills": [
+            "SQL"
+          ],
+          "matches": 1,
+          "owner": null,
+          "positionStartDate": "2026-11-05",
+          "preferredSkills": [
+            "SQL",
+            "Python"
+          ],
+          "region": "Manchester",
+          "uploadedAt": "2026-11-06T00:00:00+00:00"
+        }
+      ],
+      "startPipeline": [
+        {
+          "count": 1,
+          "label": "Overdue"
+        },
+        {
+          "count": 2,
+          "label": "2026-11"
+        }
+      ],
+      "topAccounts": [
+        {
+          "count": 3,
+          "label": "Account"
+        }
+      ],
+      "topSkills": [
+        {
+          "count": 3,
+          "label": "Python"
+        },
+        {
+          "count": 3,
+          "label": "SQL"
+        }
+      ]
+    },
+    "match": {
+      "bandDistribution": [
+        {
+          "count": 0,
+          "label": "Strong"
+        },
+        {
+          "count": 0,
+          "label": "Potential"
+        },
+        {
+          "count": 1,
+          "label": "Avg"
+        },
+        {
+          "count": 1,
+          "label": "Weak"
+        },
+        {
+          "count": 0,
+          "label": "Insufficient data"
+        }
+      ],
+      "coveragePct": 0.0,
+      "emailStatusCounts": [
+        {
+          "count": 3,
+          "label": "Sent"
+        },
+        {
+          "count": 1,
+          "label": "Approved"
+        }
+      ],
+      "validation": [
+        {
+          "detail": "0 pending-review unparseable end dates; scored inputs checked.",
+          "id": "bench-end",
+          "label": "Bench End is blank or unparseable with pending review",
+          "passed": true
+        },
+        {
+          "detail": "Structural Resource fields and persisted score-breakdown input keys checked.",
+          "id": "capacity",
+          "label": "Available Capacity is not a matching/filter input",
+          "passed": true
+        },
+        {
+          "detail": "Persisted grade distances checked for 2 results.",
+          "id": "grade",
+          "label": "Every included person is within one grade",
+          "passed": true
+        },
+        {
+          "detail": "Masked scoring snapshot compared exactly with the mask of resources.email_address; legacy rows use live CT serialization. Raw historical email bytes are not persisted, so equality of hidden characters cannot be proven.",
+          "id": "email-copy",
+          "label": "Result email agrees with the CT source (masked snapshot)",
+          "passed": true
+        },
+        {
+          "detail": "Serialized export column order and REQ-OUT-03 mask checked against CT source.",
+          "id": "masked-email",
+          "label": "Masked email immediately follows the person's name",
+          "passed": true
+        },
+        {
+          "detail": "Persisted matching evidence and gaps/checks checked.",
+          "id": "evidence",
+          "label": "Every result has evidence and gaps/checks",
+          "passed": true
+        },
+        {
+          "detail": "Persisted scores and the CSV serializer's formatted percentage checked.",
+          "id": "score",
+          "label": "Match percentage is percentage-formatted and within 0\u2013100",
+          "passed": true
+        },
+        {
+          "detail": "Scored Start Dates and ISO serializer checked (current values for legacy rows).",
+          "id": "start-date",
+          "label": "Start Date is ISO or null",
+          "passed": true
+        }
+      ]
+    },
+    "summary": {
+      "dataQualityIssues": {
+        "ct": 1,
+        "dl": 1,
+        "total": 2
+      },
+      "eligibleBench": 3,
+      "emailsWithin24hPct": 25.0,
+      "excludedBench": 1,
+      "matchCoveragePct": 0.0,
+      "openRequisitions": 3,
+      "requisitionsAssessed": 2,
+      "roleToPersonCombinations": 3,
+      "rolesWithNoSuitableCandidate": 1,
+      "run": {
+        "demandsAssessed": 2,
+        "finishedAt": "2026-11-06T00:00:00+00:00",
+        "llmModel": "test-model",
+        "pairsScored": 3,
+        "rolesWithoutCandidate": 1,
+        "runId": 1,
+        "status": "completed",
+        "templateVersion": 1
+      },
+      "weakOnlyRequisitions": 1
+    }
+  }
+}

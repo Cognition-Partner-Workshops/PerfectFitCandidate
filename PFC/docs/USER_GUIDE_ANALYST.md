@@ -76,6 +76,8 @@ On the **Demand List**, a Code Requisition that is not in `T1XXXX`/`T2XXXX` form
 
 On the **Bench List**, the tabs **Eligible**, **Excluded from matching** and **All** show counts. Rows can show **Incomplete identity** (no email) and **Unmapped status** (a bench status the OCC mapping does not cover). The masked email follows the name; **Show email** reveals it where your role allows. Available Capacity is display only and never decides availability.
 
+Each **ShortName** links to the **Candidate Profile**: the CT data as uploaded, eligibility, and the tabs **CV versions**, **Skills & evidence**, **Matches & score history** and **Activity**. When identity is incomplete or ambiguous, **Resolve identity** offers: select the matching CT record (the email is copied from the CT, never typed), generate an internal ID and continue (the default), or review later.
+
 ## 5. Sync CVs
 
 1. Set **Settings → Data sources → Resume folder path** once.
@@ -83,7 +85,7 @@ On the **Bench List**, the tabs **Eligible**, **Excluded from matching** and **A
 
 CVs are searched in the configured resume folder. A missing CV is not a blocker: matching continues on CT skills.
 
-**Pending:** the Bench List **CV status** column shows "Not synced" for every row, because the bench list rows from the backend do not yet carry CV data.
+The Bench List **CV status** column shows **Synced (N)** when N CV versions are stored for that candidate, otherwise **Not synced**.
 
 ## 6. Analyze JD, then Confirm & Start
 
@@ -162,8 +164,6 @@ PDF report download is Phase 2 (REQ-OUT-09).
 
 | Area | Status |
 |---|---|
-| Candidate Profile | Pending: `GET /candidates/{id}` not served; bench names are not links yet |
-| Bench List CV status | Pending: list rows carry no CV data yet |
 | Per-run excluded list in Match Results | Pending: not on screen yet |
 | PDF export | Phase 2 |
 | DL/CT auto-sync, SMTP, Chat | Phase 2 |

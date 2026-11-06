@@ -32,7 +32,7 @@ SEED = 19401
 SIZE = 500
 SAMPLES = 3
 MATCH_LIMIT_SECONDS = 180.0
-ANALYTICS_LIMIT_SECONDS = 35.0
+ANALYTICS_LIMIT_SECONDS = {"summary": 2.0, "demand": 2.0, "bench": 2.0, "match": 2.0}
 NOW = datetime(2026, 11, 6, tzinfo=UTC)
 SKILLS = (
     "SQL",
@@ -79,7 +79,7 @@ class FakeVectorStore:
         self.values.update(zip(owners, vectors, strict=True))
 
 
-def seed_population(db: sqlite3.Connection) -> None:
+def seed_population(db: sqlite3.Connection, size: int = SIZE) -> None:
     rng = random.Random(SEED)
     stamp = NOW.isoformat()
     grades = load_domain_config().grades.codes
@@ -88,7 +88,7 @@ def seed_population(db: sqlite3.Connection) -> None:
         [(skill,) for skill in SKILLS],
     )
     skill_ids = {row["name"]: row["skill_id"] for row in db.execute("SELECT * FROM skills")}
-    for index in range(1, SIZE + 1):
+    for index in range(1, size + 1):
         skills = rng.sample(SKILLS, 3)
         jd = "Required: " + ", ".join(skills[:2]) + ". Preferred: " + skills[2]
         start = (NOW.date() + timedelta(days=rng.randrange(-30, 91))).isoformat()
@@ -182,18 +182,18 @@ def seed_population(db: sqlite3.Connection) -> None:
             "canonical_skill_id) VALUES (?,'CT',?,?,?)",
             [(index, skill, skill.casefold(), skill_ids[skill]) for skill in resource_skills],
         )
-    assert db.execute("SELECT COUNT(*) FROM demands WHERE lifecycle='open'").fetchone()[0] == SIZE
+    assert db.execute("SELECT COUNT(*) FROM demands WHERE lifecycle='open'").fetchone()[0] == size
     assert (
         db.execute("SELECT COUNT(*) FROM jd_requirements WHERE status='confirmed'").fetchone()[0]
-        == SIZE
+        == size
     )
     assert (
         db.execute("SELECT COUNT(*) FROM resources WHERE eligibility='eligible'").fetchone()[0]
-        == 400
+        == size - size // 5
     )
     assert (
         db.execute("SELECT COUNT(*) FROM resources WHERE eligibility='excluded'").fetchone()[0]
-        == 100
+        == size // 5
     )
     assert not db.execute("PRAGMA foreign_key_check").fetchall()
 
@@ -387,4 +387,4 @@ def test_nfr01_matching_and_analytics(tmp_path: Path) -> None:
         print("\nNFR01_RESULT=" + json.dumps(report, sort_keys=True))
         assert match_seconds <= MATCH_LIMIT_SECONDS
         for panel, timing in analytics.items():
-            assert timing["median_seconds"] <= ANALYTICS_LIMIT_SECONDS, panel
+            assert timing["median_seconds"] <= ANALYTICS_LIMIT_SECONDS[panel], panel

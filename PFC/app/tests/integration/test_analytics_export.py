@@ -12,8 +12,11 @@ from test_matching_api import Api
 from test_matching_api import api as api
 from test_matching_service import NOW, seed_demand, seed_resource, wait_done
 
+from pfc.api.schemas.analytics import DashboardFilters
 from pfc.db.audit import verify_chain
 from pfc.db.connection import database
+from pfc.services.analytics.dashboard import validation
+from pfc.services.analytics.population import Population
 from pfc.services.matching import export
 from pfc.services.matching.export import DISCLAIMER, HEADERS
 from pfc.services.pii import ANALYST_UNMASK_KEY
@@ -509,6 +512,28 @@ def test_req_out_10_empty_filtered_population(populated: tuple[Api, dict[str, An
     checks = get(api, "/analytics/match?scoreMin=99")["validation"]
     assert len(checks) == 8
     assert all(row["passed"] for row in checks)
+
+
+def test_req_out_10_validation_uses_cached_batched_projections(
+    populated: tuple[Api, dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """REQ-OUT-10 / NFR-01: validation never hydrates full results or queries per row."""
+    api, ids = populated
+
+    def no_full_results(self: Population) -> None:
+        pytest.fail("Validation must use its narrow projection, not hydrate full results")
+
+    monkeypatch.setattr(Population, "results", property(no_full_results), raising=False)
+    with database(api[0].app.state.settings) as db:
+        population = Population(db, DashboardFilters(run_id=ids["run"]), NOW.date())
+        queries: list[str] = []
+        db.set_trace_callback(queries.append)
+        assert all(row["passed"] for row in validation(population))
+        assert len(queries) <= 4, queries
+        assert not any("WHERE result_id=" in query for query in queries)
+        count = len(queries)
+        validation(population)
+        assert len(queries) == count
 
 
 @pytest.mark.parametrize("changed", [False, True])

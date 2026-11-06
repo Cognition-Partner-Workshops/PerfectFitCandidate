@@ -53,6 +53,12 @@ test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({
   await upload(page, 'Upload CT', 'Candidate Tracker workbook', 'ct.xlsx')
   await expect(page.getByText('SmokeAlex')).toBeVisible()
   await expect(page.getByRole('tab', { name: 'Eligible (1)' })).toBeVisible()
+  // CT rows now carry candidate_id / cv_versions_count (REQ-IN-22): no CVs synced yet, and ShortName opens the profile.
+  await expect(page.getByRole('row', { name: /SmokeAlex/ }).getByText('Not synced')).toBeVisible()
+  await page.getByRole('link', { name: 'SmokeAlex' }).click()
+  await expect(page.getByRole('heading', { name: /SmokeAlex/ })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'CV versions (0)' })).toBeVisible()
+  await page.goto('/#/bench')
   // C1 is not in the seeded grade list, so the second synthetic row is excluded from matching.
   await page.getByRole('tab', { name: 'Excluded from matching (1)' }).click()
   await expect(page.getByText('SmokeTaylor')).toBeVisible()
