@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Upload, X } from 'lucide-react'
-import { api } from '../api'
+import { api, ApiError } from '../api'
 import type { Demand, JdRequirements } from '../api/types'
 import { BandChip, Banner, Chip, EmptyState, ErrorState, Modal, Spinner } from '../components/ui'
 import { UploadDialog } from '../components/UploadDialog'
@@ -44,7 +44,21 @@ function SkillChips({ label, skills, onChange }: { label: string; skills: string
 /** JD review drawer: Analyze JD → review requirements → Confirm & Start (REQ-MAT-02, §9.3). */
 function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) {
   const qc = useQueryClient()
-  const req = useQuery({ queryKey: ['requirements', demand.demandId], queryFn: () => api.getRequirements(demand.demandId) })
+  // Analyze only when no draft exists yet (GET → 404): each analysis stores a new draft revision, and the
+  // demand list carries no JD status from the backend, so the row's status can't tell us.
+  const req = useQuery({
+    queryKey: ['requirements', demand.demandId],
+    queryFn: async () => {
+      try {
+        return await api.getRequirements(demand.demandId)
+      } catch (e) {
+        if (!(e instanceof ApiError && e.code === 'REQUIREMENTS_NOT_FOUND')) throw e
+      }
+      const draft = await api.analyzeDemand(demand.demandId)
+      void qc.invalidateQueries({ queryKey: ['demands'] })
+      return draft
+    },
+  })
   const [edit, setEdit] = useState<JdRequirements | null>(null)
   const value = edit ?? req.data
   const done = () => {
@@ -80,7 +94,9 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
       <span className="muted small">
         {demand.demandRequestName} · {demand.accountName} · {demand.codeLocalGrade} · {roleLocation(demand.region)} · Start {formatDate(demand.positionStartDate)}
       </span>
-      {!value ? (
+      {req.isError && !value ? (
+        <ErrorState error={req.error} />
+      ) : !value ? (
         <Spinner />
       ) : (
         <div className="grid-12">

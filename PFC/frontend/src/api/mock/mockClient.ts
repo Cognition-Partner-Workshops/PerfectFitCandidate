@@ -521,11 +521,17 @@ export class MockApiClient implements ApiClient {
     return this.done(undefined)
   }
 
+  async analyzeDemand(demandId: number) {
+    await this.analyzeDemands([demandId])
+    return this.getRequirements(demandId)
+  }
+
   async getRequirements(demandId: number) {
     this.currentUser()
     const d = this.state.demands.find((x) => x.demandId === demandId)
     if (!d) fail(404, 'Demand not found', 'NOT_FOUND')
     const saved = this.state.requirements[demandId]
+    if (!saved && d.jdStatus === 'Not analysed') fail(404, 'Requirements not found', 'REQUIREMENTS_NOT_FOUND')
     return this.done(
       saved ?? {
         demandId,
