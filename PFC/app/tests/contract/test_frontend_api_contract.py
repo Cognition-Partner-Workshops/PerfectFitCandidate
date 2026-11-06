@@ -42,12 +42,7 @@ ALLOWED_PENDING_LABELS = (
     "LLM supervisor",
 )
 
-PENDING: dict[Route, str] = {
-    ("GET", "/api/v1/analytics/bench"): "W2-5 analytics/export",
-    ("GET", "/api/v1/analytics/demand"): "W2-5 analytics/export",
-    ("GET", "/api/v1/analytics/match"): "W2-5 analytics/export",
-    ("GET", "/api/v1/analytics/summary"): "W2-5 analytics/export",
-}
+PENDING: dict[Route, str] = {}
 
 
 def _frontend_paths(path_literal: str) -> set[str]:

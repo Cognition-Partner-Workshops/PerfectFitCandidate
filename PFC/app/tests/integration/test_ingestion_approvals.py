@@ -606,7 +606,17 @@ def test_req_in_25_initial_surname_match_and_confirmed_identity_rejection(client
 
 @pytest.mark.parametrize(
     "data_kind",
-    ["none", "resume", "cv", "resource", "match", "outreach", "email_fk", "other_email"],
+    [
+        "none",
+        "resume",
+        "cv",
+        "resource",
+        "match",
+        "cv_and_match",
+        "outreach",
+        "email_fk",
+        "other_email",
+    ],
 )
 def test_req_in_25_relink_requires_merge_when_old_candidate_has_data(client, data_kind):
     ingest(client, "dl", [{}])
@@ -615,22 +625,22 @@ def test_req_in_25_relink_requires_merge_when_old_candidate_has_data(client, dat
         rows.append({"ShortName": "Other", "Email Address": "other@example.com"})
     ingest(client, "ct", rows)
     with database(client.app.state.settings) as db:
-        if data_kind in {"resume", "cv"}:
+        if data_kind in {"resume", "cv", "cv_and_match"}:
             db.execute(
                 "INSERT INTO resumes(resume_id,candidate_id,source_path,file_name,file_sha256,"
                 "mime_type,discovered_at) VALUES (1,?,'cv.pdf','cv.pdf','hash',"
                 "'application/pdf','2026-01-01')",
                 (2 if data_kind == "resume" else None,),
             )
-            if data_kind == "cv":
+            if data_kind in {"cv", "cv_and_match"}:
                 db.execute(
                     "INSERT INTO cv_versions(resume_id,candidate_id,version_no,text_sha256,"
                     "text_norm,extracted_by,extracted_at) VALUES (1,2,1,'text','CV',"
                     "'rule_based','2026-01-01')"
                 )
-        elif data_kind == "resource":
+        if data_kind == "resource":
             db.execute("UPDATE resources SET candidate_id=2 WHERE resource_id=3")
-        elif data_kind == "match":
+        elif data_kind in {"match", "cv_and_match"}:
             db.execute("INSERT INTO embedding_models VALUES (1,'test','onnx','hash',384,1,'v1',1)")
             db.execute(
                 "INSERT INTO jd_requirements(jd_req_id,demand_version_id,revision,status,"
@@ -673,6 +683,13 @@ def test_req_in_25_relink_requires_merge_when_old_candidate_has_data(client, dat
                 "VALUES (1,2,999,' Alex@Example.com ','[]','Subject','Body','Draft','key',1,"
                 "'2026-01-01','2026-01-01')"
             )
+        unchanged = {
+            table: [tuple(r) for r in db.execute(f"SELECT * FROM {table} ORDER BY rowid")]
+            for table in ("resources", "candidate_emails", "cv_versions", "match_results")
+        }
+        if data_kind == "cv_and_match":
+            assert db.execute("SELECT candidate_id FROM cv_versions").fetchone()[0] == 2
+            assert db.execute("SELECT candidate_id FROM match_results").fetchone()[0] == 2
     response = client.put(
         "/api/v1/candidates/1/identity", json={"action": "select_ct_record", "resourceId": 2}
     )
@@ -684,6 +701,10 @@ def test_req_in_25_relink_requires_merge_when_old_candidate_has_data(client, dat
         assert response.json()["code"] == "IDENTITY_MERGE_REQUIRED"
         assert row(client, "resource", 2)["candidate_id"] == 2
         with database(client.app.state.settings) as db:
+            for table, before in unchanged.items():
+                assert [
+                    tuple(r) for r in db.execute(f"SELECT * FROM {table} ORDER BY rowid")
+                ] == before
             assert (
                 db.execute(
                     "SELECT confirmed FROM candidate_emails WHERE candidate_id=2"
