@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic.json_schema import SkipJsonSchema
 
 from pfc.domain.config_loader import DomainConfig
 from pfc.domain.normalise import normalise_term
@@ -27,6 +28,7 @@ class ExtractedItem(BaseModel):
     evidence: str | None = None
     years: float | None = Field(default=None, ge=0)
     classification_reason: Literal["classification_adjusted"] | None = None
+    canonicalized_from: SkipJsonSchema[str | None] = None
     evidence_unverified: bool = False
 
     @field_validator("text")
@@ -83,9 +85,63 @@ def _extraction_json(data: Requirements) -> str:
         for item in value[field]:
             if item.get("classification_reason") is None:
                 item.pop("classification_reason", None)
+            if item.get("canonicalized_from") is None:
+                item.pop("canonicalized_from", None)
             if not item["evidence_unverified"]:
                 item.pop("evidence_unverified")
     return dumps(value)
+
+
+def _canonicalized_from(extraction: dict[str, Any], position: int) -> str | None:
+    items = [item for field in KINDS for item in extraction.get(field, [])]
+    if 0 <= position < len(items) and isinstance(items[position], dict):
+        value = items[position].get("canonicalized_from")
+        return value if isinstance(value, str) else None
+    return None
+
+
+def _canonicalize_skills(data: Requirements, config: DomainConfig) -> Requirements:
+    data = data.model_copy(deep=True)
+    terms = sorted(
+        {
+            normalise_term(term)
+            for row in config.synonyms.rows
+            if row.status == "approved"
+            for term in (row.canonical, row.term)
+            if config.synonyms.resolve(term) is not None
+        },
+        key=lambda term: (-len(term), term),
+    )
+    skills = [*data.mandatory_skills, *data.preferred_skills]
+    present = {normalise_term(item.text) for item in skills}
+    present.update(
+        normalise_term(canonical)
+        for item in skills
+        if (canonical := config.synonyms.resolve(item.text)) is not None
+    )
+    for item in skills:
+        if config.synonyms.resolve(item.text) is not None:
+            continue
+        masked = normalise_term(item.text)
+        canonicals: set[str] = set()
+        for term in terms:
+            canonical = config.synonyms.resolve(term)
+            assert canonical is not None
+            matches = list(re.finditer(r"(?<!\w)" + re.escape(term) + r"(?!\w)", masked))
+            for match in matches:
+                canonicals.add(canonical)
+                masked = (
+                    masked[: match.start()]
+                    + "\0" * (match.end() - match.start())
+                    + masked[match.end() :]
+                )
+        if len(canonicals) == 1:
+            canonical = next(iter(canonicals))
+            if normalise_term(canonical) not in present:
+                item.canonicalized_from = item.text
+                item.text = canonical
+                present.add(normalise_term(canonical))
+    return data
 
 
 PREFERRED = re.compile(r"\b(desirable|preferred|nice to have|bonus)\b", re.I)
@@ -218,6 +274,7 @@ def _write(
         for field in KINDS:
             for item in getattr(data, field):
                 item.classification_reason = None
+                item.canonicalized_from = None
     revision = db.execute(
         "SELECT COALESCE(MAX(revision),0)+1 FROM jd_requirements WHERE demand_version_id=?",
         (version_id,),
@@ -278,6 +335,9 @@ def _write(
                 item.classification_reason = _classification_reason(
                     json.loads(source["extraction_json"]), source["position"]
                 )
+                item.canonicalized_from = _canonicalized_from(
+                    json.loads(source["extraction_json"]), source["position"]
+                )
             db.execute(
                 "INSERT INTO jd_requirement_items(jd_req_id,kind,text,canonical_skill_id,"
                 "source_span,position,source_jd_req_id) VALUES (?,?,?,?,?,?,?)",
@@ -319,6 +379,7 @@ def analyze_jd(
         if ports.llm is None:
             raise ExtractionFailure("provider_unavailable")
         data = Requirements.model_validate(ports.llm.extract_jd(text))
+        data = _canonicalize_skills(data, config)
         for field in KINDS:
             for item in getattr(data, field):
                 item.evidence_unverified = (

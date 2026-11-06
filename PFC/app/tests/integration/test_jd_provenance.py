@@ -10,7 +10,142 @@ from test_matching_service import NOW, FakeLlm, seed_demand, seed_resource
 
 from pfc.adapters.llm.providers import FakeProvider
 from pfc.db.connection import database
-from pfc.services.matching import MatchingPorts, confirm_requirements, get_requirements
+from pfc.services.matching import MatchingPorts, confirm_requirements, get_requirements, save_draft
+
+
+def test_canonicalized_from_is_stored_not_exposed_and_survives_review(api: Api) -> None:
+    client, headers = api
+    phrase = "Use Python to develop ingestion jobs"
+    client.app.state.llm_provider = FakeProvider(
+        json.dumps({"mandatory_skills": [{"text": phrase, "evidence": phrase}]})
+    )
+    with database(client.app.state.settings) as db:
+        demand = seed_demand(db, confirmed=False)
+        seed_resource(db)
+        db.execute(
+            "UPDATE demand_versions SET jd_text_norm=? WHERE demand_version_id="
+            "(SELECT current_version_id FROM demands WHERE demand_id=?)",
+            (f"Required: {phrase}", demand),
+        )
+    url = f"/api/v1/demands/{demand}"
+    response = client.post(url + "/analyze", headers=headers)
+    assert response.status_code == 200, response.text
+    draft = response.json()
+    for _ in range(2):
+        assert draft["mandatorySkills"] == ["Python"]
+        assert draft["items"][0]["evidence"] == phrase
+        assert "canonicalized_from" not in json.dumps(draft)
+        assert "canonicalizedFrom" not in json.dumps(draft)
+        with database(client.app.state.settings) as db:
+            stored = db.execute(
+                "SELECT extraction_json FROM jd_requirements WHERE jd_req_id=?",
+                (draft["jdReqId"],),
+            ).fetchone()[0]
+        assert json.loads(stored)["mandatory_skills"][0]["canonicalized_from"] == phrase
+        response = client.put(url + "/requirements", headers=headers, json=draft)
+        assert response.status_code == 200, response.text
+        draft = response.json()
+    finish(client, client.post(url + "/requirements/confirm", headers=headers))
+    confirmed = client.get(url + "/requirements").json()
+    assert confirmed["status"] == "confirmed"
+    assert "canonicalized" not in json.dumps(confirmed)
+    with database(client.app.state.settings) as db:
+        stored = db.execute(
+            "SELECT extraction_json FROM jd_requirements WHERE jd_req_id=?",
+            (confirmed["jdReqId"],),
+        ).fetchone()[0]
+    assert json.loads(stored)["mandatory_skills"][0]["canonicalized_from"] == phrase
+
+
+@pytest.mark.parametrize(
+    ("kind", "text"),
+    [("mandatory_skill", "SQL"), ("preferred_skill", "Python"), ("mandatory_skill", "Use Python")],
+)
+def test_canonicalization_marker_does_not_follow_changed_identity(
+    api: Api, kind: str, text: str
+) -> None:
+    client, headers = api
+    client.app.state.llm_provider = FakeProvider(
+        json.dumps({"mandatory_skills": [{"text": "Use Python"}]})
+    )
+    with database(client.app.state.settings) as db:
+        demand = seed_demand(db, confirmed=False)
+    url = f"/api/v1/demands/{demand}"
+    draft = client.post(url + "/analyze", headers=headers).json()
+    source_id = draft["items"][0]["jdReqId"]
+    saved = client.put(
+        url + "/requirements",
+        headers=headers,
+        json={
+            "demandId": demand,
+            "mandatorySkills": [text] if kind == "mandatory_skill" else [],
+            "preferredSkills": [text] if kind == "preferred_skill" else [],
+            "items": [{"kind": kind, "text": text, "jdReqId": source_id}],
+        },
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["items"][0]["text"] == text
+    with database(client.app.state.settings) as db:
+        stored = db.execute(
+            "SELECT extraction_json FROM jd_requirements WHERE jd_req_id=?",
+            (saved.json()["jdReqId"],),
+        ).fetchone()[0]
+    assert "canonicalized_from" not in stored
+
+
+def test_fallback_analysis_matches_main_bytes(api: Api, monkeypatch: pytest.MonkeyPatch) -> None:
+    client, headers = api
+    called = []
+
+    def forbidden(*args: object) -> None:
+        called.append(True)
+        raise AssertionError("Canonicalizer must not run on fallback")
+
+    monkeypatch.setattr("pfc.services.matching.requirements._canonicalize_skills", forbidden)
+    with database(client.app.state.settings) as db:
+        demand = seed_demand(db, confirmed=False)
+        db.execute(
+            "UPDATE demand_versions SET jd_text_norm=? WHERE demand_version_id="
+            "(SELECT current_version_id FROM demands WHERE demand_id=?)",
+            ("Required: SQL\nPreferred: Python", demand),
+        )
+    response = client.post(f"/api/v1/demands/{demand}/analyze", headers=headers)
+    assert response.status_code == 200, response.text
+    assert response.json()["extractionMethod"] == "rule_based_fallback"
+    assert called == []
+    with database(client.app.state.settings) as db:
+        stored = db.execute(
+            "SELECT extraction_json FROM jd_requirements WHERE jd_req_id=?",
+            (response.json()["jdReqId"],),
+        ).fetchone()[0]
+    assert stored == (
+        '{"domain":[],"experience":[],"location":null,"mandatory_skills":'
+        '[{"evidence":"Required: SQL","text":"SQL","years":null}],"onsite_required":null,'
+        '"preferred_skills":[{"evidence":"Preferred: Python","text":"Python","years":null}],'
+        '"qualifications":[]}'
+    )
+
+
+@pytest.mark.parametrize("source_id", [None, 999999])
+def test_manual_data_cannot_forge_canonicalization(api: Api, source_id: int | None) -> None:
+    client, _ = api
+    with database(client.app.state.settings) as db:
+        demand = seed_demand(db, confirmed=False)
+        draft = save_draft(
+            db,
+            demand,
+            {
+                "mandatory_skills": [
+                    {"text": "SQL", "canonicalized_from": "forged", "jdReqId": source_id}
+                ]
+            },
+            1,
+            NOW,
+        )
+        stored = db.execute(
+            "SELECT extraction_json FROM jd_requirements WHERE jd_req_id=?", (draft["jd_req_id"],)
+        ).fetchone()[0]
+    assert "canonicalized_from" not in stored
 
 
 def test_classification_reason_survives_api_save_and_confirm(api: Api) -> None:
