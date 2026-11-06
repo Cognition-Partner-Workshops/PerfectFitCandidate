@@ -1,7 +1,9 @@
 import asyncio
 import json
 import logging
+import sqlite3
 import threading
+import traceback
 from collections.abc import AsyncIterator, Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass
@@ -133,8 +135,22 @@ class JobRunner:
             self._finish(job_id, "completed", None)
         except JobCancelled:
             self._finish(job_id, "cancelled", "cancelled")
-        except Exception:
-            logger.error("Background job %s failed", job_id)
+        except Exception as exc:
+            exception_type = type(exc).__qualname__
+            if isinstance(exc, sqlite3.Error):
+                error_name = getattr(exc, "sqlite_errorname", None)
+                error_code = getattr(exc, "sqlite_errorcode", None)
+                exception_type += f" ({error_name}, {error_code})"
+            frames = "\n".join(
+                f'  File "{frame.filename}", line {frame.lineno}, in {frame.name}'
+                for frame in traceback.extract_tb(exc.__traceback__)
+            )
+            logger.error(
+                "Background job %s failed\nTraceback (most recent call last):\n%s\n%s",
+                job_id,
+                frames,
+                exception_type,
+            )
             self._finish(job_id, "failed", "Job failed")
 
     def get(self, job_id: int) -> Job | None:
