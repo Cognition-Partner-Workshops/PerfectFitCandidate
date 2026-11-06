@@ -44,6 +44,43 @@ describe('mock auth (REQ-AUTH-01..04)', () => {
   })
 })
 
+describe('mock reading-only summaries', () => {
+  it('stores a candidate summary and marks it stale when its CV source is removed', async () => {
+    await api.login({ role: 'Admin', email: ADMIN.email, password: ADMIN.password })
+    const candidate = (await api.listResources()).find((r) => r.cvCount > 0)!.candidateId
+    expect(await code(api.getCandidateSummary(candidate))).toBe('SUMMARY_NOT_FOUND')
+    const saved = await api.generateCandidateSummary(candidate)
+    expect(saved.sentences.length).toBe(1)
+    expect(await api.getCandidateSummary(candidate)).toEqual(saved)
+    api.state.removedExtractions = [saved.sourceVersionId]
+    expect((await api.getCandidateSummary(candidate)).stale).toBe(true)
+    expect(await code(api.generateCandidateSummary(candidate))).toBe('SUMMARY_NO_SOURCE')
+  })
+
+  it('masks demand summaries and exposes changed or absent sources', async () => {
+    await api.login({ role: 'Admin', email: ADMIN.email, password: ADMIN.password })
+    const demand = api.state.demands[0]
+    demand.jdText = 'SQL engineer: alex@example.com, +44 123456789'
+    expect(await code(api.getDemandSummary(demand.demandId))).toBe('SUMMARY_NOT_FOUND')
+    const saved = await api.generateDemandSummary(demand.demandId)
+    expect(JSON.stringify(saved)).not.toContain('alex@example.com')
+    expect(JSON.stringify(saved)).not.toContain('+44 123456789')
+    expect(await api.getDemandSummary(demand.demandId)).toEqual(saved)
+    demand.jdText += ' with Python'
+    expect((await api.getDemandSummary(demand.demandId)).stale).toBe(true)
+    expect((await api.generateDemandSummary(demand.demandId)).stale).toBe(false)
+    demand.jdText = ''
+    expect(await code(api.generateDemandSummary(demand.demandId))).toBe('SUMMARY_NO_SOURCE')
+  })
+
+  it('requires authentication for all summary methods', async () => {
+    await api.logout()
+    for (const result of [api.getCandidateSummary(1), api.generateCandidateSummary(1), api.getDemandSummary(1), api.generateDemandSummary(1)]) {
+      expect(await code(result)).toBe('UNAUTHENTICATED')
+    }
+  })
+})
+
 describe('mock email approval (REQ-EML-01/06)', () => {
   it('requires approval before send and guards duplicate sends', async () => {
     await api.login({ role: 'Admin', email: ADMIN.email, password: ADMIN.password })

@@ -117,6 +117,12 @@ def remove(
             counts.chunks_deleted += 1
     counts.matching_vectors_deleted = _matching_cache(db, settings, version_ids)
     counts.versions_cleared = sum(row["extraction_removed_at"] is None for row in rows)
+    summaries_cleared = db.execute(
+        "DELETE FROM summaries WHERE owner_kind='candidate' AND source_version_id IN "
+        "(SELECT cv_version_id FROM cv_versions WHERE extraction_removed_at IS NULL "
+        "AND (? IS NULL OR candidate_id=?))",
+        (candidate_id, candidate_id),
+    ).rowcount
     db.execute(
         "UPDATE cv_versions SET text_norm='',sections_json=NULL,facts_json='{}',"
         "extraction_removed_at=? WHERE extraction_removed_at IS NULL "
@@ -134,6 +140,7 @@ def remove(
             "scope": "candidate" if candidate_id is not None else "all",
             "candidate_id": candidate_id,
             **counts.model_dump(),
+            "summaries_cleared": summaries_cleared,
         },
     )
     return counts
