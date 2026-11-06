@@ -87,7 +87,8 @@ test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({
   await expect(demandRow).toContainText('Not analysed')
   await demandRow.getByRole('button', { name: 'Analyze JD' }).click()
   const start = page.getByRole('button', { name: /Confirm & Start/ })
-  await expect(start).toBeEnabled()
+  // Analyze JD runs server-side (local LLM, or the rule-based fallback once the provider is unavailable); allow for slow CI.
+  await expect(start).toBeEnabled({ timeout: 30_000 })
   await expect(page.getByText(/DL region:/)).toBeVisible()
   await page.getByLabel(/Qualifications/).fill('BSc Computing')
   await page.getByLabel('Location (extracted from JD)').fill('Manchester')
