@@ -24,8 +24,17 @@ from starlette.datastructures import State
 from pfc.adapters.llm.providers import FallbackProvider, LlamaCppProvider
 from pfc.api.schemas.llm import LlmHealth
 from pfc.config import Settings
+from pfc.db.connection import database
 
 logger = logging.getLogger(__name__)
+
+
+async def restart_selected_model(settings: Settings, app_state: State) -> None:
+    supervisor = getattr(app_state, "llm_supervisor", None)
+    if supervisor is not None:
+        with database(settings) as db:
+            model = supervisor.resolve_model(db)
+        supervisor.schedule(model)
 
 
 def _windows_job(pid: int) -> int | None:

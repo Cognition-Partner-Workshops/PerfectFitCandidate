@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request
 
-from pfc.api.routers.llm import restart_selected_model
+from pfc.adapters.llm.supervisor import restart_selected_model
 from pfc.api.routers.occ import DB
 from pfc.api.schemas.settings import PersonalSettings
 from pfc.security.dependencies import Principal, current_user
@@ -30,5 +30,7 @@ def put_settings(
         "active_model_id" in body.model_fields_set
         and before.active_model_id != result.active_model_id
     ):
-        background_tasks.add_task(restart_selected_model, request)
+        background_tasks.add_task(
+            restart_selected_model, request.app.state.settings, request.app.state
+        )
     return result

@@ -672,6 +672,31 @@ def test_clear_active_model_choice(client: TestClient) -> None:
         assert audit.verify_chain(db)
 
 
+def test_model_approval_schedules_after_commit(client: TestClient, tmp_path: Path) -> None:
+    """REQ-LLM-06: the first approval starts inference and unapproval re-resolves it."""
+    settings = client.app.state.settings
+    settings.models_dir = tmp_path
+    (tmp_path / "one.gguf").touch()
+    with database(settings) as db:
+        db.execute("UPDATE llm_models SET file_name='one.gguf' WHERE model_id=1")
+
+    class Probe(LlamaServerSupervisor):
+        selections: list[tuple[str, Path] | None] = []
+
+        def schedule(self, model: tuple[str, Path] | None) -> None:
+            self.selections.append(model)
+
+    probe = Probe(settings)
+    client.app.state.llm_supervisor = probe
+    login(client)
+    assert client.put("/api/v1/occ/llm-models/1", json={"approved": True}).status_code == 200
+    assert probe.selections == [("Qwen3-4B-Instruct-2507", (tmp_path / "one.gguf").resolve())]
+    assert client.put("/api/v1/occ/llm-models/1", json={"approved": False}).status_code == 200
+    assert probe.selections[-1] is None
+    assert client.put("/api/v1/occ/llm-models/999", json={"approved": True}).status_code == 404
+    assert len(probe.selections) == 2
+
+
 def test_model_updates_schedule_after_commit(client: TestClient, tmp_path: Path) -> None:
     """REQ-LLM-06: both settings surfaces schedule switches only after a committed choice."""
     settings = client.app.state.settings

@@ -2,9 +2,9 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request
 
+from pfc.adapters.llm.supervisor import restart_selected_model
 from pfc.api.routers.occ import DB
 from pfc.api.schemas.llm import ActiveModel, LlmHealth
-from pfc.db.connection import database
 from pfc.security.dependencies import Principal, current_user
 from pfc.services.occ import llm
 from pfc.services.occ.llm import LlmHealthProvider, UnconfiguredHealthProvider
@@ -15,14 +15,6 @@ User = Annotated[Principal, Depends(current_user)]
 
 def health_provider(request: Request) -> LlmHealthProvider:
     return getattr(request.app.state, "llm_health_provider", UnconfiguredHealthProvider())
-
-
-async def restart_selected_model(request: Request) -> None:
-    supervisor = getattr(request.app.state, "llm_supervisor", None)
-    if supervisor is not None:
-        with database(request.app.state.settings) as db:
-            model = supervisor.resolve_model(db)
-        supervisor.schedule(model)
 
 
 @router.get("/models")
@@ -43,7 +35,7 @@ def select(
     """REQ-LLM-01/06: commit the choice, then asynchronously switch the shared local server."""
     result = llm.select(db, user.user.user_id, body.model_id)
     db.commit()
-    background_tasks.add_task(restart_selected_model, request)
+    background_tasks.add_task(restart_selected_model, request.app.state.settings, request.app.state)
     return result
 
 

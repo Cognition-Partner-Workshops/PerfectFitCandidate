@@ -2,8 +2,9 @@ import sqlite3
 from collections.abc import Iterator
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, Response
 
+from pfc.adapters.llm.supervisor import restart_selected_model
 from pfc.api.schemas.llm import ModelApproval
 from pfc.api.schemas.occ import (
     ApproveSynonym,
@@ -309,5 +310,15 @@ def llm_models(db: DB, admin: Admin) -> list[dict[str, Any]]:
 
 
 @router.put("/llm-models/{target}")
-def llm_approve(target: int, body: ModelApproval, db: DB, admin: Admin) -> dict[str, Any]:
-    return llm.approve(db, admin.user.user_id, target, body.approved)
+def llm_approve(
+    target: int,
+    body: ModelApproval,
+    db: DB,
+    admin: Admin,
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> dict[str, Any]:
+    result = llm.approve(db, admin.user.user_id, target, body.approved)
+    db.commit()
+    background_tasks.add_task(restart_selected_model, request.app.state.settings, request.app.state)
+    return result
