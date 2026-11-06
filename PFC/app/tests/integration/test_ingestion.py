@@ -22,6 +22,8 @@ from pfc.db.connection import database
 from pfc.jobs.runner import JobCancelled, JobContext
 from pfc.main import create_app
 from pfc.security.setup import code_path
+from pfc.services.embeddings.reembed import reembed
+from pfc.services.embeddings.runtime import EmbeddingModelUnavailable
 from pfc.services.ingestion import cv_sync, service
 from pfc.services.ingestion.repository import parse
 from pfc.services.ingestion.workbooks import CT, DL
@@ -729,6 +731,8 @@ def test_req_in_21_24_cv_sync_versions_and_metadata(client: TestClient, tmp_path
         "extraction_failed": 0,
         "embedded": 0,
         "warnings": 0,
+        "embedding_counts": {"embedded": 0, "reused": 0, "skipped": 0, "deleted": 0},
+        "embedding_notes": ["Embedding skipped: no active embedding model"],
     }
     with database(client.app.state.settings) as db:
         alex = db.execute("SELECT * FROM resources WHERE short_name_key='alex'").fetchone()
@@ -833,22 +837,22 @@ def test_req_mat_01_cv_sync_optional_embedding(client: TestClient, tmp_path: Pat
     with database(client.app.state.settings) as db:
         db.execute(
             "INSERT INTO embedding_models(name,runtime,file_sha256,dim,pipeline_version,is_active) "
-            "VALUES ('fake','onnx','fake-hash',8,'fixed-words-v1',1)"
+            "VALUES ('fake','onnx','',8,'fixed-words-v1',1)"
         )
     embedded = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
-    assert embedded["embedded"] == 3 and embedded["new_versions"] == 0
+    assert embedded["embedded"] == 2 and embedded["new_versions"] == 0
     with database(client.app.state.settings) as db:
         chunks = db.execute("SELECT * FROM embedding_chunks").fetchall()
-        assert len(chunks) == 3
+        assert len(chunks) == 2
         assert all(c["owner_type"] == "cv" and c["section"] == "full" for c in chunks)
         store = create_vector_store(db, dimensions=8)
-        assert store.count(model_version=client.app.state.embedder.model_version) == 3
+        assert store.count(model_version=client.app.state.embedder.model_version) == 2
         matches = store.search(
             client.app.state.embedder.embed(["SQL Python"])[0],
             model_version=client.app.state.embedder.model_version,
             namespace="cv",
         )
-        assert len(matches) == 3
+        assert len(matches) == 2
     repeated = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
     assert repeated["embedded"] == 0
 
@@ -931,7 +935,7 @@ def test_req_in_21_cv_cancellation_before_persistence(
         assert not db.execute("SELECT 1 FROM audit_log WHERE action='CV_SYNC'").fetchone()
 
 
-def test_req_mat_01_cv_embedding_failure_rolls_back_candidate(
+def test_req_mat_01_cv_embedding_failure_preserves_candidate(
     client: TestClient, tmp_path: Path
 ) -> None:
     root = tmp_path / "resumes"
@@ -955,9 +959,108 @@ def test_req_mat_01_cv_embedding_failure_rolls_back_candidate(
         time.sleep(0.01)
     assert job.status == "failed" and job.message == "Job failed"
     with database(client.app.state.settings) as db:
-        assert db.execute("SELECT count(*) FROM resumes").fetchone()[0] == 0
-        assert db.execute("SELECT count(*) FROM cv_versions").fetchone()[0] == 0
+        assert db.execute("SELECT count(*) FROM resumes").fetchone()[0] == 1
+        assert db.execute("SELECT count(*) FROM cv_versions").fetchone()[0] == 1
         assert db.execute("SELECT count(*) FROM embedding_chunks").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("full_first", [False, True])
+def test_cv_sync_and_full_reembed_do_not_churn(
+    client: TestClient, tmp_path: Path, full_first: bool
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(client, upload(client, "ct", [{}]))
+    resume_docx(root, "Alex.docx", "SQL Python " * 220)
+    settings = client.app.state.settings
+    embedder = FakeEmbedder(8)
+    client.app.state.embedder = embedder
+    offline = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert offline["embedding_notes"]
+    with database(settings) as db:
+        db.execute(
+            "UPDATE cv_versions SET sections_json=?",
+            (json.dumps({"skills": "SQL Python", "experience": ["Software Engineer"]}),),
+        )
+        id = db.execute(
+            "INSERT INTO embedding_models(name,runtime,file_sha256,dim,pipeline_version,is_active) "
+            "VALUES ('fake','onnx','',8,'v1',1) RETURNING embedding_model_id"
+        ).fetchone()[0]
+    if not full_first:
+        wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    with database(settings) as db:
+        store = create_vector_store(db, dimensions=8)
+        ctx = JobContext(client.app.state.job_runner, 0, threading.Event())
+        result = reembed(settings, ctx, embedding_model_id=id, embedder=embedder, store=store)
+        if not full_first:
+            assert result.embedded == result.deleted == 0
+        before = [
+            tuple(row) for row in db.execute("SELECT * FROM embedding_chunks ORDER BY chunk_id")
+        ]
+        assert {row["section"] for row in db.execute("SELECT section FROM embedding_chunks")} == {
+            "skills",
+            "experience/0",
+        }
+    repeated = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert repeated["embedding_counts"]["embedded"] == repeated["embedding_counts"]["deleted"] == 0
+    with database(settings) as db:
+        assert [
+            tuple(row) for row in db.execute("SELECT * FROM embedding_chunks ORDER BY chunk_id")
+        ] == before
+
+
+@pytest.mark.parametrize("available", [True, False])
+def test_cv_sync_runtime_fallback_and_latest_cleanup(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, available: bool
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(client, upload(client, "ct", [{}]))
+    resume_docx(root, "Alex.docx", "SQL")
+    settings = client.app.state.settings
+    with database(settings) as db:
+        model_id = db.execute(
+            "INSERT INTO embedding_models(name,runtime,file_sha256,dim,pipeline_version,is_active) "
+            "VALUES ('fake','onnx','',8,'v1',1) RETURNING embedding_model_id"
+        ).fetchone()[0]
+    calls: list[int] = []
+
+    def factory(settings: Settings, *, embedding_model_id: int) -> FakeEmbedder:
+        calls.append(embedding_model_id)
+        if not available:
+            raise EmbeddingModelUnavailable(
+                f"Model files not found at {settings.bundled_models_dir}"
+            )
+        return FakeEmbedder(8)
+
+    monkeypatch.setattr(cv_sync, "create_embedder", factory)
+    first = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert calls == [model_id] and first["new_versions"] == 1
+    if not available:
+        assert "Model files not found" in first["embedding_notes"][0]
+        assert first["embedded"] == 0
+    else:
+        assert first["embedded"] == 1
+        available = False
+        resume_docx(root, "Alex.docx", "Python", 1893456000)
+        skipped = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+        assert skipped["new_versions"] == 1 and skipped["embedded"] == 0
+        assert skipped["embedding_notes"]
+        available = True
+        updated = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+        assert updated["new_versions"] == 0
+        assert updated["embedding_counts"]["deleted"] == 1
+        assert updated["embedded"] == 1
+        with database(settings) as db:
+            owner = db.execute("SELECT owner_id FROM embedding_chunks").fetchone()[0]
+            assert (
+                db.execute(
+                    "SELECT is_latest FROM cv_versions WHERE cv_version_id=?", (owner,)
+                ).fetchone()[0]
+                == 1
+            )
 
 
 def test_req_in_25_identical_files_for_different_candidates_not_attached(
