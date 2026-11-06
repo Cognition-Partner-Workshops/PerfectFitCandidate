@@ -95,6 +95,25 @@ def ingest(client: TestClient, kind: str, rows: list[dict]) -> dict:
     return response.json()
 
 
+def test_ct_ingestion_email_confirmation(client: TestClient) -> None:
+    assert (
+        client.post("/api/v1/occ/internal-domains", json={"domain": "example.com"}).status_code
+        == 201
+    )
+    ingest(client, "ct", [{}, {"ShortName": "No email", "Email Address": None}])
+    with database(client.app.state.settings) as db:
+        email = db.execute("SELECT source,confirmed FROM candidate_emails").fetchone()
+        assert tuple(email) == ("CT", 0)
+        assert [
+            row[0]
+            for row in db.execute("SELECT classification FROM candidates ORDER BY candidate_id")
+        ] == ["Internal", "Unknown"]
+        event = db.execute(
+            "SELECT details_json FROM audit_log WHERE action='CLASSIFICATION_REEVALUATED'"
+        ).fetchone()
+        assert json.loads(event[0])["changed"] == 2
+
+
 def queue(client: TestClient) -> list[dict]:
     response = client.get("/api/v1/occ/approvals")
     assert response.status_code == 200, response.text

@@ -122,6 +122,11 @@ def _openapi_routes(document: dict[str, object]) -> set[Route]:
     return routes
 
 
+def test_candidate_classification_override_openapi(tmp_path: Path) -> None:
+    app = create_app(Settings(data_dir=tmp_path / "data", frontend_dir=tmp_path / "frontend"))
+    assert "put" in app.openapi()["paths"]["/api/v1/candidates/{candidate_id}/classification"]
+
+
 def test_frontend_api_calls_match_backend_openapi(tmp_path: Path) -> None:
     frontend_calls = _frontend_calls(FRONTEND_ROOT)
     assert frontend_calls, f"No HTTP calls found under {FRONTEND_ROOT / 'src' / 'api'}"

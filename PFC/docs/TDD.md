@@ -1512,7 +1512,7 @@ Base path `/api/v1`; JSON; cookie session + `X-CSRF-Token` on writes; errors as 
 | POST | `/resources/{id}/cv-sync` · `/resources/cv-sync` (body: ids ≥ 1) | Per-candidate / global sync | A | P1 | REQ-IN-21 |
 | GET | `/candidates/{id}` · `/candidates/{id}/cv-versions` | Identity, CV versions, scores | A | P1 / P2 | REQ-IN-24 |
 | PUT | `/candidates/{id}/identity` | Resolve incomplete/ambiguous identity | A | P1 | REQ-IN-23/25 |
-| PUT | `/candidates/{id}/classification` | Manual classification override (audited) | A | P2 | REQ-CLS-02 |
+| PUT | `/candidates/{id}/classification` | Manual classification override (audited; reason required, null clears) | Adm | P2 | REQ-CLS-02 |
 | POST | `/match-runs` | Start full/incremental run | A | P1 | REQ-MAT-03 |
 | GET | `/match-runs` · `/match-runs/{id}` | Run history, versions, validation panel | A | P1 | REQ-MAT-08, REQ-OUT-10 |
 | GET | `/match-runs/{id}/results` | Results grid (filters, sort, paging) | A | P1 | REQ-OUT-01/08 |

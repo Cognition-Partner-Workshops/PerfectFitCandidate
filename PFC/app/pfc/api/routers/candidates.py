@@ -5,15 +5,40 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 
-from pfc.api.schemas.candidates import CandidateDetail, IdentityResolution
+from pfc.api.schemas.candidates import (
+    CandidateClassification,
+    CandidateDetail,
+    ClassificationOverride,
+    IdentityResolution,
+)
 from pfc.db.connection import database
 from pfc.security.dependencies import Principal, require_role
 from pfc.security.problems import Problem
 from pfc.security.sessions import stamp
+from pfc.services.candidates import classification
 from pfc.services.ingestion import identity
 
 router = APIRouter(prefix="/candidates", dependencies=[Depends(require_role("Analyst"))])
 Analyst = Annotated[Principal, Depends(require_role("Analyst"))]
+Admin = Annotated[Principal, Depends(require_role("Admin"))]
+
+
+@router.put("/{candidate_id}/classification")
+def classify(
+    candidate_id: int,
+    body: ClassificationOverride,
+    request: Request,
+    principal: Admin,
+) -> CandidateClassification:
+    with database(request.app.state.settings) as db:
+        db.execute("BEGIN IMMEDIATE")
+        return classification.set_override(
+            db,
+            candidate_id,
+            body,
+            principal.user.user_id,
+            stamp(request.app.state.clock()),
+        )
 
 
 @router.get("/{candidate_id}")

@@ -5,6 +5,7 @@ import json
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -14,6 +15,7 @@ from pfc.db.connection import database
 from pfc.db.users import create_user
 from pfc.security import package_signing as signing
 from pfc.security.passwords import validate_password, verify
+from pfc.services.candidates.classification import reclassify_all
 from pfc.services.packages.common import PackageServiceError
 from pfc.services.packages.export import ExportResult, export_settings
 from pfc.services.packages.importer import SettingsImporter
@@ -31,6 +33,79 @@ from .conftest import NOW, initialize, trust
 
 def exported(source: Settings) -> ExportResult:
     return export_settings(source, passphrase="test signing passphrase", actor_id=1)
+
+
+def test_domain_import_and_rollback_reclassification(pair: tuple[Settings, Settings]) -> None:
+    source, target = pair
+    with database(target) as db:
+        db.execute(
+            "INSERT INTO candidates(candidate_id,internal_ref,identity_status,classification,"
+            "created_at,updated_at) VALUES (1,'PFC-C-1','complete','External',?,?)",
+            (NOW, NOW),
+        )
+        db.execute(
+            "INSERT INTO candidate_emails(candidate_id,email,email_key,source,confirmed) "
+            "VALUES (1,'private@example.com','private@example.com','CV',1)"
+        )
+    importer = SettingsImporter(target)
+    with patch("pfc.services.packages.importer.reclassify_all", wraps=reclassify_all) as reevaluate:
+        importer.apply(exported(source).path, actor_id=1)
+        assert reevaluate.call_count == 1
+        with database(target) as db:
+            assert db.execute("SELECT classification FROM candidates").fetchone()[0] == "Internal"
+        importer.apply(exported(source).path, actor_id=1)
+        assert reevaluate.call_count == 1
+        with database(source) as db:
+            db.execute("DELETE FROM internal_email_domains")
+        importer.apply(exported(source).path, actor_id=1)
+        assert reevaluate.call_count == 2
+        with database(target) as db:
+            assert db.execute("SELECT classification FROM candidates").fetchone()[0] == "External"
+        importer.rollback(actor_id=1)
+        assert reevaluate.call_count == 3
+        with database(target) as db:
+            assert db.execute("SELECT classification FROM candidates").fetchone()[0] == "Internal"
+        importer.rollback(actor_id=1)
+        assert reevaluate.call_count == 3
+    with database(target) as db:
+        events = db.execute(
+            "SELECT details_json FROM audit_log WHERE action='CLASSIFICATION_REEVALUATED'"
+        ).fetchall()
+        assert len(events) == 3
+        assert all(json.loads(row[0])["changed"] == 1 for row in events)
+        assert "private@example.com" not in json.dumps([json.loads(row[0]) for row in events])
+        assert verify_chain(db)
+
+
+def test_domain_reclassification_rolls_back_with_failed_import(
+    pair: tuple[Settings, Settings],
+) -> None:
+    source, target = pair
+    with database(target) as db:
+        db.execute(
+            "INSERT INTO candidates(candidate_id,internal_ref,identity_status,classification,"
+            "created_at,updated_at) VALUES (1,'PFC-C-1','complete','External',?,?)",
+            (NOW, NOW),
+        )
+        db.execute(
+            "INSERT INTO candidate_emails(candidate_id,email,email_key,source) "
+            "VALUES (1,'private@example.com','private@example.com','CT')"
+        )
+
+    def fail() -> None:
+        raise RuntimeError("Simulated import failure")
+
+    with pytest.raises(RuntimeError, match="Simulated import failure"):
+        SettingsImporter(target, failure_hook=fail).apply(exported(source).path, actor_id=1)
+    with database(target) as db:
+        assert db.execute("SELECT classification FROM candidates").fetchone()[0] == "External"
+        assert db.execute("SELECT count(*) FROM internal_email_domains").fetchone()[0] == 0
+        assert (
+            db.execute(
+                "SELECT count(*) FROM audit_log WHERE action='CLASSIFICATION_REEVALUATED'"
+            ).fetchone()[0]
+            == 0
+        )
 
 
 def verify_export(source: Settings, target: Settings, package: bytes) -> signing.VerifiedPackage:
