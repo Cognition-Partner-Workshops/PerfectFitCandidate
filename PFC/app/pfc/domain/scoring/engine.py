@@ -219,6 +219,8 @@ def score_basis(
     classification, location_gaps = assess_location(demand, resource, config)
     gaps.extend(location_gaps)
     reference = demand.position_start.value if demand.position_start.status == "valid" else None
+    if reference is not None and reference < as_of_date:
+        gaps.append(f"Position Start Date {reference.isoformat()} is in the past — confirm")
     if reference is None:
         reference = as_of_date
         gaps.append("Position Start Date not recorded or unparseable — using as_of_date")

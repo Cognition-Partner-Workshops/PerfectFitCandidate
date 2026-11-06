@@ -275,6 +275,17 @@ def test_req_scr_01_explicit_reference_date(config, resource, demand):
     assert dict(best.components["bench_start"].inputs)["reference"] == AS_OF.isoformat()
 
 
+@pytest.mark.parametrize("offset", [-1, 0, 1])
+def test_req_in_12_past_position_start_flag_without_score_change(config, resource, demand, offset):
+    start = AS_OF + timedelta(days=offset)
+    d = replace(demand, position_start=parse_date(start))
+    best = pair(config, resource, d)
+    expected = f"Position Start Date {start.isoformat()} is in the past — confirm"
+    assert (expected in best.gaps) == (offset < 0)
+    assert best.score == pair(config, resource, demand).score
+    assert dict(best.components["bench_start"].inputs)["reference"] == start.isoformat()
+
+
 @pytest.mark.parametrize(
     ("score", "rounded", "band"),
     [
