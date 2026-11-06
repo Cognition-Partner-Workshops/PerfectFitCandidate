@@ -2,6 +2,7 @@
 
 import csv
 import io
+import json
 import sqlite3
 from datetime import date, datetime
 from typing import Any, Literal
@@ -70,7 +71,9 @@ def export_results(
     results = results[offset : None if limit is None else offset + limit]
     metadata = (
         f"Run {run_id} · Finished {run['finished_at'] or ''} · "
-        f"Model {run['llm_model'] or ''} · Template v{run['template_version']}"
+        f"Model {run['llm_model'] or ''} · Template v{run['template_version']} · "
+        f"dataChangedSinceRun: {json.dumps(run['data_changed_since_run'])} · "
+        f"dataChangedReasons: {json.dumps(run['data_changed_reasons'])}"
     )
     rows: list[list[Any]] = [[metadata], [DISCLAIMER], list(HEADERS)]
     for row in results:

@@ -494,7 +494,8 @@ def test_exports_layout_emails_injection_and_audit(
             assert sheet.cell(4, column).data_type == "s"
     assert (
         rows[0][0]
-        == f"Run {ids['run']} · Finished {NOW.isoformat()} · Model test-model · Template v1"
+        == f"Run {ids['run']} · Finished {NOW.isoformat()} · Model test-model · Template v1 · "
+        "dataChangedSinceRun: false · dataChangedReasons: []"
     )
     assert rows[1][0] == DISCLAIMER and rows[2][:16] == list(HEADERS)
     assert [rows[3][i] for i in (2, 3, 6, 9, 14)] == ["'" + value for value in dangerous]

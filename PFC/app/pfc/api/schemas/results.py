@@ -131,6 +131,8 @@ class BreakdownView(WireModel):
 
 class ResultRow(WireModel):
     result_id: int
+    data_changed_since_run: bool
+    data_changed_reasons: list[str]
     run_id: int
     demand_id: int
     resource_id: int

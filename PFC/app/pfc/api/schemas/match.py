@@ -149,6 +149,8 @@ class RunAccepted(WireModel):
 
 class RunView(WireModel):
     run_id: int
+    data_changed_since_run: bool
+    data_changed_reasons: list[str]
     status: Literal["queued", "running", "completed", "failed", "cancelled"]
     finished_at: str | None
     llm_model: str
