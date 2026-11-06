@@ -1,4 +1,4 @@
-"""Write synthetic UAT inputs: DL and CT workbooks and a resume folder of .txt CVs.
+"""Write synthetic UAT inputs: DL and CT workbooks and a resume folder of .docx CVs.
 
 Everything is synthetic: example.com emails, Ofcom drama phone numbers (07700 900000-900999),
 and invented names, accounts and projects. The same seed always gives the same data.
@@ -12,6 +12,7 @@ from datetime import date, timedelta
 from io import BytesIO
 from pathlib import Path
 
+from docx import Document
 from openpyxl import Workbook  # type: ignore[import-untyped]
 
 from pfc.services.ingestion.workbooks import CT, DL, GRADES
@@ -41,7 +42,7 @@ EXCLUDED_STATUS = "Selected"
 UNMAPPED_STATUS = "On secondment"
 UNPARSEABLE_DATE = "TBC"
 MAX_ROWS = 9999
-GENERATED_CV = re.compile(r"person\d{4}@example\.com\.txt")
+GENERATED_CV = re.compile(r"person\d{4}@example\.com\.(txt|docx)")
 
 
 def workbook_bytes(headers: list[str], rows: list[dict[str, object]]) -> bytes:
@@ -143,6 +144,14 @@ def cv_text(index: int, row: dict[str, object], rng: random.Random) -> str:
     return "\n".join(lines) + "\n"
 
 
+def write_cv(path: Path, text: str) -> None:
+    """One paragraph per line of the CV text."""
+    doc = Document()
+    for line in text.splitlines():
+        doc.add_paragraph(line)
+    doc.save(str(path))
+
+
 def dirty_rows(
     rows: list[dict[str, object]], percent: float, rng: random.Random
 ) -> tuple[list[dict[str, object]], int]:
@@ -177,11 +186,11 @@ def generate(
     dl, ct = demand_rows(demands, rng), resource_rows(resources, rng)
     paths["dl"].write_bytes(workbook_bytes(list(DL), dl))
     paths["ct"].write_bytes(workbook_bytes(list(CT), ct))
-    for stale in resumes.glob("person*@example.com.txt"):
+    for stale in resumes.iterdir():
         if GENERATED_CV.fullmatch(stale.name):
             stale.unlink()
     for index, row in enumerate(ct, start=1):
-        (resumes / f"{row['Email Address']}.txt").write_text(cv_text(index, row, rng), "utf-8")
+        write_cv(resumes / f"{row['Email Address']}.docx", cv_text(index, row, rng))
     if dirty_percent is not None:
         changed, _ = dirty_rows(ct, dirty_percent, random.Random(seed + 1))
         paths["ct_dirty"] = out / "CT_dirty.xlsx"

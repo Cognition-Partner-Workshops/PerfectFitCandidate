@@ -131,7 +131,7 @@ Requirements: REQ-PKG-01, NFR-04 (local-first); exit criterion P1-EX-07.
 - Synthetic inputs from the generator, written on a delivery-team machine from `PFC/app` with
   the backend environment activated, then copied to the laptop:
   `PYTHONPATH=. python scripts/generate_uat_data.py --out uat-small --demands 5 --resources 5`.
-  It writes `DL.xlsx`, `CT.xlsx` and `resumes\*.txt` (example.com emails, Ofcom drama
+  It writes `DL.xlsx`, `CT.xlsx` and `resumes\*.docx` (example.com emails, Ofcom drama
   phone numbers only). In **Settings → Data sources**, set the resume folder to the copied
   `uat-small\resumes` folder.
 
