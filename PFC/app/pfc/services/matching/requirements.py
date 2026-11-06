@@ -69,7 +69,8 @@ def _fallback(text: str, config: DomainConfig) -> Requirements:
         key=lambda s: (-len(s), s.casefold()),
     )
     output: dict[str, list[dict[str, str]]] = {"mandatory_skills": [], "preferred_skills": []}
-    preferred, seen = False, set()
+    preferred = False
+    seen: dict[str, tuple[str, dict[str, str]]] = {}
     for line in text.splitlines():
         norm = normalise_term(line)
         if PREFERRED.search(norm):
@@ -78,12 +79,16 @@ def _fallback(text: str, config: DomainConfig) -> Requirements:
             preferred = False
         for term in terms:
             canonical = config.synonyms.resolve(term)
-            if not canonical or canonical in seen:
+            if not canonical:
                 continue
             if re.search(r"(?<!\w)" + re.escape(normalise_term(term)) + r"(?!\w)", norm):
                 key = "preferred_skills" if preferred else "mandatory_skills"
-                output[key].append({"text": canonical, "evidence": line})
-                seen.add(canonical)
+                if canonical not in seen or (
+                    seen[canonical][0] == "preferred_skills" and not preferred
+                ):
+                    seen[canonical] = (key, {"text": canonical, "evidence": line})
+    for key, item in seen.values():
+        output[key].append(item)
     return Requirements.model_validate(output)
 
 

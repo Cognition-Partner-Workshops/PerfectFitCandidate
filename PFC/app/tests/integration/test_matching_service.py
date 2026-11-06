@@ -312,6 +312,32 @@ def test_req_mat_02_empty_and_invalid_requirements(settings):
             analyze_jd(db, 999, MatchingPorts(None), 1, NOW)
 
 
+@pytest.mark.parametrize(
+    ("text", "canonical", "evidence"),
+    [
+        ("Preferred: SQL\nRequired: SQL", "SQL", "Required: SQL"),
+        ("Required: SQL\nPreferred: SQL", "SQL", "Required: SQL"),
+        (
+            "Preferred: BA\nRequired: Business Analysis",
+            "Business Analysis",
+            "Required: Business Analysis",
+        ),
+    ],
+)
+def test_req_mat_02_fallback_mandatory_wins(
+    settings: Settings,
+    text: str,
+    canonical: str,
+    evidence: str,
+) -> None:
+    with database(settings) as db:
+        demand_id = seed_demand(db, confirmed=False, jd=text)
+        draft = analyze_jd(db, demand_id, MatchingPorts(None), 1, NOW)
+    assert [(item["kind"], item["text"], item["source_span"]) for item in draft["items"]] == [
+        ("mandatory_skill", canonical, evidence),
+    ]
+
+
 def test_req_mat_01_item_kinds_follow_tdd_7_3(settings: Settings) -> None:
     with database(settings) as db:
         demand_id = seed_demand(db, confirmed=False)
