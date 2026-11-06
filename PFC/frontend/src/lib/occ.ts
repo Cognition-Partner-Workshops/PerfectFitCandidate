@@ -20,3 +20,19 @@ export function normaliseTerm(term: string, synonyms: Synonym[]): string | null 
 }
 
 export const EMAIL_SYNTAX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/** ±1 grade window for a demand grade over the active ordered list (REQ-GRD-01, §16.8). */
+export function gradeWindow(grades: { code: string; retired: boolean }[], code: string): string[] {
+  const active = grades.filter((g) => !g.retired).map((g) => g.code)
+  const i = active.indexOf(code)
+  return i < 0 ? [] : active.slice(Math.max(0, i - 1), i + 2)
+}
+
+/** Move an item within a list (keyboard-accessible reordering). */
+export function moveItem<T>(items: T[], from: number, to: number): T[] {
+  if (to < 0 || to >= items.length || from === to) return items
+  const next = [...items]
+  const [x] = next.splice(from, 1)
+  next.splice(to, 0, x)
+  return next
+}

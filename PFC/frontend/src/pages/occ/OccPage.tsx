@@ -7,12 +7,17 @@ import { OccScoringTemplate } from './OccScoringTemplate'
 import { OccResourceTeam } from './OccResourceTeam'
 import { OccInternalDomains } from './OccInternalDomains'
 import { OccSettingsPackage } from './OccSettingsPackage'
+import { OccApprovals } from './OccApprovals'
+import { OccGrades } from './OccGrades'
+import { OccModels } from './OccModels'
+import { OccAuditLog } from './OccAuditLog'
+import { OccAdminSettings } from './OccAdminSettings'
 
 const GROUPS: [string, [string, string][]][] = [
   ['People', [['users', 'Users & passwords'], ['resource-team', 'Resource-team list']]],
-  ['Data', [['status-map', 'Status list & mapping'], ['synonyms', 'Skill synonyms'], ['internal-domains', 'Internal domains']]],
-  ['Matching', [['scoring-template', 'Scoring template']]],
-  ['Operations', [['settings-package', 'Settings packages']]],
+  ['Data', [['approvals', 'DL / CT approvals'], ['grades', 'Grade list'], ['status-map', 'Status list & mapping'], ['synonyms', 'Skill synonyms'], ['internal-domains', 'Internal domains']]],
+  ['Matching', [['scoring-template', 'Scoring template'], ['models', 'Approved models']]],
+  ['Operations', [['audit-log', 'Audit log'], ['admin-settings', 'Admin settings'], ['settings-package', 'Settings packages']]],
 ]
 
 /** OCC — Object Control Center, Admin only (REQ-ROLE-03, GUI_OCC_DESIGN.md §16). */
@@ -46,6 +51,11 @@ export function OccPage() {
           <Route path="synonyms" element={<OccSynonyms />} />
           <Route path="internal-domains" element={<OccInternalDomains />} />
           <Route path="scoring-template" element={<OccScoringTemplate />} />
+          <Route path="approvals" element={<OccApprovals />} />
+          <Route path="grades" element={<OccGrades />} />
+          <Route path="models" element={<OccModels />} />
+          <Route path="audit-log" element={<OccAuditLog />} />
+          <Route path="admin-settings" element={<OccAdminSettings />} />
           <Route path="settings-package" element={<OccSettingsPackage />} />
           <Route path="*" element={<Navigate to="overview" replace />} />
         </Routes>
