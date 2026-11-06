@@ -65,3 +65,7 @@ no non-loopback app connections; this sampling is **not** proof of zero attempte
 packets. Firewall rules and the temporary account are removed even on failure.
 Evidence is uploaded as `offline-smoke-evidence`. GitHub's Windows CI/VM is **not
 the target corporate laptop**; it does not close locked-down-laptop UAT.
+
+Passing evidence: [dispatch 42203458140](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/actions/runs/42203458140),
+implementation `e6596e1`: ZIP 2,718,697,267 bytes; startup-to-health 0.548344 s;
+generation + re-embed complete at 6.414126 s; sampled peak RSS 4,716,417,024 bytes.

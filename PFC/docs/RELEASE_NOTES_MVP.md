@@ -85,7 +85,9 @@ silently accepted/deferred by these notes. The matrix has no Not started rows.
   SonarQube SAST.
 - **REQ-PKG-02:** PR packages remain model-free. Dispatch/tag packaging builds a
   separate model-complete artifact and runs an offline standard-user Windows smoke.
-  Execution evidence is recorded in the traceability row only after that run passes.
+  [Dispatch 42203458140 passed](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/actions/runs/42203458140)
+  at implementation `e6596e1`: ZIP 2,718,697,267 bytes, startup 0.548344 s, sampled
+  aggregate peak RSS 4,716,417,024 bytes. This is Windows CI, not target-laptop UAT.
 - **REQ-LLM-01, REQ-PKG-01 and Phase 1 REQ-EML-04:** real bundled GGUF quality/RAM,
   locked-down launch, and corporate Outlook approval/send/reconciliation need
   Phase 0 laptop UAT. **REQ-OUT-11** professional-look acceptance is also UAT-only;
@@ -94,7 +96,8 @@ silently accepted/deferred by these notes. The matrix has no Not started rows.
   500 × 500 matching at 25.070 s VM / 43.365 s GitHub; optimized API medians are
   0.054–0.557 s VM / 0.076–0.810 s GitHub. These use synthetic cached vectors;
   separate real ONNX validation is also Linux-only. No real-laptop timing,
-  browser-interaction acceptance or offline model-complete first run is established.
+  browser-interaction acceptance is established. Offline model-complete first run
+  is now separately evidenced on hosted Windows above, not on the target laptop.
   **P1-EX-06/07 remain open**.
 - **Masked-snapshot email check — REQ-OUT-10 / P1-EX-04:** the panel compares the
   persisted masked scoring email exactly and case-sensitively to the mask of
