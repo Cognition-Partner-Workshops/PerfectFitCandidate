@@ -32,14 +32,17 @@ def shows_duration(value: str, evidence: str, text: str, years: float) -> bool:
         )
     else:
         patterns = (amount,)
-    value = value.casefold()
-    for pattern in patterns:
-        for match in re.finditer(pattern, value):
-            prefix = value[: match.start("years")]
-            if re.search(r"[\d.]\s*(?:[-—–]|to)\s*$", prefix):
-                continue
-            if float(match["years"]) >= years:
-                return True
+    for candidate in (value, evidence):
+        if NEGATED.search(candidate):
+            continue
+        candidate = candidate.casefold()
+        for pattern in patterns:
+            for match in re.finditer(pattern, candidate):
+                prefix = candidate[: match.start("years")]
+                if re.search(r"[\d.]\s*(?:[-—–]|to)\s*$", prefix):
+                    continue
+                if float(match["years"]) >= years:
+                    return True
     return False
 
 

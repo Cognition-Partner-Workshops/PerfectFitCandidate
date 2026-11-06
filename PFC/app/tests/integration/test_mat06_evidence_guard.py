@@ -179,7 +179,7 @@ def test_experience_snapshot_rejects_misaligned_items(api: Api) -> None:
             snapshot_experience(db, {"demand": {"jd_req_id": confirmed["jd_req_id"]}}, [])
 
 
-@pytest.mark.parametrize("cv", ["absent", "short", "unrelated", "grounded", "fabricated"])
+@pytest.mark.parametrize("cv", ["absent", "short", "unrelated", "grounded", "quote_only", "fabricated"])
 def test_sql_ten_years_keeps_score_and_adds_validation_gap(
     api: Api, cv: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -202,10 +202,13 @@ def test_sql_ten_years_keeps_score_and_adds_validation_gap(
                     "short": "2 years SQL",
                     "unrelated": "10 years Python",
                     "grounded": "10 years SQL",
+                    "quote_only": "10 years SQL",
                     "fabricated": "No duration recorded",
                 }[cv]
             )
             facts = rule_facts(text).model_dump()
+            if cv == "quote_only":
+                facts["experience"][0]["value"] = "SQL"
             if cv == "fabricated":
                 facts["experience"] = [
                     {
@@ -231,9 +234,9 @@ def test_sql_ten_years_keeps_score_and_adds_validation_gap(
     with database(settings) as db:
         baseline = scores(db, run)
         row = db.execute("SELECT * FROM match_results WHERE run_id=?", (run,)).fetchone()
-        assert (DURATION_GAP in row["gaps_checks"]) == (cv != "grounded")
-        assert (DURATION_GAP in row["matching_evidence"]) == (cv != "grounded")
-        if cv != "grounded":
+        assert (DURATION_GAP in row["gaps_checks"]) == (cv not in {"grounded", "quote_only"})
+        assert (DURATION_GAP in row["matching_evidence"]) == (cv not in {"grounded", "quote_only"})
+        if cv not in {"grounded", "quote_only"}:
             assert "SQL — SQL (CT)" not in row["matching_evidence"]
         # Reapply the presentation check to an explicitly unguarded row: all score bytes stay put.
         items = json.loads(
@@ -288,7 +291,7 @@ def test_sql_ten_years_keeps_score_and_adds_validation_gap(
             for r in (incremental, full)
         ]
         assert values[0] == values[1]
-        assert values[0][1].count(DURATION_GAP) == int(cv != "grounded")
+        assert values[0][1].count(DURATION_GAP) == int(cv not in {"grounded", "quote_only"})
 
 
 @pytest.mark.parametrize("quote", ["Required: SQL", "Not in JD", None])

@@ -29,3 +29,21 @@ def test_explicit_duration(text: str, expected: bool) -> None:
 
 def test_quote_negation_cannot_be_hidden_in_value() -> None:
     assert not shows_duration("10 years SQL", "No 10 years SQL", "SQL", 10)
+
+
+@pytest.mark.parametrize(
+    "quote,expected",
+    [
+        ("10 years SQL", True),
+        ("SQL experience: 12+ years", True),
+        ("No 10 years SQL", False),
+        ("Up to 15 years SQL", False),
+        ("5-10 years SQL", False),
+        ("5 to 10 years SQL", False),
+        ("2 years SQL", False),
+        ("10 years Python, SQL", False),
+        ("SQL", False),
+    ],
+)
+def test_duration_can_be_recorded_only_in_quote(quote: str, expected: bool) -> None:
+    assert shows_duration("SQL", quote, "SQL", 10) is expected
