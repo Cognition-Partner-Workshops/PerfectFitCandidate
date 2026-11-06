@@ -120,23 +120,24 @@ describe('Candidate Profile CV facts', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it.each([false, true])('submits manual identity with optional email=%s and displays 409 detail inline', async (withEmail) => {
-    const detail = 'CT email remains authoritative'
+  it('submits name-only manual identity without an email field and displays errors inline', async () => {
+    const detail = 'Identity resolution failed'
     const resolve = vi.spyOn(mock, 'resolveIdentity').mockRejectedValueOnce(new ApiError({
       status: 409, title: 'Conflict', detail,
     }))
     const base = await open((d) => ({ ...d, identityStatus: 'incomplete' }))
     const dialog = screen.getByRole('dialog')
     fireEvent.click(within(dialog).getByRole('radio', { name: 'Manual entry' }))
+    expect(within(dialog).queryByRole('textbox', { name: /email/i })).toBeNull()
+    expect(dialog.querySelector('input[type="email"]')).toBeNull()
     const next = within(dialog).getByRole('button', { name: 'Continue' })
     expect(next).toHaveProperty('disabled', true)
     fireEvent.change(within(dialog).getByLabelText('Name (required)'), { target: { value: '   ' } })
     expect(next).toHaveProperty('disabled', true)
     fireEvent.change(within(dialog).getByLabelText('Name (required)'), { target: { value: ' Morgan Synthetic ' } })
-    if (withEmail) fireEvent.change(within(dialog).getByLabelText('Email (optional)'), { target: { value: 'Manual.Identity@example.com' } })
     fireEvent.click(next)
     await waitFor(() => expect(resolve).toHaveBeenCalledWith(base.candidateId, {
-      action: 'manual_entry', name: 'Morgan Synthetic', ...(withEmail ? { email: 'Manual.Identity@example.com' } : {}),
+      action: 'manual_entry', name: 'Morgan Synthetic',
     }))
     expect(await within(dialog).findByRole('alert')).toHaveProperty('textContent', detail)
     expect(screen.getByRole('dialog')).toBeTruthy()

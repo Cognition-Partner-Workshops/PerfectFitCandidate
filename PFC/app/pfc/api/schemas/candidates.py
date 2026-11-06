@@ -4,8 +4,6 @@ from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 
-from pfc.services.ingestion.workbooks import valid_ct_email
-
 from .cv import PublicCVFacts
 from .occ_approvals import CamelModel
 
@@ -39,7 +37,6 @@ class IdentityResolution(CamelModel):
     action: Literal["generate_internal_id", "select_ct_record", "review_later", "manual_entry"]
     resource_id: int | None = Field(default=None, gt=0)
     name: str | None = Field(default=None, max_length=200)
-    email: str | None = None
 
     @field_validator("name", mode="before")
     @classmethod
@@ -53,10 +50,8 @@ class IdentityResolution(CamelModel):
         if self.action == "manual_entry":
             if not self.name:
                 raise ValueError("Manual entry requires a nonblank name")
-            if self.email is not None and not valid_ct_email(self.email.strip().lower()):
-                raise ValueError("Email syntax is invalid")
-        elif self.name is not None or self.email is not None:
-            raise ValueError("Only manual_entry accepts a name or email")
+        elif "name" in self.model_fields_set:
+            raise ValueError("Only manual_entry accepts a name")
         return self
 
 

@@ -59,18 +59,17 @@ function CvFactsCard({ cv, facts }: { cv: CvVersion; facts: CvFacts }) {
 
 /**
  * Incomplete Candidate Information prompt (REQ-IN-23/25, GUI_OCC_DESIGN.md §12.3). Default is
- * "Generate internal ID and continue"; manual entry cannot override CT emails.
+ * "Generate internal ID and continue"; manual entry accepts a name only (GQ-06).
  */
 export function IncompleteIdentityDialog({ detail, onClose }: { detail: CandidateDetail; onClose: () => void }) {
   const qc = useQueryClient()
   const [action, setAction] = useState<IdentityResolution['action']>('generate_internal_id')
   const [resourceId, setResourceId] = useState<number | undefined>(undefined)
   const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
   const m = useMutation({
     mutationFn: () => api.resolveIdentity(detail.candidateId,
       action === 'manual_entry'
-        ? { action, name: name.trim(), ...(email.trim() ? { email } : {}) }
+        ? { action, name: name.trim() }
         : action === 'select_ct_record' ? { action, resourceId } : { action }),
     onSuccess: () => {
       void qc.invalidateQueries()
@@ -120,9 +119,6 @@ export function IncompleteIdentityDialog({ detail, onClose }: { detail: Candidat
           <div className="stack" style={{ paddingLeft: 24 }}>
             <label className="stack">Name (required)
               <input required maxLength={200} value={name} onChange={(e) => setName(e.target.value)} />
-            </label>
-            <label className="stack">Email (optional)
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
             </label>
           </div>
         )}

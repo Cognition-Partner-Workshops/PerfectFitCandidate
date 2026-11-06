@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Upload, X } from 'lucide-react'
 import { api, ApiError } from '../api'
-import type { Demand, JdRequirements, JdStatus } from '../api/types'
+import type { Demand, JdRequirementItem, JdRequirements, JdStatus } from '../api/types'
 import { BandChip, Banner, Chip, EmptyState, ErrorState, Modal, Spinner } from '../components/ui'
 import { UploadDialog } from '../components/UploadDialog'
 import { SummaryCard } from '../components/SummaryCard'
@@ -19,19 +19,39 @@ const STATUS_TONE: Record<JdStatus, 'neutral' | 'info' | 'success' | 'warning'> 
 /** No requirements exist for the current JD version yet, so the drawer must analyze first. */
 const needsAnalysis = (s: JdStatus) => s === 'Not analysed' || s === 'JD changed'
 
-function SkillChips({ label, skills, onChange }: { label: string; skills: string[]; onChange: (s: string[]) => void }) {
+const persistedText = (kind: JdRequirementItem['kind'], text: string) =>
+  kind === 'qualification' || kind === 'domain' ? text.trim() : text
+const findItem = (items: JdRequirementItem[] | undefined, kind: JdRequirementItem['kind'], text: string) =>
+  items?.find((item) => item.kind === kind && persistedText(kind, item.text) === persistedText(kind, text))
+
+function RequirementMetadata({ item }: { item?: JdRequirementItem }) {
+  return item?.evidenceUnverified ? <span className="small" role="note">Evidence not found in JD text — check before confirming</span> : null
+}
+
+function RequirementNotes({ items, kind, texts }: { items?: JdRequirementItem[]; kind: JdRequirementItem['kind']; texts: string[] }) {
+  return texts.filter((text) => findItem(items, kind, text)?.evidenceUnverified).map((text, index) => (
+    <div key={`${text}-${index}`} role="group" aria-label={`${kind}: ${text}`}>
+      <span>{text}</span> <RequirementMetadata item={findItem(items, kind, text)} />
+    </div>
+  ))
+}
+
+function SkillChips({ label, skills, items, kind, onChange }: { label: string; skills: string[]; items?: JdRequirementItem[]; kind: JdRequirementItem['kind']; onChange: (s: string[]) => void }) {
   const [draft, setDraft] = useState('')
   return (
     <div className="stack" style={{ gap: 4 }}>
       <strong className="small">{label}</strong>
       <div className="row">
         {skills.map((s) => (
-          <Chip key={s} tone="info">
-            {s}
-            <button aria-label={`Remove ${s}`} onClick={() => onChange(skills.filter((x) => x !== s))}>
-              <X size={12} />
-            </button>
-          </Chip>
+          <span key={s} className="stack" role="group" aria-label={`${label}: ${s}`}>
+            <Chip tone="info">
+              {s}
+              <button aria-label={`Remove ${s}`} onClick={() => onChange(skills.filter((x) => x !== s))}>
+                <X size={12} />
+              </button>
+            </Chip>
+            <RequirementMetadata item={findItem(items, kind, s)} />
+          </span>
         ))}
         <input
           aria-label={`Add ${label.toLowerCase()}`}
@@ -80,6 +100,12 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
   })
   const [edit, setEdit] = useState<JdRequirements | null>(null)
   const value = edit ?? req.data
+  const metadata = value?.items
+  const changeSkills = (kind: 'mandatory_skill' | 'preferred_skill', skills: string[]) => {
+    if (!value) return
+    const field = kind === 'mandatory_skill' ? 'mandatorySkills' : 'preferredSkills'
+    setEdit({ ...value, [field]: skills })
+  }
   const done = () => {
     void qc.invalidateQueries()
     onClose()
@@ -141,20 +167,23 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
               </Banner>
             )}
             {value.extractionMethod === 'llm' && <span className="small muted">Extracted by local AI model</span>}
-            <SkillChips label="Mandatory skills" skills={value.mandatorySkills} onChange={(s) => setEdit({ ...value, mandatorySkills: s })} />
-            <SkillChips label="Preferred skills" skills={value.preferredSkills} onChange={(s) => setEdit({ ...value, preferredSkills: s })} />
+            <SkillChips label="Mandatory skills" kind="mandatory_skill" items={metadata} skills={value.mandatorySkills} onChange={(s) => changeSkills('mandatory_skill', s)} />
+            <SkillChips label="Preferred skills" kind="preferred_skill" items={metadata} skills={value.preferredSkills} onChange={(s) => changeSkills('preferred_skill', s)} />
             <label className="field">
               Experience (years)
               <input type="number" min={0} value={value.experienceYears ?? ''} onChange={(e) => setEdit({ ...value, experienceYears: e.target.value === '' ? null : Number(e.target.value) })} />
             </label>
+            <RequirementNotes kind="experience" items={metadata} texts={value.experience ?? []} />
             <label className="field">
               Qualifications (separate with ;)
               <input value={value.qualifications} onChange={(e) => setEdit({ ...value, qualifications: e.target.value })} />
             </label>
+            <RequirementNotes kind="qualification" items={metadata} texts={value.qualifications.split(';')} />
             <label className="field">
               Domain
               <input value={value.domain} onChange={(e) => setEdit({ ...value, domain: e.target.value })} />
             </label>
+            <RequirementNotes kind="domain" items={metadata} texts={value.domain.split(';')} />
             <label className="field">
               Location (extracted from JD)
               <input value={value.location} placeholder="Not stated in the JD" onChange={(e) => setEdit({ ...value, location: e.target.value })} />

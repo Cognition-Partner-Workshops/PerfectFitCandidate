@@ -77,12 +77,12 @@ import { formatPct } from '../../lib/format'
 import { maskEmail, maskPhone } from '../../lib/mask'
 
 // Bump when persisted mock shapes or IDs change so stale state is discarded.
-const STORAGE_KEY = 'pfc.mock.v6'
+const STORAGE_KEY = 'pfc.mock.v7'
 
 interface MockCandidate {
   displayName: string | null
   identityStatus: RawResource['identityStatus']
-  emails: { email: string; emailKey: string; source: 'CT' | 'CV' | 'manual'; confirmed: boolean }[]
+  emails: { email: string; emailKey: string; source: 'CT' | 'CV'; confirmed: boolean }[]
 }
 
 interface MockUser extends OccUser {
@@ -641,6 +641,10 @@ export class MockApiClient implements ApiClient {
         demandId,
         mandatorySkills: d.mandatorySkills,
         preferredSkills: d.preferredSkills,
+        items: [
+          ...d.mandatorySkills.map((text, index) => ({ kind: 'mandatory_skill' as const, text, evidence: null, evidenceUnverified: demandId !== 2 && index === 0 })),
+          ...d.preferredSkills.map((text) => ({ kind: 'preferred_skill' as const, text, evidence: null, evidenceUnverified: false })),
+        ],
         experienceYears: 5,
         qualifications: '',
         domain: d.bu === 'INS' ? 'Insurance' : d.bu === 'BCM' ? 'Banking' : '',
@@ -840,21 +844,12 @@ export class MockApiClient implements ApiClient {
     const raw = this.state.raws.find((r) => r.resourceId === candidateId)
     if (!raw) fail(404, 'Candidate not found', 'NOT_FOUND')
     const candidate = this.state.candidates[candidateId]
+    if ('email' in resolution) fail(422, 'Email must be selected from CT data', 'VALIDATION_ERROR')
+    if (resolution.action !== 'manual_entry' && 'name' in resolution) fail(422, 'Only manual entry accepts a name', 'VALIDATION_ERROR')
     if (resolution.action === 'manual_entry') {
       const name = resolution.name?.trim()
-      const email = resolution.email?.trim()
       if (!name || name.length > 200) fail(422, 'Enter a name of 1 to 200 characters', 'VALIDATION_ERROR')
-      if (email !== undefined && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(422, 'Enter a valid email', 'VALIDATION_ERROR')
-      if (candidate.emails.some((e) => e.source === 'CT')) fail(409, 'CT email remains authoritative', 'IDENTITY_CT_AUTHORITATIVE')
-      if (email !== undefined && Object.entries(this.state.candidates).some(([id, c]) => Number(id) !== candidateId && c.emails.some((e) => e.confirmed && e.emailKey === email.toLowerCase()))) {
-        fail(409, 'Email is confirmed for another candidate', 'IDENTITY_CONFLICT')
-      }
       candidate.displayName = name
-      if (email !== undefined) {
-        const emailKey = email.toLowerCase()
-        candidate.emails = candidate.emails.filter((e) => e.source !== 'manual' && e.emailKey !== emailKey)
-        candidate.emails.push({ email, emailKey, source: 'manual', confirmed: true })
-      }
       candidate.identityStatus = 'complete'
     } else if (resolution.action === 'select_ct_record') {
       const source = this.state.raws.find((r) => r.resourceId === resolution.resourceId)

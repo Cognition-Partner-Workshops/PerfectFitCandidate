@@ -465,177 +465,66 @@ def test_req_in_23_select_ct_record_confirms_verbatim_email(client):
         assert verify_chain(db)
 
 
-@pytest.mark.parametrize(
-    "email", [None, "New.Identity@Example.com", " \tNew.Identity@Example.com \n"]
-)
-def test_req_in_23_manual_identity_success_and_private_audit(client, email):
-    ingest(client, "ct", [{"Email Address": None}])
+@pytest.mark.parametrize("with_ct_email", [False, True])
+def test_req_in_23_manual_identity_success_and_private_audit(client, with_ct_email):
+    ingest(client, "ct", [{}] if with_ct_email else [{"Email Address": None}])
+    with database(client.app.state.settings) as db:
+        before = [tuple(row) for row in db.execute("SELECT * FROM candidate_emails")]
+        classification = db.execute("SELECT classification FROM candidates").fetchone()[0]
     login(client, "Analyst")
     response = client.put(
         "/api/v1/candidates/1/identity",
-        json={
-            "action": "manual_entry",
-            "name": "  Morgan Synthetic  ",
-            **({"email": email} if email else {}),
-        },
+        json={"action": "manual_entry", "name": "  Morgan Synthetic  "},
     )
     assert response.status_code == 200, response.text
     assert response.json()["identityStatus"] == "complete"
     assert response.json()["resource"]["name"] == "Morgan Synthetic"
     with database(client.app.state.settings) as db:
         assert db.execute("SELECT display_name FROM candidates").fetchone()[0] == "Morgan Synthetic"
-        saved = db.execute("SELECT * FROM candidate_emails").fetchone()
-        if email:
-            assert (saved["email"], saved["email_key"], saved["source"], saved["confirmed"]) == (
-                email.strip(),
-                email.strip().lower(),
-                "manual",
-                1,
-            )
-        else:
-            assert saved is None
+        assert [tuple(row) for row in db.execute("SELECT * FROM candidate_emails")] == before
+        if not with_ct_email:
+            assert not db.execute("SELECT 1 FROM candidate_emails").fetchone()
+        assert db.execute("SELECT classification FROM candidates").fetchone()[0] == classification
         audit = db.execute(
             "SELECT details_json FROM audit_log WHERE action='IDENTITY_RESOLVE'"
         ).fetchone()[0]
         assert "Morgan" not in audit and "Synthetic" not in audit
-        assert "New.Identity@Example.com" not in audit and "new.identity@example.com" not in audit
         assert json.loads(audit)["name_masked"] == "***"
         assert verify_chain(db)
 
 
-@pytest.mark.parametrize("confirmed", [0, 1])
-def test_req_in_23_manual_identity_cannot_override_any_ct_email(client, confirmed):
-    ingest(client, "ct", [{}])
+@pytest.mark.parametrize(
+    "action", ["manual_entry", "generate_internal_id", "review_later", "select_ct_record"]
+)
+@pytest.mark.parametrize("email", ["typed@example.com", "", None])
+def test_req_in_14_23_identity_rejects_typed_email(client, action, email):
+    ingest(client, "ct", [{"Email Address": None}, {}])
+    body = {"action": action, "email": email}
+    if action == "manual_entry":
+        body["name"] = "Morgan Synthetic"
+    if action == "select_ct_record":
+        body["resourceId"] = 2
+    response = client.put("/api/v1/candidates/1/identity", json=body)
+    assert response.status_code == 422, response.text
     with database(client.app.state.settings) as db:
-        db.execute("UPDATE candidate_emails SET confirmed=?", (confirmed,))
-    response = client.put(
-        "/api/v1/candidates/1/identity",
-        json={"action": "manual_entry", "name": "Morgan Synthetic", "email": "new@example.com"},
-    )
-    assert response.status_code == 409, response.text
-    assert response.headers["content-type"].startswith("application/problem+json")
-    with database(client.app.state.settings) as db:
-        assert db.execute("SELECT display_name FROM candidates").fetchone()[0] != "Morgan Synthetic"
-        assert db.execute("SELECT source FROM candidate_emails").fetchone()[0] == "CT"
+        assert not db.execute("SELECT 1 FROM candidate_emails WHERE candidate_id=1").fetchone()
         assert not db.execute("SELECT 1 FROM audit_log WHERE action='IDENTITY_RESOLVE'").fetchone()
 
 
-def test_req_in_23_manual_email_correction_does_not_link_old_address(client):
-    ingest(client, "ct", [{"Email Address": None}])
-    login(client, "Analyst")
-    with database(client.app.state.settings) as db:
-        db.execute(
-            "INSERT INTO candidate_emails(candidate_id,email,email_key,source,confirmed) "
-            "VALUES (1,'cv@example.com','cv@example.com','CV',0)"
-        )
-    for email in ["A@example.com", None, "B@example.com"]:
-        response = client.put(
-            "/api/v1/candidates/1/identity",
-            json={
-                "action": "manual_entry",
-                "name": "Morgan Synthetic",
-                **({"email": email} if email else {}),
-            },
-        )
-        assert response.status_code == 200, response.text
-        with database(client.app.state.settings) as db:
-            rows = db.execute(
-                "SELECT email,source,confirmed FROM candidate_emails "
-                "WHERE candidate_id=1 ORDER BY source"
-            ).fetchall()
-            assert [tuple(row) for row in rows] == [
-                ("cv@example.com", "CV", 0),
-                (email or "A@example.com", "manual", 1),
-            ]
-    login(client)
-    ingest(client, "ct", [{"Email Address": "A@example.com"}])
-    with database(client.app.state.settings) as db:
-        linked = db.execute(
-            "SELECT candidate_id FROM resources WHERE email_key='a@example.com'"
-        ).fetchone()
-        assert linked is not None and linked[0] != 1
-        assert (
-            db.execute(
-                "SELECT email FROM candidate_emails WHERE candidate_id=1 AND source='manual'"
-            ).fetchone()[0]
-            == "B@example.com"
-        )
-
-
-def test_req_in_23_manual_email_updates_candidate_classification_without_changing_ct(client):
-    ingest(client, "ct", [{"Email Address": None}])
-    with database(client.app.state.settings) as db:
-        db.execute(
-            "INSERT OR IGNORE INTO internal_email_domains(domain,added_at) "
-            "VALUES ('example.com','2026-01-01')"
-        )
-    login(client, "Analyst")
-    for email, expected in [
-        (None, "Unknown"),
-        ("Morgan@example.com", "Internal"),
-        ("Morgan@outside.example", "External"),
-    ]:
-        response = client.put(
-            "/api/v1/candidates/1/identity",
-            json={
-                "action": "manual_entry",
-                "name": "Morgan Synthetic",
-                **({"email": email} if email else {}),
-            },
-        )
-        assert response.status_code == 200, response.text
-        classification = response.json()["classification"]
-        assert classification["computedClassification"] == expected
-        assert classification["effectiveClassification"] == expected
-        with database(client.app.state.settings) as db:
-            assert db.execute("SELECT classification FROM candidates").fetchone()[0] == expected
-            assert db.execute("SELECT email_address FROM resources").fetchone()[0] is None
-
-
-def test_req_in_23_manual_email_conflict_preserves_previous_address(client):
+@pytest.mark.parametrize("action", ["generate_internal_id", "review_later", "select_ct_record"])
+@pytest.mark.parametrize("name", ["Morgan Synthetic", None])
+def test_req_in_23_other_identity_actions_reject_name(client, action, name):
     ingest(client, "ct", [{"Email Address": None}, {}])
-    with database(client.app.state.settings) as db:
-        db.execute("UPDATE candidate_emails SET confirmed=1")
-    login(client, "Analyst")
-    assert (
-        client.put(
-            "/api/v1/candidates/1/identity",
-            json={"action": "manual_entry", "name": "Morgan", "email": "old@example.com"},
-        ).status_code
-        == 200
-    )
-    response = client.put(
-        "/api/v1/candidates/1/identity",
-        json={"action": "manual_entry", "name": "Morgan", "email": "alex@example.com"},
-    )
-    assert response.status_code == 409, response.text
-    with database(client.app.state.settings) as db:
-        assert (
-            db.execute(
-                "SELECT email FROM candidate_emails WHERE candidate_id=1 AND source='manual'"
-            ).fetchone()[0]
-            == "old@example.com"
-        )
+    body = {"action": action, "name": name}
+    if action == "select_ct_record":
+        body["resourceId"] = 2
+    response = client.put("/api/v1/candidates/1/identity", json=body)
+    assert response.status_code == 422, response.text
 
 
-def test_req_in_23_manual_identity_conflict_validation_and_access(client):
-    ingest(client, "ct", [{"Email Address": None}, {}])
-    with database(client.app.state.settings) as db:
-        db.execute("UPDATE candidate_emails SET confirmed=1")
-    response = client.put(
-        "/api/v1/candidates/1/identity",
-        json={"action": "manual_entry", "name": "Morgan Synthetic", "email": " aLEX@example.COM "},
-    )
-    assert response.status_code == 409, response.text
-    assert response.headers["content-type"].startswith("application/problem+json")
-    for fields in [
-        {},
-        {"name": "   "},
-        {"name": "X" * 201},
-        {"name": "Valid", "email": "bad"},
-        {"name": "Valid", "email": "a b@example.com"},
-        {"name": "Valid", "resourceId": 2},
-    ]:
+def test_req_in_23_manual_identity_validation_and_access(client):
+    ingest(client, "ct", [{"Email Address": None}])
+    for fields in [{}, {"name": "   "}, {"name": "X" * 201}, {"name": "Valid", "resourceId": 2}]:
         assert (
             client.put(
                 "/api/v1/candidates/1/identity", json={"action": "manual_entry", **fields}

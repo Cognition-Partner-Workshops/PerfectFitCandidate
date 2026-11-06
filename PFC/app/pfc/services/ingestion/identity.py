@@ -280,32 +280,6 @@ def resolve(
 ) -> CandidateDetail:
     candidate = _candidate(db, candidate_id)
     if body.action == "manual_entry":
-        if db.execute(
-            "SELECT 1 FROM candidate_emails WHERE candidate_id=? AND source='CT'",
-            (candidate_id,),
-        ).fetchone():
-            raise Problem(409, "IDENTITY_CT_AUTHORITATIVE", "CT email remains authoritative")
-        if body.email is not None:
-            email = body.email.strip()
-            email_key = email.lower()
-            if db.execute(
-                "SELECT 1 FROM candidate_emails WHERE email_key=? AND candidate_id<>? "
-                "AND confirmed=1",
-                (email_key, candidate_id),
-            ).fetchone():
-                raise Problem(409, "IDENTITY_CONFLICT", "Email is confirmed for another candidate")
-            db.execute(
-                "DELETE FROM candidate_emails WHERE candidate_id=? AND source='manual' "
-                "AND email_key<>?",
-                (candidate_id, email_key),
-            )
-            db.execute(
-                "INSERT INTO candidate_emails(candidate_id,email,email_key,source,confirmed) "
-                "VALUES (?,?,?,'manual',1) ON CONFLICT(candidate_id,email_key) "
-                "DO UPDATE SET email=excluded.email,source='manual',confirmed=1",
-                (candidate_id, email, email_key),
-            )
-            reclassify_candidate(db, candidate_id)
         db.execute(
             "UPDATE candidates SET display_name=? WHERE candidate_id=?", (body.name, candidate_id)
         )
@@ -373,11 +347,7 @@ def resolve(
             "resource_id": body.resource_id,
             "before_status": candidate["identity_status"],
             "after_status": status,
-            **(
-                {"name_masked": "***", "email_masked": _mask(body.email)}
-                if body.action == "manual_entry"
-                else {}
-            ),
+            **({"name_masked": "***"} if body.action == "manual_entry" else {}),
         },
     )
     return detail(db, candidate_id)
