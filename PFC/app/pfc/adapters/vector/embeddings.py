@@ -132,7 +132,11 @@ class OnnxEmbedder:
         self.dimensions = dimensions
         self._batch_size = batch_size
         self._lock = Lock()
-        self._tokenizer = Tokenizer.from_file(str(tokenizer_path))
+        self.model_path = model_path
+        self.tokenizer = Tokenizer.from_file(str(tokenizer_path))
+        self.tokenizer.no_padding()
+        self.tokenizer.no_truncation()
+        self._tokenizer = Tokenizer.from_str(self.tokenizer.to_str())
         self._tokenizer.enable_padding()
         self._tokenizer.enable_truncation(max_length=max_tokens)
         fingerprint = model_fingerprint(model_path, tokenizer_path)

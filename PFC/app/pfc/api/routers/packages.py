@@ -337,7 +337,7 @@ def model_apply(body: ApplyRequest, request: Request, principal: Admin) -> Model
 def reembed(
     version: Annotated[int, PathParameter(ge=1)], request: Request, principal: Admin
 ) -> ReembedResponse:
-    """Explicit Admin retry of committed model installation (REQ-OCC-03)."""
+    """Admin incremental run; live jobs are reused, terminal jobs resubmitted (REQ-OCC-03)."""
     with package_errors():
         job_id = ModelImporter(request.app.state.settings, jobs=_jobs(request)).retry_reembedding(
             version, actor_id=principal.user.user_id

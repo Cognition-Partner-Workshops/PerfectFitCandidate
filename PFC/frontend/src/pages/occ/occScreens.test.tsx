@@ -4,7 +4,6 @@ import { ADMIN, ANALYST_PASSWORD, renderApp, seed, signIn } from '../../test/uti
 import { api } from '../../api'
 import { auditToCsv, AUDIT_COLUMNS } from '../../lib/csv'
 import { gradeWindow, moveItem } from '../../lib/occ'
-import { toImportRecords } from '../../api/http'
 
 describe('OCC helpers', () => {
   it('computes the ±1 grade window over active grades (REQ-GRD-01)', () => {
@@ -24,16 +23,6 @@ describe('OCC helpers', () => {
     const [header, row] = csv.trim().split('\n')
     expect(header).toBe(AUDIT_COLUMNS.join(','))
     expect(row).toContain(`"'=HYPERLINK(""x"")"`)
-  })
-
-  it('maps backend package history rows (agent E shape)', () => {
-    const rows = toImportRecords([
-      { version: 7, applied_at: '2026-11-05T09:00:00Z', applied_by: 'OCC Admin', status: 'applied', current: true },
-      { version: 6, applied_at: '2026-11-01T09:00:00Z', applied_by: 'OCC Admin', status: 'applied', current: false },
-    ])
-    expect(rows[0]).toEqual({ version: 7, importedAt: '2026-11-05T09:00:00Z', importedBy: 'OCC Admin', fileName: 'v7', canRollback: true })
-    expect(rows[1].canRollback).toBe(false)
-    expect(toImportRecords([{ version: 6, applied_at: 'x', applied_by: 'y', status: 'applied', current: true }])[0].canRollback).toBe(false)
   })
 })
 

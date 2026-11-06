@@ -17,6 +17,7 @@ import type {
   DemandAnalytics,
   EmailDraft,
   EmailTransportStatus,
+  ExportedPackage,
   IdentityResolution,
   InternalDomain,
   JdRequirements,
@@ -31,6 +32,8 @@ import type {
   OneTimePassword,
   PackageImportRecord,
   PackagePreview,
+  PackageSource,
+  PendingPackage,
   PersonalSettings,
   ProblemDetails,
   Resource,
@@ -125,6 +128,8 @@ export interface ApiClient {
 
   /** GET /match-runs */
   listMatchRuns(): Promise<MatchRun[]>
+  /** GET /match-runs/{id} — polled while a run is queued or running */
+  getMatchRun(runId: number): Promise<MatchRun>
   /** GET /match-runs/{id}/results */
   getResults(runId: number): Promise<MatchResult[]>
   /** POST /match-results/{id}/overrides */
@@ -142,7 +147,7 @@ export interface ApiClient {
   analyticsMatch(filters: DashboardFilters): Promise<MatchAnalytics>
 
   /** POST /emails/drafts */
-  createDrafts(resultIds: number[]): Promise<EmailDraft[]>
+  createDrafts(resultIds: number[], runId?: number): Promise<EmailDraft[]>
   /** GET /emails */
   listEmails(): Promise<EmailList>
   /** PUT /emails/{id} */
@@ -161,7 +166,9 @@ export interface ApiClient {
   /** POST /settings/settings-package/preview */
   previewPackage(file: File): Promise<PackagePreview>
   /** POST /settings/settings-package/import */
-  importPackage(previewId: string): Promise<PackageImportRecord[]>
+  importPackage(source: PackageSource): Promise<PackageImportRecord[]>
+  /** GET /settings/settings-package/pending */
+  pendingPackages(): Promise<PendingPackage[]>
   /** POST /settings/settings-package/rollback */
   rollbackPackage(): Promise<PackageImportRecord[]>
   /** GET /settings/settings-package/history */
@@ -214,7 +221,7 @@ export interface ApiClient {
   /** GET /occ/settings-package */
   lastExportedPackage(): Promise<SettingsPackageInfo | null>
   /** POST /occ/settings-package/export */
-  exportPackage(): Promise<SettingsPackageInfo>
+  exportPackage(passphrase: string): Promise<ExportedPackage>
 
   /** GET /occ/approvals (DL/CT entries pending OCC review) */
   listApprovals(): Promise<ApprovalEntry[]>

@@ -1,9 +1,9 @@
-import { Fragment, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, Download, Mail, TriangleAlert } from 'lucide-react'
 import { api } from '../api'
-import type { Band, MatchResult, ResultFilters } from '../api/types'
+import type { Band, MatchResult, MatchRun, ResultFilters } from '../api/types'
 import { FilterBar } from '../components/FilterBar'
 import { BandChip, Banner, Chip, EmptyState, ErrorState, MaskedValue, MatchDoughnut, Modal, ScoreBreakdown, Spinner } from '../components/ui'
 import { applyResultFilters, distinct } from '../lib/filters'
@@ -168,6 +168,9 @@ function ResultRow({ r, selected, onToggle, onOverride, canOverride }: { r: Matc
   )
 }
 
+export const RUN_POLL_MS = 1500
+const isActive = (r: MatchRun) => r.status === 'queued' || r.status === 'running'
+
 /** Match Results grid (REQ-OUT-01, REQ-MAT-03/09/10, REQ-OUT-08/09, GUI_OCC_DESIGN.md §11). */
 export function MatchResultsPage() {
   const { user } = useAuth()
@@ -176,13 +179,24 @@ export function MatchResultsPage() {
   const [filters, setFilters] = useState<ResultFilters>(() => (params.get('req') ? { codeRequisition: params.get('req') ?? undefined } : {}))
   const [grouped, setGrouped] = useState(true)
   const [overrideRow, setOverrideRow] = useState<MatchResult | null>(null)
+  const qc = useQueryClient()
   const runs = useQuery({ queryKey: ['runs'], queryFn: () => api.listMatchRuns() })
-  const run = runs.data?.[0]
+  // Runs are newest first; a queued/running run has no results yet, so the last completed run stays on screen.
+  const run = runs.data?.find((r) => r.status === 'completed')
+  const newer = runs.data?.[0] && isActive(runs.data[0]) ? runs.data[0] : undefined
+  const progress = useQuery({
+    queryKey: ['run', newer?.runId],
+    queryFn: () => api.getMatchRun(newer?.runId ?? 0),
+    enabled: !!newer,
+    refetchInterval: (q) => (q.state.data && !isActive(q.state.data) ? false : RUN_POLL_MS),
+  })
+  useEffect(() => {
+    if (progress.data && !isActive(progress.data)) void qc.invalidateQueries({ queryKey: ['runs'] })
+  }, [progress.data, qc])
   const results = useQuery({ queryKey: ['results', run?.runId], queryFn: () => api.getResults(run?.runId ?? 0), enabled: !!run })
   const [selection, setSelection] = useState<Set<number> | null>(null)
-  const qc = useQueryClient()
   const send = useMutation({
-    mutationFn: (ids: number[]) => api.createDrafts(ids),
+    mutationFn: (ids: number[]) => api.createDrafts(ids, run?.runId),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['emails'] })
       navigate('/email')
@@ -215,6 +229,11 @@ export function MatchResultsPage() {
   if (!run) {
     return (
       <div className="page">
+        {newer && (
+          <Banner tone="info">
+            Scoring run {newer.runId} is {progress.data?.status ?? newer.status}. {run ? 'Showing the last completed results until it finishes.' : 'Results appear when it finishes.'}
+          </Banner>
+        )}
         <EmptyState message="No match results yet. Analyze and confirm JDs in Demand List to start scoring." action={<Link className="btn btn-primary" to="/demands">Go to Demand List</Link>} />
       </div>
     )
@@ -235,6 +254,11 @@ export function MatchResultsPage() {
 
   return (
     <div className="page">
+      {newer && (
+        <Banner tone="info">
+          Scoring run {newer.runId} is {progress.data?.status ?? newer.status}. {run ? 'Showing the last completed results until it finishes.' : 'Results appear when it finishes.'}
+        </Banner>
+      )}
       <div className="page-header">
         <h1>Match Results</h1>
         <span className="meta">
