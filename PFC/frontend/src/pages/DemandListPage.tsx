@@ -1,12 +1,22 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Upload, X } from 'lucide-react'
 import { api, ApiError } from '../api'
-import type { Demand, JdRequirements } from '../api/types'
+import type { Demand, JdRequirements, JdStatus } from '../api/types'
 import { BandChip, Banner, Chip, EmptyState, ErrorState, Modal, Spinner } from '../components/ui'
 import { UploadDialog } from '../components/UploadDialog'
 import { formatDate, roleLocation } from '../lib/format'
+
+const STATUS_TONE: Record<JdStatus, 'neutral' | 'info' | 'success' | 'warning'> = {
+  'Not analysed': 'neutral',
+  Draft: 'info',
+  Confirmed: 'success',
+  'JD changed': 'warning',
+}
+
+/** No requirements exist for the current JD version yet, so the drawer must analyze first. */
+const needsAnalysis = (s: JdStatus) => s === 'Not analysed' || s === 'JD changed'
 
 function SkillChips({ label, skills, onChange }: { label: string; skills: string[]; onChange: (s: string[]) => void }) {
   const [draft, setDraft] = useState('')
@@ -44,19 +54,27 @@ function SkillChips({ label, skills, onChange }: { label: string; skills: string
 /** JD review drawer: Analyze JD → review requirements → Confirm & Start (REQ-MAT-02, §9.3). */
 function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) {
   const qc = useQueryClient()
-  // Analyze only when no draft exists yet (GET → 404): each analysis stores a new draft revision, and the
-  // demand list carries no JD status from the backend, so the row's status can't tell us.
+  // The row status is a snapshot from when the drawer opened; analysis turns it into Draft.
+  const [jdChanged] = useState(demand.jdStatus === 'JD changed')
+  const analyzed = useRef(false)
+  const analyzeOnce = async () => {
+    const draft = await api.analyzeDemand(demand.demandId)
+    analyzed.current = true
+    void qc.invalidateQueries({ queryKey: ['demands'] })
+    return draft
+  }
+  // Each analysis stores a new draft revision, so analyze only when the current JD version has no requirements.
   const req = useQuery({
     queryKey: ['requirements', demand.demandId],
     queryFn: async () => {
+      if (!analyzed.current && needsAnalysis(demand.jdStatus)) return analyzeOnce()
       try {
         return await api.getRequirements(demand.demandId)
       } catch (e) {
-        if (!(e instanceof ApiError && e.code === 'REQUIREMENTS_NOT_FOUND')) throw e
+        // Safety net for a stale status: no requirements exist yet after all.
+        if (analyzed.current || !(e instanceof ApiError && e.code === 'REQUIREMENTS_NOT_FOUND')) throw e
       }
-      const draft = await api.analyzeDemand(demand.demandId)
-      void qc.invalidateQueries({ queryKey: ['demands'] })
-      return draft
+      return analyzeOnce()
     },
   })
   const [edit, setEdit] = useState<JdRequirements | null>(null)
@@ -92,7 +110,8 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
       }
     >
       <span className="muted small">
-        {demand.demandRequestName} · {demand.accountName} · {demand.codeLocalGrade} · {roleLocation(demand.region)} · Start {formatDate(demand.positionStartDate)}
+        {demand.demandRequestName} · {demand.accountName} · {demand.codeLocalGrade} · DL region: {roleLocation(demand.region) || '—'} · Start{' '}
+        {formatDate(demand.positionStartDate)}
       </span>
       {req.isError && !value ? (
         <ErrorState error={req.error} />
@@ -107,6 +126,12 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
             </pre>
           </div>
           <div className="span-6 stack">
+            {jdChanged && (
+              <Banner tone="warning">
+                <strong>The JD has changed since the last analysis.</strong> These requirements were extracted from the new JD; check them before
+                Confirm &amp; Start.
+              </Banner>
+            )}
             {value.extractionMethod === 'rule_based_fallback' && (
               <Banner tone="warning">
                 <strong>Extracted by rules, not the local AI model</strong> (reason: {value.fallbackReason ?? 'reason_not_recorded'}). Check every
@@ -121,11 +146,20 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
               <input type="number" min={0} value={value.experienceYears ?? ''} onChange={(e) => setEdit({ ...value, experienceYears: e.target.value === '' ? null : Number(e.target.value) })} />
             </label>
             <label className="field">
+              Qualifications (separate with ;)
+              <input value={value.qualifications} onChange={(e) => setEdit({ ...value, qualifications: e.target.value })} />
+            </label>
+            <label className="field">
               Domain
               <input value={value.domain} onChange={(e) => setEdit({ ...value, domain: e.target.value })} />
             </label>
+            <label className="field">
+              Location (extracted from JD)
+              <input value={value.location} placeholder="Not stated in the JD" onChange={(e) => setEdit({ ...value, location: e.target.value })} />
+            </label>
             <label className="row small">
-              <input type="checkbox" checked={value.mandatoryOnsite} onChange={(e) => setEdit({ ...value, mandatoryOnsite: e.target.checked })} /> Mandatory onsite
+              <input type="checkbox" checked={value.mandatoryOnsite} onChange={(e) => setEdit({ ...value, mandatoryOnsite: e.target.checked })} /> Mandatory
+              onsite (extracted from JD)
             </label>
             {value.synonymsApplied.length > 0 && <span className="small muted">Synonyms applied: {value.synonymsApplied.join(', ')}</span>}
             {/* The backend repeats the fallback as a warning; the banner above already shows it. */}
@@ -159,7 +193,7 @@ export function DemandListPage() {
       ),
     [demands.data, search],
   )
-  const newOnes = (demands.data ?? []).filter((d) => d.jdStatus === 'Not analysed')
+  const newOnes = (demands.data ?? []).filter((d) => needsAnalysis(d.jdStatus))
   if (demands.isLoading) return <div className="page"><Spinner /></div>
   if (demands.isError) return <div className="page"><ErrorState error={demands.error} onRetry={() => void demands.refetch()} /></div>
   return (
@@ -214,13 +248,13 @@ export function DemandListPage() {
                   <td>{d.bu}</td>
                   <td>{d.owner}</td>
                   <td>
-                    <Chip tone={d.jdStatus === 'Scored' ? 'success' : d.jdStatus === 'Not analysed' ? 'neutral' : 'warning'}>{d.jdStatus}</Chip>
+                    <Chip tone={STATUS_TONE[d.jdStatus]}>{d.jdStatus}</Chip>
                   </td>
                   <td className="num">{d.matches || '—'}</td>
                   <td>{d.bestBand ? <BandChip band={d.bestBand} /> : '—'}</td>
                   <td className="row" style={{ flexWrap: 'nowrap' }}>
                     <button className="btn btn-sm" onClick={() => setOpen(d)}>
-                      {d.jdStatus === 'Not analysed' ? 'Analyze JD' : 'Review JD'}
+                      {needsAnalysis(d.jdStatus) ? 'Analyze JD' : 'Review JD'}
                     </button>
                     {d.matches > 0 && (
                       <Link className="btn btn-sm btn-tertiary" to={`/matches?req=${encodeURIComponent(d.codeRequisition)}`}>

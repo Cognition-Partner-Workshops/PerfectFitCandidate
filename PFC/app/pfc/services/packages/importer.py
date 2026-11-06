@@ -11,6 +11,7 @@ from pathlib import Path
 from pfc.config import Settings
 from pfc.db.audit import append_audit
 from pfc.security import package_signing as signing
+from pfc.services.candidates.classification import domain_set, reclassify_all
 from pfc.services.packages.common import (
     PackageServiceError,
     active_package,
@@ -92,7 +93,10 @@ class SettingsImporter:
                         "version_collision", "Retained package version already exists"
                     )
                 now = timestamp()
+                domains_before = domain_set(db)
                 replace_snapshot(db, data, actor_id=actor_id, now=now)
+                if domain_set(db) != domains_before:
+                    reclassify_all(db, user_id=actor_id)
                 if self.failure_hook:
                     self.failure_hook()
                 db.execute("UPDATE settings_packages SET is_active=0 WHERE is_active=1")
@@ -164,7 +168,10 @@ class SettingsImporter:
                 verified.manifest, diff(snapshot(db), data), len(data["analysts"])
             )
             now = timestamp()
+            domains_before = domain_set(db)
             replace_snapshot(db, data, actor_id=actor_id, now=now, preserve_credentials=True)
+            if domain_set(db) != domains_before:
+                reclassify_all(db, user_id=actor_id)
             if self.failure_hook:
                 self.failure_hook()
             db.execute("UPDATE settings_packages SET is_active=0 WHERE is_active=1")

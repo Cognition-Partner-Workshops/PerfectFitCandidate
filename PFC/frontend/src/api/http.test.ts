@@ -348,14 +348,24 @@ describe('HttpApiClient — ingestion wiring', () => {
     })
   })
 
-  it('pages the demand list and maps rows with neutral JD defaults', async () => {
+  it('pages the demand list and maps rows, including the backend JD status', async () => {
     const api = new HttpApiClient('/api/v1')
-    const row = (id: number) => ({ demand_id: id, code_requisition: `T1000${id}`, id_format_ok: true, position_start_date: null, account_name: 'Acme', code_local_grade: 'B1', demand_request_name: null, region: null, bu: null, owner: null, lifecycle: 'active', occ_pending_review: false })
+    const row = (id: number) => ({ demand_id: id, code_requisition: `T1000${id}`, id_format_ok: true, position_start_date: null, account_name: 'Acme', code_local_grade: 'B1', demand_request_name: null, region: null, bu: null, owner: null, lifecycle: 'active', occ_pending_review: false, jd_status: 'JD changed' })
     fetchMock.mockResolvedValueOnce(json({ items: [row(1)], page: 1, page_size: 200, total: 2 })).mockResolvedValueOnce(json({ items: [row(2)], page: 2, page_size: 200, total: 2 }))
     const d = await api.listDemands()
     expect(fetchMock.mock.calls.map(([u]) => String(u))).toEqual(['/api/v1/demands?page=1&page_size=200', '/api/v1/demands?page=2&page_size=200'])
     expect(d.map((x) => x.codeRequisition)).toEqual(['T10001', 'T10002'])
-    expect(d[0]).toMatchObject({ demandId: 1, accountName: 'Acme', jdStatus: 'Not analysed', matches: 0, bestBand: null })
+    expect(d[0]).toMatchObject({ demandId: 1, accountName: 'Acme', jdStatus: 'JD changed', matches: 0, bestBand: null })
+  })
+})
+
+describe('HttpApiClient — health (REQ-AUTH-06)', () => {
+  it('reads the data volume encryption status and defaults to Unknown', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(json({ status: 'ok', details: { dataVolumeEncryption: 'Encrypted' } })).mockResolvedValueOnce(json({ status: 'ok' }))
+    expect(await api.getHealth()).toEqual({ status: 'ok', dataVolumeEncryption: 'Encrypted' })
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe('/api/v1/health')
+    expect(await api.getHealth()).toEqual({ status: 'ok', dataVolumeEncryption: 'Unknown' })
   })
 })
 

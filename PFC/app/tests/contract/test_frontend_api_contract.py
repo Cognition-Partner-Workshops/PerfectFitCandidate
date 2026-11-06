@@ -1,9 +1,11 @@
 import os
 import re
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
+from pfc.api.schemas.demands import JdStatus
 from pfc.api.schemas.match import JdRequirements, RunView, WireModel
 from pfc.api.schemas.results import ResultDetail, ResultRow
 from pfc.config import Settings
@@ -122,6 +124,19 @@ def _openapi_routes(document: dict[str, object]) -> set[Route]:
     return routes
 
 
+def test_occ_cv_extraction_routes_openapi(tmp_path: Path) -> None:
+    app = create_app(Settings(data_dir=tmp_path / "data", frontend_dir=tmp_path / "frontend"))
+    paths = app.openapi()["paths"]
+    assert "get" in paths["/api/v1/occ/candidates/{candidate_id}/cv-extractions"]
+    assert "delete" in paths["/api/v1/occ/candidates/{candidate_id}/cv-extractions"]
+    assert "delete" in paths["/api/v1/occ/cv-extractions"]
+
+
+def test_candidate_classification_override_openapi(tmp_path: Path) -> None:
+    app = create_app(Settings(data_dir=tmp_path / "data", frontend_dir=tmp_path / "frontend"))
+    assert "put" in app.openapi()["paths"]["/api/v1/candidates/{candidate_id}/classification"]
+
+
 def test_frontend_api_calls_match_backend_openapi(tmp_path: Path) -> None:
     frontend_calls = _frontend_calls(FRONTEND_ROOT)
     assert frontend_calls, f"No HTTP calls found under {FRONTEND_ROOT / 'src' / 'api'}"
@@ -176,3 +191,19 @@ def test_match_run_change_metadata_contract(model: type[WireModel]) -> None:
     reasons = schema["properties"]["dataChangedReasons"]
     assert reasons["type"] == "array" and reasons["items"]["type"] == "string"
     assert {"dataChangedSinceRun", "dataChangedReasons"} <= set(schema["required"])
+
+
+def test_demand_jd_status_contract(tmp_path: Path) -> None:
+    schemas = create_app(Settings(data_dir=tmp_path)).openapi()["components"]["schemas"]
+    statuses = list(get_args(JdStatus))
+    assert statuses == ["Not analysed", "Draft", "Confirmed", "JD changed"]
+    for name in ("DemandItem", "DemandDetail"):
+        assert schemas[name]["properties"]["jd_status"]["enum"] == statuses
+        assert "jd_status" in schemas[name]["required"]
+    types = (FRONTEND_ROOT / "src" / "api" / "types.ts").read_text(encoding="utf-8")
+    declared = re.search(r"export type JdStatus = ([^\n]+)", types)
+    assert declared is not None
+    assert re.findall(r"'([^']+)'", declared.group(1)) == statuses
+    mappers = (FRONTEND_ROOT / "src" / "api" / "mappers.ts").read_text(encoding="utf-8")
+    assert re.search(r"\bjd_status: JdStatus\b", mappers)
+    assert re.search(r"\bjdStatus: r\.jd_status\b", mappers)

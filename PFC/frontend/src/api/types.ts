@@ -11,7 +11,8 @@ export type GradeRelation = 'exact' | 'adjacent_above' | 'adjacent_below'
 export type CandidateType = 'Internal' | 'External' | 'Unknown'
 export type IdentityStatus = 'complete' | 'incomplete' | 'ambiguous' | 'review_later'
 export type EmailStatus = 'Draft' | 'Approved' | 'Sent' | 'Failed'
-export type JdStatus = 'Not analysed' | 'Analysed — awaiting confirmation' | 'Confirmed — scoring' | 'Scored' | 'JD changed'
+/** Backend `DemandItem.jd_status`, derived from the requirements of the current demand version. */
+export type JdStatus = 'Not analysed' | 'Draft' | 'Confirmed' | 'JD changed'
 export type Eligibility = 'eligible' | 'eligible_caveat' | 'excluded' | 'insufficient'
 export type UserStatus = 'Active' | 'Disabled' | 'Locked'
 
@@ -635,3 +636,11 @@ export interface EmailTemplateVersion {
 }
 
 export type EmailTemplateDraft = Pick<EmailTemplateVersion, 'name' | 'subject' | 'bodyHtml'>
+
+/** BitLocker protection of the data directory's volume; informational only (REQ-AUTH-06). */
+export type VolumeEncryption = 'Encrypted' | 'Not encrypted' | 'Unknown'
+
+export interface SystemHealth {
+  status: string
+  dataVolumeEncryption: VolumeEncryption
+}

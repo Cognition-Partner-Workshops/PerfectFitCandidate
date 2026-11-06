@@ -50,13 +50,13 @@ checks are not a substitute for it. The parked quality-check branch was not chan
 | G3 HTTP query logging | REQ-AUTH-06; privacy | Fixed | `pfc/launcher.py:156`; `tests/unit/test_launcher.py::test_launch` | Disables uvicorn access logging in the supported launcher so query strings cannot echo PII. Custom direct uvicorn invocations must likewise disable access logs; disabling them does not disable application security audits. |
 | G4 Seed path logging | REQ-AUTH-06; privacy | Fixed | `pfc/services/occ/seed.py:159`, `:172`, `:183`, `:204`; `test_seed_logs_do_not_echo_profile_paths` | Logs only fixed seed/template basenames, not profile paths that can contain an email address. Missing/malformed file diagnostics are retained. |
 | G5 Setup console output | TDD §9.1/13; privacy | Deferred | `pfc/launcher.py:144`; `pfc/security/setup.py` | Bootstrap code is intentionally printed to the launch console and saved in run/setup-code.txt per TDD; it is not sent to the application logger. If captured console stdout counts as forbidden logging, decide an alternative bootstrap channel and retention policy. Do not claim the code never appears on stdout. |
-| G6 Child process log | REQ-AUTH-06; REQ-LLM-01 | Deferred | `pfc/adapters/llm/supervisor.py:298` | Raw llama-server stdout/stderr append to logs/llm.log. Parent logs do not expose its key, but real pinned-binary startup/error output was not exercised. Need native/runtime log inspection before certifying child output or deciding on redaction. |
+| G6 Child process log | REQ-AUTH-06; REQ-LLM-01 | Fixed | `pfc/adapters/llm/supervisor.py`; `pfc/adapters/llm/child_logs.py`; `tests/unit/adapters/llm/test_child_logs.py`; `test_native_lines_are_filtered_before_child_log_write` | [Native Windows b8936 capture](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/actions/runs/42209708867) used the model-complete artifact from run 42206790413. Startup, tiny generation, missing model, busy port, wrong and absent API keys were exercised. Startup exposed a key suffix and profile paths plus a multiline example conversation. Child stdout/stderr now enter a pipe and a diagnostic-only filter before persistence; credentials/Bearer values/profile prefixes are redacted, payload/unknown lines dropped, lines capped, and logs rotated. See scope and classification below; historical raw logs are not retroactively sanitized. |
 | S1 DPAPI and development fallback | REQ-AUTH-06; TDD §9.5 | Pass | `pfc/services/packages/keys.py:97`; `pfc/security/secrets_store.py:44`; `tests/unit/security/test_secrets_store.py` | Existing package DPAPI protects signing material, not arbitrary credentials. New credential store uses current-user ctypes DPAPI with app-specific entropy/UI forbidden; non-Windows development/tests use Fernet with a persistent 0600 file key. No Windows failure silently falls back to a file key. Native validation is separate below. |
 | S2 Existing secret-setting writer | REQ-AUTH-06; TDD §9.5 | Fixed | `pfc/services/occ/admin.py:106`, `:121`; `test_secret_settings_encrypted_and_write_only` | Generic OCC settings was a reachable plaintext credential writer (existing smtp.password test). Credential-looking top-level/nested keys are now encrypted, API reads are write-only [REDACTED], and resubmitting that marker preserves the existing secret. No provider or SMTP integration was invented. |
 | S3 Secret error handling | REQ-AUTH-06 | Pass | `test_secret_setting_failure_is_atomic`; `test_decryption_fails_closed` | Empty updates are no-ops; credential-storage errors roll back setting/audit writes and return generic 503. Wrong key, tampered ciphertext, missing key and mismatched platform formats fail closed. |
-| S4 Existing plaintext and schema-less settings | REQ-AUTH-06 | Deferred | `test_legacy_secret_setting_hidden_and_upgraded_on_resave`; `pfc/security/secrets_store.py:20` | Legacy credential values are hidden from GET and encrypted when explicitly resaved, not silently migrated. Key-name heuristics cannot identify secrets under arbitrary innocuous names. Requires a typed credential schema/migration decision; existing DB free pages, WAL and backups may still retain old plaintext after resaving. |
-| S5 Provider tokens / SMTP integration | REQ-AUTH-06; REQ-LLM-03; REQ-EML-04 | Deferred | `pfc/db/migrations/0001_initial.sql:566`; `pfc/services/packages/payloads.py:375` | token_blob is documented as encrypted but no active provider-token writer consumes a vault yet; package import preserves existing blobs without proving their encryption. SMTP is Phase 2, external providers Phase 3. Wire these callers explicitly to the credential store when implemented; generic credential settings alone do not certify future transports. |
-| S6 Data-directory / DB / CV protection | REQ-AUTH-06; TDD §9.5 | Deferred | `pfc/config.py:10`; `pfc/db/connection.py`; `PFC/docs/TDD.md` §9.5 | SQLite/CV/upload data are not application-encrypted. Default data_dir is package-relative, not explicitly a user-profile directory. Need deployment decision on profile placement, BitLocker/ACL evidence and secure backup/retention; SQLCipher remains a separate compatibility decision. |
+| S4 Existing plaintext and schema-less settings | REQ-AUTH-06 | Fixed | `pfc/security/credentials.py`; `pfc/main.py` lifespan; `tests/integration/test_credential_migration.py` | `CREDENTIAL_SETTING_KEYS` is a typed registry (`Literal`) of the credential setting keys in use today (`smtp.password`); each is also matched by `sensitive_key`, and no new heuristic was added. A one-time, idempotent startup migration encrypts plaintext values under those keys with the credential store and audits each as `SETTING_CHANGE` with `[plaintext]` → `[encrypted]` markers, never values. It then runs `PRAGMA wal_checkpoint(TRUNCATE)`, `VACUUM` and another checkpoint, and the test proves the plaintext bytes are gone from the DB and WAL files. Pre-migration backups under `backups/` can still hold old plaintext; rotate or delete them under the backup/retention policy. Secrets stored under keys outside the registry are still caught by `sensitive_key` on write; add new credential keys to the registry. |
+| S5 Provider tokens / SMTP integration | REQ-AUTH-06; REQ-LLM-03; REQ-EML-04 | Deferred (Phase 3) | `pfc/db/migrations/0001_initial.sql:566`; `pfc/services/packages/payloads.py:375` | Stays deferred to Phase 3, when external providers land; SMTP is Phase 2. token_blob is documented as encrypted but no active provider-token writer consumes a vault yet; package import preserves existing blobs without proving their encryption. Wire these callers explicitly to the credential store, and add their setting keys to `CREDENTIAL_SETTING_KEYS`, when implemented. |
+| S6 Data-directory / DB / CV protection | REQ-AUTH-06; TDD §9.5, Q-11 | Fixed (native evidence: UAT) | `pfc/config.py` `default_data_dir`; `pfc/security/data_dir.py`; `pfc/launcher.py`; `pfc/api/routers/health.py`; `tests/unit/security/test_data_at_rest.py` | Q-11 resolved: BitLocker plus field-level encryption, no SQLCipher. The default data_dir is now `%LOCALAPPDATA%\PFC\data` on Windows (`$XDG_DATA_HOME/PFC/data` or `~/.local/share/PFC/data` elsewhere), not package-relative; `PFC_DATA_DIR` still overrides. On first start, an old package-relative `data/` that holds a database (and whose old instance is not running, checked via its `run/pfc.lock`) is copied, verified (SHA-256 per file, row counts per table for the backup-API copy of the DB) and the original renamed to `data.migrated`, never deleted; logs carry basenames only. On Windows the launcher runs `icacls` (argv lists, no shell, no admin): `/reset /T` drops explicit grants to other accounts, then only the current user and SYSTEM are granted; elsewhere the dir is `chmod 0700`. Failure warns and start-up continues. BitLocker status is read from the Shell `System.Volume.BitLockerProtection` property and shown, informational only, in `/health` details and on the OCC overview as Encrypted / Not encrypted / Unknown; it never blocks start-up. CI uses fakes; real icacls/BitLocker evidence is a UAT item (S7). SQLite/CV/upload data are not application-encrypted. |
 | S7 Native Windows verification | REQ-AUTH-06/07; TDD §13 | Deferred | `pfc/security/secrets_store.py:44`; `pfc/adapters/llm/supervisor.py:40` | DPAPI protect/unprotect under the real signed-in user, Job Object orphan cleanup, file ACLs and BitLocker require Windows hardware/runtime. Mock dispatch and Linux tests are not native evidence. |
 
 ## Changes, boundaries and decisions
@@ -74,11 +74,60 @@ backups; loss of the key loses access. No API can retrieve plaintext credential
 values. Secret-name detection includes password/secret/token/credential/api_key/apikey
 and nested objects/lists; it is not a substitute for a future typed credential schema.
 
-Decisions needed: legacy credential migration and stale-page/backup cleanup; typed
-secret settings and future SMTP/provider callers; OCC user email/presentation policy;
-resource mask-pattern ownership; setup console handling; child-log verification;
-profile-based storage and Windows at-rest deployment controls. No claim is made that
+Decisions needed: retention of pre-migration backups that may hold old plaintext;
+future SMTP/provider callers (S5, Phase 3); OCC user email/presentation policy;
+resource mask-pattern ownership; setup console handling;
+native Windows ACL and BitLocker evidence (UAT). No claim is made that
 the complete sensitive local database is encrypted.
+
+### G6 native capture and child-log policy
+
+[Capture run 42209708867](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/actions/runs/42209708867)
+ran the Windows `llama-server.exe` from the model-complete artifact of
+[run 42206790413](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/actions/runs/42206790413),
+not a substitute build. It used the supervisor's normal arguments: loopback host,
+ephemeral port, pinned GGUF, 4096 context, computed CPU threads and one parallel
+slot, without verbose/debug switches. Both `LLAMA_API_KEY` and `LLAMA_ARG_API_KEY`
+were set to the same ephemeral key. Requests used synthetic canaries only.
+The temporary capture job and script were removed after capture. The scrubbed
+fixture is `tests/fixtures/llama_b8936_windows.json`; usernames, full keys and even
+the printed key suffix are replaced. No Linux fallback was needed.
+
+| Source | Observed exposure / classification |
+|---|---|
+| Startup `init: api_keys` | Prints the last four key characters, not the whole key. The entire field is now redacted, including partial keys. |
+| `load_backend`, `srv load_model`, `llama_model_loader`, GGUF failures | Native file paths include the Windows profile name. Profile prefixes are replaced, or metadata lines discarded. Model-load/bind/listening diagnostics remain. |
+| Startup chat-template example | Multiline example prompt/completion text appears even without verbose mode. Template, echo and unrecognized continuation lines are dropped. |
+| Tiny generation | HTTP 200 contained the synthetic completion. No submitted prompt, completion canary or request body was observed in child output at these launch settings; this is not a guarantee for other versions/debug settings. Runtime/payload lines are discarded defensively. |
+| Wrong key / no key | Both returned 401. Child output was `Unauthorized: Invalid API Key` plus method/path/status access lines, without the submitted key, Bearer value or request body. Fixed unauthorized diagnostics are retained; runtime access lines are dropped. |
+| Missing model / occupied port | Real failed-open/model-load and couldn't-bind errors were captured. These are retained with profile prefixes removed. |
+
+The sink allows only pinned-binary startup/model-load/transport diagnostic
+prefixes; unknown lines, prompt/completion/content/body/JSON/template lines and
+unrecognized continuations are dropped. It redacts the generated key, values of
+both key environment variables (including inherited values), any `Bearer` token,
+literal `%USERPROFILE%`, generic `C:\Users\<name>` and `/home/<name>` prefixes,
+the configured `USERPROFILE`, and actual `Path.home()`. ANSI/control characters
+are removed, and retained lines are limited to 2048 characters **after** redaction.
+Input lines above 64 KiB are discarded in bounded chunks, never logged as partial
+fragments. A dedicated pipe reader keeps disk writes off the async supervisor;
+on disk-write failure it drains/discards output with a fixed warning, not payloads.
+Shutdown/model switches allow two seconds for EOF before abandoning a blocked
+daemon pipe reader, disabling further persistence and emitting one fixed
+truncation warning. Already-written records are flushed per line and the sink is
+closed independently of the pipe. The owning reader closes its pipe if it later
+unblocks; cleanup never closes a buffered read handle from another thread, which
+could itself block on Windows. A permanently inherited pipe can therefore retain
+a daemon thread/read handle until process exit, but cannot stall cleanup or append
+late output to the old sink.
+
+Only `settings.data_dir / "logs" / "llm.log"` is used. Retention is 5 MiB per
+file, active plus two backups (`.1`, `.2`), three files total; byte accounting
+includes UTF-8 encoding. Tests replay native lines through the filter and real
+fake-child stdout/stderr, with additional synthetic secret/body/oversized/error
+cases. Existing pre-fix raw logs/backups are **not** rewritten; remove them under
+the deployment's approved retention procedure. This closes G6 for new writes,
+not S6/S7 laptop ACL/at-rest acceptance or arbitrary future native log formats.
 
 ## Automated verification
 
