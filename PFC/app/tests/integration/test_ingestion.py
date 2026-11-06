@@ -1237,3 +1237,36 @@ def test_req_ing_03_snapshot_promotion_failure_returns_durable_committed_review(
             == result
         )
         assert verify_chain(db)
+
+
+def test_req_in_24_replaced_original_cv_moves_old_provenance_to_identical_copy(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(client, upload(client, "ct", [{}]))
+    original = resume_docx(root, "Alex original.docx", "alex@example.com SQL", 1767225600)
+    wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    with database(client.app.state.settings) as db:
+        old = dict(db.execute("SELECT * FROM resumes").fetchone())
+    copy = root / "Alex retained.docx"
+    copy.write_bytes(original.read_bytes())
+    os.utime(copy, (1767312000, 1767312000))
+    resume_docx(root, original.name, "alex@example.com Python", 1767400000)
+    summary = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert summary["new_versions"] == 1 and summary["unchanged"] == 1
+    with database(client.app.state.settings) as db:
+        rows = db.execute("SELECT * FROM resumes ORDER BY resume_id").fetchall()
+        assert len(rows) == 2
+        assert rows[0]["file_sha256"] == old["file_sha256"]
+        assert rows[0]["source_path"] == copy.name
+        assert rows[0]["file_mtime"] == "2026-01-02T00:00:00Z"
+        assert rows[1]["source_path"] == original.name
+        assert rows[1]["file_sha256"] != old["file_sha256"]
+    history = client.get(f"/api/v1/candidates/{old['candidate_id']}/cv-versions").json()
+    assert [(v["source_path"], v["is_latest"]) for v in history] == [
+        (original.name, True),
+        (copy.name, False),
+    ]

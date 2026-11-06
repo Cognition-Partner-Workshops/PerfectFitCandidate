@@ -20,6 +20,8 @@ from pfc.jobs.runner import JobContext
 from pfc.security.problems import Problem
 from pfc.security.sessions import stamp
 
+from .models import file_sha256
+
 EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?![\w-])")
 MIMES = {
     ".pdf": "application/pdf",
@@ -192,7 +194,12 @@ def _persist(
         "SELECT resume_id,source_path FROM resumes WHERE file_sha256=?", (version.file_sha256,)
     ).fetchone()
     resume_id = resume["resume_id"]
-    if not (root / resume["source_path"]).is_file():
+    original = root / resume["source_path"]
+    try:
+        original_matches = original.is_file() and file_sha256(original) == version.file_sha256
+    except OSError:
+        original_matches = False
+    if not original_matches:
         db.execute(
             "UPDATE resumes SET source_path=?,file_name=?,file_mtime=? WHERE resume_id=?",
             (
