@@ -72,6 +72,7 @@ def dispatch(request: Request, principal: Principal, body: RunRequest) -> RunAcc
             request.app.state.job_runner,
             ports,
             scope=body.scope,
+            incremental=body.incremental,
             demand_ids=body.demand_ids,
             as_of_date=body.as_of_date,
             user_id=principal.user.user_id,
