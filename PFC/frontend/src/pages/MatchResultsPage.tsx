@@ -235,7 +235,8 @@ export function MatchResultsPage() {
   const [grouped, setGrouped] = useState(true)
   const [overrideRow, setOverrideRow] = useState<MatchResult | null>(null)
   const qc = useQueryClient()
-  const runs = useQuery({ queryKey: ['runs'], queryFn: () => api.listMatchRuns() })
+  // Refetch on mount and focus so the data-changed flag reflects edits made on other screens or tabs.
+  const runs = useQuery({ queryKey: ['runs'], queryFn: () => api.listMatchRuns(), staleTime: 0, refetchOnWindowFocus: true })
   // Runs are newest first; a queued/running run has no results yet, so the last completed run stays on screen.
   const run = runs.data?.find((r) => r.status === 'completed')
   const newer = runs.data?.[0] && isActive(runs.data[0]) ? runs.data[0] : undefined
