@@ -1,6 +1,7 @@
 # Phase 1 MVP release notes — readiness draft
 
-**Reviewed baseline:** merged main `6363f49` (2026-11-06), including #37.
+**Reviewed baseline:** merged main `6363f49` (2026-11-06), including #37, with
+OCC-domain/masking follow-up changes on the current branch (PR pending).
 This is an implementation inventory, **not a release approval or UAT pass**.
 [PHASE1_TRACEABILITY.md](PHASE1_TRACEABILITY.md) provides requirement-by-requirement
 merged PR, code/test evidence, status and remaining work.
@@ -22,7 +23,10 @@ merged PR, code/test evidence, status and remaining work.
   masked CSV/XLSX exports and permission-controlled/audited verbatim-email export.
 - OCC reference-data CRUD, versioned scoring/email templates, users, approved-model
   list, instance-default/personal selection, signed settings packages and model
-  add-ons/re-embedding. Status/synonym edits are not yet consumed by matching.
+  add-ons/re-embedding. A shared SQLite-backed OCC config now drives ingestion,
+  matching, JD requirement resolution and analytics, with frozen run configuration.
+  Seeding remains a startup responsibility; runtime reads never recreate deleted
+  OCC data. Empty grade/mapping stores retain unknown-grade/unmapped behavior.
 - Editable per-profile email drafts, top-four suggestion, explicit approval,
   send/failure state and duplicate-send protection; Outlook COM implementation.
 - [KPI-01 CLI](KPI01.md): holdout/tune metrics, persisted and after-overrides
@@ -49,20 +53,17 @@ silently accepted/deferred by these notes. The matrix has no Not started rows.
   qualifications/projects/evidence model. Default JD analysis keeps an empty LLM
   matching port and falls back to rules. A running email-drafting provider does
   not wire local-LLM JD/CV extraction or establish grounded extraction quality.
-- **REQ-ELIG-03/07 and REQ-MAT-05:** matching calls file-based
-  `load_domain_config`; OCC status/mapping/synonym writers update SQLite. Default
-  behavior and editing are tested separately, not end-to-end propagation. Active
-  scoring templates **are** loaded from SQLite; this is not a claim that all OCC
-  settings are ignored.
 - **REQ-MAT-07:** CV/vector reuse exists, but matching exposes full/demand scopes
   rather than dirty-pair incremental scoring/copy-forward. No verified OCC
   cached-CV-removal route was found.
 - **REQ-CLS-02:** classification fields/display and domain-preview counts exist;
   domain changes do not implement candidate reclassification or an audited
   classification-override workflow.
-- **REQ-OUT-03:** resources/results use different mask patterns; OCC user-list
-  email policy needs a decision. Candidate detail routes now exist (#18), making
-  the older security-review statement that they are absent stale.
+- **REQ-OUT-03:** resource/result/analytics masking now shares the baseline
+  backend rule, including AlexBorder → Al******er. OCC user-list email policy
+  still needs a decision. Candidate detail routes now exist (#18), making
+  the older security-review statement that they are absent stale. Frontend-only
+  short-local-part fallback masking remains different; no frontend change is made.
 - **REQ-AUTH-06:** encrypted/write-only credential settings are not whole-DB or
   CV-cache encryption. Legacy plaintext needs resave/migration; native DPAPI/
   storage controls, real child logs and residual decisions remain in

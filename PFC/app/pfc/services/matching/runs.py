@@ -1,6 +1,5 @@
 """Queued scoring and durable snapshots (REQ-MAT-03/08, REQ-ELIG-08, REQ-SCR-04)."""
 
-import json
 import sqlite3
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, replace
@@ -9,7 +8,7 @@ from typing import Any, Literal
 
 from pfc.config import Settings
 from pfc.db.connection import database
-from pfc.domain.config_loader import DomainConfig, ScoringTemplate, load_domain_config
+from pfc.domain.config_loader import DomainConfig
 from pfc.domain.normalise import ParsedDate, normalise_term, parse_date
 from pfc.domain.scoring import (
     ENGINE_VERSION,
@@ -23,6 +22,7 @@ from pfc.domain.scoring import (
     run_match,
 )
 from pfc.jobs.runner import JobCancelled, JobContext, JobRunner
+from pfc.services.occ.domain import active_template, occ_domain_config
 
 from .common import audit, digest, dumps, timestamp
 from .ports import MatchingPorts
@@ -32,43 +32,6 @@ from .semantic import VectorCache, model_identity, semantic_inputs
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
-
-
-def _template(
-    db: sqlite3.Connection, config: DomainConfig, now: datetime
-) -> tuple[int, ScoringTemplate]:
-    row = db.execute(
-        "SELECT * FROM scoring_templates WHERE name='default' AND status='active' "
-        "ORDER BY version DESC,template_id DESC LIMIT 1",
-    ).fetchone()
-    if row:
-        rules = json.loads(row["rules_json"])
-        rules["weights"] = json.loads(row["weights_json"])
-        rules.update(name=row["name"], version=row["version"])
-        return row["template_id"], ScoringTemplate.from_dict(rules)
-    template = config.template
-    payload = template.model_dump(mode="json")
-    existing = db.execute(
-        "SELECT template_id FROM scoring_templates WHERE name=? AND version=?",
-        (template.name, template.version),
-    ).fetchone()
-    if existing:
-        raise ValueError(
-            "Default template version already exists but is not active; activate it first"
-        )
-    cursor = db.execute(
-        "INSERT INTO scoring_templates(name,version,weights_json,rules_json,status,created_at,"
-        "activated_at) VALUES (?,?,?,?,'active',?,?)",
-        (
-            template.name,
-            template.version,
-            dumps(payload["weights"]),
-            dumps(payload),
-            timestamp(now),
-            timestamp(now),
-        ),
-    )
-    return int(cursor.lastrowid or 0), template
 
 
 def _embedding_model(db: sqlite3.Connection, identity: dict[str, Any]) -> int:
@@ -343,9 +306,9 @@ def start_run(
         raise ValueError("Scope must be full or demands with at least one demand ID")
     now = clock()
     as_of_date = as_of_date or now.date()
-    config = load_domain_config()
     with database(settings) as db:
-        template_id, template = _template(db, config, now)
+        config = occ_domain_config(db)
+        template_id, template = active_template(db)
         model_id = _embedding_model(db, identity)
         demands, resources, cvs, metadata, skipped = _inputs(db, scope, demand_ids, config)
         display_emails = {

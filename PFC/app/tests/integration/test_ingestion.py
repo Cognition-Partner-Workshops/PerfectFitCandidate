@@ -781,7 +781,7 @@ def test_resource_lists_include_candidate_id_and_cv_count(
     assert items["Alex"]["cv_versions_count"] == 2
     assert items["Unlinked"]["candidate_id"] is None
     assert items["Unlinked"]["cv_versions_count"] == 0
-    assert items["Alex"]["email_address"] == "a***@example.com"
+    assert items["Alex"]["email_address"] == "al**@example.com"
     assert "alex@example.com" not in response.text
     detail = client.get(f"/api/v1/resources/{items['Alex']['resource_id']}").json()
     assert detail["candidate_id"] == candidate_id
@@ -872,7 +872,7 @@ def test_req_out_03_resource_sort_mask_flags_and_detail(resource_rows: TestClien
     )
     assert "email_key" not in response.text
     alex = rows[2]
-    assert alex["email_address"] == "A***@Example.com"
+    assert alex["email_address"] == " A***@Example.com "
     assert alex["pending_review"] and alex["occ_pending_review"]
     assert alex["available_capacity"] == "N" and alex["eligibility"] == "eligible"
     assert rows[1]["unmapped_status"] and not rows[1]["pending_review"]

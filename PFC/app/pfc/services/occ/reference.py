@@ -32,6 +32,15 @@ def save_bench(
             "WHERE code=:code",
             data,
         )
+        for row in db.execute(
+            "SELECT * FROM status_map WHERE canonical_code=? ORDER BY source_value", (code,)
+        ).fetchall():
+            mapping = {key: row[key] for key in ("canonical_code", "priority", "is_excluded")}
+            for field in ("priority", "is_excluded"):
+                if data[field] is not None and mapping[field] == before[field]:
+                    mapping[field] = data[field]
+            if any(mapping[field] != row[field] for field in ("priority", "is_excluded")):
+                save_mapping(db, user_id, row["source_value"], mapping)
     audit_write(db, user_id, "OCC_EDIT", "bench_statuses", data["code"], before, data)
     return get_row(db, "bench_statuses", "code", data["code"])
 

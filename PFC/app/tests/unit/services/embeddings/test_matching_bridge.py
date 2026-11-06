@@ -21,10 +21,18 @@ from pfc.services.embeddings.matching_bridge import (
 from pfc.services.matching import MatchingPorts, start_run
 from pfc.services.matching.ports import ChunkOwner, Task
 from pfc.services.matching.semantic import VectorCache, model_identity
+from pfc.services.occ.seed import seed_reference_data
 
 from .conftest import NOW, jd, tiny_bundle
 
 State = tuple[Settings, NumpyStore, JobContext]
+
+
+@pytest.fixture
+def matching_state(state: State) -> State:
+    seed_reference_data(state[1].connection)
+    state[1].connection.commit()
+    return state
 
 
 def activate(state: State) -> None:
@@ -63,8 +71,9 @@ def wait(ctx: JobContext, id: int) -> None:
 
 
 def test_run_uses_active_identity_and_persistent_cache(
-    state: State, monkeypatch: pytest.MonkeyPatch
+    matching_state: State, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    state = matching_state
     activate(state)
     settings, store, ctx = state
     db = store.connection

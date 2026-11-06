@@ -8,6 +8,8 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from pfc.services.pii import mask_email
+
 from .common import atomic, audit, timestamp
 from .lifecycle import reconcile_runs
 
@@ -49,14 +51,7 @@ class ResultFilters(BaseModel):
 
 
 def _mask_email(value: str | None) -> str | None:
-    if not value:
-        return value
-    local, separator, domain = value.partition("@")
-    if len(local) <= 2:
-        local = "*" * len(local)
-    else:
-        local = local[:2] + "*" * min(6, len(local) - 2) + local[8:]
-    return local + separator + domain
+    return mask_email(value)
 
 
 def list_runs(db: sqlite3.Connection, *, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
