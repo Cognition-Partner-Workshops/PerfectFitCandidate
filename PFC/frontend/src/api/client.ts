@@ -127,6 +127,8 @@ export interface ApiClient {
 
   /** GET /resources */
   listResources(): Promise<Resource[]>
+  /** GET /resources?lifecycle=… for every lifecycle, so people who have since left the bench still resolve. */
+  listAllResources(): Promise<Resource[]>
   /** GET /resources/excluded */
   listExcludedResources(): Promise<Resource[]>
   /** POST /resources/cv-sync (ids ≥ 1) */

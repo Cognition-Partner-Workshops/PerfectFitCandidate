@@ -594,6 +594,10 @@ export class MockApiClient implements ApiClient {
     return this.done(this.resources())
   }
 
+  async listAllResources() {
+    return this.listResources()
+  }
+
   async listExcludedResources() {
     this.currentUser()
     return this.done(this.resources().filter((r) => r.eligibility === 'excluded' || r.eligibility === 'insufficient'))

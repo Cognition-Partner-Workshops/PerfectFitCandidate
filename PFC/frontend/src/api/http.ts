@@ -99,6 +99,9 @@ export async function parseProblem(res: Response): Promise<ProblemDetails> {
  * Real backend client: cookie session + `X-CSRF-Token` on writes, RFC 9457 errors (TDD.md §9.3, §12).
  */
 
+/** resources.lifecycle values written by ingestion (apply.py, approvals.py); the list route filters on one at a time. */
+const RESOURCE_LIFECYCLES = ['active', 'off_bench', 'archived'] as const
+
 export class HttpApiClient implements ApiClient {
   private csrfToken: string | null = null
   private readonly base: string
@@ -205,6 +208,16 @@ export class HttpApiClient implements ApiClient {
   }
   listResources: ApiClient['listResources'] = async () =>
     (await this.allPages<ResourceItem>((page) => this.request('GET', `/resources?page=${page}&page_size=200`))).map(toResource)
+  listAllResources: ApiClient['listAllResources'] = async () =>
+    (
+      await Promise.all(
+        RESOURCE_LIFECYCLES.map((lifecycle) =>
+          this.allPages<ResourceItem>((page) => this.request('GET', `/resources?lifecycle=${lifecycle}&page=${page}&page_size=200`)),
+        ),
+      )
+    )
+      .flat()
+      .map(toResource)
   listExcludedResources: ApiClient['listExcludedResources'] = async () =>
     (await this.allPages<ResourceItem>((page) => this.request('GET', `/resources/excluded?page=${page}&page_size=200`))).map(toResource)
   syncCvs: ApiClient['syncCvs'] = (ids) => this.request('POST', '/resources/cv-sync', { resource_ids: ids })

@@ -250,7 +250,8 @@ export function MatchResultsPage() {
   const results = useQuery({ queryKey: ['results', run?.runId], queryFn: () => api.getResults(run?.runId ?? 0), enabled: !!run })
   const [tab, setTab] = useState<'results' | 'excluded'>('results')
   const excluded = useQuery({ queryKey: ['run-excluded', run?.runId], queryFn: () => api.getRunExcluded(run?.runId ?? 0), enabled: !!run })
-  const bench = useQuery({ queryKey: ['resources'], queryFn: () => api.listResources(), enabled: !!run })
+  // An older run can name people a later CT upload took off the bench, so join against every lifecycle.
+  const bench = useQuery({ queryKey: ['resources', 'all-lifecycles'], queryFn: () => api.listAllResources(), enabled: !!run })
   const excludedRows = useMemo(() => groupExcluded(excluded.data ?? [], bench.data ?? []), [excluded.data, bench.data])
   const [selection, setSelection] = useState<Set<number> | null>(null)
   const send = useMutation({
