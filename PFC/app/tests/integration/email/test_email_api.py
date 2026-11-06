@@ -346,8 +346,10 @@ def test_occ_template_saved_before_first_draft_is_reused(client: TestClient) -> 
         headers={"X-CSRF-Token": response.json()["csrf_token"]},
         json={
             "name": "candidate_default",
-            "subject": "Saved {candidate_name} {{draft}}",
-            "body_html": "<p>Hello {candidate_name} {{literal}}</p>",
+            "subject": "Saved {candidate_name}",
+            "body_html": (
+                "<style>p {{ color: red; }}</style><p>Hello {candidate_name} {{ color: red; }}</p>"
+            ),
         },
     )
     assert saved.status_code == 201, saved.text
@@ -355,8 +357,14 @@ def test_occ_template_saved_before_first_draft_is_reused(client: TestClient) -> 
     response = create_drafts(client, login(client), run_id)
     assert response.status_code == 201, response.text
     assert all(draft["subject"].startswith("Saved ") for draft in response.json()["drafts"])
-    assert all("{draft}" in draft["subject"] for draft in response.json()["drafts"])
-    assert all("{literal}" in draft["body_html"] for draft in response.json()["drafts"])
+    assert all("{ color: red; }" in draft["body_html"] for draft in response.json()["drafts"])
+    draft = response.json()["drafts"][0]
+    csrf = login(client)
+    approved = client.post(
+        f"/api/v1/emails/{draft['message_id']}/approve",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert approved.status_code == 200, approved.text
     with database(client.app.state.settings) as db:
         rows = db.execute("SELECT * FROM email_templates").fetchall()
         assert len(rows) == 1

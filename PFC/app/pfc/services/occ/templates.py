@@ -4,6 +4,7 @@ from string import Formatter
 from typing import Any
 
 from pfc.security.problems import Problem
+from pfc.services.email.service import UNRESOLVED_PLACEHOLDER
 from pfc.services.occ.common import audit_write, get_row, now
 
 WEIGHTS = {"skills", "grade", "location", "bench_start", "bench_end", "status"}
@@ -155,7 +156,9 @@ def activate(db: sqlite3.Connection, user_id: int, target: int) -> dict[str, Any
 def validate_placeholders(subject: str, body: str) -> None:
     for field, text in (("subject", subject), ("body_html", body)):
         try:
-            for _, name, spec, conversion in Formatter().parse(text):
+            literals = []
+            for literal, name, spec, conversion in Formatter().parse(text):
+                literals.append(literal)
                 if name is None:
                     continue
                 if not name.isidentifier():
@@ -175,6 +178,12 @@ def validate_placeholders(subject: str, body: str) -> None:
                         "TEMPLATE_INVALID",
                         f"{field}: format specifications and conversions are not supported",
                     )
+            if UNRESOLVED_PLACEHOLDER.search("".join(literals)):
+                raise Problem(
+                    422,
+                    "TEMPLATE_INVALID",
+                    f"{field}: escaped literal would be an unresolved placeholder at approval",
+                )
         except ValueError as exc:
             raise Problem(422, "TEMPLATE_INVALID", f"{field}: {exc}") from exc
 

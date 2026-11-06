@@ -439,7 +439,7 @@ def test_email_templates(client: TestClient) -> None:
         "<style>a{{color:red}}</style>",
         "{candidate_name}",
         "{{",
-        "{{literal_braces}}",
+        "{{ color: red; }}",
         "{{{candidate_name}}}",
         "}}",
     ],
@@ -476,6 +476,8 @@ def test_email_literal_braces(client: TestClient, body_html: str) -> None:
         ("{unknown}", "UNKNOWN_PLACEHOLDER"),
         ("<style>p { color: red }</style>", "TEMPLATE_INVALID"),
         ("<style>a{color:red}</style>", "UNKNOWN_PLACEHOLDER"),
+        ("{{draft}}", "TEMPLATE_INVALID"),
+        ("{{literal_braces}}", "TEMPLATE_INVALID"),
     ],
 )
 def test_email_invalid_formatting(
