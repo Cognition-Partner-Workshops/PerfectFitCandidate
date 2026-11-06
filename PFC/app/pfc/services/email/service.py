@@ -27,7 +27,9 @@ from pfc.security.problems import Problem
 from pfc.security.sessions import stamp
 
 logger = logging.getLogger(__name__)
-TEMPLATE_PATH = Path(__file__).resolve().parents[4] / "templates" / "email" / "default.html"
+TEMPLATE_PATH = (
+    Path(__file__).resolve().parents[4] / "templates" / "email" / "candidate_default.html"
+)
 EMAIL_RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -743,12 +745,12 @@ class EmailService:
         ).fetchone()
         if row is not None:
             return row
-        subject = "Opportunity {requisition} — {role}"
+        subject = "Opportunity {requisition} – {role}"
         body_html = TEMPLATE_PATH.read_text(encoding="utf-8")
         cursor = db.execute(
             "INSERT INTO email_templates "
             "(name, version, subject, body_html, is_default, created_at) "
-            "VALUES ('default', 1, ?, ?, 1, ?)",
+            "VALUES ('candidate_default', 1, ?, ?, 1, ?)",
             (subject, body_html, now),
         )
         row = db.execute(

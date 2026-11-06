@@ -29,6 +29,8 @@ from pfc.security.passwords import hasher
 from pfc.security.problems import Problem, install_handlers
 from pfc.security.setup import code_path, generate_setup_code
 from pfc.services.email import EmailService
+from pfc.services.email.service import TEMPLATE_PATH
+from pfc.services.occ.templates import PLACEHOLDERS
 
 NOW = "2026-01-01T00:00:00Z"
 ANALYST_PASSWORD = "AnalystStrong123"
@@ -323,6 +325,38 @@ def test_concurrent_send_state_blocks_edit_and_approval(
             (draft["message_id"],),
         ).fetchone()[0]
     assert status == "Sending"
+
+
+def test_default_email_template_uses_occ_placeholders(client: TestClient) -> None:
+    run_id, _ = seed_matches(client)
+    csrf = login(client)
+
+    created = create_drafts(client, csrf, run_id)
+
+    assert created.status_code == 201, created.text
+    with database(client.app.state.settings) as db:
+        template = db.execute("SELECT * FROM email_templates WHERE is_default=1").fetchone()
+        assert template["name"] == "candidate_default"
+        assert template["subject"] == "Opportunity {requisition} – {role}"
+        assert template["body_html"] == TEMPLATE_PATH.read_text(encoding="utf-8")
+        service = EmailService(
+            client.app.state.settings,
+            cast(FakeTransport, client.app.state.email_transport),
+            None,
+            client.app.state.clock,
+        )
+        result = service._top_results(db, run_id=run_id, demand_id=None)[0]
+        values = " ".join(f"{{{placeholder}}}" for placeholder in sorted(PLACEHOLDERS))
+        rendered_subject, rendered_body = service._render(
+            {"subject": values, "body_html": f"<p>{values}</p>"},
+            result,
+            service._fallback_sections(result),
+        )
+
+    output = f"{rendered_subject}\n{rendered_body}"
+    for placeholder in PLACEHOLDERS:
+        assert f"{{{placeholder}}}" not in output
+    assert "{" not in output and "}" not in output
 
 
 def test_verbatim_email_and_missing_email_issue(client: TestClient) -> None:
