@@ -155,8 +155,9 @@ def parse_workbook(
                 and isinstance(formula_cells[i], str)
                 and formula_cells[i].startswith("=")
             }
-            if not uncached and all(
-                value is None or str(value).strip() == "" for value in raw.values()
+            key_columns = {"code_requisition"} if kind == "DL" else {"short_name", "email_address"}
+            if not key_columns.intersection(uncached) and all(
+                value is None or str(value).strip() == "" for value in cells
             ):
                 empty += 1
                 if empty >= empty_row_limit:

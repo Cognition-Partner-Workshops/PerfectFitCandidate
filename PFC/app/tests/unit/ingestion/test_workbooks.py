@@ -227,6 +227,21 @@ def test_req_in_13_formula_only_row_not_silently_skipped(tmp_path: Path) -> None
     )
 
 
+@pytest.mark.parametrize("kind,field", [("DL", "Owner"), ("CT", "Tracker")])
+def test_req_in_13_nonkey_formula_template_rows_count_as_empty(
+    tmp_path: Path, kind: str, field: str
+) -> None:
+    headers = list(DL if kind == "DL" else CT)
+    formula_row: list[object] = [None] * len(headers)
+    formula_row[headers.index(field)] = "=1+1"
+    make_row = dl_row if kind == "DL" else ct_row
+    path = workbook(tmp_path, kind, [make_row(), *[formula_row] * 200, make_row()])
+    preview = parse_workbook(path, kind, empty_row_limit=50)
+    assert preview.rows_read == 1
+    assert preview.rows_rejected == 0
+    assert preview.issues == []
+
+
 def test_req_in_14_verbatim_email_normalised_key(tmp_path: Path) -> None:
     row = parse_workbook(
         workbook(
