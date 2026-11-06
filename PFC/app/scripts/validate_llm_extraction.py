@@ -12,6 +12,7 @@ import threading
 import unicodedata
 from collections import Counter
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from time import perf_counter
 from typing import Any
 
@@ -33,7 +34,9 @@ from pfc.adapters.llm.providers import (
 from pfc.adapters.llm.supervisor import LlamaServerSupervisor
 from pfc.api.schemas.cv import CVFacts
 from pfc.config import Settings
-from pfc.domain.config_loader import load_domain_config
+from pfc.db.connection import database
+from pfc.db.migrate import migrate
+from pfc.domain.config_loader import DomainConfig, load_domain_config
 from pfc.domain.normalise.text import normalise_text
 from pfc.jobs.runner import JobContext
 from pfc.services.ingestion.cv_facts import (
@@ -45,7 +48,14 @@ from pfc.services.ingestion.cv_facts import (
     validate_facts,
 )
 from pfc.services.matching.llm_bridge import JdLlmBridge
-from pfc.services.matching.requirements import ExtractionFailure, Requirements, _fallback
+from pfc.services.matching.requirements import (
+    ExtractionFailure,
+    Requirements,
+    _canonicalize_skills,
+    _fallback,
+)
+from pfc.services.occ.domain import occ_domain_config
+from pfc.services.occ.seed import seed_reference_data
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tests/fixtures/llm_validation.json"
 MEMORY_LIMIT = 8_000_000_000
@@ -163,11 +173,15 @@ class RecordingProvider:
             self.calls.append(call)
 
 
-def run_jd(provider: RecordingProvider, text: str) -> dict[str, Any]:
+def run_jd(
+    provider: RecordingProvider, text: str, config: DomainConfig | None = None
+) -> dict[str, Any]:
+    config = config or load_domain_config()
     bridge = JdLlmBridge(provider)
     reason = None
     try:
         requirements = Requirements.model_validate(bridge.extract_jd(text))
+        requirements = _canonicalize_skills(requirements, config)
     except Exception as exc:
         reason = (
             str(exc)
@@ -176,7 +190,7 @@ def run_jd(provider: RecordingProvider, text: str) -> dict[str, Any]:
             if isinstance(exc, ValidationError)
             else "provider_error"
         )
-        requirements = _fallback(text, load_domain_config())
+        requirements = _fallback(text, config)
     return {
         "fallback_reason": reason,
         "model": bridge.model,
@@ -391,6 +405,13 @@ async def live(args: argparse.Namespace) -> dict[str, Any]:
     )
     if binary != settings.llama_dir / "llama-server":
         raise ValueError("Binary must be named llama-server")
+    settings.data_dir.parent.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(prefix="validation-reference-", dir=settings.data_dir.parent) as path:
+        reference = Settings(data_dir=Path(path), config_dir=settings.config_dir)
+        migrate(reference)
+        with database(reference) as db:
+            seed_reference_data(db, reference.config_dir)
+            config = occ_domain_config(db)
     state = State()
     supervisor = LlamaServerSupervisor(settings, app_state=state)
     peak: int | None = None
@@ -424,7 +445,7 @@ async def live(args: argparse.Namespace) -> dict[str, Any]:
         for fixture in fixtures["jds"]:
             before = len(provider.calls)
             result = await anyio.to_thread.run_sync(
-                run_jd, provider, normalise_text(fixture["text"])
+                run_jd, provider, normalise_text(fixture["text"]), config
             )
             raw = provider.calls[-1]["raw"] if len(provider.calls) > before else None
             jds.append(score_jd(fixture, result, raw))
