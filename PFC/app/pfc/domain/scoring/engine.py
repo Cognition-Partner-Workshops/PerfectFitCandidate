@@ -95,10 +95,11 @@ def assess_location(
     wanted, person = _places(demand.region, config), _places(resource.location, config)
     gaps = []
     if not person:
-        classification = "Location check"
         gaps.append("Person location not recorded")
-    elif not wanted or "remote" in wanted:
+    if not wanted or "remote" in wanted:
         classification = "Remote/unspecified"
+    elif not person:
+        classification = "Location check"
     elif wanted & person:
         classification = "Aligned"
     elif any(

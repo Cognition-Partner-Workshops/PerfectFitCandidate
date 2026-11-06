@@ -488,13 +488,30 @@ def test_req_in_24_canonical_cv_skills_without_seed(config, resource, demand):
     assert row.best.items[0].credit == 1
 
 
-@pytest.mark.parametrize(("person", "role"), [(None, None), (None, "Remote")])
-def test_req_loc_01_missing_person_takes_precedence(config, resource, demand, person, role):
-    classification, gaps = assess_location(
-        replace(demand, region=role), replace(resource, location=person), config
-    )
-    assert classification == "Location check"
-    assert "Person location not recorded" in gaps
+@pytest.mark.parametrize("person", [None, "", "  "])
+@pytest.mark.parametrize(
+    ("role", "expected", "points"),
+    [
+        (None, "Remote/unspecified", 5),
+        ("", "Remote/unspecified", 5),
+        ("  ", "Remote/unspecified", 5),
+        ("Remote", "Remote/unspecified", 5),
+        ("UK Remote", "Remote/unspecified", 5),
+        ("WFH", "Remote/unspecified", 5),
+        ("Anywhere", "Remote/unspecified", 5),
+        ("Any", "Remote/unspecified", 5),
+        ("Manchester", "Location check", 1),
+    ],
+)
+def test_req_loc_01_demand_location_precedence(
+    config, resource, demand, person, role, expected, points
+):
+    d = replace(demand, region=role)
+    r = replace(resource, location=person)
+    classification, gaps = assess_location(d, r, config)
+    assert classification == expected
+    assert gaps == ("Person location not recorded",)
+    assert pair(config, r, d).components["location"].points == points
 
 
 def test_req_mat_06_bad_input_contracts():
