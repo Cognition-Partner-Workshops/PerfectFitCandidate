@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     argon_parallelism: int = 4
     allowed_hosts: list[str] = []
     job_workers: int = 4
+    llm_enabled: bool = True
+    llama_dir: Path = Path(__file__).resolve().parents[2] / "llama"
+    models_dir: Path = Path(__file__).resolve().parents[2] / "models"
+    llm_ctx_size: int = Field(default=4096, ge=1)
+    llm_threads: int | None = Field(default=None, ge=1)
+    llm_startup_timeout_s: float = Field(default=120, gt=0)
+    llm_shutdown_timeout_s: float = Field(default=5, gt=0)
 
     @field_validator("host")
     @classmethod
