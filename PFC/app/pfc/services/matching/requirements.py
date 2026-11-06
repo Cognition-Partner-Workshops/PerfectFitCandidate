@@ -121,18 +121,22 @@ def get_requirements(
     if row is None:
         return None
     result = dict(row)
+    event = db.execute(
+        "SELECT a.details_json,r.extracted_by FROM jd_requirements r JOIN audit_log a "
+        "ON a.entity_id=CAST(r.jd_req_id AS TEXT) "
+        "AND a.action='jd.analyze' AND a.entity_type='jd_requirements' "
+        "WHERE r.demand_version_id=? AND r.revision<=? "
+        "ORDER BY r.revision DESC,a.audit_id DESC LIMIT 1",
+        (row["demand_version_id"], row["revision"]),
+    ).fetchone()
+    extracted_by = event[1] if event else row["extracted_by"]
     method = (
         "rule_based_fallback"
-        if row["extracted_by"] == "rule_based"
+        if extracted_by == "rule_based"
         else None
-        if row["extracted_by"] in {"manual", None}
+        if extracted_by in {"manual", None}
         else "llm"
     )
-    event = db.execute(
-        "SELECT details_json FROM audit_log WHERE action='jd.analyze' "
-        "AND entity_type='jd_requirements' AND entity_id=? ORDER BY audit_id DESC LIMIT 1",
-        (str(row["jd_req_id"]),),
-    ).fetchone()
     metadata = json.loads(event[0] or "{}") if event else {}
     result["extraction_method"] = metadata.get("extraction_method", method)
     result["fallback_reason"] = (
