@@ -14,6 +14,7 @@ import type {
   DashboardFilters,
   Demand,
   EmailDraft,
+  IdentityResolution,
   JdRequirements,
   MatchOverride,
   MatchResult,
@@ -73,6 +74,11 @@ import { maskEmail, maskPhone } from '../../lib/mask'
 // Bump when persisted mock shapes or IDs change so stale state is discarded.
 const STORAGE_KEY = 'pfc.mock.v5'
 
+interface MockResource extends RawResource {
+  emailSource?: 'CT' | 'CV' | 'manual'
+  emailConfirmed?: boolean
+}
+
 interface MockUser extends OccUser {
   passwordHash: string
   mustChangePassword: boolean
@@ -99,7 +105,7 @@ interface MockState {
   setupCode: string
   demands: DemandSeed[]
   requirements: Record<number, JdRequirements>
-  raws: RawResource[]
+  raws: MockResource[]
   statuses: BenchStatus[]
   statusMap: StatusMapEntry[]
   synonyms: Synonym[]
@@ -665,7 +671,7 @@ export class MockApiClient implements ApiClient {
     if (!raw || !resource) fail(404, 'Candidate not found', 'NOT_FOUND')
     const surname = (raw.name ?? '').split(' ').pop()?.toLowerCase() ?? ''
     const ctEmailOptions = this.state.raws
-      .filter((r) => r.resourceId !== raw.resourceId && r.email && (r.name ?? '').toLowerCase().endsWith(surname))
+      .filter((r) => r.resourceId !== raw.resourceId && r.email && (r.emailSource ?? 'CT') === 'CT' && (r.name ?? '').toLowerCase().endsWith(surname))
       .map((r) => ({ resourceId: r.resourceId, label: `${r.name} · ${r.shortName} · ${r.grade ?? '—'}`, emailMasked: maskEmail(r.email) ?? '' }))
     const detail: CandidateDetail = {
       candidateId,
@@ -691,15 +697,33 @@ export class MockApiClient implements ApiClient {
   }
 
 
-  async resolveIdentity(candidateId: number, resolution: { action: string; resourceId?: number }) {
+  async resolveIdentity(candidateId: number, resolution: IdentityResolution) {
     this.currentUser()
     const raw = this.state.raws.find((r) => r.resourceId === candidateId)
     if (!raw) fail(404, 'Candidate not found', 'NOT_FOUND')
-    if (resolution.action === 'select_ct_record') {
+    if (resolution.action === 'manual_entry') {
+      const name = resolution.name?.trim()
+      const email = resolution.email?.trim()
+      if (!name || name.length > 200) fail(422, 'Enter a name of 1 to 200 characters', 'VALIDATION_ERROR')
+      if (email !== undefined && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail(422, 'Enter a valid email', 'VALIDATION_ERROR')
+      if (raw.email && (raw.emailSource ?? 'CT') === 'CT') fail(409, 'CT email remains authoritative', 'IDENTITY_CT_AUTHORITATIVE')
+      if (email !== undefined && this.state.raws.some((r) => r.resourceId !== candidateId && r.emailConfirmed && r.email?.trim().toLowerCase() === email.toLowerCase())) {
+        fail(409, 'Email is confirmed for another candidate', 'IDENTITY_CONFLICT')
+      }
+      raw.name = name
+      if (email !== undefined) {
+        raw.email = email
+        raw.emailSource = 'manual'
+        raw.emailConfirmed = true
+      }
+      raw.identityStatus = 'complete'
+    } else if (resolution.action === 'select_ct_record') {
       const source = this.state.raws.find((r) => r.resourceId === resolution.resourceId)
       // Emails are copied from an existing CT record, never typed or constructed (REQ-IN-14, GQ-06).
-      if (!source?.email) fail(422, 'Select a Candidate Tracker record with an email', 'IDENTITY_EMAIL_REQUIRED')
+      if (!source?.email || (source.emailSource ?? 'CT') !== 'CT') fail(422, 'Select a Candidate Tracker record with an email', 'IDENTITY_EMAIL_REQUIRED')
       raw.email = source.email
+      raw.emailSource = 'CT'
+      raw.emailConfirmed = true
       raw.name = source.name
       raw.identityStatus = 'complete'
     } else if (resolution.action === 'generate_internal_id') {
