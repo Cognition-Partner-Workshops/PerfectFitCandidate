@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pfc.adapters.sources.resume_folder import CandidateLookup, CVVersion, ResumeFolderSource
-from pfc.adapters.sources.resume_paths import confined_path, resume_files
+from pfc.adapters.sources.resume_paths import read_resume, resume_files
 from pfc.adapters.vector.embeddings import Embedder
 from pfc.adapters.vector.stores import create_vector_store
 from pfc.api.schemas.cv import CVSyncCounts, CVVersionItem
@@ -22,7 +22,6 @@ from pfc.security.problems import Problem
 from pfc.security.sessions import stamp
 
 from .limits import positive_setting
-from .models import file_sha256
 
 EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?![\w-])")
 MIMES = {
@@ -196,12 +195,10 @@ def _persist(
         "SELECT resume_id,source_path FROM resumes WHERE file_sha256=?", (version.file_sha256,)
     ).fetchone()
     resume_id = resume["resume_id"]
-    original = confined_path(root, resume["source_path"])
     try:
+        content, _ = read_resume(root, resume["source_path"], version.file_size)
         original_matches = (
-            original is not None
-            and original.is_file()
-            and file_sha256(original) == version.file_sha256
+            content is not None and hashlib.sha256(content).hexdigest() == version.file_sha256
         )
     except OSError:
         original_matches = False

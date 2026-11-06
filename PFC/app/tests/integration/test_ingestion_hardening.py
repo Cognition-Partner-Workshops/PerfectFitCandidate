@@ -13,10 +13,10 @@ from test_ingestion import client as client
 from test_ingestion import commit, configure_resume_root, data, resume_docx, upload, wait_cv_job
 
 from pfc.adapters.sources.resume_folder import ResumeFolderSource, extract_text
+from pfc.adapters.sources.resume_paths import read_resume
 from pfc.db.connection import database
 from pfc.services.ingestion import cv_sync
 from pfc.services.ingestion.limits import WorkbookLimits, positive_setting
-from pfc.services.ingestion.models import file_sha256
 
 
 def setting(client: TestClient, key: str, value: object, scope: str = "system") -> None:
@@ -163,11 +163,11 @@ def test_unsafe_provenance_is_not_opened(
     with database(client.app.state.settings) as db:
         db.execute("UPDATE resumes SET source_path=?", (stored,))
 
-    def checked_hash(path: Path) -> str:
-        assert path.resolve().is_relative_to(root.resolve()), path
-        return file_sha256(path)
+    def checked_read(base: Path, relative: str, limit: int):
+        assert base.resolve() == root.resolve()
+        return read_resume(base, relative, limit)
 
-    monkeypatch.setattr(cv_sync, "file_sha256", checked_hash)
+    monkeypatch.setattr(cv_sync, "read_resume", checked_read)
     summary = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
     assert summary["new_versions"] == 0
     with database(client.app.state.settings) as db:

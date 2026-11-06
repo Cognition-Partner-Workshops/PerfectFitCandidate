@@ -6,15 +6,14 @@ import re
 from collections.abc import Callable
 from multiprocessing.connection import Connection
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Literal
 
 from docx import Document
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
 
-from pfc.services.ingestion.models import file_sha256
-
-from .resume_paths import confined_path, resume_files
+from .resume_paths import confined_path, read_resume, resume_files
 
 
 class CandidateLookup(BaseModel):
@@ -76,6 +75,15 @@ def _extract_worker(path: Path, extractor: Callable[[Path], str], sender: Connec
 
 
 def bounded_extract(
+    path: Path, extractor: Callable[[Path], str], timeout: float, *, content: bytes
+) -> tuple[str, list[str]]:
+    with TemporaryDirectory(prefix="pfc-cv-") as directory:
+        snapshot = Path(directory) / path.name
+        snapshot.write_bytes(content)
+        return _run_extractor(snapshot, extractor, timeout)
+
+
+def _run_extractor(
     path: Path, extractor: Callable[[Path], str], timeout: float
 ) -> tuple[str, list[str]]:
     context = multiprocessing.get_context("spawn")
@@ -140,12 +148,15 @@ class ResumeFolderSource:
         for path in sorted(resume_files(self.root)):
             relative = path.relative_to(self.root).as_posix()
             try:
-                stat = path.stat()
+                content, stat = read_resume(self.root, relative, self.max_file_bytes)
+                digest = hashlib.sha256(content).hexdigest() if content is not None else ""
                 if path not in self._extracted:
                     self._extracted[path] = (
                         ("", ["too_large"])
-                        if stat.st_size > self.max_file_bytes
-                        else bounded_extract(path, self.extractor, self.extract_timeout_s)
+                        if content is None
+                        else bounded_extract(
+                            path, self.extractor, self.extract_timeout_s, content=content
+                        )
                     )
                 text, flags = self._extracted[path]
             except OSError as exc:
@@ -174,16 +185,6 @@ class ResumeFolderSource:
                 elif any(tokens and tokens <= _tokens(path.stem) for tokens in names):
                     matches.append((index, "name_fuzzy"))
             if not matches:
-                continue
-            try:
-                digest = (
-                    ""
-                    if {"too_large", "extraction_timeout"}.intersection(flags)
-                    else file_sha256(path)
-                )
-            except OSError as exc:
-                for index, _ in matches:
-                    results[index].checks.append(f"{relative}: unreadable ({type(exc).__name__})")
                 continue
             for index, method in matches:
                 version = CVVersion(
