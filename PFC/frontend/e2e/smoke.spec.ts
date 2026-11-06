@@ -125,6 +125,23 @@ test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({
   await expect(result).toContainText(/SmokeAlex\s*a[a-z]*\*+@example\.com/)
   await expect(result).not.toContainText('alex@example.com')
 
+  await result.getByRole('link', { name: 'SmokeAlex', exact: true }).click()
+  await expect(page).toHaveURL(/\/candidates\/\d+$/)
+  await expect(page.getByRole('tab', { name: 'Matches & score history' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /SmokeAlex/ })).toBeVisible()
+  await expect(page.getByText('Something went wrong in the PFC service', { exact: false })).toHaveCount(0)
+  await page.getByRole('tab', { name: 'Matches & score history' }).click()
+  await expect(page.getByRole('row').filter({ has: page.getByRole('link', { name: 'T10001', exact: true }) })).toBeVisible()
+  await expect(page.locator('body')).not.toContainText('alex@example.com')
+  await page.getByRole('link', { name: 'T10001', exact: true }).click()
+  await result.getByRole('button', { name: 'Evidence and gaps' }).click()
+  const evidence = page.getByRole('heading', { name: 'Matching evidence', exact: true }).locator('..').locator('ul').first().getByRole('listitem')
+  await expect.poll(() => evidence.count()).toBeGreaterThanOrEqual(2)
+  for (const item of await evidence.all()) {
+    await expect(item).toBeVisible()
+    await expect(item).not.toContainText('; ')
+  }
+
   const download = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Export CSV' }).click()
   const csv = readFileSync(await (await download).path(), 'utf8')
@@ -168,8 +185,7 @@ test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({
 })
 
 // REQ-LLM-02 summary cards. Runs after the smoke test above, on its admin, DL/CT and confirmed JD.
-// Uses SmokeTaylor (C1, listed under All), who has no match results: a profile with match results
-// currently fails to load.
+// Uses SmokeTaylor (C1, listed under All), who has no match results.
 // `serve.py` injects the backend's FakeProvider as a summaries-only stub, with one reply for every
 // source: the backend keeps only the sentences whose evidence is in that source.
 const LABEL = 'AI summary for reading only — not used in scoring. Check against the source.'
