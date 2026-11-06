@@ -1,0 +1,22 @@
+/**
+ * Presentation masking (REQ-OUT-03): keep the first 2 characters, then 6 masked characters,
+ * then the remainder of the local part, e.g. `AlexBorder@capgemini.com` → `Al******er@capgemini.com`.
+ * Masking is a presentation control, not encryption.
+ */
+export function maskEmail(email: string | null | undefined, keep = 2, masked = 6): string | null {
+  if (!email) return null
+  const at = email.indexOf('@')
+  const local = at >= 0 ? email.slice(0, at) : email
+  const domain = at >= 0 ? email.slice(at) : ''
+  const shown = local.length > keep ? local.slice(0, keep) : local.slice(0, Math.max(0, local.length - 1))
+  const rest = local.length > keep + masked ? local.slice(keep + masked) : ''
+  return `${shown}${'*'.repeat(masked)}${rest}${domain}`
+}
+
+/** Phone masking: keep the country prefix and the last 2 digits, e.g. `+44 7700 900189` → `+44 ******89`. */
+export function maskPhone(phone: string | null | undefined): string | null {
+  if (!phone) return null
+  const compact = phone.replace(/\s+/g, '')
+  const prefix = compact.startsWith('+') ? compact.slice(0, 3) + ' ' : ''
+  return `${prefix}******${compact.slice(-2)}`
+}
