@@ -22,6 +22,7 @@ from pfc.adapters.email.transports import (
 from pfc.adapters.llm.providers import FakeProvider
 from pfc.api.routers.auth import router as auth_router
 from pfc.api.routers.email import router as email_router
+from pfc.api.routers.occ import router as occ_router
 from pfc.config import Settings
 from pfc.db import audit, users
 from pfc.db.connection import database
@@ -32,7 +33,7 @@ from pfc.security.problems import Problem, install_handlers
 from pfc.security.setup import code_path, generate_setup_code
 from pfc.services.email import EmailService
 from pfc.services.email.service import TEMPLATE_PATH
-from pfc.services.occ.templates import PLACEHOLDERS
+from pfc.services.occ.templates import PLACEHOLDER_SAMPLES, PLACEHOLDERS
 
 NOW = "2026-01-01T00:00:00Z"
 ANALYST_PASSWORD = "AnalystStrong123"
@@ -63,6 +64,7 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
     install_middleware(app)
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(email_router, prefix="/api/v1")
+    app.include_router(occ_router, prefix="/api/v1")
     app.state.email_transport = FakeTransport()
     with TestClient(app, raise_server_exceptions=False) as result:
         setup = result.post(
@@ -327,6 +329,77 @@ def test_concurrent_send_state_blocks_edit_and_approval(
             (draft["message_id"],),
         ).fetchone()[0]
     assert status == "Sending"
+
+
+@pytest.mark.parametrize("percentage", [False, True])
+def test_occ_template_saved_before_first_draft_is_reused(
+    client: TestClient,
+    percentage: bool,
+) -> None:
+    response = client.post(
+        "/api/v1/auth/login",
+        json={
+            "role": "Admin",
+            "email": "admin@example.test",
+            "password": "Strong!Random4567",
+        },
+    )
+    assert response.status_code == 200
+    saved = client.post(
+        "/api/v1/occ/email-templates",
+        headers={"X-CSRF-Token": response.json()["csrf_token"]},
+        json={
+            "name": "candidate_default",
+            "subject": "Saved {candidate_name}" + (" {{{match_pct}}}" if percentage else ""),
+            "body_html": (
+                "<style>p {{ color: red; }}</style><p>Hello {candidate_name} {{ color: red; }}</p>"
+                "<!-- {{internal_note}} -->"
+            )
+            + ("<p>{{{match_pct}}}</p>" if percentage else ""),
+        },
+    )
+    assert saved.status_code == 201, saved.text
+    run_id, _ = seed_matches(client)
+    response = create_drafts(client, login(client), run_id)
+    assert response.status_code == 201, response.text
+    assert all(draft["subject"].startswith("Saved ") for draft in response.json()["drafts"])
+    assert all("{ color: red; }" in draft["body_html"] for draft in response.json()["drafts"])
+    assert all("internal_note" not in draft["body_html"] for draft in response.json()["drafts"])
+    draft = response.json()["drafts"][0]
+    if percentage:
+        assert "{94.0%}" in draft["subject"]
+        assert "{94.0%}" in draft["body_html"]
+    csrf = login(client)
+    approved = client.post(
+        f"/api/v1/emails/{draft['message_id']}/approve",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert approved.status_code == 200, approved.text
+    with database(client.app.state.settings) as db:
+        rows = db.execute("SELECT * FROM email_templates").fetchall()
+        assert len(rows) == 1
+        assert rows[0]["email_template_id"] == saved.json()["email_template_id"]
+        assert rows[0]["is_default"] == 1
+
+
+def test_template_percentage_sample_matches_renderer(client: TestClient) -> None:
+    run_id, _ = seed_matches(client)
+    service = EmailService(
+        client.app.state.settings,
+        cast(FakeTransport, client.app.state.email_transport),
+        None,
+        client.app.state.clock,
+    )
+    with database(client.app.state.settings) as db:
+        result = dict(service._top_results(db, run_id=run_id, demand_id=None)[0])
+    result["score"] = 90.0
+    subject, body = service._render(
+        {"subject": "{match_pct}", "body_html": "<p>{match_pct}</p>"},
+        result,
+        service._fallback_sections(result),
+    )
+    assert subject == PLACEHOLDER_SAMPLES["match_pct"] == "90.0%"
+    assert body == f"<p>{PLACEHOLDER_SAMPLES['match_pct']}</p>"
 
 
 def test_default_email_template_uses_occ_placeholders(client: TestClient) -> None:
