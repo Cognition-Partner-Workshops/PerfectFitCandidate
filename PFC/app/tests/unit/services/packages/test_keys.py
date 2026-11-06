@@ -11,6 +11,56 @@ import pytest
 from pfc.config import Settings
 from pfc.security import package_signing as signing
 from pfc.services.packages import keys
+from pfc.services.packages.importer import SettingsImporter
+
+from .test_settings import exported
+
+
+@pytest.mark.parametrize("trusted", [True, False])
+def test_bundled_only_trust_verifies_packages(
+    pair: tuple[Settings, Settings],
+    tmp_path: Path,
+    trusted: bool,
+) -> None:
+    source, target = pair
+    package = exported(source)
+    for path in (target.data_dir / "keys" / "trusted").glob("*.pub"):
+        path.unlink()
+    target.config_dir = tmp_path / "install" / "config"
+    directory = target.config_dir / "keys" / "trusted"
+    directory.mkdir(parents=True)
+    public = keys.SigningKeys(source).get_public_key() if trusted else signing.generate_keypair()[1]
+    (directory / f"{signing.key_id(public)}.pub").write_bytes(signing.serialise_public_key(public))
+    if trusted:
+        assert (
+            SettingsImporter(target).apply(package.path, actor_id=1).manifest.package_version == 1
+        )
+    else:
+        with pytest.raises(signing.PackageError) as error:
+            SettingsImporter(target).preview(package.path)
+        assert error.value.reason == signing.Reason.UNTRUSTED_KEY
+
+
+def test_trust_directories_merge_and_deduplicate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PFC_CONFIG_DIR", str(tmp_path / "install" / "config"))
+    settings = Settings(data_dir=tmp_path / "data")
+    assert settings.config_dir == tmp_path / "install" / "config"
+    first, second = signing.generate_keypair()[1], signing.generate_keypair()[1]
+    for directory, public in (
+        (settings.data_dir / "keys" / "trusted", first),
+        (settings.config_dir / "keys" / "trusted", first),
+        (settings.config_dir / "keys" / "trusted", second),
+    ):
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / f"{signing.key_id(public)}.pub").write_bytes(
+            signing.serialise_public_key(public)
+        )
+    assert {signing.key_id(public) for public in keys.load_trusted_keys(settings)} == {
+        signing.key_id(first),
+        signing.key_id(second),
+    }
 
 
 class FakeDPAPI:

@@ -175,12 +175,20 @@ class SigningKeys:
 def load_trusted_keys(settings: Settings) -> list[Ed25519PublicKey]:
     """Trust only provisioned *.pub files, never the package's own key (REQ-OCC-02)."""
     keys: list[Ed25519PublicKey] = []
-    for path in sorted((settings.data_dir / "keys" / "trusted").glob("*.pub")):
-        try:
-            raw = path.read_bytes()
-            keys.append(signing.load_public_key(raw))
-        except (OSError, ValueError) as exc:
-            raise KeyStoreError(
-                "invalid_trust_store", f"Invalid trusted key file: {path.name}"
-            ) from exc
+    seen: set[str] = set()
+    for directory in (
+        settings.data_dir / "keys" / "trusted",
+        settings.config_dir / "keys" / "trusted",
+    ):
+        for path in sorted(directory.glob("*.pub")):
+            try:
+                public = signing.load_public_key(path.read_bytes())
+                identifier = signing.key_id(public)
+                if identifier not in seen:
+                    keys.append(public)
+                    seen.add(identifier)
+            except (OSError, ValueError) as exc:
+                raise KeyStoreError(
+                    "invalid_trust_store", f"Invalid trusted key file: {path.name}"
+                ) from exc
     return keys
