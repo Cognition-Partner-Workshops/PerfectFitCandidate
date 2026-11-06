@@ -67,6 +67,37 @@ def test_single_list_item_is_never_touched(field: str, text: str) -> None:
     assert _ground_skills(text, value) is value
 
 
+@pytest.mark.parametrize(
+    "context",
+    [
+        "PostgreSQL is not required",
+        "PostgreSQL is not strictly required",
+        "PostgreSQL is not at all required",
+        "PostgreSQL is no longer required",
+        "PostgreSQL is never mandatory",
+        "PostgreSQL isn't essential",
+        "PostgreSQL isn’t essential",
+        "PostgreSQL need not be used",
+        "PostgreSQL must not be used",
+        "PostgreSQL must never be used",
+        "PostgreSQL is not preferred",
+    ],
+)
+@pytest.mark.parametrize("evidence", [False, True])
+def test_negated_context_is_ambiguous_even_under_preferred_heading(
+    context: str, evidence: bool
+) -> None:
+    item = {"text": "PostgreSQL", "evidence": context if evidence else None}
+    value = {"mandatory_skills": [item], "preferred_skills": [item]}
+    assert _ground_skills("PREFERRED SKILLS:\n" + context, value) is value
+
+
+def test_negated_heading_is_ambiguous() -> None:
+    item = {"text": "PostgreSQL"}
+    value = {"mandatory_skills": [item], "preferred_skills": [item]}
+    assert _ground_skills("Not required:\nPostgreSQL", value) is value
+
+
 @pytest.mark.parametrize("evidence", [None, "Redis", "Redis is required"])
 def test_heading_or_clause_used_when_evidence_has_no_cue_or_is_ungrounded(
     evidence: str | None,

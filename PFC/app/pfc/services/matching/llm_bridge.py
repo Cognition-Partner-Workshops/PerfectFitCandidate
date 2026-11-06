@@ -30,6 +30,9 @@ _HEADING = re.compile(
     re.I,
 )
 _CLAUSE_BREAK = re.compile(r";|[.!?](?=\s|$)")
+_WORDS = re.compile(r"\w+(?:['’]\w+)*")
+_NEGATION = re.compile(r"(?:not|no|never|\w+n['’]t)", re.I)
+_NEED_NOT = re.compile(r"(?<!\w)need\s+not(?!\w)", re.I)
 
 
 def _normalised(text: str) -> str:
@@ -40,6 +43,18 @@ def jd_generation_schema() -> dict[str, Any]:
     schema = Requirements.model_json_schema()
     schema["$defs"]["ExtractedItem"]["properties"].pop("classification_reason")
     return schema
+
+
+def _has_negated_cue(context: str) -> bool:
+    if _NEED_NOT.search(context):
+        return True
+    for pattern in _CUES.values():
+        for cue in pattern.finditer(context):
+            before = _WORDS.findall(context[: cue.start()])[-3:]
+            after = _WORDS.findall(context[cue.end() :])[:3]
+            if any(_NEGATION.fullmatch(word) for word in before + after):
+                return True
+    return False
 
 
 def _ground_skills(text: str, value: dict[str, Any]) -> dict[str, Any]:
@@ -79,9 +94,13 @@ def _ground_skills(text: str, value: dict[str, Any]) -> dict[str, Any]:
                 return None
             position = occurrence.start()
             context = next((jd[a:b] for a, b in clauses if a <= position < b), "")
+        if _has_negated_cue(context):
+            return None
         found = [field for field, pattern in _CUES.items() if pattern.search(context)]
         if not found:
             heading = next((line for start, line in reversed(headings) if start <= position), "")
+            if _has_negated_cue(heading):
+                return None
             found = [field for field, pattern in _CUES.items() if pattern.search(heading)]
         return found[0] if len(found) == 1 else None
 
