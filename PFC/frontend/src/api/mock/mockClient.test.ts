@@ -120,3 +120,25 @@ describe('mock settings packages (REQ-OCC-01/02)', () => {
     expect(a.signed).toBe(true)
   })
 })
+
+describe('mock export (REQ-OUT-09)', () => {
+  it('masks emails by default and exports verbatim emails on request', async () => {
+    await api.login({ role: 'Admin', email: ADMIN.email, password: ADMIN.password })
+    const [run] = await api.listMatchRuns()
+    const [first] = await api.getResults(run.runId)
+    const email = await api.unmask('resource', first.resourceId, 'email')
+    const text = (b: Blob) =>
+      new Promise<string>((resolve) => {
+        const r = new FileReader()
+        r.onload = () => resolve(String(r.result))
+        r.readAsText(b)
+      })
+    const masked = await text((await api.exportResults(run.runId, {}, 'csv', false)).blob)
+    const full = await text((await api.exportResults(run.runId, {}, 'csv', true)).blob)
+    expect(masked.includes(email)).toBe(false)
+    expect(full.includes(email)).toBe(true)
+    const log = JSON.stringify(await api.auditLog({}))
+    expect(log.includes('Unmasked emails in results export')).toBe(true)
+    expect(log.includes(`Exported results for run ${run.runId}`)).toBe(true)
+  })
+})

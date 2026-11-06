@@ -37,6 +37,7 @@ import type {
   PersonalSettings,
   ProblemDetails,
   Resource,
+  ResultFilters,
   ResourceTeamMember,
   Role,
   ScoringTemplate,
@@ -66,6 +67,13 @@ export class ApiError extends Error {
   get code(): string | undefined {
     return this.problem.code
   }
+}
+
+export type ExportFormat = 'csv' | 'xlsx'
+
+export interface ExportedFile {
+  blob: Blob
+  fileName: string
 }
 
 export interface EmailList {
@@ -137,6 +145,8 @@ export interface ApiClient {
   /** POST /pii/unmask — audited (REQ-OUT-03, REQ-AUTH-05) */
   unmask(entity: 'resource' | 'candidate' | 'occ_user', id: number, field: 'email' | 'phone'): Promise<string>
 
+  /** GET /match-runs/{id}/export?format=csv|xlsx — emails masked unless includeEmails (REQ-OUT-09). */
+  exportResults(runId: number, filters: ResultFilters, format: ExportFormat, includeEmails: boolean): Promise<ExportedFile>
   /** GET /analytics/summary */
   analyticsSummary(filters: DashboardFilters): Promise<AnalyticsSummary>
   /** GET /analytics/demand */

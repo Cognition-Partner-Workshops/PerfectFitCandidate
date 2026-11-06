@@ -498,6 +498,57 @@ def test_req_out_01_demand_paging_sort_and_detail(demand_rows: TestClient) -> No
     assert client.get("/api/v1/demands?page=9").json()["items"] == []
 
 
+@pytest.mark.parametrize("endpoint", ["/resources", "/resources/excluded"])
+def test_resource_lists_include_candidate_id_and_cv_count(
+    client: TestClient, endpoint: str
+) -> None:
+    commit(
+        client,
+        upload(
+            client,
+            "ct",
+            [
+                {"Bench Status": "Selected"},
+                {
+                    "ShortName": "Unlinked",
+                    "Email Address": "unlinked@example.com",
+                    "Bench Status": "Selected",
+                },
+            ],
+        ),
+    )
+    with database(client.app.state.settings) as db:
+        candidate_id = db.execute(
+            "SELECT candidate_id FROM resources WHERE short_name_key='alex'"
+        ).fetchone()[0]
+        db.execute("UPDATE resources SET candidate_id=NULL WHERE short_name_key='unlinked'")
+        resume_id = db.execute(
+            "INSERT INTO resumes(candidate_id,source_path,file_name,file_sha256,"
+            "mime_type,discovered_at) VALUES (?,'profile.pdf','profile.pdf','list-cv',"
+            "'application/pdf','2026-01-01')",
+            (candidate_id,),
+        ).lastrowid
+        for version, owner in [(1, candidate_id), (2, candidate_id), (3, None)]:
+            db.execute(
+                "INSERT INTO cv_versions(resume_id,candidate_id,version_no,text_sha256,text_norm,"
+                "extracted_by,is_latest,extracted_at) VALUES (?,?,?,?,?,'test',?,'2026-01-01')",
+                (resume_id, owner, version, f"text-{version}", "SQL", version == 2),
+            )
+    response = client.get(f"/api/v1{endpoint}")
+    assert response.status_code == 200, response.text
+    items = {row["short_name"]: row for row in response.json()["items"]}
+    assert items["Alex"]["candidate_id"] == candidate_id
+    assert items["Alex"]["cv_versions_count"] == 2
+    assert items["Unlinked"]["candidate_id"] is None
+    assert items["Unlinked"]["cv_versions_count"] == 0
+    assert items["Alex"]["email_address"] == "a***@example.com"
+    assert "alex@example.com" not in response.text
+    detail = client.get(f"/api/v1/resources/{items['Alex']['resource_id']}").json()
+    assert detail["candidate_id"] == candidate_id
+    assert detail["cv_versions_count"] == 2
+    assert detail["latest_cv"]["version_no"] == 2
+
+
 @pytest.mark.parametrize(
     "query,expected",
     [
