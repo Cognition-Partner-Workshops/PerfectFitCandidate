@@ -199,3 +199,35 @@ describe('resolveApiMode', () => {
     expect(resolveApiMode({ VITE_PFC_API: 'http', DEV: true }, '?mock=1')).toBe('http')
   })
 })
+
+describe('HttpApiClient — resources and match runs (ingestion #12, matching #10)', () => {
+  const item = (id: number, eligibility: string) => ({
+    resource_id: id, short_name: `R${id}`, email_address: 'jane.doe@example.com', grade: 'C1', location: 'Pune',
+    bench_status: 'Available', bench_status_code: 'AVAILABLE', skills_raw: 'Java, Spring; SQL', available_capacity: 'Y',
+    bench_start_date: '2026-10-01', bench_end_date: null, group_name: 'G1', lifecycle: 'active', eligibility,
+    exclusion_reasons: eligibility === 'excluded' ? ['Status excluded'] : [], pending_review: false, unmapped_status: false, occ_pending_review: false,
+  })
+
+  it('unwraps and pages through ResourcePage for excluded resources', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock
+      .mockResolvedValueOnce(json({ items: [item(1, 'excluded'), item(2, 'excluded')], page: 1, page_size: 2, total: 3 }))
+      .mockResolvedValueOnce(json({ items: [item(3, 'excluded')], page: 2, page_size: 2, total: 3 }))
+    const rows = await api.listExcludedResources()
+    expect(fetchMock.mock.calls.map(([u]) => String(u))).toEqual([
+      '/api/v1/resources/excluded?page=1&page_size=200',
+      '/api/v1/resources/excluded?page=2&page_size=200',
+    ])
+    expect(rows.map((r) => r.resourceId)).toEqual([1, 2, 3])
+    expect(rows[0]).toMatchObject({ eligibility: 'excluded', skills: ['Java', 'Spring', 'SQL'], availableCapacity: 'Y', exclusionReasons: ['Status excluded'] })
+    expect(rows[0]?.emailAddressMasked).not.toContain('jane.doe')
+  })
+
+  it('stops paging on an empty page and fetches a single run by id', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(json({ items: [], page: 1, page_size: 200, total: 5 })).mockResolvedValueOnce(json({ runId: 9, status: 'running' }))
+    expect(await api.listResources()).toEqual([])
+    expect((await api.getMatchRun(9)).status).toBe('running')
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe('/api/v1/match-runs/9')
+  })
+})

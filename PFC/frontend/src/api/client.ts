@@ -128,6 +128,8 @@ export interface ApiClient {
 
   /** GET /match-runs */
   listMatchRuns(): Promise<MatchRun[]>
+  /** GET /match-runs/{id} — polled while a run is queued or running */
+  getMatchRun(runId: number): Promise<MatchRun>
   /** GET /match-runs/{id}/results */
   getResults(runId: number): Promise<MatchResult[]>
   /** POST /match-results/{id}/overrides */
