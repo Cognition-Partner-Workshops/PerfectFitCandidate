@@ -91,7 +91,9 @@ def update_user(
         "UPDATE users SET " + ", ".join(f"{key}=?" for key in changes) + " WHERE user_id=?",
         (*changes.values(), target),
     )
-    if "role_id" in changes or changes.get("is_active") is False:
+    if changes.get("role_id", before["role_id"]) != before["role_id"] or (
+        before["is_active"] and changes.get("is_active") is False
+    ):
         db.execute(
             "UPDATE sessions SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL",
             (now(), target),

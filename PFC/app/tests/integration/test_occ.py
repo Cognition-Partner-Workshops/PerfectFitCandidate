@@ -87,6 +87,27 @@ def test_access_and_errors(client: TestClient) -> None:
         assert result.json()["code"] == code
 
 
+def test_unchanged_role_preserves_session(client: TestClient) -> None:
+    """REQ-AUTH-04: resubmitting an unchanged role must not revoke the session."""
+    login(client)
+    assert client.put("/api/v1/occ/users/1", json={"role": "Admin"}).status_code == 200
+    assert client.get("/api/v1/auth/me").status_code == 200
+    login(client, "worker@example.com", "Analyst")
+    login(client)
+    assert client.put("/api/v1/occ/users/2", json={"role": "Admin"}).status_code == 200
+    with database(client.app.state.settings) as db:
+        assert not db.execute(
+            "SELECT 1 FROM sessions WHERE user_id=2 AND revoked_at IS NULL"
+        ).fetchone()
+    login(client, "worker@example.com", "Admin")
+    login(client)
+    assert client.put("/api/v1/occ/users/2", json={"is_active": False}).status_code == 200
+    with database(client.app.state.settings) as db:
+        assert not db.execute(
+            "SELECT 1 FROM sessions WHERE user_id=2 AND revoked_at IS NULL"
+        ).fetchone()
+
+
 def test_users_and_password_reset(client: TestClient) -> None:
     """REQ-AUTH-02/04/05: issue passwords once; reset revokes sessions and forces change."""
     login(client)
