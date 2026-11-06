@@ -1,0 +1,15 @@
+{
+  "demands": ["jd01", "jd02", "jd09"],
+  "candidates": [
+    {"name":"A", "ct":"SQL", "cv":["Python", "Docker"]},
+    {"name":"B", "ct":"Python", "cv":["SQL", "Spark"]},
+    {"name":"C", "ct":"SQL, Python", "cv":["SQL", "Python"]},
+    {"name":"D", "ct":"AWS, SQL", "cv":["Terraform", "Python"]},
+    {"name":"E", "ct":"SQL, Python, Spark", "cv":["AWS", "Terraform"]},
+    {"name":"F", "ct":"AWS, Terraform", "cv":["SQL", "Python"]},
+    {"name":"G", "ct":"SQL, Docker", "cv":["Python", "AWS"]},
+    {"name":"H", "ct":"SQL, Python", "cv":["Docker", "Spark"]},
+    {"name":"I", "ct":"SQL, AWS", "cv":["SQL", "Docker"]},
+    {"name":"J", "ct":"SQL, Python, AWS", "cv":["Python", "Terraform"]}
+  ]
+}

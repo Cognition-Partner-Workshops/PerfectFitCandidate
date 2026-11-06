@@ -105,8 +105,15 @@ def semantic_inputs(
     result = {}
     basis_vectors = {}
     for basis in bases:
-        owner_type = "ct_skills" if basis.basis_id.startswith("CT:") else "cv"
-        owner_id = int(basis.basis_id.split(":")[1])
+        parts = basis.basis_id.split(":")
+        if parts[0] == "CTCV" and len(parts) == 3:
+            owner_type, owner_id = "ct_cv_skills", int(parts[1])
+            int(parts[2])
+        elif parts[0] in ("CT", "CV") and len(parts) == 2:
+            owner_type = "ct_skills" if parts[0] == "CT" else "cv"
+            owner_id = int(parts[1])
+        else:
+            raise ValueError("Invalid matching basis ID")
         texts = [f"Skill: {skill.raw}\nEvidence: {skill.evidence}" for skill in basis.skills]
         basis_vectors[basis.basis_id] = (
             cache.vectors(owner_type, owner_id, texts, task="document") if texts else []

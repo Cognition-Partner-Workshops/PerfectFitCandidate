@@ -19,7 +19,7 @@ from pfc.domain.scoring import (
     Resource,
     SkillBasis,
     SkillEvidence,
-    build_ct_basis,
+    build_combined_basis,
     run_match,
 )
 from pfc.jobs.runner import JobCancelled, JobContext, JobRunner
@@ -159,6 +159,7 @@ def _inputs(
                     normalise_term(item["skill_norm"]),
                     item["canonical"] or config.synonyms.resolve(item["skill_raw"]),
                     item["evidence"] or item["skill_raw"],
+                    item["canonical_skill_id"],
                 )
                 for item in skills
             )
@@ -175,7 +176,15 @@ def _inputs(
 
 
 def _cv_id(basis_id: str) -> int | None:
-    return int(basis_id.split(":")[1]) if basis_id.startswith("CV:") else None
+    parts = basis_id.split(":")
+    if parts[0] == "CTCV" and len(parts) == 3:
+        int(parts[1])
+        return int(parts[2])
+    if parts[0] == "CV" and len(parts) == 2:
+        return int(parts[1])
+    if parts[0] == "CT" and len(parts) == 2:
+        return None
+    raise ValueError("Invalid matching basis ID")
 
 
 def _persist(
@@ -323,9 +332,7 @@ def _score_dirty(
         if not ds or not rs:
             continue
         context.raise_if_cancelled()
-        candidates = {r.candidate_id for r in rs}
-        bases = [build_ct_basis(r, config) for r in rs]
-        bases += [b for key, values in cvs.items() if key in candidates for b in values]
+        bases = [build_combined_basis(r, cvs.get(r.candidate_id or "", []), config) for r in rs]
         semantics = semantic_inputs(ds, metadata, bases, cache, template, context.report_progress)
         originals = {r.resource_id: r for r in rs}
         expanded = [replace(r, candidate_id=f"row:{r.resource_id}") for r in rs]
@@ -401,6 +408,10 @@ def start_run(
             "resources": [repr(resource) for resource in resources],
             "display_emails": display_emails,
             "cv_bases": {key: [asdict(basis) for basis in value] for key, value in cvs.items()},
+            "combined_bases": [
+                asdict(build_combined_basis(r, cvs.get(r.candidate_id or "", []), config))
+                for r in resources
+            ],
             "experience_evidence": experience,
         }
         llm_models = sorted({m["extracted_by"] for m in metadata.values() if m["extracted_by"]})
@@ -424,7 +435,7 @@ def start_run(
                 "engine_version": ENGINE_VERSION,
             }
         )
-        inputs = fingerprints(demands, resources, cvs, metadata, display_emails)
+        inputs = fingerprints(demands, resources, cvs, metadata, display_emails, config)
         latest = db.execute(
             "SELECT * FROM match_runs WHERE status='completed' ORDER BY run_id DESC LIMIT 1"
         ).fetchone()
@@ -498,8 +509,10 @@ def start_run(
                     )
                     context.raise_if_cancelled()
                 return
-            bases = [build_ct_basis(resource, config) for resource in resources]
-            bases += [basis for candidate_bases in cvs.values() for basis in candidate_bases]
+            bases = [
+                build_combined_basis(resource, cvs.get(resource.candidate_id or "", []), config)
+                for resource in resources
+            ]
             semantics = semantic_inputs(
                 demands, metadata, bases, cache, template, context.report_progress
             )

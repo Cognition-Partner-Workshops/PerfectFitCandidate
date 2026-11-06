@@ -36,6 +36,7 @@ class SkillEvidence:
     normalised: str
     canonical: str | None = None
     evidence: str = ""
+    canonical_skill_id: int | None = None
 
 
 @dataclass(frozen=True)

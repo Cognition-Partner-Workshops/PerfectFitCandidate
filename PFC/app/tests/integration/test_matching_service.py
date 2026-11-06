@@ -506,7 +506,7 @@ def test_req_mat_03_run_persistence_uniqueness_cv_exclusions(
         run = get_run(db, run_id)
         assert run["status"] == "completed"
         assert run["template_id"] and run["embedding_model_id"]
-        assert run["engine_version"] == "1.0.0"
+        assert run["engine_version"] == "1.1.0"
         assert len(run["config_hash"]) == len(run["synonyms_version"]) == 64
         assert run["llm_model"] == "manual"
         assert run["demands_assessed"] == 2
@@ -519,7 +519,7 @@ def test_req_mat_03_run_persistence_uniqueness_cv_exclusions(
         cv_row = next(r for r in matches if r["resource_id"] == resource)
         assert cv_row["best_cv_version_id"] == cv_id
         detail = result_detail(db, cv_row["result_id"])
-        assert {s["cv_version_id"] for s in detail["cv_scores"]} == {None, cv_id}
+        assert [s["cv_version_id"] for s in detail["cv_scores"]] == [cv_id]
         assert len(detail["breakdown"]) == 6
         assert cv_row["person_email"] == "Al******er@capgemini.com"
         assert "AlexBorder@" not in json.dumps(detail)
