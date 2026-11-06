@@ -79,4 +79,5 @@ def scoring_bytes(fixture: tuple[Api, dict[str, Any]]) -> bytes:
 @pytest.mark.parametrize("dataset", ["matching", "small"])
 def test_req_mat_06_score_bytes(request: pytest.FixtureRequest, dataset: str, api: Api) -> None:
     actual = scoring_bytes(request.getfixturevalue(dataset))
-    assert actual == (GOLDENS / f"mat06_scores_{dataset}.json").read_bytes()
+    expected = (GOLDENS / f"mat06_scores_{dataset}.json").read_text(encoding="utf-8")
+    assert actual == expected.encode("utf-8")

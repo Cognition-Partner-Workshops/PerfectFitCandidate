@@ -2,12 +2,35 @@
 
 from typing import Any, Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from .cv import CVFacts
 from .occ_approvals import CamelModel
 
 IdentityStatus = Literal["complete", "incomplete", "ambiguous", "review_later"]
+Classification = Literal["Internal", "External", "Unknown"]
+
+
+class ClassificationOverride(CamelModel):
+    classification: Classification | None
+    reason: str = Field(min_length=1)
+
+    @field_validator("reason")
+    @classmethod
+    def nonblank_reason(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("A non-blank reason is required")
+        return value.strip()
+
+
+class CandidateClassification(CamelModel):
+    candidate_id: int
+    effective_classification: Classification
+    computed_classification: Classification
+    classification_override: Classification | None
+    override_reason: str | None
+    override_by: int | None
+    override_at: str | None
 
 
 class IdentityResolution(CamelModel):
