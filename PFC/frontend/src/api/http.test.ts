@@ -32,6 +32,16 @@ afterEach(() => {
 })
 
 describe('HttpApiClient — TDD §9.3 session + CSRF', () => {
+  it('preserves additive JD evidence flags through requirements review and save', async () => {
+    const api = new HttpApiClient('/api/v1')
+    const row = { demandId: 1, mandatorySkills: ['SQL'], items: [{ kind: 'mandatory_skill', text: 'SQL', jdReqId: 7, evidence: null, evidenceUnverified: true }] }
+    fetchMock.mockResolvedValueOnce(json(row)).mockResolvedValueOnce(json(row))
+    const draft = await api.getRequirements(1)
+    expect(draft.items?.[0].evidenceUnverified).toBe(true)
+    expect((await api.saveRequirements(draft)).items?.[0].evidence).toBeNull()
+    expect(JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string).items).toEqual(row.items)
+  })
+
   it('sends cookies same-origin and X-CSRF-Token from the login response on writes only', async () => {
     const api = new HttpApiClient('/api/v1')
     fetchMock.mockResolvedValueOnce(json(AUTH))
