@@ -459,6 +459,7 @@ def start_run(
                     "UPDATE match_runs SET status='completed',finished_at=? WHERE run_id=?",
                     (timestamp(clock()), run_id),
                 )
+                context.raise_if_cancelled()
         except JobCancelled:
             finish("cancelled")
             raise

@@ -9,9 +9,10 @@ def reconcile_runs(db: sqlite3.Connection, run_id: int | None = None) -> None:
         "WHERE job_id=json_extract(match_runs.scope_json,'$.job_id')),"
         "finished_at=(SELECT finished_at FROM jobs "
         "WHERE job_id=json_extract(match_runs.scope_json,'$.job_id')) "
-        "WHERE status IN ('queued','running') AND (? IS NULL OR run_id=?) "
+        "WHERE (? IS NULL OR run_id=?) "
         "AND EXISTS (SELECT 1 FROM jobs WHERE "
         "job_id=json_extract(match_runs.scope_json,'$.job_id') "
-        "AND status IN ('cancelled','failed'))",
+        "AND ((match_runs.status IN ('queued','running') AND jobs.status IN ('cancelled','failed')) "
+        "OR (match_runs.status='completed' AND jobs.status='cancelled')))",
         (run_id, run_id),
     )

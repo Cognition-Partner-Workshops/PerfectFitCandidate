@@ -651,6 +651,65 @@ def test_req_mat_08_real_job_cancellation(settings, runner):
         release.set()
 
 
+def test_req_mat_08_cancellation_during_persistence_rolls_back(settings, runner, monkeypatch):
+    from pfc.jobs.runner import JobContext
+    from pfc.services.matching import runs
+
+    with database(settings) as db:
+        seed_demand(db)
+        seed_resource(db)
+    persisted = threading.Event()
+    original_persist = runs._persist
+    original_check = JobContext.raise_if_cancelled
+
+    def persist_then_cancel(*args, **kwargs):
+        original_persist(*args, **kwargs)
+        persisted.set()
+
+    def check(context):
+        if persisted.is_set():
+            context.cancelled.set()
+        original_check(context)
+
+    monkeypatch.setattr(runs, "_persist", persist_then_cancel)
+    monkeypatch.setattr(JobContext, "raise_if_cancelled", check)
+    run_id, job_id = start_run(
+        settings,
+        runner,
+        MatchingPorts(FakeEmbedder()),
+        user_id=1,
+        clock=lambda: NOW,
+    )
+    assert wait_done(runner, job_id).status == "cancelled"
+    with database(settings) as db:
+        assert get_run(db, run_id)["status"] == "cancelled"
+        for table in (
+            "match_results",
+            "match_cv_scores",
+            "score_breakdowns",
+            "eligibility_exclusions",
+        ):
+            assert db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+
+
+def test_req_mat_08_late_job_cancellation_overrides_completion(settings, runner):
+    with database(settings) as db:
+        demand_id = seed_demand(db)
+        seed_resource(db)
+    earlier = execute(settings, runner)
+    cancelled = execute(settings, runner)
+    with database(settings) as db:
+        job_id = json.loads(get_run(db, cancelled)["scope_json"])["job_id"]
+        db.execute(
+            "UPDATE jobs SET status='cancelled',finished_at=? WHERE job_id=?",
+            (STAMP, job_id),
+        )
+        assert list_results(db)["run_id"] == earlier
+        assert demand_matches(db, demand_id)["run_id"] == earlier
+        row = get_run(db, cancelled)
+        assert row["status"] == "cancelled" and row["finished_at"] == STAMP
+
+
 def test_req_mat_08_submission_failure(settings, runner):
     runner.shutdown()
     with pytest.raises(RuntimeError, match="closed"):
