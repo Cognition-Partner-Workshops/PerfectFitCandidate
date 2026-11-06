@@ -2,6 +2,46 @@ param([string]$Archive, [string]$PackageDir, [switch]$Child)
 $ErrorActionPreference = 'Stop'
 
 if ($Child) {
+    Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class OfflineSmokeProfile {
+    [DllImport("userenv.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern bool GetUserProfileDirectory(IntPtr token, StringBuilder path, ref uint size);
+}
+'@
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    try {
+        [uint32]$size = 0
+        [void][OfflineSmokeProfile]::GetUserProfileDirectory($identity.Token, $null, [ref]$size)
+        if (-not $size) { throw 'Could not resolve the smoke account profile from its token' }
+        $buffer = [Text.StringBuilder]::new([int]$size)
+        if (-not [OfflineSmokeProfile]::GetUserProfileDirectory($identity.Token, $buffer, [ref]$size)) {
+            throw [ComponentModel.Win32Exception]::new([Runtime.InteropServices.Marshal]::GetLastWin32Error())
+        }
+        $profile = [IO.Path]::GetFullPath($buffer.ToString()).TrimEnd('\')
+    } finally {
+        $identity.Dispose()
+    }
+    $env:USERPROFILE = $profile
+    $drive = [IO.Path]::GetPathRoot($profile).TrimEnd('\')
+    $env:HOMEDRIVE = $drive
+    $env:HOMEPATH = $profile.Substring($drive.Length)
+    # GetFolderPath can fall back to these variables if the native lookup fails.
+    Remove-Item Env:LOCALAPPDATA, Env:APPDATA -ErrorAction SilentlyContinue
+    $localAppData = [Environment]::GetFolderPath('LocalApplicationData', 'Create')
+    $appData = [Environment]::GetFolderPath('ApplicationData', 'Create')
+    [Console]::Error.WriteLine("Offline smoke user: $(& whoami.exe); LOCALAPPDATA: $localAppData")
+    foreach ($folder in @($localAppData, $appData)) {
+        if ([string]::IsNullOrWhiteSpace($folder) -or -not [IO.Path]::GetFullPath($folder).StartsWith("$profile\", [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Smoke app-data folder is not under the current token's profile '$profile': '$folder'"
+        }
+    }
+    $env:LOCALAPPDATA = $localAppData
+    $env:APPDATA = $appData
+    $env:TEMP = $env:TMP = Join-Path $localAppData 'Temp'
+    New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null
     $env:HTTP_PROXY = $env:HTTPS_PROXY = $env:ALL_PROXY = 'http://127.0.0.1:9'
     $env:NO_PROXY = '127.0.0.1,localhost,::1'
     $env:HF_HUB_OFFLINE = $env:TRANSFORMERS_OFFLINE = '1'
