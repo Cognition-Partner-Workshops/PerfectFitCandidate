@@ -1,5 +1,6 @@
 """Queued scoring and durable snapshots (REQ-MAT-03/08, REQ-ELIG-08, REQ-SCR-04)."""
 
+import json
 import sqlite3
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, replace
@@ -23,6 +24,7 @@ from pfc.domain.scoring import (
     run_match,
 )
 from pfc.jobs.runner import JobCancelled, JobContext, JobRunner
+from pfc.services.ingestion.masking import PHONE
 from pfc.services.occ.domain import active_template, occ_domain_config
 
 from .common import audit, digest, dumps, timestamp
@@ -35,6 +37,39 @@ from .semantic import VectorCache, model_identity, semantic_inputs
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def cv_fact_skills(facts_json: str | None, config: DomainConfig) -> tuple[SkillEvidence, ...]:
+    if not facts_json:
+        return ()
+    try:
+        payload = json.loads(facts_json)
+    except (ValueError, TypeError):
+        return ()
+    if not isinstance(payload, dict) or not isinstance(payload.get("facts"), dict):
+        return ()
+    skills = payload["facts"].get("skills")
+    if not isinstance(skills, list):
+        return ()
+    if any(
+        not isinstance(item, dict)
+        or not isinstance(item.get("value"), str)
+        or not item["value"].strip()
+        or not isinstance(item.get("evidence"), str)
+        or not item["evidence"].strip()
+        for item in skills
+    ):
+        return ()
+    return tuple(
+        SkillEvidence(
+            item["value"],
+            normalise_term(item["value"]),
+            config.synonyms.resolve(item["value"]),
+            item["evidence"],
+        )
+        for item in skills
+        if "@" not in item["value"] and not PHONE.search(item["value"])
+    )
 
 
 def _embedding_model(db: sqlite3.Connection, identity: dict[str, Any]) -> int:
@@ -158,6 +193,12 @@ def _inputs(
             )
             for item in skills
         )
+        if version["extraction_removed_at"] is None:
+            seen = {item.normalised for item in evidence}
+            for item in cv_fact_skills(version["facts_json"], config):
+                if item.normalised not in seen:
+                    evidence += (item,)
+                    seen.add(item.normalised)
         cv_bases.setdefault(candidate, []).append(
             SkillBasis(
                 f"CV:{version['cv_version_id']}",
