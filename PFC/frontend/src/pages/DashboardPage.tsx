@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { DataChangedBanner } from '../components/DataChangedBanner'
 import type { EChartsCoreOption } from 'echarts/core'
 import { api } from '../api'
 import { toDashboardQuery } from '../api/mappers'
@@ -65,6 +66,16 @@ export function DashboardPage() {
   const demand = useQuery({ queryKey: ['analytics', 'demand', df], queryFn: () => api.analyticsDemand(df) })
   const bench = useQuery({ queryKey: ['analytics', 'bench', df], queryFn: () => api.analyticsBench(df) })
   const match = useQuery({ queryKey: ['analytics', 'match', df], queryFn: () => api.analyticsMatch(df) })
+  // The run list is capped at the newest 50 runs, so look up the summary's run by id. Refetch on mount and focus so a
+  // data change made elsewhere since the last visit shows up.
+  const shownRunId = summary.data?.run?.runId
+  const shownRun = useQuery({
+    queryKey: ['run', shownRunId],
+    queryFn: () => api.getMatchRun(shownRunId ?? 0),
+    enabled: shownRunId !== undefined,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+  })
   const all = useQuery({ queryKey: ['analytics', 'options'], queryFn: () => Promise.all([api.listDemands(), api.listResources()]) })
 
   const options = useMemo(() => {
@@ -85,6 +96,7 @@ export function DashboardPage() {
 
   return (
     <div className="page">
+      {shownRun.data && <DataChangedBanner run={shownRun.data} />}
       <div className="page-header">
         <h1>Dashboard</h1>
         <span className="spacer" />

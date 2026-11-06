@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pfc.services.pii import mask_email
 
 from .common import atomic, audit, timestamp
+from .data_changes import annotate_data_changes
 from .lifecycle import reconcile_runs
 
 BANDS = {"Strong", "Potential", "Avg", "Weak", "Insufficient data"}
@@ -57,7 +58,7 @@ def _mask_email(value: str | None) -> str | None:
 def list_runs(db: sqlite3.Connection, *, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
     _paging(limit, offset)
     reconcile_runs(db)
-    return [
+    runs = [
         dict(row)
         for row in db.execute(
             "SELECT r.*,t.version AS template_version FROM match_runs r "
@@ -65,6 +66,8 @@ def list_runs(db: sqlite3.Connection, *, limit: int = 50, offset: int = 0) -> li
             (limit, offset),
         )
     ]
+    annotate_data_changes(db, runs)
+    return runs
 
 
 def get_run(db: sqlite3.Connection, run_id: int) -> dict[str, Any] | None:
@@ -74,7 +77,11 @@ def get_run(db: sqlite3.Connection, run_id: int) -> dict[str, Any] | None:
         "JOIN scoring_templates t USING(template_id) WHERE run_id=?",
         (run_id,),
     ).fetchone()
-    return dict(row) if row else None
+    if row is None:
+        return None
+    run = dict(row)
+    annotate_data_changes(db, [run])
+    return run
 
 
 def _paging(limit: int | None, offset: int) -> None:

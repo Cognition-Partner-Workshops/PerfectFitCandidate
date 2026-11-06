@@ -1,9 +1,10 @@
 import json
-import re
 import sqlite3
+from string import Formatter
 from typing import Any
 
 from pfc.security.problems import Problem
+from pfc.services.email.service import UNRESOLVED_PLACEHOLDER, sanitize_email_html
 from pfc.services.occ.common import audit_write, get_row, now
 
 WEIGHTS = {"skills", "grade", "location", "bench_start", "bench_end", "status"}
@@ -18,6 +19,8 @@ PLACEHOLDERS = {
     "spoc_1",
     "spoc_2",
 }
+PLACEHOLDER_SAMPLES = {name: "Example" for name in PLACEHOLDERS}
+PLACEHOLDER_SAMPLES["match_pct"] = f"{90.0:.1f}%"
 
 
 def decode(row: dict[str, Any]) -> dict[str, Any]:
@@ -153,9 +156,42 @@ def activate(db: sqlite3.Connection, user_id: int, target: int) -> dict[str, Any
 
 
 def validate_placeholders(subject: str, body: str) -> None:
-    tokens = re.findall(r"(?<!\{)\{([^{}\s:;]+)\}(?!\})", subject + "\n" + body)
-    if set(tokens) - PLACEHOLDERS:
-        raise Problem(422, "UNKNOWN_PLACEHOLDER", "Unknown email placeholder")
+    for field, text in (("subject", subject), ("body_html", body)):
+        try:
+            for _, name, spec, conversion in Formatter().parse(text):
+                if name is None:
+                    continue
+                if not name.isidentifier():
+                    raise Problem(
+                        422,
+                        "TEMPLATE_INVALID",
+                        f"{field}: only plain named placeholders are allowed; "
+                        "no attribute or index access",
+                    )
+                if name not in PLACEHOLDERS:
+                    raise Problem(
+                        422, "UNKNOWN_PLACEHOLDER", f"{field}: unknown email placeholder {name}"
+                    )
+                if spec or conversion is not None:
+                    raise Problem(
+                        422,
+                        "TEMPLATE_INVALID",
+                        f"{field}: format specifications and conversions are not supported",
+                    )
+            rendered = text.format_map(PLACEHOLDER_SAMPLES)
+            rendered = (
+                sanitize_email_html(rendered)
+                if field == "body_html"
+                else " ".join(rendered.splitlines())
+            )
+            if UNRESOLVED_PLACEHOLDER.search(rendered):
+                raise Problem(
+                    422,
+                    "TEMPLATE_INVALID",
+                    f"{field}: escaped literal could be an unresolved placeholder at approval",
+                )
+        except ValueError as exc:
+            raise Problem(422, "TEMPLATE_INVALID", f"{field}: {exc}") from exc
 
 
 def email_list(db: sqlite3.Connection, user_id: int, all_versions: bool) -> list[dict[str, Any]]:
@@ -182,8 +218,9 @@ def create_email(db: sqlite3.Connection, user_id: int, data: dict[str, Any]) -> 
         "SELECT coalesce(max(version),0)+1 FROM email_templates WHERE name=?", (data["name"],)
     ).fetchone()[0]
     cursor = db.execute(
-        "INSERT INTO email_templates(name,version,subject,body_html,created_by,created_at)"
-        " VALUES (?,?,?,?,?,?)",
+        "INSERT INTO email_templates"
+        "(name,version,subject,body_html,is_default,created_by,created_at)"
+        " VALUES (?,?,?,?,NOT EXISTS(SELECT 1 FROM email_templates WHERE is_default=1),?,?)",
         (data["name"], version, data["subject"], data["body_html"], user_id, now()),
     )
     target = int(cursor.lastrowid or 0)
