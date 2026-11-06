@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
@@ -15,6 +16,7 @@ from pfc.api.routers.health import router as health_router
 from pfc.api.routers.ingestion import router as ingestion_router
 from pfc.api.routers.llm import router as llm_router
 from pfc.api.routers.occ import router as occ_router
+from pfc.api.routers.packages import router as packages_router
 from pfc.api.routers.resources import router as resources_router
 from pfc.api.routers.settings import router as settings_router
 from pfc.config import Settings
@@ -29,6 +31,9 @@ from pfc.security.passwords import hasher
 from pfc.security.problems import Problem, install_handlers
 from pfc.security.setup import code_path, generate_setup_code
 from pfc.services.occ.seed import seed_reference_data
+from pfc.services.packages.inbox import scan_inbox
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -43,6 +48,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 generate_setup_code(settings)
             elif count_admins(db):
                 code_path(settings).unlink(missing_ok=True)
+        try:
+            scan_inbox(settings)
+        except Exception:
+            logger.exception("Package inbox scan failed; startup continues")
         app.state.job_runner = JobRunner(settings)
         cleanup = asyncio.create_task(session_cleanup(settings))
         try:
@@ -76,6 +85,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(cv_router, prefix="/api/v1")
     app.include_router(occ_router, prefix="/api/v1")
     app.include_router(settings_router, prefix="/api/v1")
+    app.include_router(packages_router, prefix="/api/v1")
     app.include_router(llm_router, prefix="/api/v1")
     frontend = settings.frontend_dir.resolve()
     if (frontend / "index.html").is_file():
