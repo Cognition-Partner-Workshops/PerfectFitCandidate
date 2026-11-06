@@ -12,6 +12,7 @@ from pfc.domain.scoring.engine import build_ct_basis, eligibility
 from pfc.domain.scoring.models import Resource
 from pfc.security.problems import Problem
 
+from .approvals import record_changes, snapshot
 from .models import ParsedRow, Preview
 from .repository import domain_config
 from .workbooks import CT, DL
@@ -174,6 +175,8 @@ def _demand(
 
 
 def apply_preview(db: sqlite3.Connection, preview: Preview, run_id: int, now: str) -> None:
+    entity = "demand" if preview.kind == "DL" else "resource"
+    before = snapshot(db, entity)
     config = domain_config(db)
     accepted = [r for r in preview.rows if not r.rejected and not r.superseded]
     incomplete_counts = Counter(
@@ -209,3 +212,4 @@ def apply_preview(db: sqlite3.Connection, preview: Preview, run_id: int, now: st
                     "occ_reviewed_by=NULL, occ_reviewed_at=NULL WHERE resource_id=?",
                     (now, run_id, record[0]),
                 )
+    record_changes(db, entity, before, run_id, now)
