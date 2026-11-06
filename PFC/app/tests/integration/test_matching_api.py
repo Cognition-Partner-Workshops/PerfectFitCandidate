@@ -20,7 +20,6 @@ from pfc.api.routers.results import router as results_router
 from pfc.config import Settings
 from pfc.db.audit import verify_chain
 from pfc.db.connection import database
-from pfc.domain.config_loader import load_domain_config
 from pfc.main import create_app
 from pfc.security.setup import code_path
 from pfc.services.matching import MatchingPorts
@@ -59,10 +58,6 @@ def api(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[Api]:
         )
         assert setup.status_code == 201, setup.text
         with database(settings) as db:
-            db.executemany(
-                "INSERT INTO grades(code,ordinal) VALUES (?,?)",
-                [(code, i) for i, code in enumerate(load_domain_config().grades.codes, 1)],
-            )
             # Reuse the allowed sample identity; the Analyst case is an actual Analyst account.
             if role == "Analyst":
                 db.execute(
