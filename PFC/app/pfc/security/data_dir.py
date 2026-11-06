@@ -23,6 +23,7 @@ Runner = Callable[..., subprocess.CompletedProcess[Any]]
 
 DB = Path("db") / "pfc.db"
 SQLITE_FILES = {"pfc.db", "pfc.db-wal", "pfc.db-shm", "pfc.db-journal"}
+LOCK = Path("run") / "pfc.lock"  # runtime state of the old instance; never copied
 SYSTEM_SID = "*S-1-5-18"
 # Shell property values: 1 = BitLocker on, 2 = off; anything else (encrypting, suspended...) is
 # reported as Unknown rather than guessed.
@@ -47,7 +48,9 @@ def _file_hashes(root: Path) -> dict[Path, str]:
     return {
         path.relative_to(root): _digest(path)
         for path in sorted(root.rglob("*"))
-        if path.is_file() and not (path.parent == root / DB.parent and path.name in SQLITE_FILES)
+        if path.is_file()
+        and path != root / LOCK
+        and not (path.parent == root / DB.parent and path.name in SQLITE_FILES)
     }
 
 
@@ -112,7 +115,9 @@ def migrate_legacy_data_dir(legacy: Path, target: Path) -> bool:
         shutil.rmtree(staging)  # an earlier start's incomplete copy, never the original data
 
     def skip_live_db(directory: str, names: list[str]) -> set[str]:
-        return set(names) & SQLITE_FILES if Path(directory) == legacy / DB.parent else set()
+        if Path(directory) == legacy / DB.parent:
+            return set(names) & SQLITE_FILES
+        return set(names) & {LOCK.name} if Path(directory) == legacy / LOCK.parent else set()
 
     try:
         shutil.copytree(legacy, staging, ignore=skip_live_db)
