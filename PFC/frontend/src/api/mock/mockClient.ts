@@ -746,6 +746,7 @@ export class MockApiClient implements ApiClient {
     const rows = rows0.map((r) =>
       includeEmails ? { ...r, personEmailMasked: raw.get(r.resourceId) ?? r.personEmailMasked } : r,
     )
+    this.save()
     return { blob: new Blob([resultsToCsv(rows, `Run ${runId}`)], { type: 'text/csv;charset=utf-8' }), fileName: `PFC-results-run${runId}.csv` }
   }
 
