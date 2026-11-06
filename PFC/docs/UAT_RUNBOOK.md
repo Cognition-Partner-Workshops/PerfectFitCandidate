@@ -128,8 +128,12 @@ Requirements: REQ-PKG-01, NFR-04 (local-first); exit criterion P1-EX-07.
 **Preconditions**
 
 - Step 1 passed.
-- Synthetic DL and CT workbooks (a few rows each) and synthetic CV files in a local
-  resume folder are on the laptop.
+- Synthetic inputs from the generator, written on a delivery-team machine from `PFC/app` with
+  the backend environment activated, then copied to the laptop:
+  `PYTHONPATH=. python scripts/generate_uat_data.py --out uat-small --demands 5 --resources 5`.
+  It writes `DL.xlsx`, `CT.xlsx` and `resumes\*.docx` (example.com emails, Ofcom drama
+  phone numbers only). In **Settings → Data sources**, set the resume folder to the copied
+  `uat-small\resumes` folder.
 
 **Actions**
 
@@ -212,8 +216,11 @@ Requirements: NFR-01, REQ-MAT-07 (incremental re-scoring); exit criterion P1-EX-
 
 **Preconditions**
 
-- Synthetic workbooks with 500 demands (DL) and 500 resources (CT), prepared by the
-  delivery team with the standard DL/CT headers, plus their confirmed JD requirements.
+- Synthetic 500 × 500 inputs from the generator, written as in step 3 and copied to the laptop:
+  `PYTHONPATH=. python scripts/generate_uat_data.py --out uat-500 --dirty-percent 1`.
+  This adds `CT_dirty.xlsx`, a copy of the CT with 1% (5) of its rows changed. The CT
+  deliberately includes Selected, end-dated, unparseable-date ("TBC") and unmapped-status
+  rows, so expect warnings, but no errors, in the upload preview.
 - Laptop on mains power; other applications closed.
 - Steps 1 and 4 passed.
 
@@ -224,8 +231,8 @@ Requirements: NFR-01, REQ-MAT-07 (incremental re-scoring); exit criterion P1-EX-
    per demand, or an existing confirmed set from the delivery team).
 3. Start a full run. Read the run's start and completion timestamps from
    `http://127.0.0.1:<port>/api/v1/match-runs`.
-4. Change five CT rows in the synthetic workbook (for example a skill or a location),
-   then upload, approve and commit it.
+4. Upload `CT_dirty.xlsx` from `uat-500`, check that the preview shows 5 changed rows, then
+   approve and commit it.
 5. Open **Match Results** and reload. The "Data changed since this run" banner names
    "DL/CT committed". Choose **Re-run changed only**, wait for the run to complete and
    reload. Read the timestamps as in action 3, and the **Mode** in the run summary

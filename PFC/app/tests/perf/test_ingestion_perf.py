@@ -2,18 +2,17 @@
 
 import time
 from collections.abc import Iterator
-from io import BytesIO
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from openpyxl import Workbook
 
 from pfc.config import Settings
 from pfc.db.connection import database
 from pfc.main import create_app
 from pfc.security.setup import code_path
 from pfc.services.ingestion.workbooks import CT, DL
+from scripts.generate_uat_data import workbook_bytes
 
 
 @pytest.fixture
@@ -48,32 +47,24 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
 
 
 def data(kind: str, rows: list[dict[str, object]]) -> bytes:
-    book = Workbook()
-    sheet = book.active
-    sheet.append(["Synthetic title"])
-    headers = list(DL if kind == "dl" else CT)
-    sheet.append(headers)
-    for changes in rows:
-        fields: dict[str, object] = dict.fromkeys(headers, None)
-        if kind == "dl":
-            fields.update({"Code Requisition": "T11234", "Code Local Grade": "B1", "JD": "? SQL"})
-        else:
-            fields.update(
-                {
-                    "ShortName": "Alex",
-                    "Email Address": "alex@example.com",
-                    "Grade": "B1",
-                    "Bench Status": "Available",
-                    "Skills": "SQL",
-                    "Group": "RG1",
-                }
-            )
-        fields.update(changes)
-        sheet.append(list(fields.values()))
-    output = BytesIO()
-    book.save(output)
-    book.close()
-    return output.getvalue()
+    if kind == "dl":
+        defaults: dict[str, object] = {
+            "Code Requisition": "T11234",
+            "Code Local Grade": "B1",
+            "JD": "? SQL",
+        }
+    else:
+        defaults = {
+            "ShortName": "Alex",
+            "Email Address": "alex@example.com",
+            "Grade": "B1",
+            "Bench Status": "Available",
+            "Skills": "SQL",
+            "Group": "RG1",
+        }
+    return workbook_bytes(
+        list(DL if kind == "dl" else CT), [defaults | changes for changes in rows]
+    )
 
 
 @pytest.mark.perf
