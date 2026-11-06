@@ -20,6 +20,9 @@ single read transaction. It never creates a database or migrates an existing one
 Output directories must already exist. Reports must be distinct and outside the
 application data directory; an existing hardlink to the database is also rejected.
 Errors return exit status 1 without printing source names, emails or file paths.
+Both reports are rendered and written to temporary files in their respective
+target directories before either destination is replaced. A rendering or staging
+write failure leaves existing reports untouched and cleans up the temporary files.
 
 ## KPI-05: data quality
 

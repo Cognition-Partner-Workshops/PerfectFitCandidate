@@ -2,8 +2,10 @@
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
+import tempfile
 from contextlib import closing
 from pathlib import Path
 
@@ -33,10 +35,25 @@ def main() -> int:
             db.row_factory = sqlite3.Row
             db.execute("BEGIN")
             report = measure(db, settings)
-        args.out_json.write_text(
-            json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8"
-        )
-        args.out_md.write_text(markdown(report), encoding="utf-8")
+        rendered = [json.dumps(report, indent=2, allow_nan=False) + "\n", markdown(report)]
+        staged: list[Path] = []
+        try:
+            for target, content in zip(outputs, rendered, strict=True):
+                with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    encoding="utf-8",
+                    dir=target.parent,
+                    prefix=f".{target.name}.",
+                    suffix=".tmp",
+                    delete=False,
+                ) as stream:
+                    staged.append(Path(stream.name))
+                    stream.write(content)
+            for temporary, target in zip(staged, outputs, strict=True):
+                os.replace(temporary, target)
+        finally:
+            for temporary in staged:
+                temporary.unlink(missing_ok=True)
     except (ValueError, OSError, sqlite3.Error) as error:
         message = (
             str(error)

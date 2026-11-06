@@ -467,7 +467,18 @@ def test_naive_generated_at_rejected(settings: Settings) -> None:
         measure(db, settings, now=NOW.replace(tzinfo=None))
 
 
-@pytest.mark.parametrize("case", ["normal", "same", "database", "missing", "hardlink"])
+@pytest.mark.parametrize(
+    "case",
+    [
+        "normal",
+        "same",
+        "database",
+        "missing",
+        "hardlink",
+        "unwritable_md",
+        "unwritable_md_existing",
+    ],
+)
 def test_cli_reports_are_read_only(
     sample: tuple[Settings, dict[str, int]],
     tmp_path: Path,
@@ -490,6 +501,12 @@ def test_cli_reports_are_read_only(
             os.link(source, output)
         except OSError:
             pytest.skip("Hardlinks unavailable")
+    elif case.startswith("unwritable_md"):
+        blocker = tmp_path.parent / f"{tmp_path.name}.blocker"
+        blocker.write_text("Not a directory", encoding="utf-8")
+        md = blocker / "report.md"
+        if case == "unwritable_md_existing":
+            output.write_text("Existing report", encoding="utf-8")
     app = Path(__file__).resolve().parents[2]
     result = subprocess.run(
         [
@@ -515,6 +532,12 @@ def test_cli_reports_are_read_only(
         assert not md.exists()
         for private in PRIVATE:
             assert private not in result.stderr
+        if case.startswith("unwritable_md"):
+            if case == "unwritable_md_existing":
+                assert output.read_text(encoding="utf-8") == "Existing report"
+            else:
+                assert not output.exists()
+            assert not list(output.parent.glob(f".{output.name}.*.tmp"))
         return
     assert result.returncode == 0, result.stderr
     value = json.loads(output.read_text(encoding="utf-8"))
