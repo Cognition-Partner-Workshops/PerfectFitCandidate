@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import hashlib
+import zipfile
+from pathlib import Path
 
 import pytest
 
 from PFC.packaging.build_zip import (
     HashMismatchError,
+    _safe_path,
     download_verified,
     parse_manifest,
     parse_models_lock,
     patch_pth_text,
+    unpack_wheels,
     verify_sha256,
 )
 
@@ -110,3 +114,56 @@ def test_parse_models_lock_rejects_path_traversal() -> None:
 def test_download_refuses_unpinned_artifact_by_default(tmp_path) -> None:
     with pytest.raises(ValueError, match="Refusing unpinned download"):
         download_verified("https://example.invalid/model.bin", tmp_path / "model.bin", None)
+
+
+def test_unpack_wheels_maps_package_and_data_files(tmp_path: Path) -> None:
+    wheelhouse = tmp_path / "wheelhouse"
+    wheelhouse.mkdir()
+    wheel = wheelhouse / "sample_pkg-1.0-py3-none-any.whl"
+    files = {
+        "sample_pkg/__init__.py": "value = 1\n",
+        "sample_pkg-1.0.dist-info/METADATA": "Name: sample-pkg\nVersion: 1.0\n",
+        "sample_pkg-1.0.data/purelib/pure_pkg/__init__.py": "value = 2\n",
+        "sample_pkg-1.0.data/platlib/platform_module.pyd": "platform binary",
+        "sample_pkg-1.0.data/scripts/sample-script.py": "print('script')\n",
+        "sample_pkg-1.0.data/data/share/sample.txt": "data file",
+        "sample_pkg-1.0.data/headers/include/sample.h": "header",
+    }
+    with zipfile.ZipFile(wheel, "w") as archive:
+        for name, contents in files.items():
+            archive.writestr(name, contents)
+
+    python_dir = tmp_path / "python"
+    unpack_wheels(wheelhouse, python_dir)
+
+    site_packages = python_dir / "Lib" / "site-packages"
+    expected_files = {
+        site_packages / "sample_pkg" / "__init__.py": files["sample_pkg/__init__.py"],
+        site_packages / "sample_pkg-1.0.dist-info" / "METADATA": files[
+            "sample_pkg-1.0.dist-info/METADATA"
+        ],
+        site_packages / "pure_pkg" / "__init__.py": files[
+            "sample_pkg-1.0.data/purelib/pure_pkg/__init__.py"
+        ],
+        site_packages / "platform_module.pyd": files[
+            "sample_pkg-1.0.data/platlib/platform_module.pyd"
+        ],
+        python_dir / "Scripts" / "sample-script.py": files[
+            "sample_pkg-1.0.data/scripts/sample-script.py"
+        ],
+        python_dir / "share" / "sample.txt": files["sample_pkg-1.0.data/data/share/sample.txt"],
+        python_dir / "Include" / "include" / "sample.h": files[
+            "sample_pkg-1.0.data/headers/include/sample.h"
+        ],
+    }
+    for path, contents in expected_files.items():
+        assert path.read_text(encoding="utf-8") == contents
+
+
+@pytest.mark.parametrize(
+    "archive_name",
+    ["../outside.txt", r"..\outside.txt", "/absolute.txt", r"C:\outside.txt"],
+)
+def test_safe_path_rejects_traversal(tmp_path: Path, archive_name: str) -> None:
+    with pytest.raises(ValueError, match="Unsafe archive path"):
+        _safe_path(tmp_path, archive_name)
