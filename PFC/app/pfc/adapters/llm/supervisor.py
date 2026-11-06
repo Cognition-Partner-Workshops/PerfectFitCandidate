@@ -21,6 +21,7 @@ from pathlib import Path
 import httpx
 from starlette.datastructures import State
 
+from pfc.adapters.llm.child_logs import ChildLogCapture
 from pfc.adapters.llm.providers import FallbackProvider, LlamaCppProvider
 from pfc.api.schemas.llm import LlmHealth
 from pfc.config import Settings
@@ -171,6 +172,7 @@ class LlamaServerSupervisor:
             else "llama-server binary missing"
         )
         self._job: int | None = None
+        self._log_capture: ChildLogCapture | None = None
         self._start_task: asyncio.Task[None] | None = None
         self._operation: asyncio.Task[None] | None = None
         self._monitor: asyncio.Task[None] | None = None
@@ -309,25 +311,37 @@ class LlamaServerSupervisor:
         try:
             logs = self.settings.data_dir / "logs"
             logs.mkdir(parents=True, exist_ok=True)
-            with (logs / "llm.log").open("ab") as output:
-                if sys.platform == "win32":
-                    self.proc = subprocess.Popen(
-                        argv,
-                        stdout=output,
-                        stderr=subprocess.STDOUT,
-                        env=child_env,
-                        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
-                        | subprocess.CREATE_NO_WINDOW,
-                    )
-                    self._job = _windows_job(self.proc.pid)
-                else:
-                    self.proc = subprocess.Popen(
-                        argv,
-                        stdout=output,
-                        stderr=subprocess.STDOUT,
-                        start_new_session=True,
-                        env=child_env,
-                    )
+            self._log_capture = ChildLogCapture(
+                logs / "llm.log",
+                (
+                    api_key,
+                    *(
+                        env.get(name, "")
+                        for env in (os.environ, child_env)
+                        for name in ("LLAMA_API_KEY", "LLAMA_ARG_API_KEY")
+                    ),
+                ),
+                (os.environ.get("USERPROFILE", ""),),
+            )
+            if sys.platform == "win32":
+                self.proc = subprocess.Popen(
+                    argv,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    env=child_env,
+                    creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW,
+                )
+                self._job = _windows_job(self.proc.pid)
+            else:
+                self.proc = subprocess.Popen(
+                    argv,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                    env=child_env,
+                )
+            assert self.proc.stdout is not None
+            self._log_capture.start(self.proc.stdout)
             async with asyncio.timeout(self.settings.llm_startup_timeout_s):
                 async with httpx.AsyncClient(
                     base_url=base_url,
@@ -376,6 +390,11 @@ class LlamaServerSupervisor:
         if loop.time() - healthy_since >= self.restart_reset_window_s:
             self._restart_attempts = 0
         async with self._lock:
+            self.state, self.detail = (
+                ("restarting", f"restarting (attempt {self._restart_attempts + 1}/3)")
+                if self._restart_attempts < 3
+                else ("unavailable", "llama-server exited; restart attempts exhausted")
+            )
             await self._cleanup()
         while self._restart_attempts < 3:
             delay = self.restart_backoff_s[self._restart_attempts]
@@ -412,6 +431,9 @@ class LlamaServerSupervisor:
                 await asyncio.to_thread(self.proc.wait)
         _close_job(self._job)
         self._job = None
+        if self._log_capture is not None:
+            await asyncio.to_thread(self._log_capture.close)
+            self._log_capture = None
         if self.provider is not None:
             await self.provider.aclose()
             self.provider = None

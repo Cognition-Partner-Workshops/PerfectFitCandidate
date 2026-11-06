@@ -50,7 +50,7 @@ checks are not a substitute for it. The parked quality-check branch was not chan
 | G3 HTTP query logging | REQ-AUTH-06; privacy | Fixed | `pfc/launcher.py:156`; `tests/unit/test_launcher.py::test_launch` | Disables uvicorn access logging in the supported launcher so query strings cannot echo PII. Custom direct uvicorn invocations must likewise disable access logs; disabling them does not disable application security audits. |
 | G4 Seed path logging | REQ-AUTH-06; privacy | Fixed | `pfc/services/occ/seed.py:159`, `:172`, `:183`, `:204`; `test_seed_logs_do_not_echo_profile_paths` | Logs only fixed seed/template basenames, not profile paths that can contain an email address. Missing/malformed file diagnostics are retained. |
 | G5 Setup console output | TDD §9.1/13; privacy | Deferred | `pfc/launcher.py:144`; `pfc/security/setup.py` | Bootstrap code is intentionally printed to the launch console and saved in run/setup-code.txt per TDD; it is not sent to the application logger. If captured console stdout counts as forbidden logging, decide an alternative bootstrap channel and retention policy. Do not claim the code never appears on stdout. |
-| G6 Child process log | REQ-AUTH-06; REQ-LLM-01 | Deferred | `pfc/adapters/llm/supervisor.py:298` | Raw llama-server stdout/stderr append to logs/llm.log. Parent logs do not expose its key, but real pinned-binary startup/error output was not exercised. Need native/runtime log inspection before certifying child output or deciding on redaction. |
+| G6 Child process log | REQ-AUTH-06; REQ-LLM-01 | Fixed | `pfc/adapters/llm/supervisor.py`; `pfc/adapters/llm/child_logs.py`; `tests/unit/adapters/llm/test_child_logs.py`; `test_native_lines_are_filtered_before_child_log_write` | [Native Windows b8936 capture](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/actions/runs/42209708867) used the model-complete artifact from run 42206790413. Startup, tiny generation, missing model, busy port, wrong and absent API keys were exercised. Startup exposed a key suffix and profile paths plus a multiline example conversation. Child stdout/stderr now enter a pipe and a diagnostic-only filter before persistence; credentials/Bearer values/profile prefixes are redacted, payload/unknown lines dropped, lines capped, and logs rotated. See scope and classification below; historical raw logs are not retroactively sanitized. |
 | S1 DPAPI and development fallback | REQ-AUTH-06; TDD §9.5 | Pass | `pfc/services/packages/keys.py:97`; `pfc/security/secrets_store.py:44`; `tests/unit/security/test_secrets_store.py` | Existing package DPAPI protects signing material, not arbitrary credentials. New credential store uses current-user ctypes DPAPI with app-specific entropy/UI forbidden; non-Windows development/tests use Fernet with a persistent 0600 file key. No Windows failure silently falls back to a file key. Native validation is separate below. |
 | S2 Existing secret-setting writer | REQ-AUTH-06; TDD §9.5 | Fixed | `pfc/services/occ/admin.py:106`, `:121`; `test_secret_settings_encrypted_and_write_only` | Generic OCC settings was a reachable plaintext credential writer (existing smtp.password test). Credential-looking top-level/nested keys are now encrypted, API reads are write-only [REDACTED], and resubmitting that marker preserves the existing secret. No provider or SMTP integration was invented. |
 | S3 Secret error handling | REQ-AUTH-06 | Pass | `test_secret_setting_failure_is_atomic`; `test_decryption_fails_closed` | Empty updates are no-ops; credential-storage errors roll back setting/audit writes and return generic 503. Wrong key, tampered ciphertext, missing key and mismatched platform formats fail closed. |
@@ -76,9 +76,58 @@ and nested objects/lists; it is not a substitute for a future typed credential s
 
 Decisions needed: retention of pre-migration backups that may hold old plaintext;
 future SMTP/provider callers (S5, Phase 3); OCC user email/presentation policy;
-resource mask-pattern ownership; setup console handling; child-log verification;
+resource mask-pattern ownership; setup console handling;
 native Windows ACL and BitLocker evidence (UAT). No claim is made that
 the complete sensitive local database is encrypted.
+
+### G6 native capture and child-log policy
+
+[Capture run 42209708867](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/actions/runs/42209708867)
+ran the Windows `llama-server.exe` from the model-complete artifact of
+[run 42206790413](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/actions/runs/42206790413),
+not a substitute build. It used the supervisor's normal arguments: loopback host,
+ephemeral port, pinned GGUF, 4096 context, computed CPU threads and one parallel
+slot, without verbose/debug switches. Both `LLAMA_API_KEY` and `LLAMA_ARG_API_KEY`
+were set to the same ephemeral key. Requests used synthetic canaries only.
+The temporary capture job and script were removed after capture. The scrubbed
+fixture is `tests/fixtures/llama_b8936_windows.json`; usernames, full keys and even
+the printed key suffix are replaced. No Linux fallback was needed.
+
+| Source | Observed exposure / classification |
+|---|---|
+| Startup `init: api_keys` | Prints the last four key characters, not the whole key. The entire field is now redacted, including partial keys. |
+| `load_backend`, `srv load_model`, `llama_model_loader`, GGUF failures | Native file paths include the Windows profile name. Profile prefixes are replaced, or metadata lines discarded. Model-load/bind/listening diagnostics remain. |
+| Startup chat-template example | Multiline example prompt/completion text appears even without verbose mode. Template, echo and unrecognized continuation lines are dropped. |
+| Tiny generation | HTTP 200 contained the synthetic completion. No submitted prompt, completion canary or request body was observed in child output at these launch settings; this is not a guarantee for other versions/debug settings. Runtime/payload lines are discarded defensively. |
+| Wrong key / no key | Both returned 401. Child output was `Unauthorized: Invalid API Key` plus method/path/status access lines, without the submitted key, Bearer value or request body. Fixed unauthorized diagnostics are retained; runtime access lines are dropped. |
+| Missing model / occupied port | Real failed-open/model-load and couldn't-bind errors were captured. These are retained with profile prefixes removed. |
+
+The sink allows only pinned-binary startup/model-load/transport diagnostic
+prefixes; unknown lines, prompt/completion/content/body/JSON/template lines and
+unrecognized continuations are dropped. It redacts the generated key, values of
+both key environment variables (including inherited values), any `Bearer` token,
+literal `%USERPROFILE%`, generic `C:\Users\<name>` and `/home/<name>` prefixes,
+the configured `USERPROFILE`, and actual `Path.home()`. ANSI/control characters
+are removed, and retained lines are limited to 2048 characters **after** redaction.
+Input lines above 64 KiB are discarded in bounded chunks, never logged as partial
+fragments. A dedicated pipe reader keeps disk writes off the async supervisor;
+on disk-write failure it drains/discards output with a fixed warning, not payloads.
+Shutdown/model switches allow two seconds for EOF before abandoning a blocked
+daemon pipe reader, disabling further persistence and emitting one fixed
+truncation warning. Already-written records are flushed per line and the sink is
+closed independently of the pipe. The owning reader closes its pipe if it later
+unblocks; cleanup never closes a buffered read handle from another thread, which
+could itself block on Windows. A permanently inherited pipe can therefore retain
+a daemon thread/read handle until process exit, but cannot stall cleanup or append
+late output to the old sink.
+
+Only `settings.data_dir / "logs" / "llm.log"` is used. Retention is 5 MiB per
+file, active plus two backups (`.1`, `.2`), three files total; byte accounting
+includes UTF-8 encoding. Tests replay native lines through the filter and real
+fake-child stdout/stderr, with additional synthetic secret/body/oversized/error
+cases. Existing pre-fix raw logs/backups are **not** rewritten; remove them under
+the deployment's approved retention procedure. This closes G6 for new writes,
+not S6/S7 laptop ACL/at-rest acceptance or arbitrary future native log formats.
 
 ## Automated verification
 
