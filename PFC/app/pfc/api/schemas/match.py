@@ -52,6 +52,8 @@ class JdRequirements(WireModel):
     revision: int | None = None
     status: Literal["draft", "confirmed", "superseded"] | None = None
     extracted_by: str | None = None
+    extraction_method: Literal["llm", "rule_based_fallback"] | None = None
+    fallback_reason: str | None = None
     confirmed_at: str | None = None
     jd_req_id: int | None = None
 
@@ -123,10 +125,16 @@ def requirements_view(demand_id: int, row: dict[str, Any]) -> JdRequirements:
         location=data.get("location") or "",
         mandatory_onsite=bool(data.get("onsite_required")),
         synonyms_applied=synonyms,
-        warnings=[],
+        warnings=(
+            [f"Rule-based fallback: {row.get('fallback_reason') or 'reason_not_recorded'}"]
+            if row.get("extraction_method") == "rule_based_fallback"
+            else []
+        ),
         revision=row["revision"],
         status=row["status"],
         extracted_by=row["extracted_by"],
+        extraction_method=row.get("extraction_method"),
+        fallback_reason=row.get("fallback_reason"),
         confirmed_at=row["confirmed_at"],
         jd_req_id=row["jd_req_id"],
     )

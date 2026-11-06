@@ -6,13 +6,17 @@ import sqlite3
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from pfc.domain.config_loader import DomainConfig, load_domain_config
 from pfc.domain.normalise import normalise_term
 
 from .common import atomic, audit, dumps, timestamp
 from .ports import MatchingPorts
+
+
+class ExtractionFailure(RuntimeError):
+    pass
 
 
 class ExtractedItem(BaseModel):
@@ -117,6 +121,25 @@ def get_requirements(
     if row is None:
         return None
     result = dict(row)
+    method = (
+        "rule_based_fallback"
+        if row["extracted_by"] == "rule_based"
+        else None
+        if row["extracted_by"] in {"manual", None}
+        else "llm"
+    )
+    event = db.execute(
+        "SELECT details_json FROM audit_log WHERE action='jd.analyze' "
+        "AND entity_type='jd_requirements' AND entity_id=? ORDER BY audit_id DESC LIMIT 1",
+        (str(row["jd_req_id"]),),
+    ).fetchone()
+    metadata = json.loads(event[0] or "{}") if event else {}
+    result["extraction_method"] = metadata.get("extraction_method", method)
+    result["fallback_reason"] = (
+        metadata.get("fallback_reason") or "reason_not_recorded"
+        if result["extraction_method"] == "rule_based_fallback"
+        else None
+    )
     result["extraction"] = json.loads(result.pop("extraction_json") or "{}")
     result["items"] = [
         dict(item)
@@ -200,12 +223,20 @@ def analyze_jd(
         raise ValueError("JD text is blank")
     config = load_domain_config()
     extracted_by = "rule_based"
+    fallback_reason = None
     try:
         if ports.llm is None:
-            raise ValueError("No LLM configured")
+            raise ExtractionFailure("provider_unavailable")
         data = Requirements.model_validate(ports.llm.extract_jd(text))
         extracted_by = ports.llm.model
-    except Exception:
+    except Exception as exc:
+        fallback_reason = (
+            str(exc)
+            if isinstance(exc, ExtractionFailure)
+            else "schema_invalid"
+            if isinstance(exc, ValidationError)
+            else "provider_error"
+        )
         data = _fallback(text, config)
     with atomic(db):
         if _current(db, demand_id)["demand_version_id"] != version["demand_version_id"]:
@@ -220,6 +251,8 @@ def analyze_jd(
             now,
             demand_id=demand_id,
             extracted_by=extracted_by,
+            extraction_method="rule_based_fallback" if fallback_reason is not None else "llm",
+            fallback_reason=fallback_reason,
         )
     result = get_requirements(db, demand_id)
     assert result is not None

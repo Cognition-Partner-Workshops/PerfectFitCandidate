@@ -216,7 +216,8 @@ def test_req_mat_02_full_flow_drafts_results_overrides_exclusions(api: Api) -> N
     assert draft["mandatorySkills"] == ["SQL"] and draft["preferredSkills"] == ["Python"]
     assert draft["experienceYears"] is None and draft["qualifications"] == ""
     assert draft["domain"] == "" and draft["location"] == "" and not draft["mandatoryOnsite"]
-    assert draft["synonymsApplied"] == [] and draft["warnings"] == []
+    assert draft["synonymsApplied"] == []
+    assert draft["warnings"] == ["Rule-based fallback: provider_unavailable"]
     assert client.get(f"/api/v1/demands/{demand_id}/requirements").json() == draft
     # An existing confirmed revision survives any number of edits to the latest draft.
     with database(settings) as db:
