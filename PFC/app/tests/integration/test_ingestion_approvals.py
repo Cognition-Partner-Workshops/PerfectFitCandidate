@@ -604,6 +604,96 @@ def test_req_in_25_initial_surname_match_and_confirmed_identity_rejection(client
     )
 
 
+@pytest.mark.parametrize(
+    "data_kind", ["none", "resume", "cv", "resource", "match", "outreach", "email_fk"]
+)
+def test_req_in_25_relink_requires_merge_when_old_candidate_has_data(client, data_kind):
+    ingest(client, "dl", [{}])
+    rows = [{"Email Address": None}, {}]
+    if data_kind == "resource":
+        rows.append({"ShortName": "Other", "Email Address": "other@example.com"})
+    ingest(client, "ct", rows)
+    with database(client.app.state.settings) as db:
+        if data_kind in {"resume", "cv"}:
+            db.execute(
+                "INSERT INTO resumes(resume_id,candidate_id,source_path,file_name,file_sha256,"
+                "mime_type,discovered_at) VALUES (1,?,'cv.pdf','cv.pdf','hash',"
+                "'application/pdf','2026-01-01')",
+                (2 if data_kind == "resume" else None,),
+            )
+            if data_kind == "cv":
+                db.execute(
+                    "INSERT INTO cv_versions(resume_id,candidate_id,version_no,text_sha256,"
+                    "text_norm,extracted_by,extracted_at) VALUES (1,2,1,'text','CV',"
+                    "'rule_based','2026-01-01')"
+                )
+        elif data_kind == "resource":
+            db.execute("UPDATE resources SET candidate_id=2 WHERE resource_id=3")
+        elif data_kind == "match":
+            db.execute("INSERT INTO embedding_models VALUES (1,'test','onnx','hash',384,1,'v1',1)")
+            db.execute(
+                "INSERT INTO jd_requirements(jd_req_id,demand_version_id,revision,status,created_at) "
+                "VALUES (1,1,1,'confirmed','2026-01-01')"
+            )
+            template = db.execute("SELECT template_id FROM scoring_templates LIMIT 1").fetchone()[0]
+            db.execute(
+                "INSERT INTO match_runs(run_id,scope,template_id,embedding_model_id,engine_version,"
+                "synonyms_version,config_hash,status) VALUES (1,'full',?,1,'v1','v1','hash','completed')",
+                (template,),
+            )
+            db.execute(
+                "INSERT INTO match_results(run_id,demand_id,demand_version_id,jd_req_id,resource_id,"
+                "candidate_id,score,band,rank,shortlisted,grade_relation,location_assessment,"
+                "matching_evidence,gaps_checks,eligibility_evidence) "
+                "VALUES (1,1,1,1,2,2,90,'Strong',1,1,'exact','Aligned','[]','[]','[]')"
+            )
+        elif data_kind == "email_fk":
+            db.execute(
+                "CREATE TABLE email_candidate_history(candidate_id REFERENCES candidates(candidate_id))"
+            )
+            db.execute("INSERT INTO email_candidate_history VALUES (2)")
+        elif data_kind == "outreach":
+            db.execute(
+                "INSERT INTO email_templates(email_template_id,name,version,subject,body_html,"
+                "is_default,created_at) VALUES (999,'test',1,'Subject','Body',0,'2026-01-01')"
+            )
+            db.execute(
+                "INSERT INTO email_messages(demand_id,resource_id,email_template_id,to_address,"
+                "cc_json,subject,body_html,status,idempotency_key,created_by,created_at,updated_at) "
+                "VALUES (1,2,999,' Alex@Example.com ','[]','Subject','Body','Draft','key',1,"
+                "'2026-01-01','2026-01-01')"
+            )
+    response = client.put(
+        "/api/v1/candidates/1/identity", json={"action": "select_ct_record", "resourceId": 2}
+    )
+    if data_kind == "none":
+        assert response.status_code == 200, response.text
+        assert row(client, "resource", 2)["candidate_id"] == 1
+    else:
+        assert response.status_code == 409, response.text
+        assert response.json()["code"] == "IDENTITY_MERGE_REQUIRED"
+        assert row(client, "resource", 2)["candidate_id"] == 2
+        with database(client.app.state.settings) as db:
+            assert (
+                db.execute(
+                    "SELECT confirmed FROM candidate_emails WHERE candidate_id=2"
+                ).fetchone()[0]
+                == 0
+            )
+            assert (
+                db.execute(
+                    "SELECT identity_status FROM candidates WHERE candidate_id=1"
+                ).fetchone()[0]
+                == "incomplete"
+            )
+            assert (
+                db.execute(
+                    "SELECT count(*) FROM audit_log WHERE action='IDENTITY_RESOLVE'"
+                ).fetchone()[0]
+                == 0
+            )
+
+
 def test_req_role_03_audit_contains_business_changes_but_no_emails(client):
     ingest(client, "dl", [{"Account Name": "Original"}])
     decision(client, queue(client)[0], "approve")

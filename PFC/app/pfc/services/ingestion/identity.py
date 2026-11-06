@@ -236,6 +236,34 @@ def detail(db: sqlite3.Connection, candidate_id: int) -> CandidateDetail:
     )
 
 
+def _requires_merge(db: sqlite3.Connection, candidate_id: int, resource_id: int) -> bool:
+    if db.execute(
+        "SELECT 1 FROM resources WHERE candidate_id=? AND resource_id<>?",
+        (candidate_id, resource_id),
+    ).fetchone():
+        return True
+    for table in db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall():
+        name = '"' + table[0].replace('"', '""') + '"'
+        if table[0] in {"candidates", "candidate_emails", "resources"}:
+            continue
+        columns = {c[1] for c in db.execute(f"PRAGMA table_info({name})")}
+        if (
+            "candidate_id" in columns
+            and db.execute(
+                f"SELECT 1 FROM {name} WHERE candidate_id=? LIMIT 1", (candidate_id,)
+            ).fetchone()
+        ):
+            return True
+        if (
+            table[0] in {"match_results", "email_messages"}
+            and db.execute(
+                f"SELECT 1 FROM {name} WHERE resource_id=? LIMIT 1", (resource_id,)
+            ).fetchone()
+        ):
+            return True
+    return False
+
+
 def resolve(
     db: sqlite3.Connection, candidate_id: int, body: IdentityResolution, user_id: int, now: str
 ) -> CandidateDetail:
@@ -260,12 +288,11 @@ def resolve(
             )
         old_id = row["candidate_id"]
         if old_id is not None and old_id != candidate_id:
-            if db.execute(
-                "SELECT 1 FROM resources WHERE candidate_id=? AND email_key=? AND resource_id<>?",
-                (old_id, row["email_key"], row["resource_id"]),
-            ).fetchone():
+            if _requires_merge(db, old_id, row["resource_id"]):
                 raise Problem(
-                    409, "IDENTITY_CONFLICT", "Another CT record still uses this identity"
+                    409,
+                    "IDENTITY_MERGE_REQUIRED",
+                    "Existing candidate data requires an explicit merge",
                 )
             db.execute(
                 "DELETE FROM candidate_emails WHERE candidate_id=? AND email_key=? "
