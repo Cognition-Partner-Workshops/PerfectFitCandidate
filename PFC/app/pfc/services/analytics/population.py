@@ -2,8 +2,10 @@
 
 import json
 import sqlite3
-from collections import Counter
+from collections import Counter, defaultdict
+from collections.abc import Iterator
 from datetime import date
+from functools import cached_property
 from typing import Any
 
 from pfc.api.schemas.analytics import DashboardFilters
@@ -11,7 +13,8 @@ from pfc.domain.config_loader import load_domain_config
 from pfc.domain.normalise import normalise_term, tokenise_skills
 from pfc.security.problems import Problem
 from pfc.services import matching
-from pfc.services.matching.results import _mask_email
+from pfc.services.matching.lifecycle import reconcile_runs
+from pfc.services.matching.results import _mask_email, active_overrides, apply_overrides
 
 BANDS = ("Strong", "Potential", "Avg", "Weak", "Insufficient data")
 
@@ -38,23 +41,191 @@ class Population:
             or self.config.grades.codes
         )
         if filters.run_id is None:
-            latest = matching.list_results(db, limit=1)["run_id"]
+            reconcile_runs(db)
+            source = db.execute(
+                "SELECT run_id FROM match_runs WHERE status='completed' "
+                "ORDER BY run_id DESC LIMIT 1"
+            ).fetchone()
+            latest = source[0] if source else None
             self.run = matching.get_run(db, latest) if latest is not None else None
         else:
             self.run = matching.get_run(db, filters.run_id)
             if self.run is None:
                 raise Problem(404, "RUN_NOT_FOUND", "Match run not found")
-        self.results = (
-            []
-            if self.run is None
-            else [
-                row
-                for row in matching.list_results(db, self.run["run_id"], limit=None)["items"]
-                if not row["effective_excluded"] and self.match_filter(row)
-            ]
+
+    @cached_property
+    def overrides(self) -> dict[int, list[dict[str, Any]]]:
+        return active_overrides(self.db, self.run["run_id"]) if self.run else {}
+
+    @cached_property
+    def has_match_filters(self) -> bool:
+        return any(
+            value is not None and value != ""
+            for value in self.filters.model_dump(exclude={"run_id"}).values()
         )
-        self.demands = self.load_demands()
-        self.resources = self.load_resources()
+
+    @cached_property
+    def filtered_results(self) -> list[dict[str, Any]]:
+        return list(self._match_rows())
+
+    @cached_property
+    def result_counts(self) -> Counter[tuple[int, str]]:
+        if self.run is None:
+            return Counter()
+        if self.has_match_filters:
+            return Counter((r["demand_id"], r["effective_band"]) for r in self.filtered_results)
+        counts = Counter(
+            {
+                (row["demand_id"], row["band"]): row["n"]
+                for row in self.db.execute(
+                    "SELECT demand_id,band,COUNT(*) AS n FROM match_results "
+                    "WHERE run_id=? GROUP BY demand_id,band",
+                    (self.run["run_id"],),
+                )
+            }
+        )
+        if self.overrides:
+            for source in self.db.execute(
+                "SELECT result_id,demand_id,band FROM match_results WHERE run_id=? "
+                "AND result_id IN (SELECT result_id FROM overrides WHERE revoked_at IS NULL)",
+                (self.run["run_id"],),
+            ):
+                row = dict(source)
+                counts[(row["demand_id"], row["band"])] -= 1
+                apply_overrides(row, self.overrides[row["result_id"]])
+                if not row["effective_excluded"]:
+                    counts[(row["demand_id"], row["effective_band"])] += 1
+        return +counts
+
+    @staticmethod
+    def _snapshot(key: str, fallback: str) -> str:
+        path = f"$.display_facts.{key}"
+        return (
+            f"CASE WHEN json_type(b.inputs_json,'{path}') IS NOT NULL "
+            f"THEN json_extract(b.inputs_json,'{path}') ELSE {fallback} END"
+        )
+
+    def _match_rows(self, *, validation: bool = False) -> Iterator[dict[str, Any]]:
+        if self.run is None:
+            return
+        fields = {
+            "requisition": ("code_requisition", "d.code_requisition"),
+            "account": ("account_name", "d.account_name"),
+            "bu": ("bu", "d.bu"),
+            "role_location": ("region", "COALESCE(NULLIF(d.region,''),'Unspecified')"),
+            "demand_grade": ("grade", "d.code_local_grade"),
+            "person_grade": ("grade", "r.grade"),
+            "person_location": ("location", "r.location"),
+            "status": ("status", "r.bench_status"),
+        }
+        columns = [
+            "m.result_id",
+            "m.demand_id",
+            "m.resource_id",
+            "m.score",
+            "m.band",
+            "m.mandatory_missing",
+        ]
+        selected = (
+            {
+                key: self._snapshot(key, fallback)
+                for key, (attribute, fallback) in fields.items()
+                if getattr(self.filters, attribute)
+            }
+            if not validation
+            else {}
+        )
+        columns += [f"{expression} AS {key}" for key, expression in selected.items()]
+        if not validation:
+            columns += [
+                "COALESCE(c.classification_override,c.classification,'Unknown') AS candidate_type",
+                "COALESCE(c.identity_status!='complete',0) AS incomplete_identity",
+            ]
+        else:
+            columns += [
+                "m.matching_evidence",
+                "m.gaps_checks",
+                "r.email_address",
+                self._snapshot("start_date", "d.position_start_date") + " AS start_date",
+                "json_extract(g.inputs_json,'$.distance') AS grade_distance",
+                "json_extract(e.inputs_json,'$.parse_status') AS end_status",
+            ]
+        joins = (
+            " FROM match_results m INDEXED BY ix_results_demand JOIN demands d USING(demand_id) "
+            "JOIN resources r USING(resource_id) "
+        )
+        if selected or validation:
+            joins += (
+                "LEFT JOIN score_breakdowns b ON b.result_id=m.result_id AND b.component='skills' "
+            )
+        if not validation:
+            joins += "LEFT JOIN candidates c ON c.candidate_id=m.candidate_id "
+        else:
+            joins += (
+                "LEFT JOIN score_breakdowns g ON g.result_id=m.result_id AND g.component='grade' "
+                "LEFT JOIN score_breakdowns e ON e.result_id=m.result_id "
+                "AND e.component='bench_end' "
+            )
+        included = (
+            {r["result_id"] for r in self.filtered_results}
+            if validation and self.has_match_filters
+            else None
+        )
+        for source in self.db.execute(
+            "SELECT " + ",".join(columns) + joins + " WHERE m.run_id=?", (self.run["run_id"],)
+        ):
+            row = dict(source)
+            if included is not None:
+                if row["result_id"] in included:
+                    yield row
+                continue
+            if not validation or self.overrides:
+                apply_overrides(row, self.overrides.get(row["result_id"], []))
+                if row["effective_excluded"]:
+                    continue
+            if self.has_match_filters and not validation:
+                row = {**dict.fromkeys(fields), **row}
+                if not self.match_filter(row):
+                    continue
+            yield row
+
+    @cached_property
+    def validation_rows(self) -> list[dict[str, Any]]:
+        return list(self._match_rows(validation=True))
+
+    @cached_property
+    def demands(self) -> list[dict[str, Any]]:
+        return self.load_demands()
+
+    @cached_property
+    def resources(self) -> list[dict[str, Any]]:
+        return self.load_resources()
+
+    @cached_property
+    def all_demands(self) -> list[dict[str, Any]]:
+        return [dict(row) for row in self.db.execute("SELECT * FROM demands")]
+
+    @cached_property
+    def email_rows(self) -> list[dict[str, Any]]:
+        demand_ids = {row["demand_id"] for row in self.all_demands if self.demand_filter(row)}
+        resource_ids = {
+            row["resource_id"]
+            for row in self.db.execute(
+                "SELECT r.*,COALESCE(c.identity_status,'incomplete') AS identity_status,"
+                "COALESCE(c.classification_override,c.classification,'Unknown') AS candidate_type "
+                "FROM resources r LEFT JOIN candidates c USING(candidate_id)"
+            )
+            if self.person_filter(dict(row))
+        }
+        return [
+            dict(row)
+            for row in self.db.execute(
+                "SELECT e.*,i.started_at AS uploaded_at FROM email_messages e "
+                "JOIN demands d USING(demand_id) LEFT JOIN ingestion_runs i "
+                "ON i.ingestion_run_id=d.first_ingestion_id"
+            )
+            if row["demand_id"] in demand_ids and row["resource_id"] in resource_ids
+        ]
 
     def demand_filter(self, row: dict[str, Any]) -> bool:
         f = self.filters
@@ -109,6 +280,40 @@ class Population:
 
     def load_demands(self) -> list[dict[str, Any]]:
         rows = []
+        confirmed: dict[int, sqlite3.Row] = {}
+        latest: dict[int, sqlite3.Row] = {}
+        for req in self.db.execute(
+            "SELECT q.* FROM jd_requirements q JOIN demands d "
+            "ON d.current_version_id=q.demand_version_id WHERE d.lifecycle='open' "
+            "ORDER BY q.revision DESC"
+        ):
+            version = req["demand_version_id"]
+            if req["status"] == "confirmed":
+                confirmed.setdefault(version, req)
+            if req["status"] in {"draft", "confirmed"}:
+                latest.setdefault(version, req)
+        items: dict[int, list[sqlite3.Row]] = defaultdict(list)
+        for item in self.db.execute(
+            "SELECT i.*,s.name FROM jd_requirement_items i "
+            "JOIN jd_requirements q USING(jd_req_id) "
+            "JOIN demands d ON d.current_version_id=q.demand_version_id "
+            "LEFT JOIN skills s ON s.skill_id=i.canonical_skill_id "
+            "WHERE d.lifecycle='open' AND q.status='confirmed' "
+            "AND i.kind IN ('mandatory_skill','preferred_skill') ORDER BY i.position,i.item_id"
+        ):
+            items[item["jd_req_id"]].append(item)
+        historical = {
+            row[0]
+            for row in self.db.execute(
+                "SELECT DISTINCT v.demand_id FROM jd_requirements q "
+                "JOIN demand_versions v USING(demand_version_id) JOIN demands d USING(demand_id) "
+                "WHERE v.demand_version_id!=d.current_version_id"
+            )
+        }
+        by_demand: dict[int, Counter[str]] = defaultdict(Counter)
+        for (demand_id, band), count in self.result_counts.items():
+            by_demand[demand_id][band] += count
+        assessed = json.loads((self.run or {}).get("dq_summary_json") or "{}").get("demands", {})
         for source in self.db.execute(
             "SELECT d.*,v.jd_text_norm FROM demands d LEFT JOIN demand_versions v "
             "ON v.demand_version_id=d.current_version_id WHERE d.lifecycle='open' "
@@ -117,66 +322,46 @@ class Population:
             row = dict(source)
             if not self.demand_filter(row):
                 continue
-            req = self.db.execute(
-                "SELECT * FROM jd_requirements WHERE demand_version_id=? "
-                "AND status='confirmed' ORDER BY revision DESC LIMIT 1",
-                (row["current_version_id"],),
-            ).fetchone()
+            req = confirmed.get(row["current_version_id"])
             row["mandatory_skills"], row["preferred_skills"] = [], []
             if req:
-                for item in self.db.execute(
-                    "SELECT i.kind,i.text,s.name FROM jd_requirement_items i LEFT JOIN skills s "
-                    "ON s.skill_id=i.canonical_skill_id WHERE i.jd_req_id=? "
-                    "AND i.kind IN ('mandatory_skill','preferred_skill') "
-                    "ORDER BY i.position,i.item_id",
-                    (req["jd_req_id"],),
-                ):
+                for item in items[req["jd_req_id"]]:
                     canonical = (
                         item["name"] or self.config.synonyms.resolve(item["text"]) or item["text"]
                     )
                     row[item["kind"] + "s"].append(canonical)
-            latest = self.db.execute(
-                "SELECT status FROM jd_requirements WHERE demand_version_id=? "
-                "AND status IN ('draft','confirmed') ORDER BY revision DESC LIMIT 1",
-                (row["current_version_id"],),
-            ).fetchone()
-            matches = [r for r in self.results if r["demand_id"] == row["demand_id"]]
+            current = latest.get(row["current_version_id"])
+            matches = by_demand[row["demand_id"]]
             status = (
                 "Not analysed"
-                if latest is None
+                if current is None
                 else (
                     "Analysed — awaiting confirmation"
-                    if latest["status"] == "draft"
+                    if current["status"] == "draft"
                     else "Confirmed — scoring"
                 )
             )
-            if (
-                latest is None
-                and self.db.execute(
-                    "SELECT 1 FROM jd_requirements q JOIN demand_versions v "
-                    "ON v.demand_version_id=q.demand_version_id "
-                    "WHERE v.demand_id=? AND v.demand_version_id!=? LIMIT 1",
-                    (row["demand_id"], row["current_version_id"]),
-                ).fetchone()
-            ):
+            if current is None and row["demand_id"] in historical:
                 status = "JD changed"
-            assessed = json.loads((self.run or {}).get("dq_summary_json") or "{}").get(
-                "demands", {}
-            )
-            if latest and latest["status"] == "confirmed" and str(row["demand_id"]) in assessed:
+            if current and current["status"] == "confirmed" and str(row["demand_id"]) in assessed:
                 status = "Scored"
             row.update(
                 jd_status=status,
-                matches=len(matches),
-                best_band=min(
-                    (r["effective_band"] for r in matches), key=BANDS.index, default=None
-                ),
+                matches=sum(matches.values()),
+                best_band=min(matches, key=BANDS.index, default=None),
             )
             rows.append(row)
         return rows
 
     def load_resources(self) -> list[dict[str, Any]]:
         rows = []
+        cv_counts = dict(
+            self.db.execute("SELECT candidate_id,COUNT(*) FROM cv_versions GROUP BY candidate_id")
+        )
+        ascii_lower = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+        statuses: dict[str, sqlite3.Row] = {}
+        for mapped in self.db.execute("SELECT * FROM status_map"):
+            statuses.setdefault(mapped["source_value"].translate(ascii_lower), mapped)
         for source in self.db.execute(
             "SELECT r.*,c.display_name,COALESCE(c.identity_status,'incomplete') AS identity_status,"
             "COALESCE(c.classification_override,c.classification,'Unknown') AS candidate_type "
@@ -189,14 +374,9 @@ class Population:
                 continue
             tokens = tokenise_skills(row["skills_raw"] or "", self.config.synonyms)
             row["skills"] = [token.canonical or token.raw for token in tokens.tokens]
-            row["cv_count"] = self.db.execute(
-                "SELECT COUNT(*) FROM cv_versions WHERE candidate_id=?", (row["candidate_id"],)
-            ).fetchone()[0]
+            row["cv_count"] = cv_counts.get(row["candidate_id"], 0)
             status = self.config.bench_statuses.resolve(row["bench_status"] or "")
-            mapped = self.db.execute(
-                "SELECT priority,is_excluded FROM status_map WHERE source_value=? COLLATE NOCASE",
-                (normalise_term(row["bench_status"] or ""),),
-            ).fetchone()
+            mapped = statuses.get(normalise_term(row["bench_status"] or "").translate(ascii_lower))
             row["status_priority"] = (
                 mapped["priority"] if mapped else status.priority if status else 2
             )
