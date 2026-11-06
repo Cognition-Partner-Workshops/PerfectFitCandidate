@@ -144,6 +144,11 @@ def test_req_in_23_phone_next_to_year_range_is_found_and_masked(line: str) -> No
         "(020) 2020 2024",
         "2015-2019 +44 20 7946 0958",
         "+2015-2019",
+        "2015-2019 / 2020-2024 +44 20 7946 0958",
+        "2015 - 2019, 2020 - 2024 +44 20 7946 0958",
+        "2015-2019 ; 555",
+        "+2015-2019 / 2020-2024",
+        "(2015) 2019 / 2020-2024",
     ],
 )
 def test_req_in_23_year_ranges_joined_to_digits_are_masked(line: str) -> None:
@@ -155,6 +160,22 @@ def test_req_in_23_year_ranges_joined_to_digits_are_masked(line: str) -> None:
 )
 def test_req_in_23_isolated_year_ranges_remain_readable(text: str) -> None:
     assert mask_evidence(text) == text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "2015-2019 / 2020-2024",
+        "2015 - 2019, 2020 - 2024",
+        "2015; 2019 / 2020 – 2024",
+        "2015 2019",
+        "2015",
+        "2015—2019 / 2020",
+    ],
+)
+def test_req_in_23_date_only_lists_remain_readable(text: str) -> None:
+    assert mask_evidence(text) == text
+    assert mask_evidence(f"Employment: {text} at Acme") == f"Employment: {text} at Acme"
 
 
 @pytest.mark.parametrize(

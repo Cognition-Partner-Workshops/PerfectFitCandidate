@@ -173,6 +173,7 @@ def test_req_in_23_backfill_preserves_emails_and_version(
         ("+44 2015-2019 555", None),
         ("(020) 2020 2024", "(020) 2020 2024"),
         ("2015-2019 +44 20 7946 0958", "+44 20 7946 0958"),
+        ("2015-2019 / 2020-2024 +44 20 7946 0958", "+44 20 7946 0958"),
     ],
 )
 def test_req_in_23_adjacent_phone_and_years_masked_in_both_responses(
@@ -214,15 +215,19 @@ def test_req_in_23_adjacent_phone_and_years_masked_in_both_responses(
         assert project["evidence"] == project["value"] == "***" + line[-2:]
 
 
+@pytest.mark.parametrize(
+    "dates", ["2015-2019", "2015-2019 / 2020-2024", "2015 - 2019, 2020 - 2024"]
+)
 def test_req_in_23_plain_year_range_preserved_in_both_responses(
     client: TestClient,
     tmp_path: Path,
+    dates: str,
 ) -> None:
     root = tmp_path / "resumes"
     root.mkdir()
     configure_resume_root(client, root)
     commit(client, upload(client, "ct", [{}]))
-    resume_docx(root, "Alex.docx", "alex@example.com\nExperience\n2015-2019 at Acme")
+    resume_docx(root, "Alex.docx", f"alex@example.com\nExperience\n{dates} at Acme")
     wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
     with database(client.app.state.settings) as db:
         candidate = db.execute("SELECT candidate_id FROM cv_versions").fetchone()[0]
@@ -237,7 +242,7 @@ def test_req_in_23_plain_year_range_preserved_in_both_responses(
         )
         assert items[0]["facts"]["phone"] is None
         fact = items[0]["facts"]["experience"][0]
-        assert fact["evidence"] == fact["value"] == "2015-2019 at Acme"
+        assert fact["evidence"] == fact["value"] == f"{dates} at Acme"
 
 
 @pytest.mark.parametrize("invalid", [False, True])

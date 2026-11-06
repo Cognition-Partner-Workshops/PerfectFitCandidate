@@ -6,9 +6,10 @@ from collections.abc import Iterator
 from .browse import _mask
 
 PHONE = re.compile(r"(?<![\w@])\+?(?:\(\d{1,4}\)|\d)[\d ().-]{5,}\d(?!\w)")
-MASK_PHONE = re.compile(r"(?<![\w@])\+?(?:\(\d{1,4}\)|\d)[\d +().–—/-]{5,}\d(?!\w)")
+MASK_PHONE = re.compile(r"(?<![\w@])\+?(?:\(\d{1,4}\)|\d)[\d +().,;–—/-]{5,}\d(?!\w)")
 EMAIL = re.compile(r"[\w.+-]+@[\w.-]+")
 YEAR_RANGE = re.compile(r"(?<!\d)(?:19|20)\d{2}\s*[-–—/]\s*(?:19|20)\d{2}(?!\d)")
+YEAR_LIST = re.compile(r"(?:19|20)\d{2}(?:[ /,;–—-]+(?:19|20)\d{2})*")
 
 
 def _phone_candidates(text: str) -> Iterator[re.Match[str]]:
@@ -40,6 +41,6 @@ def mask_phone(phone: str | None) -> str | None:
 def mask_evidence(text: str) -> str:
     text = EMAIL.sub(lambda match: _mask(match[0]) or "***", text)
     for match in reversed(list(MASK_PHONE.finditer(text))):
-        if not YEAR_RANGE.fullmatch(match[0]) and len(re.sub(r"\D", "", match[0])) >= 7:
+        if not YEAR_LIST.fullmatch(match[0]) and len(re.sub(r"\D", "", match[0])) >= 7:
             text = text[: match.start()] + (mask_phone(match[0]) or "***") + text[match.end() :]
     return text
