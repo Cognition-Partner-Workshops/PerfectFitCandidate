@@ -1,5 +1,6 @@
 """TDD §12 authenticated contracts against the production app and real SQLite."""
 
+import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -417,7 +418,7 @@ def test_experience_survives_flat_requirement_edits(api: Api) -> None:
     legacy["experienceYears"] = None
     saved = client.put(url, headers=headers, json=legacy)
     assert saved.status_code == 200 and saved.json()["experience"] == original["experience"]
-    assert saved.json()["experienceYears"] == 3
+    assert saved.json()["experienceYears"] is None
     # The original revision is still the source even after another edit.
     replaced = client.put(
         url,
@@ -465,6 +466,90 @@ def test_experience_survives_flat_requirement_edits(api: Api) -> None:
         ),
         409,
     )
+
+
+def test_experience_metadata_and_targeted_year_edits(api: Api) -> None:
+    client, headers = api
+    with database(client.app.state.settings) as db:
+        demand_id = seed_demand(db, confirmed=False)
+        confirm_requirements(
+            db,
+            demand_id,
+            {
+                "experience": [
+                    {"text": "Team leadership", "years": 2, "evidence": "Led teams"},
+                    {"text": "Industry experience", "years": 5, "evidence": "Five years"},
+                    {"text": "Mentoring", "evidence": "Mentored staff"},
+                ]
+            },
+            1,
+            NOW,
+        )
+        empty_id = seed_demand(db, "T1EMPTY", confirmed=False)
+    url = f"/api/v1/demands/{demand_id}/requirements"
+    original = client.get(url).json()
+
+    def items(body: dict[str, Any]) -> list[dict[str, Any]]:
+        with database(client.app.state.settings) as db:
+            row = db.execute(
+                "SELECT extraction_json FROM jd_requirements WHERE jd_req_id=?",
+                (body["jdReqId"],),
+            ).fetchone()
+        return json.loads(row[0])["experience"]
+
+    before = items(original)
+    saved = client.put(url, headers=headers, json={**original, "preferredSkills": ["Python"]})
+    assert saved.status_code == 200
+    assert json.dumps(items(saved.json())).encode() == json.dumps(before).encode()
+    omitted = {
+        key: value
+        for key, value in original.items()
+        if key
+        not in {
+            "experience",
+            "experienceYears",
+        }
+    }
+    saved = client.put(url, headers=headers, json=omitted)
+    assert saved.status_code == 200 and items(saved.json()) == before
+    changed = client.put(url, headers=headers, json={**original, "experienceYears": 7})
+    assert changed.status_code == 200
+    expected = [dict(item) for item in before]
+    expected[1]["years"] = 7
+    assert items(changed.json()) == expected
+    changed = client.put(
+        url,
+        headers=headers,
+        json={
+            **original,
+            "experience": ["Team leadership", "New experience"],
+        },
+    )
+    assert changed.status_code == 200
+    assert items(changed.json()) == [
+        before[0],
+        {
+            "text": "New experience",
+            "evidence": None,
+            "years": None,
+        },
+    ]
+    cleared = client.put(url, headers=headers, json={**original, "experienceYears": None})
+    assert cleared.status_code == 200 and all(
+        item["years"] is None for item in items(cleared.json())
+    )
+    minimum = client.put(
+        f"/api/v1/demands/{empty_id}/requirements",
+        headers=headers,
+        json={
+            "demandId": empty_id,
+            "experienceYears": 5,
+            "experience": [],
+        },
+    )
+    assert minimum.status_code == 200
+    assert minimum.json()["experience"] == ["Minimum 5 years experience"]
+    assert items(minimum.json())[0]["years"] == 5
 
 
 def test_band_adjustment_remains_visible_after_pin(api: Api) -> None:

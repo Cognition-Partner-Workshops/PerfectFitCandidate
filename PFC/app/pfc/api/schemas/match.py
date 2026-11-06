@@ -62,16 +62,31 @@ class JdRequirements(WireModel):
         return self
 
     def extraction(self, previous_experience: list[dict[str, Any]]) -> dict[str, Any]:
-        experience: list[dict[str, Any]] = (
-            [{"text": text} for text in self.experience]
-            if self.experience is not None
-            else [dict(item) for item in previous_experience]
+        existing = {item["text"]: item for item in previous_experience}
+        texts = self.experience
+        if texts is None or texts == [item["text"] for item in previous_experience]:
+            experience = [dict(item) for item in previous_experience]
+        else:
+            experience = [dict(existing.get(text, {"text": text})) for text in texts]
+        old_max = max(
+            (item["years"] for item in previous_experience if item.get("years") is not None),
+            default=None,
         )
-        if self.experience_years is not None:
-            if not experience and self.experience is None:
-                experience = [{"text": f"{self.experience_years:g} years experience"}]
-            for item in experience:
-                item["years"] = self.experience_years
+        if "experience_years" in self.model_fields_set and self.experience_years != old_max:
+            years = self.experience_years
+            if years is None:
+                for item in experience:
+                    item["years"] = None
+            elif not experience:
+                experience = [{"text": f"Minimum {years:g} years experience", "years": years}]
+            else:
+                targets = [
+                    item
+                    for item in experience
+                    if old_max is not None and item.get("years") == old_max
+                ]
+                for item in targets or experience[:1]:
+                    item["years"] = years
         return {
             "mandatory_skills": [{"text": term} for term in self.mandatory_skills],
             "preferred_skills": [{"text": term} for term in self.preferred_skills],
