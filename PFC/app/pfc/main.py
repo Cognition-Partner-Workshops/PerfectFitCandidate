@@ -1,9 +1,53 @@
+import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
+from datetime import UTC, datetime
+
 from fastapi import FastAPI
 
+from pfc.api.routers.auth import router as auth_router
 from pfc.api.routers.health import router as health_router
+from pfc.config import Settings
+from pfc.db.connection import database
+from pfc.db.migrate import migrate
+from pfc.db.users import count_admins
+from pfc.jobs.cleanup import session_cleanup
+from pfc.jobs.router import router as jobs_router
+from pfc.jobs.runner import JobRunner
+from pfc.security.middleware import install_middleware
+from pfc.security.passwords import hasher
+from pfc.security.problems import install_handlers
+from pfc.security.setup import code_path, generate_setup_code
 
 
-def create_app() -> FastAPI:
-    app = FastAPI(title="PerfectFitCandidate")
+def create_app(settings: Settings | None = None) -> FastAPI:
+    settings = settings or Settings()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        migrate(settings)
+        with database(settings) as db:
+            if not count_admins(db) and not code_path(settings).exists():
+                generate_setup_code(settings)
+            elif count_admins(db):
+                code_path(settings).unlink(missing_ok=True)
+        app.state.job_runner = JobRunner(settings)
+        cleanup = asyncio.create_task(session_cleanup(settings))
+        try:
+            yield
+        finally:
+            cleanup.cancel()
+            with suppress(asyncio.CancelledError):
+                await cleanup
+            app.state.job_runner.shutdown()
+
+    app = FastAPI(title="PerfectFitCandidate", lifespan=lifespan)
+    app.state.settings = settings
+    app.state.clock = lambda: datetime.now(UTC)
+    app.state.dummy_hash = hasher(settings).hash("unused-random-dummy-password")
+    install_handlers(app)
+    install_middleware(app)
     app.include_router(health_router, prefix="/api/v1")
+    app.include_router(auth_router, prefix="/api/v1")
+    app.include_router(jobs_router, prefix="/api/v1")
     return app
