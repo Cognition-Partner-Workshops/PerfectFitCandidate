@@ -102,7 +102,7 @@ export function BenchListPage() {
                   </td>
                   <td className="mono">{r.shortName}</td>
                   <td>
-                    <Link to={`/candidates/${r.candidateId}`}>{orNotRecorded(r.name)}</Link>
+                    {r.candidateId ? <Link to={`/candidates/${r.candidateId}`}>{orNotRecorded(r.name)}</Link> : orNotRecorded(r.name)}
                     {r.identityStatus !== 'complete' && <Chip tone="warning">Incomplete identity</Chip>}
                   </td>
                   <td>

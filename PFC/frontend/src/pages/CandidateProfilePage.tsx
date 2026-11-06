@@ -84,7 +84,9 @@ function Picker() {
         <input aria-label="Search candidates" placeholder="Search by name or ShortName…" value={q} onChange={(e) => setQ(e.target.value)} />
         <ul className="list-plain">
           {rows.map((r) => (
-            <li key={r.resourceId} className="queue-item" onClick={() => navigate(`/candidates/${r.candidateId}`)}>
+            <li key={r.resourceId} className="queue-item" onClick={() => {
+                if (r.candidateId) navigate(`/candidates/${r.candidateId}`)
+              }}>
               <span className="avatar">{initials(r.name ?? r.shortName)}</span>
               <span style={{ flex: 1 }}>
                 {orNotRecorded(r.name)} · <span className="mono">{r.shortName}</span> · {r.grade ?? '—'}

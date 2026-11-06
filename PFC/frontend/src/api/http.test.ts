@@ -230,4 +230,24 @@ describe('HttpApiClient — resources and match runs (ingestion #12, matching #1
     expect((await api.getMatchRun(9)).status).toBe('running')
     expect(String(fetchMock.mock.calls[1]?.[0])).toBe('/api/v1/match-runs/9')
   })
+
+  it('marks identity from the email, not the bench-date pending_review flag', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(
+      json({ items: [{ ...item(1, 'eligible'), pending_review: true }, { ...item(2, 'eligible'), email_address: null }], page: 1, page_size: 200, total: 2 }),
+    )
+    expect((await api.listResources()).map((r) => r.identityStatus)).toEqual(['complete', 'incomplete'])
+  })
+
+  it('drafts emails from the given run, else the newest completed one rather than a running run', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock
+      .mockResolvedValueOnce(json([{ runId: 3, status: 'running' }, { runId: 2, status: 'completed' }]))
+      .mockResolvedValueOnce(json({ drafts: [], issues: [] }))
+      .mockResolvedValueOnce(json({ drafts: [], issues: [] }))
+    await api.createDrafts([7])
+    await api.createDrafts([8], 1)
+    const bodies = fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST').map(([, init]) => JSON.parse(String(init?.body)))
+    expect(bodies).toEqual([{ run_id: 2, result_ids: [7] }, { run_id: 1, result_ids: [8] }])
+  })
 })

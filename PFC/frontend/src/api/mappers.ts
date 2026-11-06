@@ -237,7 +237,7 @@ export interface ResourceItem {
   occ_pending_review: boolean
 }
 const ELIGIBILITY: Resource['eligibility'][] = ['eligible', 'eligible_caveat', 'excluded', 'insufficient']
-/** The list rows carry no candidate, CV or identity data; those fields take neutral defaults. */
+/** The list rows carry no candidate or CV data, so those take neutral defaults (`candidateId` 0 = not linked); `pending_review` is the bench-date parse flag, not identity. */
 export const toResource = (r: ResourceItem): Resource => ({
   resourceId: r.resource_id,
   candidateId: 0,
@@ -260,7 +260,7 @@ export const toResource = (r: ResourceItem): Resource => ({
   cvStatus: 'Not synced',
   cvCount: 0,
   candidateType: 'Unknown',
-  identityStatus: r.pending_review ? 'incomplete' : 'complete',
+  identityStatus: r.email_address ? 'complete' : 'incomplete',
 })
 
 export const toDomain = (r: { domain: string }): InternalDomain => ({ domain: r.domain })
