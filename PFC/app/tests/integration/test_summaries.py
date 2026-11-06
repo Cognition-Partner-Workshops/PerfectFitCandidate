@@ -72,11 +72,24 @@ def test_grounded_success_prompt_masking_metadata_and_score_isolation(
     provider = Provider(output("sql ENGINEER", "alex@example.com on +44 123456789"), settings)
     client.app.state.llm_provider = provider
     run = execute(settings, client.app.state.job_runner)
+    pair_query = (
+        "SELECT demand_id,resource_id,score,band,rank,shortlisted,matching_evidence,"
+        "gaps_checks,eligibility_evidence FROM match_results WHERE run_id=? "
+        "ORDER BY demand_id,resource_id"
+    )
+    breakdown_query = (
+        "SELECT r.demand_id,r.resource_id,b.component,b.points,b.max_points,b.inputs_json "
+        "FROM match_results r JOIN score_breakdowns b USING(result_id) "
+        "WHERE r.run_id=? ORDER BY r.demand_id,r.resource_id,b.component"
+    )
     with database(settings) as db:
         before = [
             tuple(row) for row in db.execute("SELECT * FROM match_results WHERE run_id=?", (run,))
         ]
+        before_pairs = [tuple(row) for row in db.execute(pair_query, (run,))]
+        before_breakdowns = [tuple(row) for row in db.execute(breakdown_query, (run,))]
     assert before
+    assert before_breakdowns
     response = client.post(url, headers=headers)
     assert response.status_code == 200, response.text
     saved = response.json()
@@ -126,6 +139,13 @@ def test_grounded_success_prompt_masking_metadata_and_score_isolation(
         assert "+44 123456789" not in row["sentences_json"]
         assert before == [
             tuple(row) for row in db.execute("SELECT * FROM match_results WHERE run_id=?", (run,))
+        ]
+    second_run = execute(settings, client.app.state.job_runner)
+    assert second_run != run
+    with database(settings) as db:
+        assert before_pairs == [tuple(row) for row in db.execute(pair_query, (second_run,))]
+        assert before_breakdowns == [
+            tuple(row) for row in db.execute(breakdown_query, (second_run,))
         ]
 
 
