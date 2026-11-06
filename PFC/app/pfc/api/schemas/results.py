@@ -33,6 +33,11 @@ class ResultsQuery(WireModel):
     score_min: float | None = Field(default=None, ge=0, le=100)
     score_max: float | None = Field(default=None, ge=0, le=100)
     status: str | None = None
+    bu: str | None = None
+    region: str | None = None
+    candidate_type: Literal["Internal", "External", "Unknown", ""] | None = None
+    incomplete_identity: Literal["yes", "no", ""] | None = None
+    mandatory_skills: Literal["met", "gap", ""] | None = None
     shortlisted_only: bool = False
     sort: Literal[
         "rank",
