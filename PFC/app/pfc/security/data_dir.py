@@ -9,7 +9,6 @@ import shutil
 import sqlite3
 import subprocess
 import sys
-import time
 from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
@@ -81,18 +80,6 @@ def _free_name(path: Path) -> Path:
     return candidate
 
 
-def _rename_with_retry(source: Path, destination: Path, attempts: int = 10) -> None:
-    """Windows can hold just-closed files briefly (indexer, antivirus); retry before giving up."""
-    for attempt in range(attempts):
-        try:
-            source.rename(destination)
-            return
-        except PermissionError:
-            if attempt == attempts - 1:
-                raise
-            time.sleep(0.1 * (attempt + 1))
-
-
 def _ensure_not_running(legacy: Path) -> None:
     """Refuse to copy while an old instance holds its lock; it would keep writing the original."""
     from pfc.launcher import acquire_lock  # the launcher imports this module
@@ -144,7 +131,7 @@ def migrate_legacy_data_dir(legacy: Path, target: Path) -> bool:
         raise
     archive = _free_name(legacy.with_name(legacy.name + ".migrated"))
     try:
-        _rename_with_retry(legacy, archive)
+        legacy.rename(archive)
     except OSError:
         logger.warning(
             "Moved data directory %s to %s; could not rename the original", legacy.name, target.name
