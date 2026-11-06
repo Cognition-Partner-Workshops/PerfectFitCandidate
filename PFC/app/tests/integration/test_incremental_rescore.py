@@ -1,10 +1,17 @@
 """Seeded equivalence of incremental and exhaustive persisted scoring."""
 
 import json
+import logging
 import random
 import sqlite3
+import sys
 import threading
+import traceback
+from collections import deque
+from collections.abc import Iterator
+from contextlib import closing
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, NoReturn
 
 import pytest
@@ -27,7 +34,7 @@ from test_matching_service import settings as settings
 from pfc.config import Settings
 from pfc.db.connection import database
 from pfc.domain.scoring import engine
-from pfc.jobs.runner import JobCancelled, JobContext, JobRunner
+from pfc.jobs.runner import Job, JobCancelled, JobContext, JobRunner
 from pfc.services.ingestion import cv_sync
 from pfc.services.matching import (
     MatchingPorts,
@@ -38,6 +45,211 @@ from pfc.services.matching import (
     start_run,
 )
 from pfc.services.occ import synonyms
+
+
+class MatchingLogs(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__()
+        self.records: deque[logging.LogRecord] = deque(maxlen=100)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+@pytest.fixture
+def matching_logs() -> Iterator[MatchingLogs]:
+    handler = MatchingLogs()
+    loggers = [logging.getLogger(name) for name in ("pfc.jobs.runner", "pfc.services.matching")]
+    levels = [logger.level for logger in loggers]
+    for logger in loggers:
+        logger.setLevel(logging.DEBUG)
+        logger.addHandler(handler)
+    try:
+        yield handler
+    finally:
+        for logger, level in zip(loggers, levels, strict=True):
+            logger.removeHandler(handler)
+            logger.setLevel(level)
+        handler.close()
+
+
+def timeout_diagnostics(settings: Settings, job_id: int, logs: MatchingLogs) -> str:
+    names = {thread.ident: thread.name for thread in threading.enumerate()}
+    stacks = [
+        f"Thread {names.get(ident, '<unnamed>')} ({ident}):\n"
+        + "".join(traceback.format_stack(frame))
+        for ident, frame in sys._current_frames().items()
+    ]
+    rows: dict[str, Any] = {"job": None, "run": None}
+    lookup_error = ""
+    try:
+        path = (settings.data_dir / "db" / "pfc.db").resolve().as_uri()
+        with closing(sqlite3.connect(f"{path}?mode=ro", uri=True, timeout=0.1)) as db:
+            db.row_factory = sqlite3.Row
+            job = db.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
+            rows["job"] = dict(job) if job else None
+            run_id = json.loads(job["params_json"] or "{}").get("run_id") if job else None
+            run = db.execute("SELECT * FROM match_runs WHERE run_id=?", (run_id,)).fetchone()
+            rows["run"] = dict(run) if run else None
+    except Exception as exc:
+        lookup_error = f"Row lookup failed: {type(exc).__name__}: {exc}\n"
+    for name, row in rows.items():
+        if row is not None:
+            rows[name] = {
+                key: value
+                for key, value in row.items()
+                if key in {"job_id", "run_id", "status", "progress", "message"}
+                or key.endswith("_at")
+                or "error" in key.casefold()
+            }
+    logs.acquire()
+    try:
+        records = list(logs.records)
+    finally:
+        logs.release()
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    recent = "\n".join(formatter.format(record) for record in records) or "<none>"
+    return (
+        f"Matching job did not finish (job_id={job_id})\n"
+        f"Job/run rows:\n{json.dumps(rows, sort_keys=True)}\n{lookup_error}"
+        f"Thread stacks:\n{''.join(stacks)}\n"
+        f"Recent runner/matching logs (last 100):\n{recent}"
+    )
+
+
+def wait_with_diagnostics(runner: JobRunner, job_id: int, logs: MatchingLogs) -> Job:
+    try:
+        return wait_done(runner, job_id)
+    except pytest.fail.Exception as exc:
+        if str(exc) != "Matching job did not finish":
+            raise
+        pytest.fail(timeout_diagnostics(runner.settings, job_id, logs), pytrace=False)
+
+
+def test_timeout_diagnostics_include_rows_threads_and_bounded_logs(
+    settings: Settings,
+    runner: JobRunner,
+    monkeypatch: pytest.MonkeyPatch,
+    matching_logs: MatchingLogs,
+) -> None:
+    stamp = NOW.isoformat()
+    with database(settings) as db:
+        template_id = db.execute("SELECT template_id FROM scoring_templates LIMIT 1").fetchone()[0]
+        model_id = db.execute(
+            "INSERT INTO embedding_models(name,runtime,file_sha256,dim,pipeline_version) "
+            "VALUES ('diagnostic','onnx','test',2,'test')"
+        ).lastrowid
+        run_id = db.execute(
+            "INSERT INTO match_runs(scope,template_id,embedding_model_id,engine_version,"
+            "synonyms_version,config_hash,status,started_at) "
+            "VALUES ('full',?,?,'test','test','test','running',?)",
+            (template_id, model_id, stamp),
+        ).lastrowid
+        db.execute("ALTER TABLE jobs ADD COLUMN error TEXT")
+        job_id = int(
+            db.execute(
+                "INSERT INTO jobs(kind,params_json,status,created_at,started_at,error) "
+                "VALUES ('match_run',?,'running',?,?,'diagnostic error')",
+                (json.dumps({"run_id": run_id}), stamp, stamp),
+            ).lastrowid
+            or 0
+        )
+    logger = logging.getLogger("pfc.jobs.runner")
+    logger.warning("discarded sentinel")
+    for index in range(100):
+        logger.warning("runner record %s", index)
+    logging.getLogger("pfc.services.matching.runs").error("matching sentinel")
+    monkeypatch.setattr(runner, "get", lambda _: SimpleNamespace(status="running"))
+    monkeypatch.setattr(
+        "test_matching_service.time",
+        SimpleNamespace(monotonic=iter([0.0, 0.0, 10.0]).__next__, sleep=lambda _: None),
+    )
+    release = threading.Event()
+    thread = threading.Thread(target=release.wait, name="diagnostic-never-finishes")
+    thread.start()
+    try:
+        with pytest.raises(pytest.fail.Exception) as failure:
+            wait_with_diagnostics(runner, job_id, matching_logs)
+        message = str(failure.value)
+        rows = json.loads(message.split("Job/run rows:\n")[1].split("\n", 1)[0])
+        assert rows["job"] == {
+            "job_id": job_id,
+            "status": "running",
+            "progress": 0.0,
+            "message": None,
+            "created_at": stamp,
+            "started_at": stamp,
+            "finished_at": None,
+            "error": "diagnostic error",
+        }
+        assert rows["run"] == {
+            "run_id": run_id,
+            "status": "running",
+            "started_at": stamp,
+            "finished_at": None,
+        }
+        assert f"Thread {thread.name} ({thread.ident})" in message
+        assert f"Thread {threading.current_thread().name}" in message
+        assert "test_timeout_diagnostics_include_rows_threads_and_bounded_logs" in message
+        assert "Recent runner/matching logs (last 100):" in message
+        assert "WARNING pfc.jobs.runner: runner record 99" in message
+        assert "ERROR pfc.services.matching.runs: matching sentinel" in message
+        assert "discarded sentinel" not in message
+        assert len(matching_logs.records) == 100
+    finally:
+        release.set()
+        thread.join()
+
+
+def test_timeout_diagnostics_missing_rows_and_empty_logs(
+    settings: Settings, matching_logs: MatchingLogs
+) -> None:
+    message = timeout_diagnostics(settings, -1, matching_logs)
+    assert 'Job/run rows:\n{"job": null, "run": null}' in message
+    assert "Thread stacks:" in message
+    assert "Recent runner/matching logs (last 100):\n<none>" in message
+
+
+def test_timeout_diagnostics_survive_unavailable_database(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, matching_logs: MatchingLogs
+) -> None:
+    def unavailable(*args: Any, **kwargs: Any) -> NoReturn:
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(sqlite3, "connect", unavailable)
+    logging.getLogger("pfc.jobs.runner").error("last runner record")
+    message = timeout_diagnostics(settings, 1, matching_logs)
+    assert "Row lookup failed: OperationalError: database is locked" in message
+    assert "Thread stacks:" in message
+    assert "ERROR pfc.jobs.runner: last runner record" in message
+
+
+@pytest.mark.parametrize("status", ["completed", "failed", "cancelled"])
+def test_diagnostic_wait_returns_terminal_job_unchanged(
+    runner: JobRunner,
+    monkeypatch: pytest.MonkeyPatch,
+    matching_logs: MatchingLogs,
+    status: str,
+) -> None:
+    job = Job(1, "match_run", None, status, 1.0, None, None, "created", "started", "finished")
+    monkeypatch.setattr(sys.modules[__name__], "wait_done", lambda *_: job)
+
+    def unexpected(*args: Any) -> NoReturn:
+        pytest.fail("diagnostics collected for terminal job")
+
+    monkeypatch.setattr(sys.modules[__name__], "timeout_diagnostics", unexpected)
+    assert wait_with_diagnostics(runner, 1, matching_logs) is job
+
+
+def test_diagnostic_wait_preserves_other_failures(
+    runner: JobRunner, monkeypatch: pytest.MonkeyPatch, matching_logs: MatchingLogs
+) -> None:
+    def other_failure(*args: Any) -> NoReturn:
+        pytest.fail("unrelated failure")
+
+    monkeypatch.setattr(sys.modules[__name__], "wait_done", other_failure)
+    with pytest.raises(pytest.fail.Exception, match="^unrelated failure$"):
+        wait_with_diagnostics(runner, 1, matching_logs)
 
 
 def persisted(db: sqlite3.Connection, run_id: int) -> dict[str, Any]:
@@ -110,9 +322,14 @@ def test_incremental_equals_full(
     runner: JobRunner,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    matching_logs: MatchingLogs,
     seed: int,
     scenario: str,
 ) -> None:
+    monkeypatch.setattr(
+        "test_matching_service.wait_done",
+        lambda active_runner, job_id: wait_with_diagnostics(active_runner, job_id, matching_logs),
+    )
     rng = random.Random(seed)
     with database(settings) as db:
         candidate = seed_candidate(db)
