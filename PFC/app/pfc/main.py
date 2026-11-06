@@ -12,7 +12,10 @@ from pfc.api.routers.cv import router as cv_router
 from pfc.api.routers.demands import router as demands_router
 from pfc.api.routers.health import router as health_router
 from pfc.api.routers.ingestion import router as ingestion_router
+from pfc.api.routers.llm import router as llm_router
+from pfc.api.routers.occ import router as occ_router
 from pfc.api.routers.resources import router as resources_router
+from pfc.api.routers.settings import router as settings_router
 from pfc.config import Settings
 from pfc.db.connection import database
 from pfc.db.migrate import migrate
@@ -24,6 +27,7 @@ from pfc.security.middleware import install_middleware
 from pfc.security.passwords import hasher
 from pfc.security.problems import Problem, install_handlers
 from pfc.security.setup import code_path, generate_setup_code
+from pfc.services.occ.seed import seed_reference_data
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -33,6 +37,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         migrate(settings)
         with database(settings) as db:
+            seed_reference_data(db)
             if not count_admins(db) and not code_path(settings).exists():
                 generate_setup_code(settings)
             elif count_admins(db):
@@ -60,6 +65,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(demands_router, prefix="/api/v1")
     app.include_router(resources_router, prefix="/api/v1")
     app.include_router(cv_router, prefix="/api/v1")
+    app.include_router(occ_router, prefix="/api/v1")
+    app.include_router(settings_router, prefix="/api/v1")
+    app.include_router(llm_router, prefix="/api/v1")
     frontend = settings.frontend_dir.resolve()
     if (frontend / "index.html").is_file():
         if (frontend / "assets").is_dir():

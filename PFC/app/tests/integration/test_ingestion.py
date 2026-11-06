@@ -19,7 +19,6 @@ from pfc.adapters.vector.stores import create_vector_store
 from pfc.config import Settings
 from pfc.db.audit import verify_chain
 from pfc.db.connection import database
-from pfc.domain.config_loader import load_domain_config
 from pfc.jobs.runner import JobCancelled, JobContext
 from pfc.main import create_app
 from pfc.security.setup import code_path
@@ -84,27 +83,6 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
             },
         )
         assert response.status_code == 201, response.text
-        config = load_domain_config()
-        with database(settings) as db:
-            db.executemany(
-                "INSERT INTO grades(code,ordinal) VALUES (?,?)",
-                [(code, i) for i, code in enumerate(config.grades.codes, 1)],
-            )
-            for status in config.bench_statuses.statuses.values():
-                fields = status.model_dump()
-                db.execute(
-                    f"INSERT INTO bench_statuses({','.join(fields)}) VALUES "
-                    f"({','.join('?' for _ in fields)})",
-                    tuple(fields.values()),
-                )
-            for source, code in config.bench_statuses.status_map.items():
-                status = config.bench_statuses.statuses[code]
-                db.execute(
-                    "INSERT INTO status_map(source_value,canonical_code,priority,"
-                    "is_excluded,updated_at) "
-                    "VALUES (?,?,?,?,?)",
-                    (source, code, status.priority or 2, status.is_excluded, "2026-01-01"),
-                )
         login(client)
         yield client
 

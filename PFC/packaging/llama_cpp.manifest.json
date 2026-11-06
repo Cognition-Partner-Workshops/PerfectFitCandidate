@@ -1,0 +1,7 @@
+{
+  "tag": "b8936",
+  "architecture": "win-x64-cpu-avx2-capable",
+  "file": "llama-b8936-bin-win-cpu-x64.zip",
+  "url": "https://github.com/ggml-org/llama.cpp/releases/download/b8936/llama-b8936-bin-win-cpu-x64.zip",
+  "sha256": "f400223ba8f4cd370e027894b66d29b8c067a50993d5daaa6abb5568f6db36ba"
+}
