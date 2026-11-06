@@ -70,9 +70,12 @@ def test_classification_reason_survives_api_save_and_confirm(api: Api) -> None:
     assert confirmed["status"] == "confirmed"
     assert confirmed["extractionMethod"] == original["extractionMethod"] == "llm"
     assert confirmed["fallbackReason"] is None and confirmed["warnings"] == []
-    assert next(item for item in confirmed["items"] if item["text"] == "PostgreSQL")[
-        "evidenceUnverified"
-    ] is True
+    assert (
+        next(item for item in confirmed["items"] if item["text"] == "PostgreSQL")[
+            "evidenceUnverified"
+        ]
+        is True
+    )
     assert (
         next(item for item in confirmed["items"] if item["text"] == "PostgreSQL")[
             "classificationReason"
