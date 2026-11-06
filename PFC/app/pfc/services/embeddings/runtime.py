@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import sqlite3
 from pathlib import Path
 
 from pfc.adapters.vector.embeddings import OnnxEmbedder
@@ -30,7 +31,9 @@ def verify_model_file(path: Path, expected_sha256: str) -> None:
         )
 
 
-def create_embedder(settings: Settings, *, embedding_model_id: int) -> OnnxEmbedder:
+def resolve_model_files(
+    settings: Settings, *, embedding_model_id: int
+) -> tuple[sqlite3.Row, Path, Path]:
     with database(settings) as db:
         row = db.execute(
             "SELECT * FROM embedding_models WHERE embedding_model_id=?", (embedding_model_id,)
@@ -49,10 +52,17 @@ def create_embedder(settings: Settings, *, embedding_model_id: int) -> OnnxEmbed
                 break
         except (OSError, ValueError, KeyError, TypeError) as exc:
             raise EmbeddingModelUnavailable(f"Invalid local model receipt: {path}") from exc
-    verify_model_file(model_path, row["file_sha256"])
     tokenizer_path = model_path.parent / "tokenizer.json"
     if not tokenizer_path.is_file():
         tokenizer_path = bundled / "tokenizer.json"
+    return row, model_path, tokenizer_path
+
+
+def create_embedder(settings: Settings, *, embedding_model_id: int) -> OnnxEmbedder:
+    row, model_path, tokenizer_path = resolve_model_files(
+        settings, embedding_model_id=embedding_model_id
+    )
+    verify_model_file(model_path, row["file_sha256"])
     if not tokenizer_path.is_file():
         raise EmbeddingModelUnavailable(
             f"Local embedding tokenizer is missing: {tokenizer_path}. No downloads are performed."

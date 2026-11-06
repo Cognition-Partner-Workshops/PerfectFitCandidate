@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -195,6 +195,81 @@ def _owner(
     return counts
 
 
+def _prepare_model(
+    settings: Settings, db: sqlite3.Connection, model_id: int, embedder: Embedder
+) -> tuple[int, str, str]:
+    path = next(row[2] for row in db.execute("PRAGMA database_list") if row[1] == "main")
+    if Path(path).resolve() != (settings.data_dir / "db" / "pfc.db").resolve():
+        raise ValueError("Vector store must use the application database")
+    if db.in_transaction:
+        raise ValueError("Re-embedding requires a connection without an open transaction")
+    with _transaction(db):
+        row = db.execute(
+            "SELECT dim,file_sha256,pipeline_version FROM embedding_models "
+            "WHERE embedding_model_id=?",
+            (model_id,),
+        ).fetchone()
+        if row is None:
+            raise EmbeddingModelUnavailable(f"Embedding model {model_id} is not registered")
+        if embedder.dimensions != row[0]:
+            raise ValueError("Embedder dimensions do not match the registered embedding model")
+        if row[1]:
+            model_path = getattr(embedder, "model_path", None)
+            if model_path is None:
+                raise EmbeddingModelUnavailable(
+                    "Cannot verify the registered model without a model file"
+                )
+            verify_model_file(Path(model_path), row[1])
+        version = pipeline_version(row[2])
+        if version != row[2]:
+            if (
+                row[2]
+                and db.execute(
+                    "SELECT 1 FROM embedding_chunks WHERE embedding_model_id=? LIMIT 1", (model_id,)
+                ).fetchone()
+            ):
+                raise EmbeddingPipelineMismatch(
+                    "Pipeline differs on a populated model; run a full re-embed "
+                    "using a new embedding model row for the new chunking pipeline"
+                )
+            db.execute(
+                "UPDATE embedding_models SET pipeline_version=? WHERE embedding_model_id=?",
+                (version, model_id),
+            )
+    return int(row[0]), str(row[1]), version
+
+
+def embed_owners(
+    settings: Settings,
+    ctx: JobContext,
+    *,
+    owners: Iterable[tuple[OwnerType, int]],
+    embedder: Embedder,
+    store: NumpyStore,
+    embedding_model_id: int,
+) -> ReembedCounts:
+    """Index only requested owners, cleaning retired owners without activating a model."""
+    selected = sorted(set(owners))
+    if any(kind not in ("cv", "jd", "jd_item") for kind, _ in selected):
+        raise ValueError("Unsupported embedding owner type")
+    with _exclusive(ctx):
+        db = store.connection
+        _prepare_model(settings, db, embedding_model_id, embedder)
+        counts = ReembedCounts()
+        for done, (kind, id) in enumerate(selected):
+            ctx.raise_if_cancelled()
+            expected = load_owner(db, kind, id)
+            owner = expected if expected is not None else Owner(kind, id, "")
+            result = _owner(
+                db, ctx, owner, expected, embedding_model_id, embedder, store, done, len(selected)
+            )
+            for field in ("embedded", "reused", "skipped", "deleted"):
+                setattr(counts, field, getattr(counts, field) + getattr(result, field))
+            ctx.report_progress((done + 1) / len(selected), f"Indexed {kind} {id}")
+        ctx.raise_if_cancelled()
+        return counts
+
+
 def reembed(
     settings: Settings,
     ctx: JobContext,
@@ -212,44 +287,8 @@ def reembed(
     row's pipeline requires a new model row rather than relabelling old vectors.
     """
     db = store.connection
-    path = next(row[2] for row in db.execute("PRAGMA database_list") if row[1] == "main")
-    if Path(path).resolve() != (settings.data_dir / "db" / "pfc.db").resolve():
-        raise ValueError("Vector store must use the application database")
-    if db.in_transaction:
-        raise ValueError("Re-embedding requires a connection without an open transaction")
     with _exclusive(ctx):
-        row = db.execute(
-            "SELECT dim,file_sha256,pipeline_version FROM embedding_models "
-            "WHERE embedding_model_id=?",
-            (embedding_model_id,),
-        ).fetchone()
-        if row is None:
-            raise EmbeddingModelUnavailable(
-                f"Embedding model {embedding_model_id} is not registered"
-            )
-        if embedder.dimensions != row[0]:
-            raise ValueError("Embedder dimensions do not match the registered embedding model")
-        if row[1]:
-            model_path = getattr(embedder, "model_path", None)
-            if model_path is None:
-                raise EmbeddingModelUnavailable(
-                    "Cannot verify the registered model without a model file"
-                )
-            verify_model_file(Path(model_path), row[1])
-        version = pipeline_version(row[2])
-        with _transaction(db):
-            if version != row[2]:
-                if db.execute(
-                    "SELECT 1 FROM embedding_chunks WHERE embedding_model_id=? LIMIT 1",
-                    (embedding_model_id,),
-                ).fetchone():
-                    raise EmbeddingPipelineMismatch(
-                        "Create a new embedding model row for the new chunking pipeline"
-                    )
-                db.execute(
-                    "UPDATE embedding_models SET pipeline_version=? WHERE embedding_model_id=?",
-                    (version, embedding_model_id),
-                )
+        identity = _prepare_model(settings, db, embedding_model_id, embedder)
         source = load_owners(db)
         owners = {(owner.owner_type, owner.owner_id): owner for owner in source}
         for kind, id in db.execute(
@@ -280,7 +319,7 @@ def reembed(
                 "WHERE embedding_model_id=?",
                 (embedding_model_id,),
             ).fetchone()
-            if registered is None or tuple(registered) != (row[0], row[1], version):
+            if registered is None or tuple(registered) != identity:
                 raise EmbeddingSourceChanged("Registered embedding model changed during indexing")
             ctx.raise_if_cancelled()
             db.execute(

@@ -4,7 +4,7 @@ import json
 import os
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from io import BytesIO
 from pathlib import Path
 
@@ -22,6 +22,10 @@ from pfc.db.connection import database
 from pfc.jobs.runner import JobCancelled, JobContext
 from pfc.main import create_app
 from pfc.security.setup import code_path
+from pfc.services.embeddings.chunking import OwnerType
+from pfc.services.embeddings.incremental import submit_incremental_embed
+from pfc.services.embeddings.reembed import reembed
+from pfc.services.embeddings.runtime import EmbeddingModelUnavailable
 from pfc.services.ingestion import cv_sync, service
 from pfc.services.ingestion.repository import parse
 from pfc.services.ingestion.workbooks import CT, DL
@@ -138,6 +142,242 @@ def commit(client: TestClient, run: dict) -> dict:
     response = client.post(f"/api/v1/ingestion-runs/{run['ingestion_run_id']}/commit")
     assert response.status_code == 200, response.text
     return response.json()
+
+
+def test_dl_embedding_trigger_only_changed_versions_and_titles(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[set[tuple[OwnerType, int]]] = []
+
+    def submit(
+        runner: object,
+        settings: Settings,
+        owners: Iterable[tuple[OwnerType, int]],
+        *,
+        created_by: int | None = None,
+    ) -> int:
+        assert runner is client.app.state.job_runner and created_by == 1
+        calls.append(set(owners))
+        return 999
+
+    monkeypatch.setattr("pfc.api.routers.ingestion.submit_incremental_embed", submit)
+    commit(client, upload(client, "dl", [{}, {"Code Requisition": "T21234"}]))
+    with database(client.app.state.settings) as db:
+        old = dict(db.execute("SELECT code_requisition,current_version_id FROM demands"))
+    assert calls == [{("jd", id) for id in old.values()}]
+    calls.clear()
+    rows: list[dict[str, object]] = [
+        {"JD": "Python"},
+        {"Code Requisition": "T21234"},
+        {"Code Requisition": "T31234", "JD": "Rust"},
+    ]
+    commit(client, upload(client, "dl", rows))
+    with database(client.app.state.settings) as db:
+        new = dict(db.execute("SELECT code_requisition,current_version_id FROM demands"))
+    assert calls == [{("jd", old["T11234"]), ("jd", new["T11234"]), ("jd", new["T31234"])}]
+    calls.clear()
+    rows[0]["Account Name"] = "Metadata only"
+    commit(client, upload(client, "dl", rows))
+    commit(client, upload(client, "ct", [{}]))
+    assert calls == []
+    rows[0]["Demand Request Name"] = "Python Engineer"
+    commit(client, upload(client, "dl", rows))
+    assert calls == [{("jd", new["T11234"])}]
+    with database(client.app.state.settings) as db:
+        assert dict(db.execute("SELECT code_requisition,current_version_id FROM demands")) == new
+    calls.clear()
+    rows[0]["Account Name"] = "Another metadata edit"
+    commit(client, upload(client, "dl", rows))
+    assert calls == []
+
+
+@pytest.mark.parametrize("restore", [False, True])
+def test_dl_replacement_cleans_and_restores_requirement_items(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, restore: bool
+) -> None:
+    commit(client, upload(client, "dl", [{}, {"Code Requisition": "T21234"}]))
+    settings = client.app.state.settings
+    embedder = FakeEmbedder(8)
+    with database(settings) as db:
+        versions = dict(db.execute("SELECT code_requisition,current_version_id FROM demands"))
+        model_id = db.execute(
+            "INSERT INTO embedding_models(name,runtime,file_sha256,dim,pipeline_version,is_active) "
+            "VALUES ('fake','onnx','',8,'v1',1) RETURNING embedding_model_id"
+        ).fetchone()[0]
+        inactive_model = db.execute(
+            "INSERT INTO embedding_models(name,runtime,file_sha256,dim,pipeline_version,is_active) "
+            "VALUES ('inactive','onnx','',8,'v1',0) RETURNING embedding_model_id"
+        ).fetchone()[0]
+        for req_id, code in enumerate(("T11234", "T21234"), 1):
+            db.execute(
+                "INSERT INTO jd_requirements(jd_req_id,demand_version_id,"
+                "revision,status,created_at) "
+                "VALUES (?,?,1,'confirmed','2026-11-06')",
+                (req_id, versions[code]),
+            )
+            db.execute(
+                "INSERT INTO jd_requirement_items(item_id,jd_req_id,kind,text,position) "
+                "VALUES (?,?,'mandatory_skill','SQL',0)",
+                (req_id, req_id),
+            )
+    with database(settings) as db:
+        store = create_vector_store(db, dimensions=8)
+        reembed(
+            settings,
+            JobContext(client.app.state.job_runner, 0, threading.Event()),
+            embedding_model_id=model_id,
+            embedder=embedder,
+            store=store,
+        )
+        old_chunks = [
+            row[0]
+            for row in db.execute(
+                "SELECT chunk_id FROM embedding_chunks WHERE (owner_type='jd' AND owner_id=?) "
+                "OR (owner_type='jd_item' AND owner_id=1)",
+                (versions["T11234"],),
+            )
+        ]
+        db.execute(
+            "INSERT INTO jd_requirements(jd_req_id,demand_version_id,revision,status,created_at) "
+            "VALUES (3,?,2,'superseded','2026-11-06')",
+            (versions["T11234"],),
+        )
+        for id, req in ((3, 1), (4, 1), (5, 3)):
+            db.execute(
+                "INSERT INTO jd_requirement_items(item_id,jd_req_id,kind,text,position) "
+                "VALUES (?,?,'mandatory_skill','SQL',?)",
+                (id, req, id),
+            )
+
+        def index(item_id: int, model: int) -> int:
+            id = db.execute(
+                "INSERT INTO embedding_chunks(owner_type,owner_id,section,chunk_no,text,"
+                "text_sha256,token_count,embedding_model_id,created_at) "
+                "VALUES ('jd_item',?,'full',0,'SQL',?,1,?,'2026-11-06') RETURNING chunk_id",
+                (item_id, "f" * 64, model),
+            ).fetchone()[0]
+            store.upsert(
+                id,
+                embedder.embed(["SQL"], task="query")[0],
+                embedder.model_version,
+                namespace="jd_item",
+            )
+            return id
+
+        inactive_chunk = index(3, inactive_model)
+        old_chunks.append(index(5, model_id))
+    calls: list[set[tuple[OwnerType, int]]] = []
+    jobs: list[int] = []
+
+    def submit(
+        runner: object,
+        settings: Settings,
+        owners: Iterable[tuple[OwnerType, int]],
+        *,
+        created_by: int | None = None,
+    ) -> int:
+        selected = set(owners)
+        calls.append(selected)
+        job_id = submit_incremental_embed(
+            client.app.state.job_runner, settings, selected, created_by=created_by
+        )
+        assert job_id is not None
+        jobs.append(job_id)
+        return job_id
+
+    monkeypatch.setattr("pfc.api.routers.ingestion.submit_incremental_embed", submit)
+    monkeypatch.setattr(
+        "pfc.services.embeddings.incremental.create_embedder",
+        lambda settings, *, embedding_model_id: embedder,
+    )
+    rows: list[dict[str, object]] = [{"JD": "Python"}, {"Code Requisition": "T21234"}]
+    commit(client, upload(client, "dl", rows))
+
+    def wait_latest() -> None:
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            job = client.app.state.job_runner.get(jobs[-1])
+            assert job is not None
+            if job.status in {"completed", "failed", "cancelled"}:
+                assert job.status == "completed", job
+                return
+            time.sleep(0.01)
+        pytest.fail("Incremental embedding did not finish")
+
+    wait_latest()
+    with database(settings) as db:
+        current = db.execute(
+            "SELECT current_version_id FROM demands WHERE code_requisition='T11234'"
+        ).fetchone()[0]
+        assert calls == [
+            {("jd", versions["T11234"]), ("jd", current), ("jd_item", 1), ("jd_item", 5)}
+        ]
+        store = create_vector_store(db, dimensions=8)
+        for id in old_chunks:
+            assert (
+                db.execute("SELECT 1 FROM embedding_chunks WHERE chunk_id=?", (id,)).fetchone()
+                is None
+            )
+            assert store.get_vector(id) is None
+        assert store.get_vector(inactive_chunk) is not None
+        assert db.execute(
+            "SELECT 1 FROM embedding_chunks WHERE owner_type='jd_item' AND owner_id=2"
+        ).fetchone()
+    calls.clear()
+    rows[0]["Account Name"] = "Metadata only"
+    commit(client, upload(client, "dl", rows))
+    assert calls == []
+    if restore:
+        rows[0]["JD"] = "? SQL"
+        commit(client, upload(client, "dl", rows))
+        wait_latest()
+        assert calls == [
+            {
+                ("jd", versions["T11234"]),
+                ("jd", current),
+                ("jd_item", 1),
+                ("jd_item", 3),
+                ("jd_item", 4),
+            }
+        ]
+        with database(settings) as db:
+            assert (
+                db.execute(
+                    "SELECT current_version_id FROM demands WHERE code_requisition='T11234'"
+                ).fetchone()[0]
+                == versions["T11234"]
+            )
+            chunks = db.execute(
+                "SELECT owner_id,chunk_id FROM embedding_chunks WHERE owner_type='jd_item' "
+                "AND embedding_model_id=? AND owner_id IN (1,3,4)",
+                (model_id,),
+            ).fetchall()
+            assert {row[0] for row in chunks} == {1, 3, 4}
+            store = create_vector_store(db, dimensions=8)
+            assert all(store.get_vector(row[1]) is not None for row in chunks)
+
+
+@pytest.mark.parametrize("failure", ["raise", "inactive", "snapshot"])
+def test_dl_commit_survives_embedding_trigger_failure(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    failure: str,
+) -> None:
+    def submit(*args: object, **kwargs: object) -> None:
+        if failure != "inactive":
+            raise RuntimeError("Submission unavailable")
+
+    monkeypatch.setattr("pfc.api.routers.ingestion.submit_incremental_embed", submit)
+    if failure == "snapshot":
+        monkeypatch.setattr("pfc.api.routers.ingestion._current_versions", submit)
+    result = commit(client, upload(client, "dl", [{}]))
+    assert result["status"] == "committed"
+    assert any(
+        record.levelname == "WARNING" and "embedding" in record.message for record in caplog.records
+    )
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT current_version_id FROM demands").fetchone()[0] is not None
 
 
 def test_req_ing_01_03_dl_preview_commit_versions_and_lifecycle(client: TestClient) -> None:
@@ -780,6 +1020,8 @@ def test_req_in_21_24_cv_sync_versions_and_metadata(client: TestClient, tmp_path
         "extraction_failed": 0,
         "embedded": 0,
         "warnings": 0,
+        "embedding_counts": {"embedded": 0, "reused": 0, "skipped": 0, "deleted": 0},
+        "embedding_notes": ["Embedding skipped: no active embedding model"],
     }
     with database(client.app.state.settings) as db:
         alex = db.execute("SELECT * FROM resources WHERE short_name_key='alex'").fetchone()
@@ -884,22 +1126,22 @@ def test_req_mat_01_cv_sync_optional_embedding(client: TestClient, tmp_path: Pat
     with database(client.app.state.settings) as db:
         db.execute(
             "INSERT INTO embedding_models(name,runtime,file_sha256,dim,pipeline_version,is_active) "
-            "VALUES ('fake','onnx','fake-hash',8,'fixed-words-v1',1)"
+            "VALUES ('fake','onnx','',8,'fixed-words-v1',1)"
         )
     embedded = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
-    assert embedded["embedded"] == 3 and embedded["new_versions"] == 0
+    assert embedded["embedded"] == 2 and embedded["new_versions"] == 0
     with database(client.app.state.settings) as db:
         chunks = db.execute("SELECT * FROM embedding_chunks").fetchall()
-        assert len(chunks) == 3
+        assert len(chunks) == 2
         assert all(c["owner_type"] == "cv" and c["section"] == "full" for c in chunks)
         store = create_vector_store(db, dimensions=8)
-        assert store.count(model_version=client.app.state.embedder.model_version) == 3
+        assert store.count(model_version=client.app.state.embedder.model_version) == 2
         matches = store.search(
             client.app.state.embedder.embed(["SQL Python"])[0],
             model_version=client.app.state.embedder.model_version,
             namespace="cv",
         )
-        assert len(matches) == 3
+        assert len(matches) == 2
     repeated = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
     assert repeated["embedded"] == 0
 
@@ -982,7 +1224,7 @@ def test_req_in_21_cv_cancellation_before_persistence(
         assert not db.execute("SELECT 1 FROM audit_log WHERE action='CV_SYNC'").fetchone()
 
 
-def test_req_mat_01_cv_embedding_failure_rolls_back_candidate(
+def test_req_mat_01_cv_embedding_failure_preserves_candidate(
     client: TestClient, tmp_path: Path
 ) -> None:
     root = tmp_path / "resumes"
@@ -1006,9 +1248,108 @@ def test_req_mat_01_cv_embedding_failure_rolls_back_candidate(
         time.sleep(0.01)
     assert job.status == "failed" and job.message == "Job failed"
     with database(client.app.state.settings) as db:
-        assert db.execute("SELECT count(*) FROM resumes").fetchone()[0] == 0
-        assert db.execute("SELECT count(*) FROM cv_versions").fetchone()[0] == 0
+        assert db.execute("SELECT count(*) FROM resumes").fetchone()[0] == 1
+        assert db.execute("SELECT count(*) FROM cv_versions").fetchone()[0] == 1
         assert db.execute("SELECT count(*) FROM embedding_chunks").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("full_first", [False, True])
+def test_cv_sync_and_full_reembed_do_not_churn(
+    client: TestClient, tmp_path: Path, full_first: bool
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(client, upload(client, "ct", [{}]))
+    resume_docx(root, "Alex.docx", "SQL Python " * 220)
+    settings = client.app.state.settings
+    embedder = FakeEmbedder(8)
+    client.app.state.embedder = embedder
+    offline = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert offline["embedding_notes"]
+    with database(settings) as db:
+        db.execute(
+            "UPDATE cv_versions SET sections_json=?",
+            (json.dumps({"skills": "SQL Python", "experience": ["Software Engineer"]}),),
+        )
+        id = db.execute(
+            "INSERT INTO embedding_models(name,runtime,file_sha256,dim,pipeline_version,is_active) "
+            "VALUES ('fake','onnx','',8,'v1',1) RETURNING embedding_model_id"
+        ).fetchone()[0]
+    if not full_first:
+        wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    with database(settings) as db:
+        store = create_vector_store(db, dimensions=8)
+        ctx = JobContext(client.app.state.job_runner, 0, threading.Event())
+        result = reembed(settings, ctx, embedding_model_id=id, embedder=embedder, store=store)
+        if not full_first:
+            assert result.embedded == result.deleted == 0
+        before = [
+            tuple(row) for row in db.execute("SELECT * FROM embedding_chunks ORDER BY chunk_id")
+        ]
+        assert {row["section"] for row in db.execute("SELECT section FROM embedding_chunks")} == {
+            "skills",
+            "experience/0",
+        }
+    repeated = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert repeated["embedding_counts"]["embedded"] == repeated["embedding_counts"]["deleted"] == 0
+    with database(settings) as db:
+        assert [
+            tuple(row) for row in db.execute("SELECT * FROM embedding_chunks ORDER BY chunk_id")
+        ] == before
+
+
+@pytest.mark.parametrize("available", [True, False])
+def test_cv_sync_runtime_fallback_and_latest_cleanup(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, available: bool
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(client, upload(client, "ct", [{}]))
+    resume_docx(root, "Alex.docx", "SQL")
+    settings = client.app.state.settings
+    with database(settings) as db:
+        model_id = db.execute(
+            "INSERT INTO embedding_models(name,runtime,file_sha256,dim,pipeline_version,is_active) "
+            "VALUES ('fake','onnx','',8,'v1',1) RETURNING embedding_model_id"
+        ).fetchone()[0]
+    calls: list[int] = []
+
+    def factory(settings: Settings, *, embedding_model_id: int) -> FakeEmbedder:
+        calls.append(embedding_model_id)
+        if not available:
+            raise EmbeddingModelUnavailable(
+                f"Model files not found at {settings.bundled_models_dir}"
+            )
+        return FakeEmbedder(8)
+
+    monkeypatch.setattr(cv_sync, "create_embedder", factory)
+    first = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert calls == [model_id] and first["new_versions"] == 1
+    if not available:
+        assert "Model files not found" in first["embedding_notes"][0]
+        assert first["embedded"] == 0
+    else:
+        assert first["embedded"] == 1
+        available = False
+        resume_docx(root, "Alex.docx", "Python", 1893456000)
+        skipped = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+        assert skipped["new_versions"] == 1 and skipped["embedded"] == 0
+        assert skipped["embedding_notes"]
+        available = True
+        updated = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+        assert updated["new_versions"] == 0
+        assert updated["embedding_counts"]["deleted"] == 1
+        assert updated["embedded"] == 1
+        with database(settings) as db:
+            owner = db.execute("SELECT owner_id FROM embedding_chunks").fetchone()[0]
+            assert (
+                db.execute(
+                    "SELECT is_latest FROM cv_versions WHERE cv_version_id=?", (owner,)
+                ).fetchone()[0]
+                == 1
+            )
 
 
 def test_req_in_25_identical_files_for_different_candidates_not_attached(
