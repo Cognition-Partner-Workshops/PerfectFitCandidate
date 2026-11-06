@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import sqlite3
 import traceback
 from concurrent.futures import ThreadPoolExecutor
@@ -140,14 +141,28 @@ def test_eight_parallel_analyze_requests_create_one_draft_each(
         assert [tuple(row) for row in rows] == [(id, "draft", 1) for id in sorted(ids)]
 
 
+@pytest.mark.parametrize("chain", ["none", "cause", "context"])
 def test_failed_job_logs_traceback_but_returns_only_generic_message(
-    api: Api, caplog: pytest.LogCaptureFixture
+    api: Api, caplog: pytest.LogCaptureFixture, chain: str
 ) -> None:
     client, _ = api
     runner = client.app.state.job_runner
+    private = (
+        "private diagnostic marker",
+        "job-review@example.com",
+        "synthetic-password-marker",
+        "chained diagnostic marker",
+    )
 
     def fail(_: JobContext) -> None:
-        raise RuntimeError("private diagnostic marker")
+        if chain == "none":
+            raise RuntimeError(" ".join(private))
+        try:
+            raise ValueError(" ".join(private))
+        except ValueError as exc:
+            if chain == "cause":
+                raise RuntimeError(" ".join(private)) from exc
+            raise RuntimeError(" ".join(private))  # noqa: B904
 
     with caplog.at_level(logging.ERROR, logger="pfc.jobs.runner"):
         job_id = runner.submit("test_failure", fail)
@@ -155,7 +170,7 @@ def test_failed_job_logs_traceback_but_returns_only_generic_message(
     response = client.get(f"/api/v1/jobs/{job_id}")
     assert response.status_code == 200, response.text
     assert response.json()["message"] == "Job failed"
-    assert "private diagnostic marker" not in response.text
+    assert all(value not in response.text for value in private)
     assert "Traceback" not in response.text
     with database(client.app.state.settings) as db:
         assert (
@@ -163,6 +178,12 @@ def test_failed_job_logs_traceback_but_returns_only_generic_message(
             == "Job failed"
         )
     record = next(record for record in caplog.records if record.name == "pfc.jobs.runner")
-    assert record.exc_info is not None
+    assert record.exc_info is None
+    assert record.levelno == logging.ERROR
     assert "Traceback (most recent call last)" in caplog.text
-    assert "RuntimeError: private diagnostic marker" in caplog.text
+    assert f'File "{__file__}", line ' in caplog.text
+    assert re.search(r"line \d+, in fail", caplog.text)
+    assert re.search(r"line \d+, in _run", caplog.text)
+    assert caplog.text.rstrip().endswith("RuntimeError")
+    assert "ValueError" not in caplog.text
+    assert all(value not in caplog.text for value in private)

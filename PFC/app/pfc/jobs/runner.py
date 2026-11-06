@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import threading
+import traceback
 from collections.abc import AsyncIterator, Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass
@@ -133,8 +134,17 @@ class JobRunner:
             self._finish(job_id, "completed", None)
         except JobCancelled:
             self._finish(job_id, "cancelled", "cancelled")
-        except Exception:
-            logger.exception("Background job %s failed", job_id)
+        except Exception as exc:
+            frames = "\n".join(
+                f'  File "{frame.filename}", line {frame.lineno}, in {frame.name}'
+                for frame in traceback.extract_tb(exc.__traceback__)
+            )
+            logger.error(
+                "Background job %s failed\nTraceback (most recent call last):\n%s\n%s",
+                job_id,
+                frames,
+                type(exc).__qualname__,
+            )
             self._finish(job_id, "failed", "Job failed")
 
     def get(self, job_id: int) -> Job | None:
