@@ -115,6 +115,7 @@ def parse_workbook(
         else {"email_address", "grade", "bench_status"}
     )
     book = load_workbook(path, read_only=True, data_only=True)
+    formula_book = None
     try:
         best: tuple[int, str, int, dict[int, str]] | None = None
         for sheet in book:
@@ -132,14 +133,30 @@ def parse_workbook(
         if best is None:
             raise ValueError(f"No {kind} header row found in first 30 rows of any sheet")
         _, sheet_name, header_row, columns = best
+        formula_book = load_workbook(path, read_only=True, data_only=False)
         rows: list[ParsedRow] = []
         previous: dict[RowKey, ParsedRow] = {}
         empty = 0
-        for number, cells in enumerate(
-            book[sheet_name].iter_rows(min_row=header_row + 1, values_only=True), header_row + 1
+        for number, (cells, formula_cells) in enumerate(
+            zip(
+                book[sheet_name].iter_rows(min_row=header_row + 1, values_only=True),
+                formula_book[sheet_name].iter_rows(min_row=header_row + 1, values_only=True),
+                strict=False,
+            ),
+            header_row + 1,
         ):
             raw = {field: cells[i] if i < len(cells) else None for i, field in columns.items()}
-            if all(value is None or str(value).strip() == "" for value in raw.values()):
+            uncached = {
+                field: formula_cells[i]
+                for i, field in columns.items()
+                if (raw[field] is None or str(raw[field]).strip() == "")
+                and i < len(formula_cells)
+                and isinstance(formula_cells[i], str)
+                and formula_cells[i].startswith("=")
+            }
+            if not uncached and all(
+                value is None or str(value).strip() == "" for value in raw.values()
+            ):
                 empty += 1
                 if empty >= empty_row_limit:
                     break
@@ -152,7 +169,17 @@ def parse_workbook(
                     for field, value in raw.items()
                 }
             )
-            issues: list[RowIssue] = []
+            issues = [
+                RowIssue(
+                    severity="warning",
+                    code="FORMULA_NO_CACHED_VALUE",
+                    row_number=number,
+                    column=field,
+                    raw_value=formula,
+                    message="Formula has no cached value; never evaluated",
+                )
+                for field, formula in uncached.items()
+            ]
 
             def issue(
                 code: str,
@@ -203,7 +230,9 @@ def parse_workbook(
                 key = (short, email) if short else None
                 if not email:
                     business["email_address"] = None
-                    issue("MISSING_EMAIL", "email_address", "Incomplete identity; email not provided")
+                    issue(
+                        "MISSING_EMAIL", "email_address", "Incomplete identity; email not provided"
+                    )
                 if email and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
                     issue("EMAIL_INVALID", "email_address", "Email copied verbatim; syntax invalid")
                 if _label(business["bench_status"]) not in {_label(s) for s in known_statuses}:
@@ -252,4 +281,6 @@ def parse_workbook(
             rows=rows,
         )
     finally:
+        if formula_book is not None:
+            formula_book.close()
         book.close()

@@ -186,6 +186,45 @@ def test_req_in_13_formula_cached_none(tmp_path: Path) -> None:
     assert row.fields["tracker_text"] is None
     assert row.fields["group_owner"] is None
     assert not row.rejected
+    assert {i.column for i in row.issues if i.code == "FORMULA_NO_CACHED_VALUE"} == {
+        "tracker_text",
+        "group_owner",
+    }
+
+
+@pytest.mark.parametrize(
+    "kind,field,column", [("DL", "Owner", "owner"), ("CT", "Tracker", "tracker_text")]
+)
+def test_req_in_13_uncached_formula_warning_bounded(
+    tmp_path: Path, kind: str, field: str, column: str
+) -> None:
+    make_row = dl_row if kind == "DL" else ct_row
+    formula = '=HYPERLINK("https://example.com", "Link")'
+    path = workbook(
+        tmp_path, kind, [make_row(**{field: formula}), [], [], [], make_row(**{field: formula})]
+    )
+    preview = parse_workbook(path, kind, empty_row_limit=2)
+    assert preview.rows_read == 1
+    (issue,) = preview.issues
+    assert (issue.code, issue.severity, issue.column, issue.raw_value, issue.row_number) == (
+        "FORMULA_NO_CACHED_VALUE",
+        "warning",
+        column,
+        formula,
+        4,
+    )
+    assert preview.rows[0].fields[column] is None
+    assert not preview.rows[0].rejected
+
+
+def test_req_in_13_formula_only_row_not_silently_skipped(tmp_path: Path) -> None:
+    path = workbook(tmp_path, "DL", [["=1+1"]])
+    preview = parse_workbook(path, "DL")
+    assert preview.rows_read == 1
+    assert preview.rows[0].rejected
+    assert any(
+        i.code == "FORMULA_NO_CACHED_VALUE" and i.raw_value == "=1+1" for i in preview.issues
+    )
 
 
 def test_req_in_14_verbatim_email_normalised_key(tmp_path: Path) -> None:
