@@ -479,6 +479,39 @@ def test_req_mat_08_scope_template_and_cache(settings: Settings, runner: JobRunn
         assert get_run(db, tiered)["config_hash"] != get_run(db, run_id)["config_hash"]
 
 
+@pytest.mark.parametrize("region", ["Manchester", "", None])
+def test_req_out_01_role_location_uses_requisition_region(
+    settings: Settings,
+    runner: JobRunner,
+    region: str | None,
+) -> None:
+    with database(settings) as db:
+        demand_id = seed_demand(db, confirmed=False)
+        db.execute("UPDATE demands SET region=? WHERE demand_id=?", (region, demand_id))
+        confirm_requirements(
+            db,
+            demand_id,
+            {
+                "mandatory_skills": [{"text": "SQL"}],
+                "location": "London",
+                "onsite_required": True,
+            },
+            1,
+            NOW,
+        )
+        seed_resource(db, location="London")
+    run_id = execute(settings, runner)
+    with database(settings) as db:
+        db.execute("UPDATE demands SET region='Glasgow' WHERE demand_id=?", (demand_id,))
+        row = list_results(db, run_id, {"location_assessment": "Aligned"})["items"][0]
+        assert row["role_location"] == (region or "Unspecified")
+        assert row["location_assessment"] == "Aligned"
+        assert result_detail(db, row["result_id"])["role_location"] == (region or "Unspecified")
+        assert demand_matches(db, demand_id)["items"][0]["role_location"] == (
+            region or "Unspecified"
+        )
+
+
 def test_req_mat_08_results_preserve_scored_facts(settings: Settings, runner: JobRunner) -> None:
     with database(settings) as db:
         demand_id = seed_demand(db)

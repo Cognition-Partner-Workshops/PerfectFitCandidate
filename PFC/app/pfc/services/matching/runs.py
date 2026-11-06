@@ -300,7 +300,7 @@ def _persist(
                         "account": meta["account_name"],
                         "role": meta["demand_request_name"],
                         "demand_grade": demand.grade,
-                        "role_location": demand.region or "Unspecified",
+                        "role_location": meta["region"] or "Unspecified",
                         "potential_person": person.short_name,
                         "person_email": display_emails[person.resource_id],
                         "person_grade": person.grade,
