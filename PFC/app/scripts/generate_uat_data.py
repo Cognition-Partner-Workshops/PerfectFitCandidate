@@ -144,8 +144,8 @@ def cv_text(index: int, row: dict[str, object], rng: random.Random) -> str:
 def dirty_rows(
     rows: list[dict[str, object]], percent: float, rng: random.Random
 ) -> tuple[list[dict[str, object]], int]:
-    """Copy of the CT rows with `percent` of them changed (one skill and the location)."""
-    changed = rng.sample(range(len(rows)), round(len(rows) * percent / 100))
+    """Copy of the CT rows with `percent` (at least one row) changed: one skill and the location."""
+    changed = rng.sample(range(len(rows)), max(1, round(len(rows) * percent / 100)))
     result = [dict(row) for row in rows]
     for position in changed:
         row = result[position]
@@ -175,6 +175,8 @@ def generate(
     dl, ct = demand_rows(demands, rng), resource_rows(resources, rng)
     paths["dl"].write_bytes(workbook_bytes(list(DL), dl))
     paths["ct"].write_bytes(workbook_bytes(list(CT), ct))
+    for stale in resumes.glob("person*@example.com.txt"):
+        stale.unlink()
     for index, row in enumerate(ct, start=1):
         (resumes / f"{row['Email Address']}.txt").write_text(cv_text(index, row, rng), "utf-8")
     if dirty_percent is not None:

@@ -71,3 +71,18 @@ def test_dirty_percent_changes_that_share_of_ct_rows(tmp_path: Path) -> None:
 def test_rejects_out_of_range_options(tmp_path: Path, kwargs: dict[str, float]) -> None:
     with pytest.raises(ValueError):
         generate(tmp_path, **kwargs)  # type: ignore[arg-type]
+
+
+def test_small_dirty_percent_still_changes_a_row(tmp_path: Path) -> None:
+    paths = generate(tmp_path, demands=5, resources=5, dirty_percent=1)
+    base = [row.row_hash for row in parse_workbook(paths["ct"], "CT").rows]
+    dirty = [row.row_hash for row in parse_workbook(paths["ct_dirty"], "CT").rows]
+    assert sum(a != b for a, b in zip(base, dirty, strict=True)) == 1
+
+
+def test_smaller_rerun_leaves_only_its_own_cvs(tmp_path: Path) -> None:
+    generate(tmp_path, demands=5, resources=20)
+    paths = generate(tmp_path, demands=5, resources=5)
+    assert sorted(p.name for p in paths["resumes"].iterdir()) == [
+        f"person{i:04d}@example.com.txt" for i in range(1, 6)
+    ]
