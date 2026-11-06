@@ -182,6 +182,18 @@ class LlamaServerSupervisor:
             self.app_state.llm_provider = provider
 
     @property
+    def running_model(self) -> tuple[str, Path] | None:
+        if (
+            self.state in {"ready", "starting"}
+            and self.proc is not None
+            and self.proc.poll() is None
+            and self.model_name is not None
+            and self.model_path is not None
+        ):
+            return self.model_name, self.model_path
+        return None
+
+    @property
     def binary_available(self) -> bool:
         return self.argv_prefix is not None or self.binary.is_file()
 

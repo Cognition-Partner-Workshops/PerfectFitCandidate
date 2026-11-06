@@ -323,12 +323,7 @@ def llm_approve(
     supervisor = getattr(request.app.state, "llm_supervisor", None)
     if supervisor is not None:
         resolved = supervisor.resolve_model(db)
-        running = (
-            (supervisor.model_name, supervisor.model_path)
-            if supervisor.model_name is not None and supervisor.model_path is not None
-            else None
-        )
-        if resolved != running:
+        if resolved != supervisor.running_model:
             background_tasks.add_task(
                 restart_selected_model, request.app.state.settings, request.app.state
             )

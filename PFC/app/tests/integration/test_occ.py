@@ -4,6 +4,7 @@ import json
 from collections.abc import Iterator
 from datetime import timedelta
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -685,7 +686,11 @@ def test_model_approval_schedules_after_commit(client: TestClient, tmp_path: Pat
 
         def schedule(self, model: tuple[str, Path] | None) -> None:
             self.selections.append(model)
-            self.model_name, self.model_path = model if model else (None, None)
+            self.state = "ready" if model else "unavailable"
+            self.proc = Mock()
+            self.proc.poll.return_value = None if model else 0
+            if model:
+                self.model_name, self.model_path = model
 
     probe = Probe(settings)
     client.app.state.llm_supervisor = probe
@@ -694,8 +699,12 @@ def test_model_approval_schedules_after_commit(client: TestClient, tmp_path: Pat
     assert probe.selections == [("Qwen3-4B-Instruct-2507", (tmp_path / "one.gguf").resolve())]
     assert client.put("/api/v1/occ/llm-models/1", json={"approved": False}).status_code == 200
     assert probe.selections[-1] is None
+    assert probe.model_name == "Qwen3-4B-Instruct-2507"
+    assert client.put("/api/v1/occ/llm-models/1", json={"approved": True}).status_code == 200
+    assert len(probe.selections) == 3
+    assert probe.selections[-1] == ("Qwen3-4B-Instruct-2507", (tmp_path / "one.gguf").resolve())
     assert client.put("/api/v1/occ/llm-models/999", json={"approved": True}).status_code == 404
-    assert len(probe.selections) == 2
+    assert len(probe.selections) == 3
 
 
 @pytest.fixture
@@ -726,6 +735,9 @@ def default_models(client: TestClient, tmp_path: Path) -> LlamaServerSupervisor:
             self.selections: list[tuple[str, Path] | None] = []
             self.model_name = "Qwen3-4B-Instruct-2507"
             self.model_path = (tmp_path / "one.gguf").resolve()
+            self.state = "ready"
+            self.proc = Mock()
+            self.proc.poll.return_value = None
 
         def schedule(self, model: tuple[str, Path] | None) -> None:
             self.selections.append(model)
