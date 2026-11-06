@@ -70,6 +70,7 @@ def generated(**updates: Any) -> str:
             "experience": [],
             "qualifications": [],
             "projects": [],
+            "skills": [],
             **updates,
         }
     )
@@ -87,6 +88,54 @@ def test_req_in_23_rule_spans() -> None:
         assert TEXT[start:end] == fact["evidence"]
         assert fact["value"] in fact["evidence"]
         assert fact["source"] == "rule"
+
+
+@pytest.mark.parametrize("heading", ["Skills", "Technical Skills", "Key Skills", "Core Skills"])
+def test_req_in_21_23_skill_tokens_have_exact_first_spans(heading: str) -> None:
+    text = f"{heading}\n  SQL, Python ; C++ | .NET • AWS · sql\n- Docker\nProjects\nAtlas"
+    facts = rule_facts(text)
+    assert [s.value for s in facts.skills] == ["SQL", "Python", "C++", ".NET", "AWS", "Docker"]
+    for skill in facts.skills:
+        assert text[slice(*skill.span)] == skill.evidence == skill.value
+        assert skill.canonical is None and skill.source == "rule"
+    assert facts.skills[0].span[0] == text.index("SQL")
+    assert not rule_facts("Skills\n , ; | • ·\nProjects\nAtlas").skills
+
+
+@pytest.mark.parametrize("invalid", [False, True])
+def test_req_in_21_23_llm_skills_grounding_and_category_fallback(
+    loop: asyncio.AbstractEventLoop, invalid: bool
+) -> None:
+    text = "Skills\nSQL, Python\nExperience\nEngineer"
+    raw = generated(
+        skills=[
+            {"value": "Invented" if invalid else "SQL", "evidence": "SQL", "canonical": "Forged"},
+            {"value": "Fabricated", "evidence": "Absent quote"},
+            {"value": "Python", "evidence": "SQL, Python"},
+        ],
+        experience=[{"value": "Engineer", "evidence": "Engineer"}],
+    )
+    result = extract_facts(
+        text, LLMBridge(FakeProvider(raw), loop, asyncio.Semaphore(1)), 2, Context()
+    )  # type: ignore[arg-type]
+    assert [s.value for s in result.facts.skills] == (["SQL", "Python"] if invalid else ["SQL"])
+    assert all(s.source == ("rule" if invalid else "llm") for s in result.facts.skills)
+    assert all(s.canonical is None for s in result.facts.skills)
+    assert result.facts.experience[0].source == "llm"
+    assert result.prompt_version == "cv_extract_v2"
+
+
+@pytest.mark.parametrize("phone", ["", "\n07700 900123"])
+def test_req_in_23_public_skill_masking_and_phone_warning(phone: str) -> None:
+    facts = rule_facts(f"Skills\nalice@example.com, 020 7946 0123{phone}")
+    # Keep phone absence independent of the phone-like skill token.
+    if not phone:
+        facts.phone = None
+    public = public_facts(json.dumps({"facts_schema": 2, "facts": facts.model_dump()}))
+    assert public is not None
+    assert "alice@example.com" not in public.model_dump_json()
+    assert "020 7946 0123" not in public.model_dump_json()
+    assert [w.code for w in public.warnings] == ([] if phone else ["PHONE_NOT_FOUND"])
 
 
 @pytest.mark.parametrize(
@@ -295,7 +344,7 @@ def test_req_in_23_llm_quotes_and_precedence(loop: asyncio.AbstractEventLoop) ->
     assert result.facts.qualifications == rule_facts(TEXT).qualifications
     assert result.facts.projects == rule_facts(TEXT).projects
     assert result.facts.projects[0].source == "rule"
-    assert result.extracted_by == "llm:fake:fake-v1" and result.prompt_version == "cv_extract_v1"
+    assert result.extracted_by == "llm:fake:fake-v1" and result.prompt_version == "cv_extract_v2"
     for fact in all_facts(result.facts):
         assert TEXT[slice(*fact["span"])] == fact["evidence"]
 
@@ -378,7 +427,7 @@ def test_req_in_21_generation_is_serial_and_on_provider_loop(
         ) -> GenerateResult:
             assert asyncio.get_running_loop() is loop
             assert request.temperature == 0 and request.seed == 0
-            assert request.template_id == "cv_extract_v1" and request.json_schema is not None
+            assert request.template_id == "cv_extract_v2" and request.json_schema is not None
             self.active += 1
             self.maximum = max(self.maximum, self.active)
             await asyncio.sleep(0.02)

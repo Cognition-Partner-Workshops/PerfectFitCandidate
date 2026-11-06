@@ -24,8 +24,16 @@ from pfc.security.sessions import stamp
 from pfc.services.embeddings.chunking import OwnerType
 from pfc.services.embeddings.reembed import ReembedCounts, embed_owners
 from pfc.services.embeddings.runtime import EmbeddingModelUnavailable, create_embedder
+from pfc.services.occ.synonyms import valid_synonym_table
 
-from .cv_facts import ExtractedFacts, LLMBridge, extract_facts, public_facts, validate_facts
+from .cv_facts import (
+    FACTS_SCHEMA_VERSION,
+    ExtractedFacts,
+    LLMBridge,
+    extract_facts,
+    public_facts,
+    validate_facts,
+)
 from .limits import positive_setting
 
 EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?![\w-])")
@@ -211,12 +219,12 @@ def _persist(
     ).fetchone()
     if existing:
         saved = json.loads(existing["facts_json"] or "{}")
-        if "facts_schema" not in saved and extracted is not None:
+        if saved.get("facts_schema", 0) < FACTS_SCHEMA_VERSION and extracted is not None:
             saved.update(
                 facts=validate_facts(
                     existing["text_norm"], extracted.facts.model_dump()
                 ).model_dump(),
-                facts_schema=1,
+                facts_schema=FACTS_SCHEMA_VERSION,
             )
             db.execute(
                 "UPDATE cv_versions SET facts_json=?,extracted_by=?,prompt_version=? "
@@ -261,7 +269,7 @@ def _persist(
             json.dumps(
                 {
                     "emails": EMAIL.findall(version.text_norm),
-                    "facts_schema": 1,
+                    "facts_schema": FACTS_SCHEMA_VERSION,
                     "facts": validate_facts(text, extracted.facts.model_dump()).model_dump(),
                 }
             ),
@@ -311,6 +319,7 @@ def sync(
     counts = CVSyncCounts(scanned=len(inventory))
     with database(settings) as db:
         facts_timeout = positive_setting(db, "cv.llm_timeout_s", 180)
+        skill_synonyms = valid_synonym_table(db)
         source = ResumeFolderSource(
             root,
             work_dir=settings.data_dir / "work" / "cv-extraction",
@@ -398,11 +407,16 @@ def sync(
                     "WHERE r.file_sha256=? AND v.text_sha256=?",
                     (version.file_sha256, text_digest),
                 ).fetchone()
-            if previous is None or "facts_schema" not in json.loads(previous[0] or "{}"):
+            if (
+                previous is None
+                or json.loads(previous[0] or "{}").get("facts_schema", 0) < FACTS_SCHEMA_VERSION
+            ):
                 if text_digest not in facts_cache:
                     facts_cache[text_digest] = extract_facts(
                         text, facts_bridge, facts_timeout, context
                     )
+                    for skill in facts_cache[text_digest].facts.skills:
+                        skill.canonical = skill_synonyms.resolve(skill.value)
                 extracted = facts_cache[text_digest]
                 prepared[version.source_path] = extracted
                 counts.facts_llm_timeout += int(extracted.failure == "timeout")

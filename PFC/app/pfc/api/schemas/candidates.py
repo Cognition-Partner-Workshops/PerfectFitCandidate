@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
-from .cv import CVFacts
+from .cv import PublicCVFacts
 from .occ_approvals import CamelModel
 
 IdentityStatus = Literal["complete", "incomplete", "ambiguous", "review_later"]
@@ -53,7 +53,7 @@ class CandidateCV(CamelModel):
     modified_at: str
     extracted_at: str
     is_best: bool
-    facts: CVFacts | None = None
+    facts: PublicCVFacts | None = None
 
 
 class CTEmailOption(CamelModel):
