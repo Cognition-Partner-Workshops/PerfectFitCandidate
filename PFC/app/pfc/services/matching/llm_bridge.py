@@ -4,10 +4,11 @@ import asyncio
 import json
 from typing import Any, NoReturn
 
+import httpx
 import jsonschema
 from anyio import from_thread
 
-from pfc.adapters.llm.providers import LLMProvider, PromptRequest
+from pfc.adapters.llm.providers import LLMProvider, PromptRequest, ProviderError
 
 from .requirements import ExtractionFailure, Requirements
 
@@ -65,6 +66,13 @@ class JdLlmBridge:
                 return value
         except TimeoutError as exc:
             raise ExtractionFailure("provider_timeout") from exc
+        except ProviderError as exc:
+            cause = exc.__cause__
+            while cause is not None:
+                if isinstance(cause, (TimeoutError, httpx.TimeoutException)):
+                    raise ExtractionFailure("provider_timeout") from exc
+                cause = cause.__cause__
+            raise
         except json.JSONDecodeError as exc:
             raise ExtractionFailure("invalid_json") from exc
         except jsonschema.ValidationError as exc:
