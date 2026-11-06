@@ -5,27 +5,25 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+REASONS = (
+    "DL/CT committed",
+    "OCC approval decision",
+    "OCC settings edit",
+    "JD confirmed",
+    "CV synced",
+)
+
 SOURCES = (
-    (
-        "DL/CT committed",
-        "SELECT committed_at FROM ingestion_runs WHERE status='committed' "
-        "AND kind IN ('DL','CT') AND julianday(committed_at)>=julianday(?)",
-    ),
-    (
-        "OCC approval edit",
-        "SELECT ts FROM audit_log WHERE action IN "
-        "('OCC_EDIT','OCC_APPROVE','OCC_MODIFY','OCC_REVERT') "
-        "AND julianday(ts)>=julianday(?)",
-    ),
-    (
-        "JD confirmed",
-        "SELECT confirmed_at FROM jd_requirements WHERE julianday(confirmed_at)>=julianday(?)",
-    ),
-    (
-        "CV synced",
-        "SELECT finished_at FROM jobs WHERE kind='cv_sync' AND status='completed' "
-        "AND julianday(finished_at)>=julianday(?)",
-    ),
+    "SELECT 'DL/CT committed',committed_at FROM ingestion_runs WHERE status='committed' "
+    "AND kind IN ('DL','CT') AND julianday(committed_at)>=julianday(?)",
+    "SELECT CASE WHEN action='OCC_EDIT' THEN 'OCC settings edit' "
+    "ELSE 'OCC approval decision' END,ts FROM audit_log WHERE action IN "
+    "('OCC_EDIT','OCC_APPROVE','OCC_MODIFY','OCC_REVERT') "
+    "AND julianday(ts)>=julianday(?)",
+    "SELECT 'JD confirmed',confirmed_at FROM jd_requirements "
+    "WHERE julianday(confirmed_at)>=julianday(?)",
+    "SELECT 'CV synced',finished_at FROM jobs WHERE kind='cv_sync' AND status='completed' "
+    "AND julianday(finished_at)>=julianday(?)",
 )
 
 
@@ -51,13 +49,13 @@ def annotate_data_changes(db: sqlite3.Connection, runs: list[dict[str, Any]]) ->
     if not finished:
         return
     cutoff = min(at for _, at in finished).replace(microsecond=0).isoformat()
-    latest = [
-        (
-            reason,
-            max((_event_boundary(row[0]) for row in db.execute(query, (cutoff,))), default=None),
-        )
-        for reason, query in SOURCES
-    ]
+    latest: dict[str, datetime] = {}
+    for query in SOURCES:
+        for reason, value in db.execute(query, (cutoff,)):
+            event = _event_boundary(value)
+            previous = latest.get(reason)
+            if previous is None or event > previous:
+                latest[reason] = event
     for run, at in finished:
-        reasons = [reason for reason, event in latest if event is not None and event > at]
+        reasons = [reason for reason in REASONS if reason in latest and latest[reason] > at]
         run.update(data_changed_since_run=bool(reasons), data_changed_reasons=reasons)

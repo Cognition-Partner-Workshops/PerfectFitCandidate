@@ -18,11 +18,17 @@ from pfc.db.audit import append_audit
 from pfc.db.connection import database
 from pfc.services.matching import get_run, list_runs
 
-REASONS = ["DL/CT committed", "OCC approval edit", "JD confirmed", "CV synced"]
+REASONS = [
+    "DL/CT committed",
+    "OCC approval decision",
+    "OCC settings edit",
+    "JD confirmed",
+    "CV synced",
+]
 Populated = tuple[Api, dict[str, Any]]
 
 
-def add_event(db: sqlite3.Connection, reason: str, at: str, *, action: str = "OCC_EDIT") -> None:
+def add_event(db: sqlite3.Connection, reason: str, at: str, *, action: str | None = None) -> None:
     if reason == "DL/CT committed":
         db.execute(
             "INSERT INTO ingestion_runs(kind,source,file_name,file_sha256,file_size,"
@@ -30,7 +36,8 @@ def add_event(db: sqlite3.Connection, reason: str, at: str, *, action: str = "OC
             "VALUES ('CT','manual_upload','changed.xlsx',?,1,'committed',?,?)",
             (at, at, at),
         )
-    elif reason == "OCC approval edit":
+    elif reason in {"OCC approval decision", "OCC settings edit"}:
+        action = action or ("OCC_EDIT" if reason == "OCC settings edit" else "OCC_APPROVE")
         append_audit(db, ts=at, action=action, user_id=1, entity_type="demand", entity_id="1")
     elif reason == "JD confirmed":
         db.execute(
@@ -78,13 +85,35 @@ def test_each_change_is_global_and_visible_on_all_responses(
         assert list(db.execute("SELECT * FROM match_results")) == stored_results
 
 
-@pytest.mark.parametrize("action", ["OCC_EDIT", "OCC_APPROVE", "OCC_MODIFY", "OCC_REVERT"])
-def test_approval_audit_actions(populated: Populated, action: str) -> None:
+@pytest.mark.parametrize(
+    ("action", "reason"),
+    [
+        ("OCC_EDIT", "OCC settings edit"),
+        ("OCC_APPROVE", "OCC approval decision"),
+        ("OCC_MODIFY", "OCC approval decision"),
+        ("OCC_REVERT", "OCC approval decision"),
+    ],
+)
+def test_occ_audit_actions(populated: Populated, action: str, reason: str) -> None:
     (client, _), ids = populated
     with database(client.app.state.settings) as db:
-        add_event(db, "OCC approval edit", (NOW + timedelta(seconds=1)).isoformat(), action=action)
+        add_event(db, reason, (NOW + timedelta(seconds=1)).isoformat(), action=action)
         run = get_run(db, ids["run"])
-        assert run is not None and run["data_changed_reasons"] == ["OCC approval edit"]
+        assert run is not None and run["data_changed_reasons"] == [reason]
+
+
+def test_approval_and_settings_edits_have_distinct_ordered_reasons(populated: Populated) -> None:
+    (client, _), ids = populated
+    with database(client.app.state.settings) as db:
+        for action in ("OCC_EDIT", "OCC_MODIFY", "OCC_REVERT", "OCC_APPROVE", "OCC_EDIT"):
+            add_event(
+                db, "OCC settings edit", (NOW + timedelta(seconds=1)).isoformat(), action=action
+            )
+        run = get_run(db, ids["run"])
+        assert run is not None and run["data_changed_reasons"] == [
+            "OCC approval decision",
+            "OCC settings edit",
+        ]
 
 
 @pytest.mark.parametrize("reason", REASONS)
@@ -187,7 +216,7 @@ def test_unrelated_events_and_incomplete_syncs_do_not_flag(populated: Populated)
     (client, _), ids = populated
     with database(client.app.state.settings) as db:
         at = (NOW + timedelta(days=1)).isoformat()
-        add_event(db, "OCC approval edit", at, action="export_results")
+        add_event(db, "OCC settings edit", at, action="export_results")
         for kind, status in (("cv_sync", "failed"), ("cv_sync", "running"), ("embed", "completed")):
             db.execute(
                 "INSERT INTO jobs(kind,status,created_at,finished_at) VALUES (?,?,?,?)",
