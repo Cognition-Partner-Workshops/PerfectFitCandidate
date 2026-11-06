@@ -35,6 +35,10 @@ import {
   type StatusMapRow,
   toResource,
   type ResourceItem,
+  toUploadPreview,
+  type IngestionRunRow,
+  toDemand,
+  type DemandItem,
 } from './mappers'
 import type { BenchStatus, CurrentUser, InternalDomain, PersonalSettings, ProblemDetails, ResourceTeamMember, StatusMapEntry } from './types'
 
@@ -169,14 +173,15 @@ export class HttpApiClient implements ApiClient {
       await this.request('POST', '/auth/password', { current_password: req.currentPassword, new_password: req.newPassword }),
     )
 
-  listDemands: ApiClient['listDemands'] = () => this.request('GET', '/demands')
+  listDemands: ApiClient['listDemands'] = async () =>
+    (await this.allPages<DemandItem>((page) => this.request('GET', `/demands?page=${page}&page_size=200`))).map(toDemand)
   analyzeDemands: ApiClient['analyzeDemands'] = (ids) => this.request('POST', '/demands/analyze', { demandIds: ids })
   getRequirements: ApiClient['getRequirements'] = (id) => this.request('GET', `/demands/${id}/requirements`)
   saveRequirements: ApiClient['saveRequirements'] = (req) =>
     this.request('PUT', `/demands/${req.demandId}/requirements`, req)
   confirmRequirements: ApiClient['confirmRequirements'] = (id) =>
     this.request('POST', `/demands/${id}/requirements/confirm`)
-  uploadWorkbook: ApiClient['uploadWorkbook'] = (kind, file) => this.upload(`/uploads/${kind}`, file)
+  uploadWorkbook: ApiClient['uploadWorkbook'] = async (kind, file) => toUploadPreview(await this.upload<IngestionRunRow>(`/uploads/${kind}`, file))
   commitIngestion: ApiClient['commitIngestion'] = (id) => this.request('POST', `/ingestion-runs/${id}/commit`)
   discardIngestion: ApiClient['discardIngestion'] = (id) => this.request('POST', `/ingestion-runs/${id}/discard`)
 

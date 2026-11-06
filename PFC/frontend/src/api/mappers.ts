@@ -19,6 +19,8 @@ import type {
   StatusMapEntry,
   Role,
   Synonym,
+  UploadPreview,
+  Demand,
 } from './types'
 import { maskEmail } from '../lib/mask'
 
@@ -309,4 +311,61 @@ export const toPreview = (r: { internal: number; external: number; unknown: numb
   internal: r.internal,
   external: r.external,
   unknown: r.unknown,
+})
+
+/** IngestionRun from POST /uploads/{kind} (ingestion #12). */
+export interface IngestionRunRow {
+  ingestion_run_id: number
+  kind: 'DL' | 'CT'
+  file_name: string
+  sheet_name: string | null
+  no_op?: boolean
+  counts: { rows_read: number; rows_new: number; rows_updated: number; rows_unchanged: number; rows_rejected: number; rows_incomplete: number }
+  issues?: { row_number: number | null; column: string | null; message: string; severity: string }[]
+}
+export const toUploadPreview = (r: IngestionRunRow): UploadPreview => ({
+  ingestionRunId: r.ingestion_run_id,
+  kind: r.kind === 'CT' ? 'ct' : 'dl',
+  fileName: r.file_name,
+  sheet: r.sheet_name ?? '',
+  rowsRead: r.counts.rows_read,
+  new: r.counts.rows_new,
+  updated: r.counts.rows_updated,
+  unchanged: r.counts.rows_unchanged,
+  rejected: r.counts.rows_rejected,
+  warnings: (r.issues ?? []).map((i) => (i.row_number ? `Row ${i.row_number}${i.column ? ` (${i.column})` : ''}: ${i.message}` : i.message)),
+  alreadyImported: !!r.no_op,
+})
+
+/** `DemandPage.items` from GET /demands. JD analysis and match fields are not on list rows, so they take neutral defaults. */
+export interface DemandItem {
+  demand_id: number
+  code_requisition: string
+  id_format_ok: boolean
+  position_start_date: string | null
+  account_name: string | null
+  code_local_grade: string | null
+  demand_request_name: string | null
+  region: string | null
+  bu: string | null
+  owner: string | null
+}
+export const toDemand = (r: DemandItem): Demand => ({
+  demandId: r.demand_id,
+  codeRequisition: r.code_requisition,
+  idFormatOk: r.id_format_ok,
+  positionStartDate: r.position_start_date,
+  accountName: r.account_name,
+  codeLocalGrade: r.code_local_grade,
+  demandRequestName: r.demand_request_name,
+  region: r.region,
+  bu: r.bu,
+  owner: r.owner,
+  jdText: '',
+  jdStatus: 'Not analysed',
+  matches: 0,
+  bestBand: null,
+  uploadedAt: '',
+  mandatorySkills: [],
+  preferredSkills: [],
 })

@@ -315,3 +315,46 @@ describe('HttpApiClient — resources and match runs (ingestion #12, matching #1
     expect(bodies).toEqual([{ run_id: 2, result_ids: [7] }, { run_id: 1, result_ids: [8] }])
   })
 })
+
+describe('HttpApiClient — ingestion wiring', () => {
+  it('maps the IngestionRun upload reply to the preview', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(
+      json({
+        ingestion_run_id: 7,
+        kind: 'CT',
+        status: 'previewed',
+        file_name: 'ct.xlsx',
+        sheet_name: 'Sheet',
+        no_op: false,
+        counts: { rows_read: 3, rows_new: 2, rows_updated: 0, rows_unchanged: 0, rows_rejected: 1, rows_incomplete: 0 },
+        issues: [{ row_number: 4, column: 'Email Address', message: 'Invalid email', severity: 'error' }, { row_number: null, column: null, message: 'No Group column', severity: 'warning' }],
+      }),
+    )
+    const p = await api.uploadWorkbook('ct', new File(['x'], 'ct.xlsx'))
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe('/api/v1/uploads/ct')
+    expect(p).toEqual({
+      ingestionRunId: 7,
+      kind: 'ct',
+      fileName: 'ct.xlsx',
+      sheet: 'Sheet',
+      rowsRead: 3,
+      new: 2,
+      updated: 0,
+      unchanged: 0,
+      rejected: 1,
+      warnings: ['Row 4 (Email Address): Invalid email', 'No Group column'],
+      alreadyImported: false,
+    })
+  })
+
+  it('pages the demand list and maps rows with neutral JD defaults', async () => {
+    const api = new HttpApiClient('/api/v1')
+    const row = (id: number) => ({ demand_id: id, code_requisition: `T1000${id}`, id_format_ok: true, position_start_date: null, account_name: 'Acme', code_local_grade: 'B1', demand_request_name: null, region: null, bu: null, owner: null, lifecycle: 'active', occ_pending_review: false })
+    fetchMock.mockResolvedValueOnce(json({ items: [row(1)], page: 1, page_size: 200, total: 2 })).mockResolvedValueOnce(json({ items: [row(2)], page: 2, page_size: 200, total: 2 }))
+    const d = await api.listDemands()
+    expect(fetchMock.mock.calls.map(([u]) => String(u))).toEqual(['/api/v1/demands?page=1&page_size=200', '/api/v1/demands?page=2&page_size=200'])
+    expect(d.map((x) => x.codeRequisition)).toEqual(['T10001', 'T10002'])
+    expect(d[0]).toMatchObject({ demandId: 1, accountName: 'Acme', jdStatus: 'Not analysed', matches: 0, bestBand: null })
+  })
+})

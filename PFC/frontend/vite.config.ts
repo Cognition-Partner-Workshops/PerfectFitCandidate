@@ -25,5 +25,6 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     env: { VITE_PFC_API: 'mock' },
+    exclude: ['e2e/**', 'node_modules/**'],
   },
 })
