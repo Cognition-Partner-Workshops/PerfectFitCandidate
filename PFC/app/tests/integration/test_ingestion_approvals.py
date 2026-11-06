@@ -446,7 +446,9 @@ def test_req_in_23_select_ct_record_confirms_verbatim_email(client):
         assert verify_chain(db)
 
 
-@pytest.mark.parametrize("email", [None, " New.Identity@Example.com "])
+@pytest.mark.parametrize(
+    "email", [None, "New.Identity@Example.com", " \tNew.Identity@Example.com \n"]
+)
 def test_req_in_23_manual_identity_success_and_private_audit(client, email):
     ingest(client, "ct", [{"Email Address": None}])
     login(client, "Analyst")
@@ -466,7 +468,7 @@ def test_req_in_23_manual_identity_success_and_private_audit(client, email):
         saved = db.execute("SELECT * FROM candidate_emails").fetchone()
         if email:
             assert (saved["email"], saved["email_key"], saved["source"], saved["confirmed"]) == (
-                email,
+                email.strip(),
                 email.strip().lower(),
                 "manual",
                 1,

@@ -284,7 +284,8 @@ def resolve(
         ).fetchone():
             raise Problem(409, "IDENTITY_CT_AUTHORITATIVE", "CT email remains authoritative")
         if body.email is not None:
-            email_key = body.email.strip().lower()
+            email = body.email.strip()
+            email_key = email.lower()
             if db.execute(
                 "SELECT 1 FROM candidate_emails WHERE email_key=? AND candidate_id<>? "
                 "AND confirmed=1",
@@ -295,7 +296,7 @@ def resolve(
                 "INSERT INTO candidate_emails(candidate_id,email,email_key,source,confirmed) "
                 "VALUES (?,?,?,'manual',1) ON CONFLICT(candidate_id,email_key) "
                 "DO UPDATE SET email=excluded.email,source='manual',confirmed=1",
-                (candidate_id, body.email, email_key),
+                (candidate_id, email, email_key),
             )
         db.execute(
             "UPDATE candidates SET display_name=? WHERE candidate_id=?", (body.name, candidate_id)

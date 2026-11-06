@@ -106,7 +106,13 @@ describe('Candidate Profile CV facts', () => {
   })
 
   it.each(['incomplete', 'ambiguous'] as const)('auto-opens %s identity with internal-ID default', async (identityStatus) => {
-    await open((d) => ({ ...d, identityStatus }))
+    await open((d) => ({ ...d, identityStatus,
+      ...(identityStatus === 'incomplete' ? {
+        resource: { ...d.resource, resourceId: 0, name: null, emailAddressMasked: null, identityStatus },
+        ctEmailOptions: [],
+        cvVersions: [{ ...d.cvVersions[0], facts: { ...facts, name: null } }],
+      } : {}),
+    }))
     const dialog = screen.getByRole('dialog', { name: 'Incomplete Candidate Information' })
     expect(within(dialog).getByRole('radio', { name: /Generate internal ID and continue/ })).toHaveProperty('checked', true)
     expect(within(dialog).getByRole('radio', { name: 'Manual entry' })).toHaveProperty('checked', false)
