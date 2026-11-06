@@ -129,7 +129,7 @@ class ResumeFolderSource:
         self.max_file_bytes = max_file_bytes
         self.extract_timeout_s = extract_timeout_s
         self.extractor = extractor or extract_text
-        self._extracted: dict[Path, tuple[str, list[str]]] = {}
+        self._extracted: dict[tuple[Path, str], tuple[str, list[str]]] = {}
 
     def scan(self, candidates: list[CandidateLookup]) -> list[ResumeResult]:
         if not self.root.is_dir():
@@ -150,15 +150,16 @@ class ResumeFolderSource:
             try:
                 content, stat = read_resume(self.root, relative, self.max_file_bytes)
                 digest = hashlib.sha256(content).hexdigest() if content is not None else ""
-                if path not in self._extracted:
-                    self._extracted[path] = (
+                cache_key = (path, digest)
+                if cache_key not in self._extracted:
+                    self._extracted[cache_key] = (
                         ("", ["too_large"])
                         if content is None
                         else bounded_extract(
                             path, self.extractor, self.extract_timeout_s, content=content
                         )
                     )
-                text, flags = self._extracted[path]
+                text, flags = self._extracted[cache_key]
             except OSError as exc:
                 for result in results:
                     result.checks.append(f"{relative}: unreadable ({type(exc).__name__})")
