@@ -18,6 +18,8 @@ from test_matching_service import (
     wait_done,
 )
 
+from pfc.api.routers.resources import router as resources_router
+from pfc.api.routers.results import router as results_router
 from pfc.config import Settings
 from pfc.db.audit import verify_chain
 from pfc.db.connection import database
@@ -740,14 +742,19 @@ def test_empty_missing_validation_production_openapi_and_removed_paths(api: Api)
         } or path.startswith("/match-results/")
     assert "/api/v1/match-runs/{run_id}/results" in paths
     assert "/api/v1/match-runs/{run_id}/excluded" in paths
-    assert "/api/v1/resources/excluded" not in paths
+    assert "/resources/excluded" not in {route.path for route in results_router.routes}
+    assert "/api/v1/resources/excluded" in paths
+    resource_routes = [
+        route for route in resources_router.routes if route.path == "/resources/excluded"
+    ]
+    assert len(resource_routes) == 1
+    assert resource_routes[0].endpoint.__module__ == "pfc.api.routers.resources"
     assert "/api/v1/match-results/{result_id}/overrides" in paths
     assert "/api/v1/demands/{demand_id}/matches" not in paths
     for path in (
         "/match/runs",
         "/results",
         "/results/excluded",
-        "/resources/excluded",
         f"/demands/{demand_id}/matches",
     ):
         problem(client.get("/api/v1" + path), 404)
