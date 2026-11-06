@@ -37,6 +37,7 @@ from pfc.security.middleware import install_middleware
 from pfc.security.passwords import hasher
 from pfc.security.problems import Problem, install_handlers
 from pfc.security.setup import code_path, generate_setup_code
+from pfc.services.candidates.classification import reclassify_all
 from pfc.services.matching import MatchingPorts
 from pfc.services.occ.seed import seed_reference_data
 from pfc.services.packages.inbox import scan_inbox
@@ -56,6 +57,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 generate_setup_code(settings)
             elif count_admins(db):
                 code_path(settings).unlink(missing_ok=True)
+        with database(settings) as db:
+            db.execute("BEGIN IMMEDIATE")
+            reclassify_all(db)
         try:
             scan_inbox(settings)
         except Exception:

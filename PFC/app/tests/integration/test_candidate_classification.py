@@ -1,15 +1,65 @@
 """REQ-CLS-02: exact-domain classification, overrides and transaction ownership."""
 
 import json
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from test_occ import client as client
 from test_occ import login
 
+from pfc.config import Settings
 from pfc.db.audit import verify_chain
 from pfc.db.connection import database
+from pfc.db.migrate import migrate
+from pfc.main import create_app
 from pfc.services.candidates.classification import reclassify_all, reclassify_candidate
+
+
+def test_startup_backfills_pre_classification_candidates(tmp_path: Path) -> None:
+    settings = Settings(data_dir=tmp_path / "data", config_dir=tmp_path, llm_enabled=False)
+    migrations = tmp_path / "old_migrations"
+    migrations.mkdir()
+    for name in ("0001_initial.sql", "0002_occ_approvals.sql"):
+        (migrations / name).write_text((Path("pfc/db/migrations") / name).read_text())
+    assert migrate(settings, migrations) == ["0001", "0002"]
+    with database(settings) as db:
+        db.execute(
+            "INSERT INTO internal_email_domains(domain,added_at) VALUES ('example.com','2026-01-01')"
+        )
+        for id, value, override in (
+            (1, "External", None),
+            (2, None, None),
+            (3, "External", "Unknown"),
+        ):
+            db.execute(
+                "INSERT INTO candidates(candidate_id,internal_ref,identity_status,"
+                "classification,classification_override,created_at,updated_at) "
+                "VALUES (?,?,'complete',?,?,'2026-01-01','2026-01-01')",
+                (id, f"PFC-C-{id}", value, override),
+            )
+        db.execute(
+            "INSERT INTO candidate_emails(candidate_id,email,email_key,source) "
+            "VALUES (1,'private@example.com','private@example.com','CT')"
+        )
+    for _ in range(2):
+        with TestClient(create_app(settings)):
+            with database(settings) as db:
+                rows = db.execute(
+                    "SELECT classification,classification_override FROM candidates ORDER BY candidate_id"
+                ).fetchall()
+                assert [tuple(row) for row in rows] == [
+                    ("Internal", None),
+                    ("Unknown", None),
+                    ("External", "Unknown"),
+                ]
+                events = db.execute(
+                    "SELECT details_json FROM audit_log WHERE action='CLASSIFICATION_REEVALUATED'"
+                ).fetchall()
+                assert len(events) == 1
+                assert json.loads(events[0][0])["changed"] == 2
+                assert "private@example.com" not in events[0][0]
+                assert verify_chain(db)
 
 
 def seed_candidate(
