@@ -64,6 +64,7 @@ class Manifest(BaseModel):
     created_at: str
     key_id: str = Field(pattern=r"^[0-9a-f]{64}$")
     payloads: dict[str, PayloadDigest] = Field(min_length=1)
+    rollback: bool = False
 
 
 @dataclass(frozen=True)
@@ -210,6 +211,7 @@ def _build(
     min_app_version: str,
     max_app_version: str,
     created_at: str,
+    rollback: bool = False,
 ) -> Manifest:
     for name in payloads:
         _safe_name(name)
@@ -236,6 +238,7 @@ def _build(
                 created_at=created_at,
                 key_id=key_id(private.public_key()),
                 payloads=digests,
+                rollback=rollback,
             )
         except ValidationError as exc:
             raise PackageError(Reason.INVALID_MANIFEST, "Invalid manifest fields") from exc
@@ -255,6 +258,7 @@ def build_settings_package(
     max_app_version: str,
     created_at: str,
     schema_version: int = 1,
+    rollback: bool = False,
 ) -> bytes:
     """Return PFC-settings-v<N>.pfcpkg bytes; account payloads stay opaque (REQ-OCC-01)."""
     output = io.BytesIO()
@@ -268,6 +272,7 @@ def build_settings_package(
         min_app_version=min_app_version,
         max_app_version=max_app_version,
         created_at=created_at,
+        rollback=rollback,
     )
     return output.getvalue()
 
@@ -282,6 +287,7 @@ def build_model_package(
     max_app_version: str,
     created_at: str,
     schema_version: int = 1,
+    rollback: bool = False,
 ) -> Manifest:
     """Stream model/tokenizer artifacts into a signed .pfcmodel (REQ-OCC-03).
 
@@ -297,6 +303,7 @@ def build_model_package(
         min_app_version=min_app_version,
         max_app_version=max_app_version,
         created_at=created_at,
+        rollback=rollback,
     )
 
 
@@ -343,8 +350,14 @@ def verify_package(
     expected_kind: PackageKind = "settings",
     supported_schemas: Sequence[int] = (1,),
     limits: PackageLimits | None = None,
+    allow_rollback: bool = False,
 ) -> VerifiedPackage:
-    """Validate without extracting/applying; reject replay even if signed (REQ-OCC-02/03)."""
+    """Validate without extracting/applying (REQ-OCC-02/03).
+
+    Rollback requires caller authorization plus a signed rollback marker. Trusted
+    keys must be OCC Admin signing keys; this pure function cannot establish roles.
+    All integrity, schema and compatibility checks still apply to rollbacks.
+    """
     limits = limits or (MODEL_LIMITS if expected_kind == "model" else PackageLimits())
     try:
         with zipfile.ZipFile(
@@ -353,8 +366,9 @@ def verify_package(
             members = _check_members(archive, limits)
             encoded = archive.read(MANIFEST_NAME)
             try:
-                manifest = Manifest.model_validate(_decode_json(encoded))
-                if canonical_json(manifest.model_dump()) != encoded:
+                decoded = _decode_json(encoded)
+                manifest = Manifest.model_validate(decoded)
+                if canonical_json(decoded) != encoded:
                     raise ValueError("Manifest is not canonical")
             except (ValueError, RecursionError) as exc:
                 raise PackageError(
@@ -381,7 +395,9 @@ def verify_package(
                 raise PackageError(
                     Reason.INCOMPATIBLE_APP, "Application version is outside package range"
                 )
-            if manifest.package_version <= current_version:
+            if manifest.package_version <= current_version and not (
+                allow_rollback and manifest.rollback
+            ):
                 raise PackageError(
                     Reason.STALE_VERSION, "Package version must be newer than installed"
                 )

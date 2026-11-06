@@ -17,7 +17,7 @@ def keys():
     return ps.generate_keypair()
 
 
-def build(private, *, version=2, schema=1):
+def build(private, *, version=2, schema=1, rollback=False):
     return ps.build_settings_package(
         {f"settings.v{schema}.json": {"synonyms": [], "accounts": []}},
         private=private,
@@ -26,6 +26,7 @@ def build(private, *, version=2, schema=1):
         min_app_version="0.1.0",
         max_app_version="1.0.0",
         created_at="2026-11-06T00:00:00Z",
+        rollback=rollback,
     )
 
 
@@ -284,3 +285,97 @@ def test_corrupt_compressed_member(keys):
     data_start = offset + 30 + filename_size + extra_size
     damaged[data_start : data_start + info.compress_size] = bytes([255]) * info.compress_size
     assert_reason(ps.Reason.INVALID_ARCHIVE, verify, bytes(damaged), public)
+
+
+@pytest.mark.parametrize("version", [1, 2])
+@pytest.mark.parametrize(
+    "marked,allowed", [(False, False), (False, True), (True, False), (True, True)]
+)
+def test_signed_rollback_requires_marker_and_permission(keys, version, marked, allowed):
+    """Only explicit authorization AND Admin-signed intent bypass monotonicity (REQ-OCC-02)."""
+    private, public = keys
+    package = build(private, version=version, rollback=marked)
+    if marked and allowed:
+        result = ps.verify_package(
+            package,
+            trusted_keys=[public],
+            app_version="0.1.0",
+            current_version=2,
+            allow_rollback=allowed,
+        )
+        assert result.manifest.rollback
+        assert result.manifest.package_version == version
+    else:
+        assert_reason(
+            ps.Reason.STALE_VERSION,
+            ps.verify_package,
+            package,
+            trusted_keys=[public],
+            app_version="0.1.0",
+            current_version=2,
+            allow_rollback=allowed,
+        )
+
+
+def test_rollback_cannot_bypass_trust_integrity_or_compatibility(keys):
+    private, public = keys
+    package = build(private, version=1, rollback=True)
+    assert_reason(
+        ps.Reason.UNTRUSTED_KEY, verify, package, ps.generate_keypair()[1], allow_rollback=True
+    )
+    assert_reason(
+        ps.Reason.PAYLOAD_HASH,
+        verify,
+        rewrite(package, updates={"settings.v1.json": b"{}"}),
+        public,
+        allow_rollback=True,
+    )
+    assert_reason(
+        ps.Reason.INCOMPATIBLE_APP,
+        ps.verify_package,
+        package,
+        trusted_keys=[public],
+        app_version="2.0.0",
+        current_version=2,
+        allow_rollback=True,
+    )
+    assert_reason(
+        ps.Reason.UNSUPPORTED_SCHEMA,
+        verify,
+        build(private, version=1, schema=2, rollback=True),
+        public,
+        allow_rollback=True,
+    )
+    normal = build(private, version=1)
+    with zipfile.ZipFile(io.BytesIO(normal)) as archive:
+        manifest = json.loads(archive.read(ps.MANIFEST_NAME))
+    manifest["rollback"] = True
+    assert_reason(
+        ps.Reason.INVALID_SIGNATURE,
+        verify,
+        rewrite(normal, updates={ps.MANIFEST_NAME: ps.canonical_json(manifest)}),
+        public,
+        allow_rollback=True,
+    )
+
+
+def test_legacy_manifest_without_rollback_marker(keys):
+    private, public = keys
+    package = build(private)
+    with zipfile.ZipFile(io.BytesIO(package)) as archive:
+        manifest = json.loads(archive.read(ps.MANIFEST_NAME))
+    del manifest["rollback"]
+    encoded = ps.canonical_json(manifest)
+    legacy = rewrite(
+        package, updates={ps.MANIFEST_NAME: encoded, ps.SIGNATURE_NAME: ps.sign(encoded, private)}
+    )
+    assert verify(legacy, public).manifest.rollback is False
+    assert_reason(
+        ps.Reason.STALE_VERSION,
+        ps.verify_package,
+        legacy,
+        trusted_keys=[public],
+        app_version="0.1.0",
+        current_version=2,
+        allow_rollback=True,
+    )
