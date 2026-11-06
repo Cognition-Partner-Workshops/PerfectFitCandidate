@@ -1,9 +1,11 @@
 import os
 import re
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
+from pfc.api.schemas.demands import JdStatus
 from pfc.api.schemas.match import JdRequirements, RunView, WireModel
 from pfc.api.schemas.results import ResultDetail, ResultRow
 from pfc.config import Settings
@@ -176,3 +178,19 @@ def test_match_run_change_metadata_contract(model: type[WireModel]) -> None:
     reasons = schema["properties"]["dataChangedReasons"]
     assert reasons["type"] == "array" and reasons["items"]["type"] == "string"
     assert {"dataChangedSinceRun", "dataChangedReasons"} <= set(schema["required"])
+
+
+def test_demand_jd_status_contract(tmp_path: Path) -> None:
+    schemas = create_app(Settings(data_dir=tmp_path)).openapi()["components"]["schemas"]
+    statuses = list(get_args(JdStatus))
+    assert statuses == ["Not analysed", "Draft", "Confirmed", "JD changed"]
+    for name in ("DemandItem", "DemandDetail"):
+        assert schemas[name]["properties"]["jd_status"]["enum"] == statuses
+        assert "jd_status" in schemas[name]["required"]
+    types = (FRONTEND_ROOT / "src" / "api" / "types.ts").read_text(encoding="utf-8")
+    declared = re.search(r"export type JdStatus = ([^\n]+)", types)
+    assert declared is not None
+    assert re.findall(r"'([^']+)'", declared.group(1)) == statuses
+    mappers = (FRONTEND_ROOT / "src" / "api" / "mappers.ts").read_text(encoding="utf-8")
+    assert re.search(r"\bjd_status: JdStatus\b", mappers)
+    assert re.search(r"\bjdStatus: r\.jd_status\b", mappers)

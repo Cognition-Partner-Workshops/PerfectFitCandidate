@@ -27,6 +27,7 @@ import type {
   DemandAnalytics,
   MatchAnalytics,
   ResultFilters,
+  JdStatus,
 } from './types'
 import { maskEmail } from '../lib/mask'
 import type { EmailTemplateVersion } from './types'
@@ -378,6 +379,7 @@ export interface DemandItem {
   region: string | null
   bu: string | null
   owner: string | null
+  jd_status: JdStatus
 }
 export const toDemand = (r: DemandItem): Demand => ({
   demandId: r.demand_id,
@@ -391,7 +393,7 @@ export const toDemand = (r: DemandItem): Demand => ({
   bu: r.bu,
   owner: r.owner,
   jdText: '',
-  jdStatus: 'Not analysed',
+  jdStatus: r.jd_status,
   matches: 0,
   bestBand: null,
   uploadedAt: '',

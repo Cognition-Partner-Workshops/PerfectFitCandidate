@@ -362,6 +362,7 @@ setlocal
 set "PFC_HOME=%~dp0"
 set "PYTHONHOME=%PFC_HOME%python"
 set "PATH=%PYTHONHOME%;%PATH%"
+set "PFC_FRONTEND_DIR=%PFC_HOME%web"
 cd /d "%PFC_HOME%"
 "%PYTHONHOME%\\python.exe" -m pfc.launcher %*
 exit /b %ERRORLEVEL%
@@ -391,12 +392,31 @@ def create_zip(source: Path, destination: Path) -> None:
                 archive.write(path, relative, compress_type=compression)
 
 
+def bundle_models(
+    destination: Path, cache_dir: Path | None = None, *, allow_unpinned: bool = False
+) -> None:
+    for model in parse_models_lock(read_json(MODELS_LOCK_PATH)):
+        digest = model["sha256"]
+        target = destination / (model["file"] or "")
+        cached = cache_dir / digest if cache_dir is not None and digest else target
+        if cached.is_file() and digest:
+            verify_sha256(cached, digest)
+        else:
+            download_verified(model["url"] or "", cached, digest, allow_unpinned=allow_unpinned)
+        if cached != target:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(cached, target)
+        if digest:
+            verify_sha256(target, digest)
+
+
 def build_package(
     output_dir: Path,
     *,
     with_models: bool = False,
     skip_frontend: bool = False,
     allow_unpinned: bool = False,
+    models_cache: Path | None = None,
 ) -> Path:
     version = load_version()
     output_path = output_dir / f"PFC-{version}-win-x64.zip"
@@ -456,14 +476,7 @@ def build_package(
         models_dir = package_root / "models"
         models_dir.mkdir()
         if with_models:
-            for model in parse_models_lock(read_json(MODELS_LOCK_PATH)):
-                model_path = models_dir / (model["file"] or "")
-                download_verified(
-                    model["url"] or "",
-                    model_path,
-                    model["sha256"],
-                    allow_unpinned=allow_unpinned,
-                )
+            bundle_models(models_dir, models_cache, allow_unpinned=allow_unpinned)
 
         (package_root / "data").mkdir()
         (package_root / "inbox").mkdir()
@@ -482,6 +495,9 @@ def build_package(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Build the PFC Windows x64 portable ZIP.")
+    parser.add_argument(
+        "--models-cache", type=Path, help="Hash-keyed model download cache; every hit is verified."
+    )
     parser.add_argument(
         "--out",
         type=Path,
@@ -515,6 +531,7 @@ def main(argv: list[str] | None = None) -> int:
             with_models=args.with_models,
             skip_frontend=args.skip_frontend,
             allow_unpinned=args.allow_unpinned,
+            models_cache=args.models_cache,
         )
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         logging.error("%s", error)

@@ -8,11 +8,12 @@ from typing import Any, Literal
 
 from pfc.config import Settings
 from pfc.db.connection import database
-from pfc.domain.config_loader import DomainConfig
+from pfc.domain.config_loader import DomainConfig, ScoringTemplate
 from pfc.domain.normalise import ParsedDate, normalise_term, parse_date
 from pfc.domain.scoring import (
     ENGINE_VERSION,
     Demand,
+    Exclusion,
     MatchRun,
     RequirementItem,
     Resource,
@@ -25,6 +26,7 @@ from pfc.jobs.runner import JobCancelled, JobContext, JobRunner
 from pfc.services.occ.domain import active_template, occ_domain_config
 
 from .common import audit, digest, dumps, timestamp
+from .incremental import Plan, carry_forward, fingerprints, plan_run, rerank
 from .ports import MatchingPorts
 from .results import _mask_email
 from .semantic import VectorCache, model_identity, semantic_inputs
@@ -288,12 +290,70 @@ def _persist(
     )
 
 
+def _score_dirty(
+    demands: list[Demand],
+    resources: list[Resource],
+    cvs: dict[str, list[SkillBasis]],
+    metadata: dict[str, dict[str, Any]],
+    config: DomainConfig,
+    as_of_date: date,
+    cache: VectorCache,
+    plan: Plan,
+    context: JobContext,
+    template: ScoringTemplate,
+) -> MatchRun:
+    dirty_resources = [r for r in resources if r.resource_id in plan.resources]
+    dirty_demands = [
+        d for d in demands if str(metadata[d.code_requisition]["demand_id"]) in plan.demands
+    ]
+    clean_demands = [
+        d for d in demands if str(metadata[d.code_requisition]["demand_id"]) not in plan.demands
+    ]
+    result = run_match([], dirty_resources, cvs, {}, config, as_of_date, template=template)
+    scored_demands = []
+    exclusions: list[Exclusion] = []
+    count = 0
+    for ds, rs in ((dirty_demands, resources), (clean_demands, dirty_resources)):
+        if not ds or not rs:
+            continue
+        context.raise_if_cancelled()
+        candidates = {r.candidate_id for r in rs}
+        bases = [build_ct_basis(r, config) for r in rs]
+        bases += [b for key, values in cvs.items() if key in candidates for b in values]
+        semantics = semantic_inputs(ds, metadata, bases, cache, template, context.report_progress)
+        originals = {r.resource_id: r for r in rs}
+        expanded = [replace(r, candidate_id=f"row:{r.resource_id}") for r in rs]
+        expanded_cvs = {f"row:{r.resource_id}": cvs.get(r.candidate_id or "", []) for r in rs}
+        scored = run_match(
+            ds, expanded, expanded_cvs, semantics, config, as_of_date, template=template
+        )
+        for d in scored.demands:
+            scored_demands.append(
+                replace(
+                    d,
+                    rows=tuple(
+                        replace(row, resource=originals[row.resource.resource_id]) for row in d.rows
+                    ),
+                    insufficient_data=tuple(
+                        replace(row, resource=originals[row.resource.resource_id])
+                        for row in d.insufficient_data
+                    ),
+                )
+            )
+        exclusions.extend(scored.pair_exclusions)
+        count += scored.pairs_scored
+    return replace(
+        result, demands=tuple(scored_demands), pair_exclusions=tuple(exclusions), pairs_scored=count
+    )
+
+
 def start_run(
     settings: Settings,
     runner: JobRunner,
     ports: MatchingPorts,
     *,
     scope: Literal["full", "demands"] = "full",
+    incremental: bool = False,
     demand_ids: Sequence[int] = (),
     user_id: int | None = None,
     as_of_date: date | None = None,
@@ -336,14 +396,43 @@ def start_run(
             "cv_bases": {key: [asdict(basis) for basis in value] for key, value in cvs.items()},
         }
         llm_models = sorted({m["extracted_by"] for m in metadata.values() if m["extracted_by"]})
+        config_key = digest(
+            {
+                key: snapshot[key]
+                for key in (
+                    "template",
+                    "grades",
+                    "statuses",
+                    "locations",
+                    "synonyms",
+                    "as_of_date",
+                    "embedding",
+                )
+            }
+            | {
+                "template_id": template_id,
+                "model_id": model_id,
+                "model_key": cache.model_key,
+                "engine_version": ENGINE_VERSION,
+            }
+        )
+        inputs = fingerprints(demands, resources, cvs, metadata, display_emails)
+        latest = db.execute(
+            "SELECT * FROM match_runs WHERE status='completed' ORDER BY run_id DESC LIMIT 1"
+        ).fetchone()
+        plan = plan_run(incremental, scope, config_key, inputs, dict(latest) if latest else None)
         cursor = db.execute(
             "INSERT INTO match_runs(scope,scope_json,template_id,embedding_model_id,llm_model,"
-            "engine_version,synonyms_version,config_hash,triggered_by,status,dq_summary_json)"
-            " VALUES (?,?,?,?,?,?,?,?,?,'queued',?)",
+            "engine_version,synonyms_version,config_hash,triggered_by,status,dq_summary_json,"
+            "config_key,input_fingerprints_json) VALUES (?,?,?,?,?,?,?,?,?,'queued',?,?,?)",
             (
                 scope,
                 dumps(
-                    {"demand_ids": sorted(set(demand_ids)), "as_of_date": as_of_date.isoformat()}
+                    {
+                        "demand_ids": sorted(set(demand_ids)),
+                        "as_of_date": as_of_date.isoformat(),
+                        **plan.provenance(),
+                    }
                 ),
                 template_id,
                 model_id,
@@ -353,6 +442,8 @@ def start_run(
                 digest(snapshot),
                 user_id,
                 dumps({"skipped_demand_ids": skipped}),
+                config_key,
+                dumps(inputs),
             ),
         )
         run_id = int(cursor.lastrowid or 0)
@@ -373,6 +464,30 @@ def start_run(
                     "UPDATE match_runs SET status='running',started_at=? WHERE run_id=?",
                     (timestamp(clock()), run_id),
                 )
+            if plan.mode == "incremental":
+                result = _score_dirty(
+                    demands,
+                    resources,
+                    cvs,
+                    metadata,
+                    config,
+                    as_of_date,
+                    cache,
+                    plan,
+                    context,
+                    template,
+                )
+                with database(settings) as db:
+                    context.raise_if_cancelled()
+                    carry_forward(db, run_id, plan)
+                    _persist(db, run_id, result, metadata, config, skipped, display_emails)
+                    rerank(db, run_id, demands, resources, metadata, config, template, skipped)
+                    db.execute(
+                        "UPDATE match_runs SET status='completed',finished_at=? WHERE run_id=?",
+                        (timestamp(clock()), run_id),
+                    )
+                    context.raise_if_cancelled()
+                return
             bases = [build_ct_basis(resource, config) for resource in resources]
             bases += [basis for candidate_bases in cvs.values() for basis in candidate_bases]
             semantics = semantic_inputs(

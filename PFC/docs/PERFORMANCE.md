@@ -216,3 +216,142 @@ verifying the two local artifacts against `packaging/MODELS.lock`:
 python scripts/validate_embedding_model.py \
   --model-dir /home/ubuntu/pfc-models/nomic-embed-text-v1.5/
 ```
+
+<a id="live-llm-extraction-linux-vm"></a>
+
+## Live LLM extraction validation — Linux VM, 2026-11-06
+
+**Linux VM evidence, not the Phase 0 target laptop or UAT acceptance.** One
+manual run of `app/scripts/validate_llm_extraction.py`, committed at
+`14c7935faa369971a1c01327e4cbde247df9058c`, against merged main `15a1433`
+(#42 JD extraction and #43 structured CV facts). No prompts, validators or
+generation settings were tuned. See [LLM_VALIDATION.md](LLM_VALIDATION.md)
+for setup, fixture definitions, scoring rules and the recording-proxy design.
+
+### Hardware and production defaults
+
+- Linux 6.8.0-1060-aws x86_64, glibc 2.35; Python 3.12.16.
+- Intel Xeon, 8 logical CPUs, AVX2; 33,655,369,728 bytes RAM (~31.34 GiB),
+  ~29 GiB available before the run; no swap; ~105 GiB disk available.
+- Real application supervisor and published provider, 4096 context, computed
+  default **3 CPU inference threads**, one parallel slot. JD timeout 120 s;
+  CV timeout 180 s. Artifact/data paths were the only settings overrides.
+
+### Exact verified artifacts
+
+All artifacts, logs and reports remain outside the repository under
+`/home/ubuntu/pfc-models/llm/`. No models or binaries are committed.
+
+- **Qwen3-4B-Instruct-2507 Q4_K_M**, exact `MODELS.lock` pin (Bartowski GGUF):
+  [pinned download](https://huggingface.co/bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF/resolve/5ba9dff45461e5bab86959be7d585609fe9e6bc3/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf).
+  Size **2,497,280,736 bytes**; downloaded SHA-256 verified against the lock:
+  `2fde00ce69dd4899c70d020845e2638353015bba0fdf161b3eb965f2bca4464e`.
+- **llama-server release b8936**, official Linux x64 CPU asset
+  [`llama-b8936-bin-ubuntu-x64.tar.gz`](https://github.com/ggml-org/llama.cpp/releases/download/b8936/llama-b8936-bin-ubuntu-x64.tar.gz),
+  **13,911,156 bytes**. Archive SHA-256 verified against the published asset
+  `digest` from the [GitHub release API](https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/b8936):
+  `9eb1116a03be6ab2056c38788cc90a1a86541443bf44b703eb6e2f809b068438`.
+  Binary reports version **8936 (2dd84169d)**, GNU 11.4.0, Linux x86_64.
+  **The packaging manifest pins only win-x64**; this Linux archive was selected
+  from the same official release and verified using the API digest, not a
+  Linux entry in `llama_cpp.manifest.json`.
+
+### Results
+
+Ten small synthetic JDs and ten synthetic CVs; example.com email addresses and
+Ofcom drama phone numbers only. Twenty raw completion responses were captured.
+Scoring uses deduplicated exact NFKC + casefold + whitespace-collapsed values,
+micro-averaged per category, with no alias/substring/semantic credit.
+
+| Measurement | Result |
+|---|---:|
+| Supervisor start → healthy | 3.547 s |
+| Generation call median / maximum | 14.736 / 30.405 s |
+| llama-server peak VmHWM/VmRSS | 5,555,294,208 bytes (5.555 GB), below 8 GB |
+| JD LLM-used share | 10/10 (100%) |
+| JD fallback reasons | none |
+| JD schema-invalid responses | 0 |
+| Mandatory skills recovered; precision / recall | 16/16; 94.1% / 100% |
+| Preferred skills recovered; precision / recall | 10/10; 100% / 100% |
+| CV extraction failures / schema-invalid responses | 0 / 0 |
+| Final CV fact/span validation failures | **0** (required: 0) |
+
+| CV category | Expected recovered | LLM raw → quote-located → validated | Ungrounded drops | Replaced by rule precedence |
+|---|---:|---:|---:|---:|
+| name | 9/9 | 0 → 0 → 0 | 0 | 0 |
+| phone | 8/8 | 0 → 0 → 0 | 0 | 0 |
+| experience | 10/10 | 18 → 18 → 18 | 0 | 0 |
+| qualifications | 9/9 | 9 → 9 → 9 | 0 | 0 |
+| projects | 10/10 | 10 → 10 → 10 | 0 | 0 |
+
+All ten raw CV responses explicitly returned **`name: null`, `phone: null`**:
+the zero raw/precedence counts are genuine, not a counting omission. The final
+identity facts came from rules. Offline fake-provider tests exercise non-null
+identity proposals and verify that rule replacements are reported as precedence,
+not ungrounded drops. Zero grounding failures proves the checked span/value
+invariants, not complete semantic correctness or production quality.
+
+**Observed issue, no tuning:** fixture **jd05** labels PostgreSQL preferred,
+but the model additionally classified it as mandatory. This is the extra
+prediction behind mandatory precision 16/17 (94.1%). The issue remains visible
+in the report; no prompt or validator changes were made to improve this score.
+
+### Reproduction
+
+With the repository virtual environment activated, from `PFC/app`, after
+downloading/verifying the artifacts as described in LLM_VALIDATION.md:
+
+```sh
+python scripts/validate_llm_extraction.py \
+  --gguf ~/pfc-models/llm/Qwen3-4B-Instruct-2507-Q4_K_M.gguf \
+  --llama-server ~/pfc-models/llm/b8936/llama-b8936/llama-server \
+  --out ~/pfc-models/llm/validation/report
+```
+
+The captured outputs are `~/pfc-models/llm/validation/report.json` and
+`report.md`; child logs are under `validation/supervisor-data/logs/llm.log`.
+The supervisor stopped the server after the run. Default pytest needs no model,
+binary or download. This evidence does not replace locked-down Windows laptop
+validation, representative full-size inputs, or analyst review.
+
+## Incremental re-scoring — REQ-MAT-07 (Linux VM)
+
+Measured on the implementation worktree based on `0a27b6f`, using
+`tests/perf/test_incremental_perf.py`: 500 demands × 500 resources, seed 19401.
+A full baseline is followed by edits to 25 demands and 25 resources: **5% of
+each population, and 5% of the 1,000 input rows**. The dirty Cartesian union is
+9.75% of the possible pairs before eligibility filtering. Demand start dates
+and resource locations change; the incremental and exhaustive comparison runs
+both see exactly the same changed data.
+
+| Operation | Wall time |
+|---|---:|
+| Initial full baseline | 25.313 s |
+| Incremental, 5% dirty inputs | **8.464 s** |
+| Full, same changed inputs | **23.800 s** |
+| Full / incremental speedup | **2.812×** |
+
+This is a 64.4% wall-time reduction. The test compares all persisted result
+columns except generated IDs, plus the per-demand/run summary. The seeded
+integration acceptance tests additionally compare all CV scores, breakdowns,
+exclusions and evidence, including duplicate-candidate and shortlist changes.
+
+The production domain scorer and SQLite persistence run with deterministic fake
+embedding/vector-store ports. Vectors are primed before the baseline; neither
+timed comparison makes an embedding call. Timing includes request dispatch,
+input loading/fingerprinting, scoring or SQL copy-forward, merged selection,
+and persistence. Incremental runs still re-rank every persisted pair; only dirty
+pairs are re-scored. This is a warm-vector matching benchmark, not a measurement
+of extraction, model inference, target-laptop performance or UI latency.
+
+Environment: Linux 6.8.0-1060-aws x86_64, Intel Xeon Processor, 8 logical CPUs,
+31.3 GiB RAM, Python 3.12.16. The entire perf selection passed: **4 tests in
+89.19 s**. The unchanged 500×500 full benchmark scored 60,455 eligible pairs in
+24.096 s; analytics medians were summary 0.079 s, demand 0.055 s, bench 0.076 s
+and match 0.686 s. Existing 180 s matching / 2 s analytics guards are unchanged;
+the incremental test also requires it to beat the same-data full run.
+
+Reproduce from `PFC/app` with the backend environment loaded:
+```sh
+pytest -m perf -s tests/perf
+```

@@ -1,6 +1,11 @@
 """REQ-OUT-01: demand browsing contracts."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+# Derived from the requirements of the current demand version; see browse.DEMAND_SELECT.
+JdStatus = Literal["Not analysed", "Draft", "Confirmed", "JD changed"]
 
 
 class DemandQuery(BaseModel):
@@ -27,6 +32,7 @@ class DemandItem(BaseModel):
     owner: str | None
     lifecycle: str
     occ_pending_review: bool
+    jd_status: JdStatus
 
 
 class DemandVersion(BaseModel):
