@@ -509,7 +509,7 @@ def test_req_in_25_identity_validation_conflicts_and_csrf(client):
     assert client.get("/api/v1/candidates/1").status_code == 401
 
 
-def test_identity_resolution_reclassifies_both_email_owners(client):
+def test_identity_resolution_reclassifies_both_email_owners(client: TestClient) -> None:
     client.post("/api/v1/occ/internal-domains", json={"domain": "example.com"})
     ingest(client, "ct", [{"Email Address": None}, {}])
     with database(client.app.state.settings) as db:
