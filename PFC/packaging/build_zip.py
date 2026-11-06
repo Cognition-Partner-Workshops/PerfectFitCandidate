@@ -209,7 +209,8 @@ def _safe_path(root: Path, archive_name: str) -> Path:
 def extract_zip(archive_path: Path, destination: Path) -> None:
     with zipfile.ZipFile(archive_path) as archive:
         for info in archive.infolist():
-            target = _safe_path(destination, info.filename)
+            archive_name = info.filename[:-1] if info.is_dir() else info.filename
+            target = _safe_path(destination, archive_name)
             if info.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
                 continue

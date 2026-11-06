@@ -52,9 +52,13 @@ jobs:
           Expand-Archive -Path $archive.FullName -DestinationPath $packageDir -Force
           Add-Content -Path $env:GITHUB_ENV -Value "PFC_PACKAGE_DIR=$packageDir"
 
-      - name: Smoke-test bundled Python dependencies
+      - name: Smoke-test bundled Python and native dependencies
         shell: pwsh
-        run: '& "$env:PFC_PACKAGE_DIR\python\python.exe" -c "import pfc, fastapi, numpy, onnxruntime, sqlite_vec, win32com"'
+        run: |
+          & "$env:PFC_PACKAGE_DIR\python\python.exe" -c "import pfc, fastapi, numpy, onnxruntime, sqlite_vec, win32com.client"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$env:PFC_PACKAGE_DIR\llama\llama-server.exe" --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - uses: actions/upload-artifact@v4
         with:

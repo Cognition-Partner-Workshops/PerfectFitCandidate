@@ -10,6 +10,7 @@ from PFC.packaging.build_zip import (
     HashMismatchError,
     _safe_path,
     download_verified,
+    extract_zip,
     parse_manifest,
     parse_models_lock,
     patch_pth_text,
@@ -167,3 +168,27 @@ def test_unpack_wheels_maps_package_and_data_files(tmp_path: Path) -> None:
 def test_safe_path_rejects_traversal(tmp_path: Path, archive_name: str) -> None:
     with pytest.raises(ValueError, match="Unsafe archive path"):
         _safe_path(tmp_path, archive_name)
+
+
+def test_extract_zip_creates_explicit_directory_entries(tmp_path: Path) -> None:
+    archive_path = tmp_path / "package.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("nested/", "")
+        archive.writestr("nested/file.txt", "contents")
+
+    destination = tmp_path / "extracted"
+    extract_zip(archive_path, destination)
+
+    assert (destination / "nested").is_dir()
+    assert (destination / "nested" / "file.txt").read_text(encoding="utf-8") == "contents"
+
+
+def test_extract_zip_rejects_traversal_directory_entries(tmp_path: Path) -> None:
+    archive_path = tmp_path / "unsafe.zip"
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("../evil/", "")
+
+    with pytest.raises(ValueError, match="Unsafe archive path"):
+        extract_zip(archive_path, tmp_path / "extracted")
+
+    assert not (tmp_path / "evil").exists()
