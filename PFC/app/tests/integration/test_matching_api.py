@@ -368,26 +368,28 @@ def test_results_default_page_and_candidate_defaults(api: Api) -> None:
     client, headers = api
     with database(client.app.state.settings) as db:
         seed_demand(db)
-        for index in range(65):
+        for index in range(1005):
             seed_resource(db, f"Person{index:03d}")
     run_id = finish(client, client.post("/api/v1/match-runs", headers=headers, json={}))
     url = f"/api/v1/match-runs/{run_id}/results"
     rows = client.get(url)
-    assert rows.status_code == 200 and len(rows.json()) == 65
-    assert rows.headers["X-Total-Count"] == "65"
+    assert rows.status_code == 200 and len(rows.json()) == 1005
+    assert rows.headers["X-Total-Count"] == "1005"
     assert rows.json()[0]["candidateId"] == 0
     assert rows.json()[0]["candidateType"] == "Unknown"
     assert not rows.json()[0]["incompleteIdentity"]
-    page = client.get(url, params={"limit": 5, "offset": 60})
-    assert page.status_code == 200 and page.json() == rows.json()[60:]
-    assert page.headers["X-Total-Count"] == "65"
-    assert client.get(url, params={"offset": 100}).json() == []
+    page = client.get(url, params={"limit": 5, "offset": 1000})
+    assert page.status_code == 200 and page.json() == rows.json()[1000:]
+    assert page.headers["X-Total-Count"] == "1005"
+    assert client.get(url, params={"offset": 1000}).json() == rows.json()[1000:]
+    assert client.get(url, params={"offset": 2000}).json() == []
     assert client.get(url, params={"band": "Strong"}).json() == []
     parameters = client.get("/openapi.json").json()["paths"]["/api/v1/match-runs/{run_id}/results"][
         "get"
     ]["parameters"]
     limit = next(value for value in parameters if value["name"] == "limit")["schema"]
-    assert limit["default"] == 1000 and limit["maximum"] == 5000
+    assert limit.get("default") is None
+    assert any(option.get("maximum") == 5000 for option in limit["anyOf"])
 
 
 def test_experience_survives_flat_requirement_edits(api: Api) -> None:

@@ -76,8 +76,8 @@ def get_run(db: sqlite3.Connection, run_id: int) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
-def _paging(limit: int, offset: int) -> None:
-    if not 1 <= limit <= 5000 or offset < 0:
+def _paging(limit: int | None, offset: int) -> None:
+    if (limit is not None and not 1 <= limit <= 5000) or offset < 0:
         raise ValueError("limit must be 1..5000 and offset nonnegative")
 
 
@@ -146,7 +146,7 @@ def list_results(
     *,
     sort: str = "rank",
     descending: bool = False,
-    limit: int = 50,
+    limit: int | None = 50,
     offset: int = 0,
 ) -> dict[str, Any]:
     """REQ-OUT-01/03: sixteen display fields, masked before leaving the service."""
@@ -225,7 +225,7 @@ def list_results(
     output.sort(key=key, reverse=descending)
     return {
         "run_id": run_id,
-        "items": output[offset : offset + limit],
+        "items": output[offset : offset + limit if limit is not None else None],
         "total": len(output),
         "limit": limit,
         "offset": offset,

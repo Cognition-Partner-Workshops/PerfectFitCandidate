@@ -48,7 +48,7 @@ class ResultsQuery(WireModel):
         "start_date",
     ] = "rank"
     descending: bool = False
-    limit: int = Field(default=1000, ge=1, le=5000)
+    limit: int | None = Field(default=None, ge=1, le=5000)
     offset: int = Field(default=0, ge=0)
 
     @field_validator("sort", mode="before")
