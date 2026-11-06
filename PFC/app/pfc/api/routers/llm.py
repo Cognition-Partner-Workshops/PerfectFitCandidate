@@ -1,7 +1,8 @@
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Request
 
+from pfc.adapters.llm.supervisor import restart_selected_model
 from pfc.api.routers.occ import DB
 from pfc.api.schemas.llm import ActiveModel, LlmHealth
 from pfc.security.dependencies import Principal, current_user
@@ -28,9 +29,14 @@ def active(db: DB, user: User) -> dict[str, Any] | None:
 
 
 @router.put("/active")
-def select(body: ActiveModel, db: DB, user: User) -> dict[str, Any] | None:
-    """REQ-LLM-01/06: a per-user model choice never changes global model state."""
-    return llm.select(db, user.user.user_id, body.model_id)
+def select(
+    body: ActiveModel, db: DB, user: User, request: Request, background_tasks: BackgroundTasks
+) -> dict[str, Any] | None:
+    """REQ-LLM-01/06: commit the choice, then asynchronously switch the shared local server."""
+    result = llm.select(db, user.user.user_id, body.model_id)
+    db.commit()
+    background_tasks.add_task(restart_selected_model, request.app.state.settings, request.app.state)
+    return result
 
 
 @router.get("/health", response_model=LlmHealth)

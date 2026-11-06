@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from pfc.adapters.llm.supervisor import LlamaServerSupervisor
 from pfc.api.routers.auth import router as auth_router
 from pfc.api.routers.cv import router as cv_router
 from pfc.api.routers.demands import router as demands_router
@@ -53,10 +54,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception:
             logger.exception("Package inbox scan failed; startup continues")
         app.state.job_runner = JobRunner(settings)
+        supervisor = LlamaServerSupervisor(
+            settings, app_state=app.state if not hasattr(app.state, "llm_provider") else None
+        )
+        app.state.llm_supervisor = supervisor
+        if not hasattr(app.state, "llm_health_provider"):
+            app.state.llm_health_provider = supervisor
+        with database(settings) as db:
+            model = supervisor.resolve_model(db)
+        if settings.llm_enabled and supervisor.binary_available and model:
+            supervisor.schedule(model)
+        else:
+            logging.getLogger(__name__).info("Local LLM unavailable: %s", supervisor.detail)
         cleanup = asyncio.create_task(session_cleanup(settings))
         try:
             yield
         finally:
+            await supervisor.stop()
             cleanup.cancel()
             with suppress(asyncio.CancelledError):
                 await cleanup
