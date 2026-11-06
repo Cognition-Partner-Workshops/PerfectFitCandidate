@@ -94,6 +94,13 @@ export interface JdRequirements {
   extractionMethod?: 'llm' | 'rule_based_fallback' | null
   /** Backend reason code when extraction fell back to rules (e.g. "provider_unavailable"). */
   fallbackReason?: string | null
+  items?: {
+    kind: 'mandatory_skill' | 'preferred_skill' | 'experience' | 'qualification' | 'domain'
+    text: string
+    jdReqId?: number | null
+    evidence?: string | null
+    evidenceUnverified?: boolean
+  }[]
 }
 
 export interface Resource {
