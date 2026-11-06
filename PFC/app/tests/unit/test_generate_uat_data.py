@@ -82,7 +82,9 @@ def test_small_dirty_percent_still_changes_a_row(tmp_path: Path) -> None:
 
 def test_smaller_rerun_leaves_only_its_own_cvs(tmp_path: Path) -> None:
     generate(tmp_path, demands=5, resources=20)
+    (tmp_path / "resumes" / "personcustom@example.com.txt").write_text("tester's own CV", "utf-8")
     paths = generate(tmp_path, demands=5, resources=5)
-    assert sorted(p.name for p in paths["resumes"].iterdir()) == [
-        f"person{i:04d}@example.com.txt" for i in range(1, 6)
+    names = [f"person{i:04d}@example.com.txt" for i in range(1, 6)] + [
+        "personcustom@example.com.txt"
     ]
+    assert sorted(p.name for p in paths["resumes"].iterdir()) == sorted(names)
