@@ -141,7 +141,7 @@ class ResumeFolderSource:
         self.work_dir = (
             work_dir if work_dir is not None else Settings().data_dir / "work" / "cv-extraction"
         )
-        self._extracted: dict[str, tuple[str, list[str]]] = {}
+        self._extracted: dict[tuple[str, str], tuple[str, list[str]]] = {}
 
     def scan(self, candidates: list[CandidateLookup]) -> list[ResumeResult]:
         if not self.root.is_dir():
@@ -165,15 +165,16 @@ class ResumeFolderSource:
                 if content is None:
                     text, flags = "", ["too_large"]
                 else:
-                    if digest not in self._extracted:
-                        self._extracted[digest] = bounded_extract(
+                    cache_key = (digest, path.suffix.lower())
+                    if cache_key not in self._extracted:
+                        self._extracted[cache_key] = bounded_extract(
                             path,
                             self.extractor,
                             self.extract_timeout_s,
                             content=content,
                             work_dir=self.work_dir,
                         )
-                    text, flags = self._extracted[digest]
+                    text, flags = self._extracted[cache_key]
             except OSError as exc:
                 for result in results:
                     result.checks.append(f"{relative}: unreadable ({type(exc).__name__})")

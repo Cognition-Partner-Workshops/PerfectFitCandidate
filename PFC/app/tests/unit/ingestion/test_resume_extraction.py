@@ -28,6 +28,24 @@ def read_or_fail(path: Path) -> str:
     return text
 
 
+def suffix_extract(path: Path) -> str:
+    return path.suffix.lower()
+
+
+def test_identical_bytes_are_extracted_separately_by_normalized_suffix(tmp_path: Path) -> None:
+    for name in ("Alex.txt", "Alex.pdf", "Alex copy.PDF"):
+        (tmp_path / name).write_bytes(b"identical bytes")
+    source = ResumeFolderSource(tmp_path, extractor=suffix_extract)
+    (result,) = source.scan([CandidateLookup(candidate_id="1", short_name="Alex")])
+    assert {v.source_path: v.text_norm for v in result.versions} == {
+        "Alex.txt": ".txt",
+        "Alex.pdf": ".pdf",
+        "Alex copy.PDF": ".pdf",
+    }
+    digest = hashlib.sha256(b"identical bytes").hexdigest()
+    assert set(source._extracted) == {(digest, ".txt"), (digest, ".pdf")}
+
+
 def test_timeout_terminates_worker_and_flags_result(tmp_path: Path) -> None:
     (tmp_path / "Alex.pdf").write_bytes(b"synthetic")
     before = {p.pid for p in multiprocessing.active_children()}
