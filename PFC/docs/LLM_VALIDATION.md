@@ -40,7 +40,7 @@ python scripts/validate_llm_extraction.py \
 Alternatively set `PFC_VALIDATION_GGUF` and `PFC_VALIDATION_LLAMA_SERVER`.
 `--out` is an external output prefix: `.json` and `.md` are appended to the
 entire prefix, preserving dots (e.g. `validation.run1.json` and
-`validation.run1.md`). JSON includes individual results, raw
+`validation.run1.md`). Both files use UTF-8. JSON includes individual results, raw
 responses and generation latencies, and Markdown summarizes them. Inputs and
 outputs must never contain real candidate data. The script returns nonzero if
 final fact validation fails or server memory exceeds 8 GB/is unavailable.

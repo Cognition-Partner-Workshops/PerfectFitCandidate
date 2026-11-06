@@ -481,9 +481,9 @@ def main() -> int:
         parser.error("Output must be outside the repository")
     args.out.parent.mkdir(parents=True, exist_ok=True)
     report = anyio.run(live, args)
-    Path(f"{args.out}.json").write_text(json.dumps(report, indent=2) + "\n")
+    Path(f"{args.out}.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     markdown = render_markdown(report)
-    Path(f"{args.out}.md").write_text(markdown)
+    Path(f"{args.out}.md").write_text(markdown, encoding="utf-8")
     print(markdown)
     return int(not report["memory_pass"] or report["cv"]["final_fact_failures"] != 0)
 

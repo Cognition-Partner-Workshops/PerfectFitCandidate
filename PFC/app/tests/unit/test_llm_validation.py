@@ -39,9 +39,13 @@ from scripts.validate_llm_extraction import (
 
 
 def test_req_llm_02_dotted_output_prefixes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def default_encoding(encoding: str | None, stacklevel: int = 2) -> str:
+        return "cp1252" if encoding is None else encoding
+
     async def fake_live(args: argparse.Namespace) -> dict[str, Any]:
         return summarize([], [], [], load_s=0, peak_bytes=0, hardware={"prefix": str(args.out)})
 
+    monkeypatch.setattr("io.text_encoding", default_encoding)
     monkeypatch.setattr(validation, "live", fake_live)
     for name in ("validation.run1", "validation.run2"):
         prefix = tmp_path / name
@@ -52,9 +56,11 @@ def test_req_llm_02_dotted_output_prefixes(tmp_path: Path, monkeypatch: pytest.M
         assert validation.main() == 0
     for name in ("validation.run1", "validation.run2"):
         prefix = tmp_path / name
-        report = json.loads(Path(f"{prefix}.json").read_text())
+        report = json.loads(Path(f"{prefix}.json").read_text(encoding="utf-8"))
         assert report["hardware"]["prefix"] == str(prefix)
-        assert str(prefix) in Path(f"{prefix}.md").read_text()
+        markdown = Path(f"{prefix}.md").read_text(encoding="utf-8")
+        assert str(prefix) in markdown
+        assert "→" in markdown
     assert not (tmp_path / "validation.json").exists()
     assert not (tmp_path / "validation.md").exists()
 
