@@ -1,13 +1,17 @@
 import asyncio
 import json
 import logging
+import sqlite3
+from threading import Event, Thread
 
 import pytest
 
-from pfc.adapters.vector.embeddings import FakeEmbedder
-from pfc.adapters.vector.stores import NumpyStore
+from pfc.adapters.vector.embeddings import FakeEmbedder, Task, Vectors
+from pfc.adapters.vector.stores import NumpyStore, SqliteVecStore
 from pfc.config import Settings
+from pfc.db.connection import connect
 from pfc.jobs.runner import JobCancelled, JobContext
+from pfc.services.embeddings import incremental
 from pfc.services.embeddings.incremental import submit_incremental_embed
 from pfc.services.embeddings.reembed import EmbeddingPipelineMismatch, embed_owners
 from pfc.services.embeddings.runtime import EmbeddingModelUnavailable
@@ -15,6 +19,95 @@ from pfc.services.embeddings.runtime import EmbeddingModelUnavailable
 from .conftest import NOW, cv, jd, tiny_bundle
 
 State = tuple[Settings, NumpyStore, JobContext]
+
+
+@pytest.mark.parametrize("state", [SqliteVecStore], indirect=True)
+def test_incremental_store_open_serializes_competing_writer(
+    state: State, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings, store, ctx = state
+    db = store.connection
+    db.execute("UPDATE embedding_models SET is_active=(embedding_model_id=2)")
+    db.commit()
+    jd(db, 1)
+    ready, release, committed = Event(), Event(), Event()
+    errors: list[BaseException] = []
+
+    def writer() -> None:
+        other = connect(settings)
+        try:
+            other.execute("UPDATE jobs SET progress=0.1 WHERE job_id=1")
+            ready.set()
+            assert release.wait(10)
+            other.commit()
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            other.close()
+            committed.set()
+
+    thread = Thread(target=writer)
+    connections: list[sqlite3.Connection] = []
+
+    def connection(settings: Settings) -> sqlite3.Connection:
+        result = connect(settings)
+        connections.append(result)
+
+        def trace(sql: str) -> None:
+            if sql == "BEGIN IMMEDIATE" or sql.startswith("DELETE FROM vec_chunks_d"):
+                release.set()
+                committed.wait(10)
+
+        result.set_trace_callback(trace)
+        thread.start()
+        assert ready.wait(10)
+        return result
+
+    embedder = FakeEmbedder(8)
+    original_embed = embedder.embed
+
+    def embed(texts: list[str], *, task: Task = "document") -> Vectors:
+        assert not connections[0].in_transaction
+        return original_embed(texts, task=task)
+
+    monkeypatch.setattr(embedder, "embed", embed)
+    factory = incremental.create_vector_store
+
+    def open_store(connection: sqlite3.Connection, *, dimensions: int) -> NumpyStore:
+        try:
+            return factory(connection, dimensions=dimensions)
+        except sqlite3.OperationalError as exc:
+            print(f"{exc.sqlite_errorcode} {exc.sqlite_errorname}: {exc}")
+            raise
+
+    monkeypatch.setattr(incremental, "create_vector_store", open_store)
+    monkeypatch.setattr(incremental, "create_embedder", lambda *a, **kw: embedder)
+    monkeypatch.setattr(incremental, "connect", connection)
+    try:
+        job_id = submit_incremental_embed(ctx.runner, settings, [("jd", 1)])
+        assert job_id is not None
+
+        async def terminal() -> dict:
+            async for event in ctx.runner.events(job_id, poll_interval=0.01):
+                if event.startswith("event: done"):
+                    return json.loads(event.split("data: ", 1)[1])
+            raise AssertionError("Missing job")
+
+        result = asyncio.run(asyncio.wait_for(terminal(), timeout=20))
+        assert result["status"] == "completed", result
+        assert "embedded=1" in result["message"]
+        assert not errors
+        assert (
+            db.execute(
+                "SELECT count(*) FROM embedding_chunks c JOIN pfc_vector_records v USING(chunk_id) "
+                "WHERE c.owner_type='jd' AND c.owner_id=1"
+            ).fetchone()[0]
+            == 1
+        )
+    finally:
+        release.set()
+        if thread.ident is not None:
+            thread.join(10)
 
 
 def test_scoped_cleanup_no_scan_or_activation(

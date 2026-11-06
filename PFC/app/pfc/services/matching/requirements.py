@@ -336,7 +336,7 @@ def analyze_jd(
             else "provider_error"
         )
         data = _fallback(text, config)
-    with atomic(db):
+    with atomic(db, immediate=True):
         if _current(db, demand_id)["demand_version_id"] != version["demand_version_id"]:
             raise ValueError("JD version changed during analysis; retry")
         req_id = _write(db, version["demand_version_id"], data, extracted_by, now, config)
