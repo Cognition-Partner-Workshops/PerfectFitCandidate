@@ -1,13 +1,27 @@
+import os
+import sys
 from pathlib import Path
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+LEGACY_DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+
+
+def default_data_dir(platform: str | None = None) -> Path:
+    """REQ-AUTH-06 (S6): per-user profile storage, never inside the extracted package."""
+    if (platform or sys.platform) == "win32":
+        base, fallback = os.environ.get("LOCALAPPDATA"), Path.home() / "AppData" / "Local"
+    else:
+        base, fallback = os.environ.get("XDG_DATA_HOME"), Path.home() / ".local" / "share"
+    root = Path(base) if base and Path(base).is_absolute() else fallback
+    return root / "PFC" / "data"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PFC_")
 
-    data_dir: Path = Path(__file__).resolve().parents[2] / "data"
+    data_dir: Path = Field(default_factory=lambda: default_data_dir())
     config_dir: Path = Path(__file__).resolve().parents[2] / "config"
     bundled_models_dir: Path = Field(
         default_factory=lambda data: data["config_dir"].parent / "models"

@@ -467,7 +467,7 @@ Every REQ ID in [REQUIREMENTS_BASELINE.md](REQUIREMENTS_BASELINE.md) maps to **e
 | REQ-AUTH-03 | Strong admin password; first-run setup | M | 1 | 1 | |
 | REQ-AUTH-04 | Salted slow hashes; five attempts, 15-minute lockout, 60-minute idle timeout | M | 1 | 1 | |
 | REQ-AUTH-05 | Audit log | M | 1 | 1 | |
-| REQ-AUTH-06 | Encryption at rest where feasible | S | 1 | 1 | |
+| REQ-AUTH-06 | Encryption at rest where feasible | S | 1 | 1 | Phase 1: BitLocker plus field-level encryption (TDD Q-11); profile data dir with user-only ACL, legacy credential migration, BitLocker status on `/health` and OCC (SECURITY_REVIEW S4/S6). Provider tokens (S5) deferred to Phase 3 |
 | REQ-AUTH-07 | Bind to 127.0.0.1 only | M | 1 | 1 | |
 | REQ-AUTH-08 | Licensing (per-user ZIP, signed device licence) | S | 3 | 3 | |
 | REQ-CLS-01 | Default internal-domain allowlist ships in initial ZIP | S | 1 | 1 | |

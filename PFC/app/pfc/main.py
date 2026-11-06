@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import threading
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
@@ -33,9 +34,11 @@ from pfc.db.users import count_admins
 from pfc.jobs.cleanup import session_cleanup
 from pfc.jobs.router import router as jobs_router
 from pfc.jobs.runner import JobRunner
+from pfc.security.credentials import encrypt_legacy_credentials
 from pfc.security.middleware import install_middleware
 from pfc.security.passwords import hasher
 from pfc.security.problems import Problem, install_handlers
+from pfc.security.secrets_store import SecretStoreError
 from pfc.security.setup import code_path, generate_setup_code
 from pfc.services.matching import MatchingPorts
 from pfc.services.occ.seed import seed_reference_data
@@ -50,6 +53,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         migrate(settings)
+        try:
+            encrypt_legacy_credentials(settings)
+        except SecretStoreError:
+            logger.warning("Legacy credential migration deferred; secret storage unavailable")
+        probe = app.state.volume_probe
+        if probe is not None:
+
+            def check_volume() -> None:
+                app.state.data_volume_encryption = probe(settings.data_dir)
+
+            threading.Thread(target=check_volume, daemon=True, name="pfc-bitlocker").start()
         with database(settings) as db:
             seed_reference_data(db)
             if not count_admins(db) and not code_path(settings).exists():
@@ -92,6 +106,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="PerfectFitCandidate", lifespan=lifespan)
     app.state.settings = settings
+    app.state.volume_probe = None
+    app.state.data_volume_encryption = "Unknown"
     app.state.matching_ports = MatchingPorts()
     app.state.clock = lambda: datetime.now(UTC)
     app.state.dummy_hash = hasher(settings).hash("unused-random-dummy-password")
