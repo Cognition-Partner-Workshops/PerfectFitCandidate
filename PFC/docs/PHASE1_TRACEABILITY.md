@@ -1,11 +1,14 @@
 # Phase 1 requirement traceability — P1-EX-01 readiness
 
-Source reviewed: merged `origin/main` **6363f49** (includes #37), 2026-11-06.
+Five-row refresh source: merged `origin/main` **df61838** (includes #54), 2026-11-06.
 This is source/test traceability, **not a UAT pass or an MVP release approval**.
-The OCC-domain/masking follow-up on this branch updates the five identified rows;
-its PR is pending. Numbered PR links identify merged historical work.
-The original inventory was docs-only. The OCC follow-up adds executable edit/run
-and masking regressions; it does not supply laptop or UAT acceptance.
+The original inventory used 6363f49. This docs-only refresh re-audits REQ-IN-21,
+REQ-IN-23, REQ-MAT-02, REQ-MAT-06 and the Phase 1 REQ-LLM-02 increment against
+full baseline clauses and PHASES §10; other requirement rows are unchanged.
+`gh api repos/Cognition-Partner-Workshops/PerfectFitCandidate/pulls/{number}`
+confirmed #42, #43, #44, #46, #48 and #50 merged; #52 is open and excluded.
+Fake-provider tests and stand-in ONNX E2E do not establish real-model quality,
+laptop or UAT acceptance.
 
 ## Summary and gates
 
@@ -14,6 +17,10 @@ and masking regressions; it does not supply laptop or UAT acceptance.
 | Delivery Phase 1 | 70 | 3 | 8 | 0 | 0 |
 | Earlier Phase 1 increments | 6 | 1 | 1 | 0 | 0 |
 | Total | 76 | 4 | 9 | 0 | 0 |
+
+Recounted from all 89 matrix rows: counts are unchanged. All five reviewed rows
+remain Partial for the clauses below. Nine Musts remain below Implemented+tested,
+including the Must clauses in earlier Phase 1 increments.
 
 The actual §10 table assigns **81 IDs** to delivery Phase 1; its prose summary says
 79 and is stale. Eight additional IDs explicitly have a Phase 1 earlier increment;
@@ -24,15 +31,15 @@ PHASES priority column (notably REQ-OCC-03). Titles reproduce the requirement te
 
 ### Musts not Implemented+tested (including earlier increments)
 
-- **REQ-IN-21** — Partial: Sync selection, text storage and vectors are implemented/tested; structured experience extraction/storage is missing (cv_sync._persist; REQ-IN-23).
-- **REQ-IN-23** — Partial: Text extraction/identity prompt exist; cv_sync._persist stores only email facts, not the required structured name/phone/experience/qualifications/projects and evidence.
-- **REQ-MAT-02** — Partial: Analyze/review/edit/confirm workflow and rule fallback are tested; main initializes MatchingPorts without llm and analyze uses that port, so default JD analysis is not local-LLM extraction.
-- **REQ-MAT-06** — Partial: Deterministic evidence checks and analyst confirmation exist; complete CV fact/evidence extraction is missing (REQ-IN-23), so end-to-end no-invention cannot be certified.
+- **REQ-IN-21** — Partial: Sync, grounded experience JSON and full-CV vectors now exist. Missing clause: extracted CV skills. CVFacts has no skills field; no production writer populates resource_skills, although matching reads its CV rows. Raw text/vectors do not prove skill extraction.
+- **REQ-IN-23** — Partial: Grounded name/phone/experience/qualifications/projects are now stored/displayed. Remaining: CV skills and literal manual entry (CT selection is not manual entry). Missing-name prompt and explicit missing-phone warning coverage are also not established; null/non-blocking facts alone do not prove those clauses.
+- **REQ-MAT-02** — Partial: Shared local-provider extraction, visible rule fallback, all backend categories, bulk analysis and confirmation-gated scoring are now tested. Missing review/edit clause: JdReview has no qualifications or extracted-location readout/controls, although the API supports both. Its header shows DL region, not extracted location.
+- **REQ-MAT-06** — Partial: CV fact grounding and cautious missing/partial-match language are tested. Missing specialist-experience guardrail: _inputs turns experience/qualifications into generic mandatory items, without checking structured CV experience/duration. A schema-valid SQL/10-years experience item gets full exact credit from CT SQL alone. JD schema validation also does not enforce source grounding.
 - **REQ-LLM-01** — Implemented, UAT only: Supervisor/selection/memory-limit contracts are tested with fakes; real bundled GGUF quality, RAM and child-log behavior on the 16 GB laptop remain unvalidated.
 - **REQ-PKG-01** — Implemented, UAT only: Portable build/helper and hosted-Windows dependency smoke evidence exists; no locked-down Windows 11 Phase 0 laptop unzip/run approval.
 - **REQ-PKG-02** — Partial: Default build and package CI omit --with-models; models are optional, not bundled by default. A model-complete offline release artifact and its full first-run smoke have not been demonstrated.
 - **REQ-EML-04** — Implemented, UAT only: Phase 1 Outlook COM code and fake-COM tests exist; actual corporate Outlook approval/send/reconciliation needs laptop UAT. SMTP is Phase 2.
-- **REQ-LLM-02** — Partial: Drafting uses the provider; default matching_ports has no LLM and analyze retains that port, so JD analysis falls back to rules. CV facts are rule-based email extraction; real JD/CV LLM parsing/summarisation wiring is not evidenced. Chat is Phase 2.
+- **REQ-LLM-02** — Partial: JD extraction and CV-fact parsing now use the shared local provider with tested fallback; email drafting uses it too. Missing: a separate summarisation feature and real-model validation (#52 open, not credited). Phase 2 chat is outside this increment. Scoring makes zero LLM calls.
 
 ### Laptop, UAT and pilot evidence still required
 
@@ -67,9 +74,9 @@ PHASES priority column (notably REQ-OCC-03). Titles reproduce the requirement te
 | REQ-IN-13 | `Tracker` and `Group Owner` cells may contain formulas (`HYPERLINK`, `INDEX/MATCH` to external lists); read cached values, keep the link text, never execute formulas. | M | [#3](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/3), [#12](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/12), [#25](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/25) | `app/pfc/services/ingestion/workbooks.py`; `app/pfc/services/ingestion/apply.py` | `app/tests/unit/ingestion/test_workbooks.py`; `app/tests/integration/test_ingestion.py` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
 | REQ-IN-14 | Never construct, infer or correct an email address — copy it exactly from the CT. | M | [#3](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/3), [#12](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/12), [#25](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/25) | `app/pfc/services/ingestion/workbooks.py`; `app/pfc/services/ingestion/apply.py` | `app/tests/unit/ingestion/test_workbooks.py`; `app/tests/integration/test_ingestion.py` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
 | REQ-IN-20 | Resumes (PDF/DOCX) live in an **analyst-configurable path**: MS SharePoint folder synced locally (OneDrive sync client) or a mapped/synced folder. | M | [#3](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/3), [#12](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/12), [#18](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/18), [#28](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/28), [#32](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/32) | `app/pfc/adapters/sources/resume_folder.py`; `app/pfc/services/ingestion/cv_sync.py`; `frontend/src/pages/BenchListPage.tsx` | `app/tests/unit/ingestion/test_sources.py`; `app/tests/integration/test_ingestion.py`; `frontend/src/App.test.tsx` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
-| REQ-IN-21 | A **per-candidate Sync** button finds that candidate's profile in the folder, extracts skills and experience and stores them (DB + vector store). A **global Sync** button syncs all manually selected candidates; it is enabled only when at least one candidate is selected. | M | [#3](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/3), [#12](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/12), [#18](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/18), [#28](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/28), [#32](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/32) | `app/pfc/adapters/sources/resume_folder.py`; `app/pfc/services/ingestion/cv_sync.py`; `frontend/src/pages/BenchListPage.tsx` | `app/tests/unit/ingestion/test_sources.py`; `app/tests/integration/test_ingestion.py`; `frontend/src/App.test.tsx` | Partial | Sync selection, text storage and vectors are implemented/tested; structured experience extraction/storage is missing (cv_sync._persist; REQ-IN-23). |
+| REQ-IN-21 | A **per-candidate Sync** button finds that candidate's profile in the folder, extracts skills and experience and stores them (DB + vector store). A **global Sync** button syncs all manually selected candidates; it is enabled only when at least one candidate is selected. | M | [#3](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/3), [#12](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/12), [#18](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/18), [#28](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/28), [#32](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/32), [#43](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/43), [#50](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/50) | `app/pfc/services/ingestion/{cv_sync,cv_facts}.py`; `app/pfc/api/routers/cv.py`; `frontend/src/pages/BenchListPage.tsx` | `app/tests/integration/test_cv_structured_facts.py::test_req_in_21_23_sync_persists_only_grounded_facts`; `app/tests/integration/test_ingestion.py::test_req_mat_01_cv_sync_optional_embedding`; `frontend/src/App.test.tsx` (named selection test below) | Partial | Sync, grounded experience JSON and full-CV vectors now exist. Missing clause: extracted CV skills. CVFacts has no skills field; no production writer populates resource_skills, although matching reads its CV rows. Raw text/vectors do not prove skill extraction. See clause audit. |
 | REQ-IN-22 | A missing resume is **not a blocker**: the candidate is still matched on CT skills, with "CV not found" recorded under Gaps / Checks. | M | [#3](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/3), [#12](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/12), [#18](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/18), [#28](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/28), [#32](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/32) | `app/pfc/adapters/sources/resume_folder.py`; `app/pfc/services/ingestion/cv_sync.py`; `frontend/src/pages/BenchListPage.tsx` | `app/tests/unit/ingestion/test_sources.py`; `app/tests/integration/test_ingestion.py`; `frontend/src/App.test.tsx` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
-| REQ-IN-23 | Extract name, email(s), phone, skills, experience, qualifications, projects and evidence/provenance where available. Missing name/email → "Incomplete Candidate Information" prompt with options: manual entry, generate internal ID and continue (default), review later. Missing phone is a warning only. Never invent emails/phones; store NULL. | M | [#3](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/3), [#12](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/12), [#18](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/18), [#25](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/25) | `app/pfc/services/ingestion/cv_sync.py`; `app/pfc/services/ingestion/identity.py`; `frontend/src/pages/CandidateProfilePage.tsx` | `app/tests/unit/ingestion/test_sources.py`; `app/tests/integration/test_ingestion_approvals.py` | Partial | Text extraction/identity prompt exist; cv_sync._persist stores only email facts, not the required structured name/phone/experience/qualifications/projects and evidence. |
+| REQ-IN-23 | Extract name, email(s), phone, skills, experience, qualifications, projects and evidence/provenance where available. Missing name/email → "Incomplete Candidate Information" prompt with options: manual entry, generate internal ID and continue (default), review later. Missing phone is a warning only. Never invent emails/phones; store NULL. | M | [#3](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/3), [#12](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/12), [#18](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/18), [#25](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/25), [#43](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/43), [#50](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/50) | `app/pfc/api/schemas/{cv,candidates}.py`; `app/pfc/services/ingestion/{cv_facts,identity}.py`; `frontend/src/pages/CandidateProfilePage.tsx` | `app/tests/unit/ingestion/test_cv_facts.py::test_req_in_23_rule_spans`; `app/tests/integration/test_ingestion_approvals.py::test_req_in_23_25_analyst_can_resolve_separate_identity_without_email`; `frontend/src/pages/CandidateProfilePage.test.tsx` (named display tests below) | Partial | Grounded name/phone/experience/qualifications/projects are now stored/displayed. Remaining: CV skills and literal manual entry (CT selection is not manual entry). Missing-name prompt and explicit missing-phone warning coverage are also not established; null/non-blocking facts alone do not prove those clauses. See clause audit. |
 | REQ-IN-25 | Email is an identity-match signal, not an immutable primary key; ambiguous matches are flagged for human confirmation. | S | [#3](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/3), [#12](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/12), [#18](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/18), [#28](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/28), [#32](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/32) | `app/pfc/adapters/sources/resume_folder.py`; `app/pfc/services/ingestion/cv_sync.py`; `frontend/src/pages/BenchListPage.tsx` | `app/tests/unit/ingestion/test_sources.py`; `app/tests/integration/test_ingestion.py`; `frontend/src/App.test.tsx` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
 | REQ-ELIG-01 | A person is **eligible for matching** only when **all** hold: Bench Status is not an excluded status (below); Group ≠ `Not on Bench`; Bench End Date is blank or unparseable; Grade is recorded; Skills are sufficient to support an assessment. An unparseable Bench End Date does not exclude the person and adds a "pending review" check flag. | M | [#6](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/6), [#9](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/9), [#10](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/10) | `app/pfc/domain/scoring/engine.py`; `app/pfc/services/occ/reference.py` | `app/tests/unit/test_domain_scoring_rules.py`; `app/tests/unit/test_domain_scoring_ranking.py`; `app/tests/unit/test_domain_config.py` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
 | REQ-ELIG-02 | **Excluded statuses** (occupied / unavailable / allocated, no comparison with JD): `Selected`, `Unknown`, `CV with Client - Sold - Pending Allocation`. | M | [#6](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/6), [#9](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/9), [#10](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/10) | `app/pfc/domain/scoring/engine.py`; `app/pfc/services/occ/reference.py` | `app/tests/unit/test_domain_scoring_rules.py`; `app/tests/unit/test_domain_scoring_ranking.py`; `app/tests/unit/test_domain_config.py` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
@@ -85,11 +92,11 @@ PHASES priority column (notably REQ-OCC-03). Titles reproduce the requirement te
 | REQ-ING-05 | Resume folder path configurable in Settings (see REQ-IN-20). | M | [#9](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/9), [#12](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/12), [#17](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/17) | `app/pfc/services/occ/settings.py`; `frontend/src/pages/settings/SettingsPage.tsx`; `app/pfc/services/ingestion/cv_sync.py` | `app/tests/integration/test_occ.py`; `app/tests/integration/test_ingestion.py`; `app/tests/unit/ingestion/test_sources.py` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
 | REQ-ING-06 | Every ingestion run is recorded (file name, hash, user, timestamp, counts, errors). Re-uploading an identical file (same hash) is a no-op. | S | [#3](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/3), [#12](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/12), [#18](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/18), [#25](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/25) | `app/pfc/services/ingestion/service.py`; `app/pfc/services/ingestion/approvals.py`; `app/pfc/api/routers/ingestion.py`; `frontend/src/pages/occ/OccApprovals.tsx` | `app/tests/integration/test_ingestion.py`; `app/tests/integration/test_ingestion_approvals.py`; `frontend/e2e/smoke.spec.ts` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
 | REQ-MAT-01 | JDs and CVs/CT skills are **embedded** and indexed (chunked) in a local vector store; matching uses **vector (semantic) search plus exact keyword / synonym matching** (hybrid). | M | [#6](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/6), [#10](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/10), [#21](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/21), [#28](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/28) | `app/pfc/domain/scoring/engine.py`; `app/pfc/services/matching/requirements.py`; `app/pfc/services/matching/runs.py`; `app/pfc/services/matching/results.py` | `app/tests/integration/test_matching_service.py`; `app/tests/unit/test_domain_scoring_ranking.py`; `app/tests/unit/services/embeddings/test_matching_bridge.py` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
-| REQ-MAT-02 | JD analysis is explicit: user clicks **Analyze JD** → local LLM extracts mandatory/preferred skills, experience, qualifications, domain, location/onsite requirement → user reviews/edits → **Confirm & Start** scores. Bulk "analyze all new demands" allowed, still requiring confirmation before scoring. | M | [#6](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/6), [#10](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/10), [#21](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/21), [#28](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/28) | `app/pfc/domain/scoring/engine.py`; `app/pfc/services/matching/requirements.py`; `app/pfc/services/matching/runs.py`; `app/pfc/services/matching/results.py` | `app/tests/integration/test_matching_service.py`; `app/tests/unit/test_domain_scoring_ranking.py`; `app/tests/unit/services/embeddings/test_matching_bridge.py` | Partial | Analyze/review/edit/confirm workflow and rule fallback are tested; main initializes MatchingPorts without llm and analyze uses that port, so default JD analysis is not local-LLM extraction. |
+| REQ-MAT-02 | JD analysis is explicit: user clicks **Analyze JD** → local LLM extracts mandatory/preferred skills, experience, qualifications, domain, location/onsite requirement → user reviews/edits → **Confirm & Start** scores. Bulk "analyze all new demands" allowed, still requiring confirmation before scoring. | M | [#6](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/6), [#10](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/10), [#21](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/21), [#28](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/28), [#42](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/42), [#44](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/44), [#46](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/46), [#48](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/48) | `app/pfc/api/routers/match.py`; `app/pfc/services/matching/{llm_bridge,requirements}.py`; `frontend/src/pages/DemandListPage.tsx` | `app/tests/integration/test_jd_llm_extract.py::test_shared_provider_extraction`; `app/tests/integration/test_jd_llm_extract.py::test_confirmation_required_and_matching_makes_zero_llm_calls`; `app/tests/integration/test_matching_api.py::test_req_mat_02_bulk_llm_and_unavailable_are_atomic`; `frontend/e2e/smoke.spec.ts` (named workflow test below) | Partial | Shared local-provider extraction, visible rule fallback, all backend categories, bulk analysis and confirmation-gated scoring are now tested. Missing review/edit clause: JdReview has no qualifications or extracted-location readout/controls, although the API supports both. Its header shows DL region, not extracted location. See clause audit. |
 | REQ-MAT-03 | Output per demand: **ranked candidate list** with a numeric **0–100 % match score**, match band, matching evidence, gaps/checks and eligibility evidence. Normally the **top 5 unique candidate profiles** per requisition; one row per requisition–person combination (a person may appear under several requisitions). | M | [#6](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/6), [#10](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/10), [#21](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/21), [#28](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/28) | `app/pfc/domain/scoring/engine.py`; `app/pfc/services/matching/requirements.py`; `app/pfc/services/matching/runs.py`; `app/pfc/services/matching/results.py` | `app/tests/integration/test_matching_service.py`; `app/tests/unit/test_domain_scoring_ranking.py`; `app/tests/unit/services/embeddings/test_matching_bridge.py` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
 | REQ-MAT-04 | Candidates in the Weak band (below 61 %, see O-03) are included only when no strong candidates exist and the person has relevant transferable experience; labelled **Weak Match**. | M | [#6](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/6), [#10](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/10), [#21](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/21), [#28](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/28) | `app/pfc/domain/scoring/engine.py`; `app/pfc/services/matching/requirements.py`; `app/pfc/services/matching/runs.py`; `app/pfc/services/matching/results.py` | `app/tests/integration/test_matching_service.py`; `app/tests/unit/test_domain_scoring_ranking.py`; `app/tests/unit/services/embeddings/test_matching_bridge.py` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
 | REQ-MAT-05 | Skill-synonym / abbreviation tracker maintained by the system and editable in OCC (e.g. BA ↔ Business Analyst ↔ Business Analysis; PM ↔ Project Manager ↔ Project Management; Data Analysis ↔ Data Analyst ↔ DA; Databricks ↔ DataBricks; GenAI ↔ Generative AI ↔ AI; Data migration ↔ data mapping ↔ reconciliation ↔ profiling ↔ data quality; Delivery Lead ↔ Program Manager ↔ Project Manager where responsibilities are relevant). | M | [#6](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/6), [#9](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/9), [#17](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/17), [#20](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/20); current branch (PR pending) | `app/pfc/domain/normalise/synonyms.py`; `app/pfc/services/occ/synonyms.py`; `frontend/src/pages/occ/OccSynonyms.tsx`; `app/pfc/domain/config_loader.py`; `app/pfc/services/matching/runs.py`; `app/pfc/services/occ/domain.py`; `app/pfc/db/migrations/0004_synonym_edges.sql`; `app/pfc/services/occ/seed.py`; `app/pfc/services/packages/payloads.py` | `app/tests/unit/test_domain_normalise.py`; `app/tests/integration/test_occ.py`; `frontend/src/api/crud.test.ts`; `app/tests/integration/test_occ_domain_config.py`; `app/tests/integration/test_related_synonym_upgrade.py`; `app/tests/unit/services/packages/test_settings.py`; `app/tests/fixtures/settings_legacy_v1.json` | Implemented+tested | One DB-backed OCC builder drives ingestion/matching/analytics and JD resolution. OCC edit → new-run eligibility/points/evidence changes; old persisted results/exclusions remain byte-identical; config_hash changes (synonyms_version too for synonym approval). Composite synonym keys preserve all four seeded related associations, including Delivery Lead vs Project Manager (65.7 Avg). Fresh DB/file semantic parity, ID-preserving legacy migration, audit/ownership-protected one-time upgrade, and canonical-name package v2 roundtrip/rollback with v1 fixture import are covered. |
-| REQ-MAT-06 | Do not infer specialist experience without evidence; missing information is "not recorded / requires validation", not proof of absence. Never invent candidates, emails, skills, grades, locations or experience. | M | [#6](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/6), [#10](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/10) | `app/pfc/domain/scoring/models.py`; `app/pfc/services/matching/requirements.py`; `app/pfc/services/ingestion/cv_sync.py` | `app/tests/unit/test_domain_scoring_rules.py`; `app/tests/integration/test_matching_service.py` | Partial | Deterministic evidence checks and analyst confirmation exist; complete CV fact/evidence extraction is missing (REQ-IN-23), so end-to-end no-invention cannot be certified. |
+| REQ-MAT-06 | Do not infer specialist experience without evidence; missing information is "not recorded / requires validation", not proof of absence. Never invent candidates, emails, skills, grades, locations or experience. | M | [#6](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/6), [#10](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/10), [#42](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/42), [#43](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/43), [#44](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/44), [#46](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/46), [#50](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/50) | `app/pfc/domain/scoring/engine.py`; `app/pfc/services/matching/{runs,llm_bridge}.py`; `app/pfc/services/ingestion/cv_facts.py`; `frontend/src/pages/CandidateProfilePage.tsx` | `app/tests/unit/test_domain_scoring_rules.py::test_fr_mat_40_45_item_credit`; `app/tests/integration/test_cv_structured_facts.py::test_req_in_21_23_sync_persists_only_grounded_facts`; `app/tests/integration/test_jd_llm_extract.py::test_confirmation_required_and_matching_makes_zero_llm_calls` | Partial | CV fact grounding and cautious missing/partial-match language are tested. Missing specialist-experience guardrail: _inputs turns experience/qualifications into generic mandatory items, without checking structured CV experience/duration. A schema-valid SQL/10-years experience item gets full exact credit from CT SQL alone. JD schema validation also does not enforce source grounding. See clause audit. |
 | REQ-MAT-07 | Previously extracted CVs are reused across JDs without re-extraction; re-scoring is incremental when a DL/CT/CV changes. OCC Admin can manually remove cached CV extractions. | S | [#6](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/6), [#10](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/10), [#21](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/21), [#28](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/28) | `app/pfc/domain/scoring/engine.py`; `app/pfc/services/matching/requirements.py`; `app/pfc/services/matching/runs.py`; `app/pfc/services/matching/results.py`; `app/pfc/services/matching/incremental.py`; `app/pfc/domain/scoring/selection.py`; `app/pfc/db/migrations/0005_incremental_inputs.sql` | `app/tests/integration/test_matching_service.py`; `app/tests/unit/test_domain_scoring_ranking.py`; `app/tests/unit/services/embeddings/test_matching_bridge.py`; `app/tests/integration/test_incremental_rescore.py`; `app/tests/unit/services/test_incremental.py`; `app/tests/perf/test_incremental_perf.py` | Partial | CV/vector reuse and opt-in fingerprint-proven dirty-matrix re-scoring are implemented. Separate configuration keys guard reuse; clean pair/CV scores, breakdowns and exclusions carry forward verbatim, followed by shared full-run ranking/shortlist selection. Seeded randomized incremental/full persistence equivalence and a 500×500, 5%-dirty Linux VM benchmark cover this. Remains Partial: the OCC Admin cached-CV-removal route is owned separately and has not landed. |
 | REQ-MAT-08 | Every scoring run persists: model name/version, embedding model, scoring-template version, JD version, CV version, timestamps and evidence. Template changes create new versions; previous results are kept. | M | [#6](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/6), [#10](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/10), [#21](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/21), [#28](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/28); current branch (PR pending) | `app/pfc/domain/scoring/engine.py`; `app/pfc/services/matching/requirements.py`; `app/pfc/services/matching/runs.py`; `app/pfc/services/matching/results.py`; `app/pfc/services/occ/domain.py` | `app/tests/integration/test_matching_service.py`; `app/tests/unit/test_domain_scoring_ranking.py`; `app/tests/unit/services/embeddings/test_matching_bridge.py`; `app/tests/integration/test_occ_domain_config.py` | Implemented+tested | OCC config and approved synonyms feed config_hash/synonyms_version; queued workers retain captured config. Tests prove old persisted results/exclusions/breakdowns are byte-identical after edits. |
 | REQ-MAT-09 | Human review and documented overrides (e.g. pin/unpin, exclude, adjust band) with audit trail. | S | [#6](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/6), [#10](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/10), [#21](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/21), [#28](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/28) | `app/pfc/domain/scoring/engine.py`; `app/pfc/services/matching/requirements.py`; `app/pfc/services/matching/runs.py`; `app/pfc/services/matching/results.py` | `app/tests/integration/test_matching_service.py`; `app/tests/unit/test_domain_scoring_ranking.py`; `app/tests/unit/services/embeddings/test_matching_bridge.py` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
@@ -148,9 +155,222 @@ scheduled there; it is not being newly deferred by this inventory.
 | REQ-OUT-07 | Match/communication analytics: match coverage (demands with ≥1 Strong/Potential match), band distribution, email status counts. Further charts per [DASHBOARD_RESEARCH.md](DASHBOARD_RESEARCH.md). | S | [#22](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/22), [#26](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/26), [#33](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/33) | `app/pfc/services/analytics/dashboard.py`; `app/pfc/services/analytics/population.py`; `frontend/src/pages/DashboardPage.tsx` | `app/tests/integration/test_analytics_export.py`; `app/tests/integration/test_analytics_equivalence.py`; `frontend/src/App.test.tsx` | Implemented+tested | Implementation and assertions in the cited files; see evidence notes below. |
 | REQ-OUT-09 | **PDF report download** of dashboard/analytics and match results; Excel/CSV export of match results. | S | [#22](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/22), [#26](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/26), [#27](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/27) | `app/pfc/services/matching/export.py`; `frontend/src/pages/MatchResultsPage.tsx` | `app/tests/integration/test_analytics_export.py` | Implemented+tested | Phase 1 CSV/XLSX only; PDF is Phase 2 (PHASES §10). |
 | REQ-EML-04 | Transport: **Outlook COM automation (primary)**, SMTP optional (configurable). | M (COM) / S (SMTP) | [#4](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/4), [#13](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/13) | `app/pfc/adapters/email/transports.py`; `app/pfc/main.py` | `app/tests/unit/adapters/email/test_transports.py`; `app/tests/integration/email/test_email_api.py` | Implemented, UAT only | Phase 1 Outlook COM code and fake-COM tests exist; actual corporate Outlook approval/send/reconciliation needs laptop UAT. SMTP is Phase 2. |
-| REQ-LLM-02 | LLM powers: JD parsing, CV parsing, summarisation, email drafting, and chat-with-data Q&A (chat in Phase 2). Scoring itself is deterministic and does not depend on free-form LLM output. | M | [#4](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/4), [#10](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/10), [#13](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/13), [#15](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/15) | `app/pfc/api/routers/match.py`; `app/pfc/services/matching/requirements.py`; `app/pfc/services/ingestion/cv_sync.py`; `app/pfc/services/email/service.py` | `app/tests/integration/test_matching_service.py`; `app/tests/integration/email/test_email_api.py`; `app/tests/integration/test_ingestion.py` | Partial | Drafting uses the provider; default matching_ports has no LLM and analyze retains that port, so JD analysis falls back to rules. CV facts are rule-based email extraction; real JD/CV LLM parsing/summarisation wiring is not evidenced. Chat is Phase 2. |
+| REQ-LLM-02 | LLM powers: JD parsing, CV parsing, summarisation, email drafting, and chat-with-data Q&A (chat in Phase 2). Scoring itself is deterministic and does not depend on free-form LLM output. | M | [#4](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/4), [#10](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/10), [#13](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/13), [#15](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/15), [#42](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/42), [#43](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/43), [#46](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/46), [#48](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/48), [#50](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/50) | `app/pfc/services/matching/llm_bridge.py`; `app/pfc/services/ingestion/cv_facts.py`; `app/pfc/services/email/service.py`; `app/pfc/domain/scoring/engine.py` | `app/tests/integration/test_jd_llm_extract.py::test_shared_provider_extraction`; `app/tests/integration/test_cv_structured_facts.py::test_req_in_21_23_sync_persists_only_grounded_facts`; `app/tests/integration/email/test_email_api.py::test_llm_failure_uses_deterministic_template` | Partial | JD extraction and CV-fact parsing now use the shared local provider with tested fallback; email drafting uses it too. Missing: a separate summarisation feature and real-model validation (#52 open, not credited). Phase 2 chat is outside this increment. Scoring makes zero LLM calls. See clause audit. |
 | REQ-LLM-03 | Settings allow **external providers** (e.g. Devin, ChatGPT/OpenAI) with a **user-supplied token**; placeholder plugin configuration in Phase 1, implementation in Phase 3. | M (config) / S (impl) | [#4](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/4), [#9](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/9) | `app/pfc/adapters/llm/providers.py`; `app/pfc/services/occ/settings.py` | `app/tests/unit/adapters/llm/test_providers.py`; `app/tests/integration/test_occ.py` | Implemented+tested | Phase 1 disabled external-provider placeholder only; implementation is Phase 3 (PHASES §10). |
 | REQ-LLM-06 | Admin benchmarks models (extraction accuracy, latency, RAM) and publishes an approved model list; users choose from it, with approximate disk/RAM shown. Model licences must permit internal distribution. | S | [#9](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/9), [#15](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/15), [#23](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/pull/23) | `app/pfc/services/occ/llm.py`; `frontend/src/pages/occ/OccModels.tsx` | `app/tests/integration/test_occ.py`; `frontend/src/pages/occ/occScreens.test.tsx` | Implemented+tested | Phase 1 static approved-model list only; benchmark lab is Phase 3 (PHASES §10). |
+
+## Clause audit for the five-row refresh
+
+The matrix preserves the full requirement texts from REQUIREMENTS_BASELINE.md;
+PHASES §10 maps their Phase 1 scope. Paths below are relative to `PFC/`.
+Brace notation in the matrix abbreviates separate existing files. Named tests
+below are merged automated evidence, not a claim that they were rerun for this
+docs-only refresh. No status changes, so RELEASE_NOTES_MVP.md is unchanged.
+
+### REQ-IN-21 — Partial → Partial
+
+- **Per-candidate Sync and finding the profile in the configured folder:**
+  `frontend/src/pages/BenchListPage.tsx` calls `api.syncCvs([r.resourceId])`;
+  `app/pfc/api/routers/cv.py::_submit`,
+  `app/pfc/services/ingestion/cv_sync.py::prepare` and
+  `app/pfc/adapters/sources/resume_folder.py::ResumeFolderSource.scan` resolve
+  the folder and selected identities. Automated evidence:
+  `app/tests/integration/test_ingestion.py::test_req_in_24_cv_file_dates_and_candidate_email_aliases`
+  syncs an explicit resource ID and finds/verifies its CV;
+  `test_req_in_21_cv_sync_path_auth_and_selection` in the same file covers bad
+  paths, empty selection and access errors. Source lookup tests include
+  `app/tests/unit/ingestion/test_sources.py::test_req_in_25_identity_signals`.
+- **Extract skills and experience:**
+  `app/pfc/services/ingestion/cv_facts.py::{rule_facts,extract_facts,validate_facts}`
+  and `cv_sync.py::_persist` now store grounded experience. Evidence:
+  `app/tests/unit/ingestion/test_cv_facts.py::test_req_in_23_rule_spans` and
+  `app/tests/integration/test_cv_structured_facts.py::test_req_in_21_23_sync_persists_only_grounded_facts`
+  (healthy/absent/timeout/invalid provider cases). **Skills remain missing:**
+  `app/pfc/api/schemas/cv.py::CVFacts` and `cv_facts.py::KEYS` exclude skills;
+  `rule_facts` skips the skills heading. Searching production `app/pfc` finds
+  only schema/index definitions and the matching reader for `resource_skills`,
+  not a writer. No merged automated CV-skill extraction/persistence test exists.
+- **Store in DB and vector store:** `cv_sync.py::_persist` stores normalized CV
+  text/facts; `_embed_affected` and
+  `app/pfc/services/embeddings/chunking.py::chunk_owner` embed the CV text when
+  an active embedding model is available. The structured-facts test above
+  proves DB persistence; `app/tests/integration/test_ingestion.py::test_req_mat_01_cv_sync_optional_embedding`
+  checks CV chunks, vector count/search, absent-model behavior and idempotence.
+  Whole-text vectors are not proof of extracting/storing CV skill records.
+- **Global Sync of manually selected candidates; enabled only with selection:**
+  `BenchListPage.tsx` submits `[...selected]`, disabled at `selected.size === 0`;
+  `frontend/src/App.test.tsx` test
+  `enables Sync selected only when a candidate is selected (REQ-IN-21)` checks
+  the disabled/enabled transition. Backend selected/empty handling uses the
+  same `_submit` path and the ingestion tests above. Thus the remaining
+  requirement clause is skill extraction, not experience or vector storage.
+
+### REQ-IN-23 — Partial → Partial
+
+- **Name, phone, experience, qualifications, projects:**
+  `app/pfc/services/ingestion/cv_facts.py::{rule_facts,validate_facts,extract_facts}`
+  plus `cv_sync.py::_persist` implement these five categories, not skills.
+  `app/tests/unit/ingestion/test_cv_facts.py::test_req_in_23_rule_spans` asserts
+  every category and quote/span; the structured-facts integration test named
+  above asserts persisted values and failure fallback. **Skills are missing**
+  for the schema/writer reasons recorded under IN-21.
+- **Emails:** `app/pfc/services/ingestion/cv_sync.py::_persist` copies regex
+  matches from the actual CV into `facts_json.emails`;
+  `app/tests/integration/test_cv_structured_facts.py::test_req_in_23_backfill_preserves_emails_and_version`
+  verifies preservation on backfill. This is text extraction, not an LLM
+  creating or confirming an address.
+- **Evidence/provenance where available:** `validate_facts` requires exact
+  normalized-text slices, a value present in the quote, valid spans and phone
+  digit agreement. `CandidateProfilePage.tsx::CvFactsCard` shows source tags
+  and quote details. Integration evidence is the grounded-facts test above;
+  `frontend/src/pages/CandidateProfilePage.test.tsx` test
+  `shows each fact with its source tag and expandable evidence, and empty lists as not found`
+  covers display. Invalid output is dropped by
+  `app/tests/unit/ingestion/test_cv_facts.py::test_req_in_23_invalid_facts_are_dropped`
+  and `test_req_in_23_phone_value_must_match_evidence_digits`.
+- **Missing name/email prompt and all three options:**
+  `app/pfc/services/ingestion/apply.py::_candidate` derives incomplete identity
+  from the CT email key; `CandidateProfilePage.tsx` exposes Resolve identity
+  for incomplete/ambiguous status (automatically opens only ambiguous status).
+  `IncompleteIdentityDialog` defaults to `generate_internal_id` and also offers
+  `review_later` and `select_ct_record`. The API action enum in
+  `app/pfc/api/schemas/candidates.py::IdentityResolution` has exactly those
+  three actions: **no manual-entry option**. Backend evidence in
+  `app/tests/integration/test_ingestion_approvals.py`:
+  `test_req_in_23_25_analyst_can_resolve_separate_identity_without_email` and
+  `test_req_in_23_select_ct_record_confirms_verbatim_email`. These prove internal
+  ID/review-later/CT selection, not literal manual entry or the default UI
+  selection. Missing CV name alone is displayed as not found; no merged test
+  establishes that it triggers the required incomplete-information prompt.
+- **Missing phone warning only:** `CVFacts.phone` is nullable and
+  `CvFactsCard` displays `Not found in CV`, without blocking sync or identity
+  resolution. The frontend test
+  `shows "Not found in CV" for a missing name or phone and nothing for legacy versions`
+  and unit `test_req_in_23_missing_identity_is_null` prove null/non-blocking
+  presentation, **not an explicit missing-phone warning**. No phone-missing
+  warning is produced by the sync counts/identity path.
+- **Never invent email/phone; absent values NULL:** CV email regex extraction,
+  `validate_facts` phone grounding and nullable phone/name fields are the
+  guards. `test_req_in_23_missing_identity_is_null`, the invalid-fact tests
+  above and `test_req_in_23_25_analyst_can_resolve_separate_identity_without_email`
+  verify null facts/no fabricated candidate email rows. The grounded-facts
+  integration test also verifies the canonical candidate phone stays NULL
+  rather than being silently overwritten by extraction.
+
+### REQ-MAT-02 — Partial → Partial
+
+- **Click Analyze JD:** `frontend/src/pages/DemandListPage.tsx::JdReview`
+  uses the explicit row action; `frontend/src/pages/JdAnalyze.test.tsx` test
+  `analyzes a new demand once and shows the draft it returns` verifies this;
+  `shows why analysis failed instead of loading forever` covers errors.
+- **Local LLM; mandatory/preferred skills, experience, qualifications, domain,
+  location/onsite:** `app/pfc/api/routers/match.py::analyze` wraps the shared
+  provider in `app/pfc/services/matching/llm_bridge.py::JdLlmBridge` unless an
+  explicit LLM port was injected. `app/pfc/services/matching/requirements.py::Requirements`
+  includes every category. `app/tests/integration/test_jd_llm_extract.py`
+  tests `test_shared_provider_extraction` and
+  `test_provider_replacement_and_injected_port_precedence` cover the local
+  provider contract, precedence, timeouts, invalid/external providers and
+  fallback; `app/tests/integration/test_matching_service.py::test_req_mat_02_analyze_revisions_confirmation`
+  covers all stored categories/location/onsite with a fake extraction port.
+  `app/tests/integration/test_matching_api.py::test_req_mat_02_bulk_llm_and_unavailable_are_atomic`
+  asserts experience, qualifications, domain and location through the API.
+  `frontend/src/pages/DemandListPage.test.tsx` tests
+  `shows a quiet note when the local model extracted the requirements` and
+  `warns with the backend reason on a rule-based fallback and hides the duplicate warning`
+  prove visible provenance. The old empty-port-only explanation is obsolete.
+- **User reviews/edits:** `JdReview` has mandatory/preferred skill chips, years,
+  domain and onsite controls. **Qualifications and extracted location are not
+  rendered/editable there**; the header's `demand.region` is DL metadata.
+  The API does support both via requirements editing, covered by
+  `app/tests/integration/test_matching_api.py::test_req_mat_02_full_flow_drafts_results_overrides_exclusions`.
+  API-only editing is not proof of the complete click/review UI clause.
+- **Confirm & Start scores, only after confirmation:** the same API full-flow
+  test exercises confirm and a completed run;
+  `app/tests/integration/test_jd_llm_extract.py::test_confirmation_required_and_matching_makes_zero_llm_calls`
+  proves an unconfirmed analysis is not scored. `frontend/e2e/smoke.spec.ts`
+  test `first-admin setup, sign in, DL/CT upload and commit, bench list` clicks
+  Analyze → Confirm & Start, waits for completion and asserts Match Results.
+  Its tiny ONNX stand-in/rule fallback is workflow, not real-LLM quality evidence.
+- **Optional bulk analyze, still confirm before scoring:**
+  `DemandListPage.tsx` has Analyze all new; `app/pfc/api/routers/match.py` bulk
+  analysis writes drafts. The bulk API test above verifies success/failure
+  isolation and no confirmed requirements/runs before confirmation; the
+  shared confirmation gate applies to those drafts too.
+- **OCC provenance:** merged #44 is exercised by
+  `app/tests/integration/test_occ_domain_config.py::test_jd_resolution_uses_occ_synonyms`
+  and `test_synonym_approval_changes_score_and_preserves_run`; it establishes
+  configured JD canonicalisation/scoring, not the missing review controls.
+
+### REQ-MAT-06 — Partial → Partial
+
+- **Do not infer specialist experience without evidence:**
+  `app/pfc/services/matching/runs.py::_inputs` maps experience/qualification
+  records to generic mandatory `RequirementItem`s, losing their kind/duration
+  for scoring. `app/pfc/domain/scoring/engine.py::_item` compares skills
+  or semantic credits, not structured CV experience. CV fact extraction now
+  validates actual experience quotes, but those facts are not a specialist
+  experience gate in matching. The existing merged
+  `app/tests/unit/test_domain_scoring_rules.py::test_fr_mat_40_45_item_credit`
+  proves generic item credits, not this specialist-negative requirement.
+  An isolated in-memory audit probe used the real migrations, OCC config,
+  `confirm_requirements`, `_inputs` and `run_match`: confirming an experience
+  item `{text: SQL, years: 10}` alongside mandatory Python, with CT skills
+  SQL/Python and zero CV versions, yielded `SQL — SQL (CT)`, credit 1, exact.
+  No semantic model was needed. This is a synthetic schema-valid counterexample,
+  not a claim that a real model emitted it or a merged automated test.
+- **Missing means not recorded/requires validation, not absence:**
+  `engine.py::_item` labels zero/partial credit cautiously.
+  `test_fr_mat_40_45_item_credit` asserts not-recorded/partial-validation
+  wording and no `lacks`; `CandidateProfilePage.tsx::CvFactsCard` and the two
+  facts-display tests named under IN-23 cover `Not found in CV`.
+- **Never invent candidates/emails:** `runs.py::_inputs` reads persisted active
+  resources/CVs; scoring generates no identities/contact records.
+  `app/tests/integration/test_jd_llm_extract.py::test_confirmation_required_and_matching_makes_zero_llm_calls`
+  proves zero LLM calls during scoring; IN-23's null/verbatim identity tests
+  verify no invented addresses. This does not validate arbitrary LLM prose.
+- **Never invent skills/grades/locations/experience:** matching reads recorded
+  CT inputs and labels generic semantic/related credits;
+  `app/tests/unit/test_domain_scoring_rules.py::test_req_loc_01_classes` and
+  `test_fr_mat_22_unknown_demand` cover missing location/unknown grade.
+  CV `validate_facts` rejects unsupported quotes/values, covered by
+  `app/tests/integration/test_cv_structured_facts.py::test_req_in_21_23_sync_persists_only_grounded_facts`
+  (including fabricated name/experience/project rejection). However
+  `JdLlmBridge`/`Requirements` schema-check JD output without verifying quoted
+  values against the JD text, and specialist experience is not checked as
+  above. These tests do not establish the full end-to-end no-invention clause.
+
+### REQ-LLM-02 — Partial → Partial
+
+- **JD parsing:** shared local-provider path and automated
+  `test_shared_provider_extraction`/fallback evidence under MAT-02.
+- **CV parsing:** `app/pfc/api/routers/cv.py::_submit` supplies the shared
+  provider to `app/pfc/services/ingestion/cv_facts.py::LLMBridge`;
+  `test_req_in_21_23_sync_persists_only_grounded_facts` covers grounded structured
+  facts and fallback. This is no longer email-only extraction.
+- **Summarisation:** **no separate feature found on main**. All production
+  `PromptRequest` call sites in `app/pfc` are `jd_extract` (`matching/llm_bridge.py`),
+  `cv_extract` (`ingestion/cv_facts.py`) and `email_draft` (`email/service.py`).
+  No separate summary prompt, service, API route or UI workflow was found.
+  `frontend/src/lib/analytics.ts::summarise` aggregates dashboard KPIs;
+  `app/pfc/services/analytics/dashboard.py` summaries and matching run summaries
+  are deterministic aggregation, not LLM summarisation. Email analysis/gaps
+  prose is part of email drafting, not an independently available summariser.
+  There is no merged automated summarisation feature test to cite.
+- **Email drafting:** `app/pfc/services/email/service.py::_draft_sections` calls
+  the provider with `purpose="email_draft"` and falls back to a template;
+  `app/tests/integration/email/test_email_api.py::test_llm_failure_uses_deterministic_template`
+  and `test_regenerate_replaces_body_and_refreshes_transport_draft` cover
+  drafting/fallback. They do not certify real-model quality.
+- **Chat-with-data:** explicitly Phase 2 in the baseline/PHASES §10, so it is
+  not an unmet Phase 1 acceptance clause.
+- **Deterministic scoring, no free-form LLM dependency:**
+  `app/pfc/domain/scoring/engine.py::run_match` consumes typed inputs/semantic
+  values, not generated prose; the zero-LLM-calls test under MAT-02 proves
+  scoring after confirmation makes no generation calls.
+- **Remaining gates:** dedicated summarisation implementation/tests and
+  real-model validation remain pending. #52 is open; neither its proposed
+  evidence nor the stand-in ONNX E2E is credited as merged real-LLM validation.
 
 ## Verification notes and limitations
 
@@ -194,11 +414,11 @@ scheduled there; it is not being newly deferred by this inventory.
   arrived in #18; instance-default model support in #23; lockout UI in #31. Do not
   repeat those as current missing features. SECURITY_REVIEW P4 and storage/native
   limitations remain; this inventory does not approve their deferral.
-- PR provenance was checked against `git log --first-parent origin/main -- PFC`
-  and path-limited ingestion/matching/frontend/packaging history, then
-  `gh pr list --state merged --limit 100 --json number,title,mergedAt`.
-  All numbered PR links are merged. The OCC follow-up is credited separately as
-  current-branch evidence pending its PR, not as a merged implementation PR.
+- This refresh checked the six requested merged PRs and the retained historical
+  PR links for these five rows with `gh api`, not `gh pr view`. Only code/tests
+  present at df61838 are credited; #52 is excluded. The OCC follow-up is now
+  merged as #44, not pending branch evidence. Other rows retain their earlier
+  inventory evidence and were not re-audited.
 - OCC follow-up: occ_domain_config builds grades, statuses/maps, all synonym rows,
   normalized locations and the active default template from SQLite without file
   reads, writes or runtime reseeding. Startup owns seeding. Empty grades mean all
