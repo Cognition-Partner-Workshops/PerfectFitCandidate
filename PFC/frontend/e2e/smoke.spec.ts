@@ -131,6 +131,7 @@ test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({
   // A DL/CT commit after the run flags it as stale (REQ-MAT-08).
   await page.goto('/#/bench')
   await upload(page, 'Upload CT', 'Candidate Tracker workbook', 'ct-update.xlsx')
+  const committedAt = Date.now()
   await page.goto('/#/matches')
   await page.reload()
   await expect(page.getByText('Data changed since this run')).toBeVisible()
@@ -139,6 +140,9 @@ test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({
   // Re-run changed only (REQ-MAT-07): the banner clears once the new run completes, and the mode is shown.
   const latestRun = async () => ((await (await page.request.get('/api/v1/match-runs')).json()) as { runId: number; status: string }[])[0]
   const before = (await latestRun())?.runId
+  // Whole-second commit stamps count as changed until the end of their second, so a run finishing
+  // within that second would still be flagged; real re-runs are never that fast.
+  await page.waitForTimeout(Math.max(0, committedAt + 1100 - Date.now()))
   await page.getByRole('button', { name: 'Re-run changed only' }).click()
   await expect.poll(async () => { const r = await latestRun(); return r && r.runId !== before ? r.status : 'pending' }, { timeout: 30_000, intervals: [250, 500, 1000] }).toBe('completed')
   await page.reload()
