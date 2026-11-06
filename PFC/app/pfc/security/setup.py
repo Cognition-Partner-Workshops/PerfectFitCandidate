@@ -1,4 +1,6 @@
+import os
 import secrets
+import tempfile
 from pathlib import Path
 
 from pfc.config import Settings
@@ -12,8 +14,14 @@ def generate_setup_code(settings: Settings) -> str:
     path = code_path(settings)
     path.parent.mkdir(parents=True, exist_ok=True)
     code = secrets.token_urlsafe(32)
-    path.write_text(code, encoding="utf-8")
-    path.chmod(0o600)
+    # Windows per-user ACL protection relies on the profile data directory.
+    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".setup-code-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as output:
+            output.write(code)
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
     return code
 
 
