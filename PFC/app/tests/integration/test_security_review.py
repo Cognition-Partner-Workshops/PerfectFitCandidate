@@ -65,16 +65,16 @@ def login(client: TestClient) -> None:
     client.headers["X-CSRF-Token"] = response.json()["csrf_token"]
 
 
-def api_operations(client: TestClient) -> list[tuple[str, str]]:
+def http_operations(client: TestClient) -> list[tuple[str, str]]:
     operations = []
     for route in client.app.routes:
         contexts = getattr(route, "effective_route_contexts", None)
         for effective in contexts() if contexts is not None else [route]:
             path = getattr(effective, "path", "")
-            if path.startswith("/api/v1/"):
+            methods = getattr(effective, "methods", None)
+            if path and methods:
                 operations.extend(
-                    (method, re.sub(r"\{[^}]+\}", "999999", path))
-                    for method in effective.methods - {"HEAD", "OPTIONS"}
+                    (method, re.sub(r"\{[^}]+\}", "999999", path)) for method in methods
                 )
     return sorted(operations)
 
@@ -86,8 +86,8 @@ def test_all_api_writes_require_csrf(client: TestClient) -> None:
     del client.headers["X-CSRF-Token"]
     operations = [
         (method, path)
-        for method, path in api_operations(client)
-        if method in {"POST", "PUT", "PATCH", "DELETE"}
+        for method, path in http_operations(client)
+        if path.startswith("/api/v1/") and method in {"POST", "PUT", "PATCH", "DELETE"}
     ]
     assert operations
     for method, path in operations:
@@ -98,7 +98,7 @@ def test_all_api_writes_require_csrf(client: TestClient) -> None:
 
 
 def test_must_change_covers_every_api_route(client: TestClient) -> None:
-    """REQ-AUTH-02: enumerate every API operation with the exact recovery allowlist."""
+    """REQ-AUTH-02: enumerate every HTTP operation with the exact recovery allowlist."""
     setup(client)
     login(client)
     with database(client.app.state.settings) as db:
@@ -110,13 +110,15 @@ def test_must_change_covers_every_api_route(client: TestClient) -> None:
         ("POST", "/api/v1/auth/password"),
         ("POST", "/api/v1/auth/logout"),
     }
-    operations = api_operations(client)
+    operations = http_operations(client)
     assert allowed <= set(operations)
     for method, path in operations:
         if (method, path) not in allowed:
             response = client.request(method, path, json={})
             assert response.status_code == 403, (method, path, response.text)
-            assert response.json()["code"] == "PASSWORD_CHANGE_REQUIRED", (method, path)
+            assert response.headers["content-type"] == "application/problem+json"
+            if method != "HEAD":
+                assert response.json()["code"] == "PASSWORD_CHANGE_REQUIRED", (method, path)
     for method, path in sorted(allowed - {("POST", "/api/v1/auth/logout")}):
         response = client.request(method, path, json={})
         assert response.status_code == (422 if method == "POST" else 200)
@@ -298,3 +300,23 @@ def test_legacy_secret_setting_hidden_and_upgraded_on_resave(client: TestClient)
                 "SELECT value_json FROM settings WHERE key='smtp.password'"
             ).fetchone()[0]
         )
+
+
+def test_seed_logs_do_not_echo_profile_paths(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO)
+    settings = Settings(
+        data_dir=tmp_path,
+        config_dir=tmp_path / EMAIL,
+        frontend_dir=tmp_path,
+        allowed_hosts=["testserver"],
+        llm_enabled=False,
+        argon_memory_cost=1024,
+        argon_time_cost=1,
+        argon_parallelism=1,
+    )
+    with TestClient(create_app(settings)):
+        assert "Skipping missing seed file" in caplog.text
+        assert EMAIL not in caplog.text
+        assert str(tmp_path) not in caplog.text
