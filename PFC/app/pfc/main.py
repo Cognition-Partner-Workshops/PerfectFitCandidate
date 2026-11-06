@@ -8,7 +8,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from pfc.api.routers.auth import router as auth_router
+from pfc.api.routers.email import router as email_router
 from pfc.api.routers.health import router as health_router
+from pfc.api.routers.llm import router as llm_router
+from pfc.api.routers.occ import router as occ_router
+from pfc.api.routers.settings import router as settings_router
 from pfc.config import Settings
 from pfc.db.connection import database
 from pfc.db.migrate import migrate
@@ -20,6 +24,7 @@ from pfc.security.middleware import install_middleware
 from pfc.security.passwords import hasher
 from pfc.security.problems import Problem, install_handlers
 from pfc.security.setup import code_path, generate_setup_code
+from pfc.services.occ.seed import seed_reference_data
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -29,6 +34,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         migrate(settings)
         with database(settings) as db:
+            seed_reference_data(db)
             if not count_admins(db) and not code_path(settings).exists():
                 generate_setup_code(settings)
             elif count_admins(db):
@@ -41,7 +47,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             cleanup.cancel()
             with suppress(asyncio.CancelledError):
                 await cleanup
-            app.state.job_runner.shutdown()
+            try:
+                email_transport = getattr(app.state, "email_transport", None)
+                close_transport = getattr(email_transport, "close", None)
+                if callable(close_transport):
+                    close_transport()
+            finally:
+                app.state.email_transport = None
+                app.state.job_runner.shutdown()
 
     app = FastAPI(title="PerfectFitCandidate", lifespan=lifespan)
     app.state.settings = settings
@@ -51,7 +64,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     install_middleware(app)
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(auth_router, prefix="/api/v1")
+    app.include_router(email_router, prefix="/api/v1")
     app.include_router(jobs_router, prefix="/api/v1")
+    app.include_router(occ_router, prefix="/api/v1")
+    app.include_router(settings_router, prefix="/api/v1")
+    app.include_router(llm_router, prefix="/api/v1")
     frontend = settings.frontend_dir.resolve()
     if (frontend / "index.html").is_file():
         if (frontend / "assets").is_dir():
