@@ -50,6 +50,7 @@ class Diff(BaseModel):
     changed: list[RowKey] = Field(default_factory=list)
     unchanged: list[RowKey] = Field(default_factory=list)
     missing: list[RowKey] = Field(default_factory=list)
+    incomplete: list[int] = Field(default_factory=list)
     rejected: int = 0
 
 
@@ -63,6 +64,9 @@ def diff_rows(rows: Iterable[ParsedRow], existing: Mapping[RowKey, str]) -> Diff
         if row.rejected or row.key is None:
             result.rejected += 1
             continue
+        if isinstance(row.key, tuple) and not row.key[1]:
+            result.incomplete.append(row.row_number)
+            continue
         if row.key in seen:
             continue
         seen.add(row.key)
@@ -72,7 +76,9 @@ def diff_rows(rows: Iterable[ParsedRow], existing: Mapping[RowKey, str]) -> Diff
             result.unchanged.append(row.key)
         else:
             result.changed.append(row.key)
-    result.missing = [key for key in existing if key not in seen]
+    result.missing = [
+        key for key in existing if key not in seen and not (isinstance(key, tuple) and not key[1])
+    ]
     return result
 
 
@@ -99,6 +105,11 @@ class Preview(BaseModel):
     @property
     def rows_superseded(self) -> int:
         return sum(row.superseded for row in self.rows)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def rows_incomplete(self) -> int:
+        return len(diff_rows(self.rows, {}).incomplete)
 
     @computed_field  # type: ignore[prop-decorator]
     @property

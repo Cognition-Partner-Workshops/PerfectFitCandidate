@@ -380,6 +380,7 @@ def test_req_ing_02_diff_all_categories() -> None:
         "unchanged": ["same"],
         "missing": ["missing"],
         "rejected": 1,
+        "incomplete": [],
     }
     assert diff_rows([], {"old": "hash"}).missing == ["old"]
 
@@ -402,17 +403,36 @@ def test_req_ing_02_canonical_hash_order() -> None:
 
 @pytest.mark.parametrize(
     "existing,category",
-    [({}, "new"), ({("alex", ""): "old"}, "changed"), ({("alex", ""): "same"}, "unchanged")],
+    [
+        ({}, "new"),
+        ({("alex", "alex@example.com"): "old"}, "changed"),
+        ({("alex", "alex@example.com"): "same"}, "unchanged"),
+    ],
 )
 def test_req_ing_02_diff_counts_shared_key_once(existing: dict, category: str) -> None:
     rows = [
-        ParsedRow(row_number=number, key=("alex", ""), fields={}, row_hash="same")
+        ParsedRow(row_number=number, key=("alex", "alex@example.com"), fields={}, row_hash="same")
         for number in (4, 5)
     ]
     diff = diff_rows(rows, existing)
-    assert getattr(diff, category) == [("alex", "")]
+    assert getattr(diff, category) == [("alex", "alex@example.com")]
     assert len(diff.new) + len(diff.changed) + len(diff.unchanged) == 1
     assert diff.rejected == 0
+
+
+@pytest.mark.parametrize("count", [1, 2])
+def test_req_in_23_incomplete_rows_not_key_diffed(tmp_path: Path, count: int) -> None:
+    preview = parse_workbook(
+        workbook(tmp_path, "CT", [ct_row(**{"Email Address": None})] * count + [ct_row()]), "CT"
+    )
+    stable_key = ("alex", "alex@example.com")
+    diff = preview.diff({("alex", ""): "old", stable_key: preview.rows[-1].row_hash})
+    assert diff.incomplete == list(range(4, 4 + count))
+    assert diff.new == diff.changed == diff.missing == []
+    assert diff.unchanged == [stable_key]
+    assert diff.rejected == 0
+    assert preview.model_dump()["rows_incomplete"] == count
+    assert diff.model_dump()["incomplete"] == list(range(4, 4 + count))
 
 
 def test_req_ing_06_file_hash_no_op(tmp_path: Path) -> None:
