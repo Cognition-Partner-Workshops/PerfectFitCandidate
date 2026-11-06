@@ -119,7 +119,7 @@ Add a reason and choose **Save override**. Overrides are recorded in the audit l
 
 **Bench List → Excluded from matching** lists bench rows that cannot be matched, with the exclusion reasons (for example an excluded bench status or a grade outside the grade list). **All** shows eligible and excluded rows together.
 
-**Pending:** a per-run excluded list in Match Results. The backend serves `GET /match-runs/{id}/excluded`, but the Match Results screen does not show it yet. To remove one person from one requisition, use the **Exclude from this requisition** override.
+**Match Results → Excluded from matching** lists the people the run on screen did not score: the name (linked to the Candidate Profile) with the masked email, grade, bench status, the scope (**All requisitions**, or one requisition code) and each exclusion reason as a label; hover a label for the detail. Grade and bench status come from the current bench list. To remove one person from one requisition, use the **Exclude from this requisition** override.
 
 ## 10. Email approval and send
 
@@ -164,7 +164,6 @@ PDF report download is Phase 2 (REQ-OUT-09).
 
 | Area | Status |
 |---|---|
-| Per-run excluded list in Match Results | Pending: not on screen yet |
 | PDF export | Phase 2 |
 | DL/CT auto-sync, SMTP, Chat | Phase 2 |
 | Lockout countdown on sign-in | Pending: the backend answers a locked account with 401 invalid credentials. The sign-in screen shows the lockout message on a 423, with a countdown when the reply carries `Retry-After` |

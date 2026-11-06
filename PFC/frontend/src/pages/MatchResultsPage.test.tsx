@@ -1,6 +1,7 @@
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MatchRun } from '../api/types'
+import { groupExcluded } from '../lib/excluded'
 import { ADMIN, mock, renderApp, seed, signIn } from '../test/utils'
 
 describe('Match Results run selection (REQ-OUT-01)', () => {
@@ -32,5 +33,16 @@ describe('Match Results run selection (REQ-OUT-01)', () => {
 
     await waitFor(() => expect(getResults).toHaveBeenCalledWith(2), { timeout: 4000 })
     expect(screen.queryByText(/Scoring run 2/)).toBeNull()
+  })
+
+  it('shows the run\'s excluded people with reasons in their own tab (REQ-ELIG-08)', async () => {
+    const rows = groupExcluded(await mock.getRunExcluded(1), await mock.listResources())
+    expect(rows.length).toBeGreaterThan(0)
+    renderApp('/matches')
+    fireEvent.click(await screen.findByRole('tab', { name: `Excluded from matching (${rows.length})` }))
+    const table = await screen.findByRole('table', { name: 'Excluded from matching' })
+    expect(table.querySelectorAll('tbody tr').length).toBe(rows.length)
+    expect(screen.getAllByText(rows[0].reasons[0].label).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('table', { name: 'Match results' })).toBeNull()
   })
 })
