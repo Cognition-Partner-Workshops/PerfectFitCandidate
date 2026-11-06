@@ -53,6 +53,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if callable(close_transport):
                     close_transport()
             finally:
+                app.state.email_transport = None
                 app.state.job_runner.shutdown()
 
     app = FastAPI(title="PerfectFitCandidate", lifespan=lifespan)
