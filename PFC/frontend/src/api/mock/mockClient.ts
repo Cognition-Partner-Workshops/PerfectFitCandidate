@@ -889,7 +889,11 @@ export class MockApiClient implements ApiClient {
     let value: string | null | undefined
     if (entity === 'occ_user') this.requireAdmin()
     if (entity === 'occ_user') value = this.state.users.find((u) => u.userId === id)?.email
-    else {
+    else if (entity === 'candidate' && field === 'email') {
+      value = this.state.candidates[id]?.emails
+        .filter((e) => e.email.trim())
+        .sort((a, b) => Number(b.confirmed) - Number(a.confirmed) || (a.emailKey < b.emailKey ? -1 : a.emailKey > b.emailKey ? 1 : 0))[0]?.email
+    } else {
       const raw = this.state.raws.find((r) => r.resourceId === id)
       value = field === 'email' ? raw?.email : raw?.phone
     }

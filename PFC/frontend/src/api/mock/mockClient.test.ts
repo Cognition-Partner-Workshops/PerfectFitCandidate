@@ -81,6 +81,49 @@ describe('mock manual identity resolution (REQ-IN-23)', () => {
     expect(api.state.candidates[10].emails).toEqual([])
   })
 
+  it('keeps match-result names CT-derived after manual entry', async () => {
+    api.state.raws = api.state.raws.filter((r) => r.resourceId === 10)
+    const rawBefore = structuredClone(api.state.raws[0])
+    const before = api.computeResults()
+    expect(before.length).toBeGreaterThan(0)
+    const detail = await api.resolveIdentity(10, { action: 'manual_entry', name: 'Morgan Synthetic' })
+    expect(detail.resource.name).toBe('Morgan Synthetic')
+    const after = api.computeResults()
+    expect(after.map((r) => r.personName)).toEqual(before.map((r) => r.personName))
+    expect(after.every((r) => r.personName === rawBefore.name)).toBe(true)
+    expect(api.state.raws[0]).toEqual(rawBefore)
+  })
+
+  it('unmasks the current manual email without changing the CT email', async () => {
+    expect(await code(api.unmask('candidate', 10, 'email'))).toBe('NOT_FOUND')
+    expect(await code(api.unmask('candidate', 999999, 'email'))).toBe('NOT_FOUND')
+    await api.resolveIdentity(10, { action: 'manual_entry', name: 'Morgan Synthetic', email: ' Manual.Identity@example.com ' })
+    expect(await api.unmask('candidate', 10, 'email')).toBe('Manual.Identity@example.com')
+    await api.resolveIdentity(10, { action: 'manual_entry', name: 'Morgan Synthetic', email: 'Corrected@example.com' })
+    await api.resolveIdentity(10, { action: 'manual_entry', name: 'Morgan Renamed' })
+    expect(await api.unmask('candidate', 10, 'email')).toBe('Corrected@example.com')
+    expect(await code(api.unmask('resource', 10, 'email'))).toBe('NOT_FOUND')
+    expect(api.state.raws.find((r) => r.resourceId === 10)?.email).toBeNull()
+    const audit = JSON.stringify(await api.auditLog({}))
+    expect(audit).not.toContain('Manual.Identity@example.com')
+    expect(audit).not.toContain('Corrected@example.com')
+  })
+
+  it('unmasks nonblank candidate emails by confirmation then email key without reordering state', async () => {
+    const candidate = api.state.candidates[10]
+    candidate.emails = [
+      { email: 'Zulu@example.com', emailKey: 'zulu@example.com', source: 'manual', confirmed: true },
+      { email: 'A@example.com', emailKey: 'a@example.com', source: 'CV', confirmed: false },
+      { email: ' \t ', emailKey: '0@example.com', source: 'CV', confirmed: true },
+      { email: 'Beta@example.com', emailKey: 'beta@example.com', source: 'CV', confirmed: true },
+    ]
+    const before = structuredClone(candidate.emails)
+    expect(await api.unmask('candidate', 10, 'email')).toBe('Beta@example.com')
+    expect(candidate.emails).toEqual(before)
+    candidate.emails.forEach((e) => { e.confirmed = false })
+    expect(await api.unmask('candidate', 10, 'email')).toBe('A@example.com')
+  })
+
   it('refuses CT authority and confirmed-email conflicts without changing the candidate', async () => {
     expect(await code(api.resolveIdentity(1, { action: 'manual_entry', name: 'Other' }))).toBe('IDENTITY_CT_AUTHORITATIVE')
     const target = api.state.candidates[10]
