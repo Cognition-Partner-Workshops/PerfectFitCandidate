@@ -184,26 +184,12 @@ class ResultDetail(ResultRow):
     overrides: list[OverrideView]
 
 
-class ExcludedResource(WireModel):
+class ExcludedRow(WireModel):
+    run_id: int
     resource_id: int
-    candidate_id: int
     short_name: str
-    email_address_masked: str | None
-    name: str | None
-    grade: str | None
-    location: str | None
-    bench_status: str | None
-    bench_status_priority: int | None
-    unmapped_status: bool
-    skills: list[str]
-    available_capacity: Literal["Y", "N"] | None
-    bench_start_date: str | None
-    bench_end_date: str | None
-    group_name: str | None
-    group_owner: str | None
-    eligibility: Literal["excluded"] = "excluded"
-    exclusion_reasons: list[str]
-    cv_status: Literal["Synced", "Not found", "Partial", "Error", "Not synced"]
-    cv_count: int
-    candidate_type: Literal["Internal", "External", "Unknown"]
-    identity_status: Literal["complete", "incomplete", "ambiguous", "review_later"]
+    demand_id: int | None
+    code_requisition: str | None
+    reason_code: str
+    detail: str | None
+    scope: Literal["global", "pair"]

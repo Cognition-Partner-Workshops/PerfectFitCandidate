@@ -8,7 +8,7 @@ from fastapi import APIRouter, Body, Depends, Query, Request, Response
 from pfc.api.schemas.results import (
     BreakdownView,
     CvScoreView,
-    ExcludedResource,
+    ExcludedRow,
     OverrideReason,
     OverrideRequest,
     OverrideView,
@@ -18,11 +18,9 @@ from pfc.api.schemas.results import (
     band_label,
 )
 from pfc.db.connection import database
-from pfc.domain.config_loader import load_domain_config
 from pfc.security.dependencies import Principal, require_role
 from pfc.security.problems import Problem
 from pfc.services import matching
-from pfc.services.matching.results import _mask_email
 
 router = APIRouter(dependencies=[Depends(require_role("Analyst"))])
 Analyst = Annotated[Principal, Depends(require_role("Analyst"))]
@@ -216,70 +214,20 @@ def revoke(
         return result_view(db, required_result(db, result_id))
 
 
-@router.get("/resources/excluded", response_model=list[ExcludedResource])
-def excluded(
-    request: Request, run_id: Annotated[int | None, Query(alias="runId", gt=0)] = None
-) -> list[ExcludedResource]:
+@router.get("/match-runs/{run_id}/excluded", response_model=list[ExcludedRow])
+def excluded(run_id: int, request: Request) -> list[ExcludedRow]:
     with database(request.app.state.settings) as db:
-        if run_id is not None:
-            find_run(db, run_id)
-        else:
-            run_id = matching.list_results(db, limit=1)["run_id"]
-        if run_id is None:
-            return []
-        exclusions = matching.excluded_view(db, run_id)
-        reasons: dict[int, list[str]] = {}
-        for row in exclusions:
-            if row["demand_id"] is None:
-                reasons.setdefault(row["resource_id"], []).append(
-                    row["detail"] or row["reason_code"]
-                )
-        config = load_domain_config()
-        output = []
-        for resource_id, details in reasons.items():
-            row = dict(
-                db.execute(
-                    "SELECT r.*,c.display_name,c.identity_status,"
-                    "COALESCE(c.classification_override,c.classification,'Unknown') "
-                    "AS candidate_type FROM resources r LEFT JOIN candidates c USING(candidate_id) "
-                    "WHERE resource_id=?",
-                    (resource_id,),
-                ).fetchone()
+        find_run(db, run_id)
+        return [
+            ExcludedRow(
+                run_id=row["run_id"],
+                resource_id=row["resource_id"],
+                short_name=row["short_name"],
+                demand_id=row["demand_id"],
+                code_requisition=row["requisition"],
+                reason_code=row["reason_code"],
+                detail=row["detail"],
+                scope="global" if row["demand_id"] is None else "pair",
             )
-            status = config.bench_statuses.resolve(row["bench_status"] or "")
-            cv_count = db.execute(
-                "SELECT COUNT(*) FROM cv_versions WHERE candidate_id=?",
-                (row["candidate_id"],),
-            ).fetchone()[0]
-            output.append(
-                ExcludedResource(
-                    resource_id=resource_id,
-                    candidate_id=row["candidate_id"] or 0,
-                    short_name=row["short_name"],
-                    email_address_masked=_mask_email(row["email_address"]),
-                    name=row["display_name"],
-                    grade=row["grade"],
-                    location=row["location"],
-                    bench_status=row["bench_status"],
-                    bench_status_priority=status.priority if status else None,
-                    unmapped_status=status is None,
-                    skills=[
-                        value.strip()
-                        for value in (row["skills_raw"] or "").split(",")
-                        if value.strip()
-                    ],
-                    available_capacity=row["available_capacity"]
-                    if row["available_capacity"] in {"Y", "N"}
-                    else None,
-                    bench_start_date=row["bench_start_date"],
-                    bench_end_date=row["bench_end_date"],
-                    group_name=row["group_name"],
-                    group_owner=row["group_owner"],
-                    exclusion_reasons=details,
-                    cv_status="Synced" if cv_count else "Not synced",
-                    cv_count=cv_count,
-                    candidate_type=row["candidate_type"],
-                    identity_status=row["identity_status"] or "incomplete",
-                )
-            )
-        return output
+            for row in matching.excluded_view(db, run_id)
+        ]

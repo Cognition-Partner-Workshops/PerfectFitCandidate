@@ -103,7 +103,7 @@ def test_req_auth_01_all_routes_require_login(api: Api) -> None:
             "/match-runs/1",
             "/match-runs/1/results",
             "/match-results/1",
-            "/resources/excluded",
+            "/match-runs/1/excluded",
         )
     ]
     for method, path, body in calls:
@@ -290,18 +290,31 @@ def test_req_mat_02_full_flow_drafts_results_overrides_exclusions(api: Api) -> N
         )
         assert "newBand" not in changed.json()["override"]
     active_override = changed.json()["override"]["overrideId"]
-    excluded = client.get("/api/v1/resources/excluded")
+    excluded = client.get(f"/api/v1/match-runs/{run_id}/excluded")
     assert excluded.status_code == 200, excluded.text
-    assert len(excluded.json()) == 1 and excluded.json()[0]["shortName"] == "Excluded"
-    assert (
-        excluded.json()[0]["eligibility"] == "excluded"
-        and len(excluded.json()[0]["exclusionReasons"]) == 2
+    global_rows = [item for item in excluded.json() if item["scope"] == "global"]
+    pair_rows = [item for item in excluded.json() if item["scope"] == "pair"]
+    assert len(global_rows) == 2 and all(item["shortName"] == "Excluded" for item in global_rows)
+    assert all(item["demandId"] is None and item["codeRequisition"] is None for item in global_rows)
+    assert len(pair_rows) == 1 and pair_rows[0]["shortName"] == "GradeGap"
+    assert pair_rows[0]["reasonCode"] == "GRADE_GAP_GT1"
+    assert pair_rows[0]["demandId"] == demand_id and pair_rows[0]["codeRequisition"] == "T1TEST"
+    assert all(item["runId"] == run_id and item["detail"] for item in excluded.json())
+    assert all(
+        set(item)
+        == {
+            "runId",
+            "resourceId",
+            "shortName",
+            "demandId",
+            "codeRequisition",
+            "reasonCode",
+            "detail",
+            "scope",
+        }
+        for item in excluded.json()
     )
-    assert excluded.json()[0]["emailAddressMasked"] == "Al******er@capgemini.com"
     assert SAMPLE_EMAIL not in excluded.text
-    assert (
-        client.get("/api/v1/resources/excluded", params={"runId": run_id}).json() == excluded.json()
-    )
     with database(settings) as db:
         db.execute("UPDATE resources SET grade='C1' WHERE short_name='Person'")
     full_id = finish(
@@ -635,7 +648,6 @@ def test_exclusion_takes_priority_over_band_adjustment(api: Api) -> None:
 def test_empty_missing_validation_production_openapi_and_removed_paths(api: Api) -> None:
     client, headers = api
     assert client.get("/api/v1/match-runs").json() == []
-    assert client.get("/api/v1/resources/excluded").json() == []
     with database(client.app.state.settings) as db:
         demand_id = seed_demand(db, confirmed=False)
     problem(client.get(f"/api/v1/demands/{demand_id}/requirements"), 404)
@@ -651,7 +663,7 @@ def test_empty_missing_validation_production_openapi_and_removed_paths(api: Api)
         "/match-runs/999",
         "/match-runs/999/results",
         "/match-results/999",
-        "/resources/excluded?runId=999",
+        "/match-runs/999/excluded",
     ):
         problem(client.get("/api/v1" + path), 404)
     problem(client.post("/api/v1/demands/999/analyze", headers=headers), 404)
@@ -709,6 +721,7 @@ def test_empty_missing_validation_production_openapi_and_removed_paths(api: Api)
     )
     empty = client.get(f"/api/v1/match-runs/{run_id}/results")
     assert empty.status_code == 200 and empty.json() == [] and empty.headers["X-Total-Count"] == "0"
+    assert client.get(f"/api/v1/match-runs/{run_id}/excluded").json() == []
     for query in (
         "limit=0",
         "limit=5001",
@@ -726,8 +739,15 @@ def test_empty_missing_validation_production_openapi_and_removed_paths(api: Api)
             item.removeprefix("/api/v1") for item in paths
         } or path.startswith("/match-results/")
     assert "/api/v1/match-runs/{run_id}/results" in paths
-    assert "/api/v1/resources/excluded" in paths
+    assert "/api/v1/match-runs/{run_id}/excluded" in paths
+    assert "/api/v1/resources/excluded" not in paths
     assert "/api/v1/match-results/{result_id}/overrides" in paths
     assert "/api/v1/demands/{demand_id}/matches" not in paths
-    for path in ("/match/runs", "/results", "/results/excluded", f"/demands/{demand_id}/matches"):
+    for path in (
+        "/match/runs",
+        "/results",
+        "/results/excluded",
+        "/resources/excluded",
+        f"/demands/{demand_id}/matches",
+    ):
         problem(client.get("/api/v1" + path), 404)
