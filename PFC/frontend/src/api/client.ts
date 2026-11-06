@@ -112,6 +112,8 @@ export interface ApiClient {
   listDemands(): Promise<Demand[]>
   /** POST /demands/analyze */
   analyzeDemands(demandIds: number[]): Promise<void>
+  /** POST /demands/{id}/analyze — extracts a new requirements draft */
+  analyzeDemand(demandId: number): Promise<JdRequirements>
   /** GET /demands/{id}/requirements */
   getRequirements(demandId: number): Promise<JdRequirements>
   /** PUT /demands/{id}/requirements */
