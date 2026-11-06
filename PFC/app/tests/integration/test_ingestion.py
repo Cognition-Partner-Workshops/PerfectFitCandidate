@@ -1130,6 +1130,7 @@ def test_req_ing_03_failed_commit_preserves_original_preview_sidecar(client: Tes
     assert response.status_code == 409
     assert response.json()["code"] == "AMBIGUOUS_IDENTITY"
     assert sidecar.read_bytes() == original
+    assert not sidecar.with_suffix(".pending.json").exists()
     assert client.get(f"/api/v1/ingestion-runs/{run_id}").json() == pending
     with database(client.app.state.settings) as db:
         assert db.execute("SELECT count(*) FROM resources").fetchone()[0] == 1
@@ -1173,5 +1174,66 @@ def test_req_ing_06_noop_and_failed_uploads_do_not_retain_workbooks(client: Test
         assert (
             db.execute("SELECT count(*) FROM audit_log WHERE action='INGEST_NO_OP'").fetchone()[0]
             == 3
+        )
+        assert verify_chain(db)
+
+
+def test_req_ing_03_snapshot_staging_failure_does_not_commit(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run = upload(client, "dl", [{}])
+    run_id = run["ingestion_run_id"]
+    sidecar = client.app.state.settings.data_dir / "uploads" / f"{run_id}.json"
+    staged = service.repo.staged_snapshot_path(client.app.state.settings, run_id)
+    original = sidecar.read_bytes()
+    write_text = Path.write_text
+
+    def fail_staging(path, text, **kwargs):
+        if path == staged:
+            write_text(path, "partial", **kwargs)
+            raise OSError("staging unavailable")
+        return write_text(path, text, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", fail_staging)
+    response = client.post(f"/api/v1/ingestion-runs/{run_id}/commit")
+    assert response.status_code == 500
+    assert not staged.exists()
+    assert sidecar.read_bytes() == original
+    assert client.get(f"/api/v1/ingestion-runs/{run_id}").json() == run
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT count(*) FROM demands").fetchone()[0] == 0
+        assert not db.execute("SELECT 1 FROM audit_log WHERE action='INGEST_COMMIT'").fetchone()
+
+
+def test_req_ing_03_snapshot_promotion_failure_returns_durable_committed_review(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    pending = upload(client, "dl", [{}])
+    commit(client, upload(client, "dl", [{}]))
+    run_id = pending["ingestion_run_id"]
+    sidecar = client.app.state.settings.data_dir / "uploads" / f"{run_id}.json"
+    original = sidecar.read_bytes()
+
+    def fail_replace(source, destination):
+        raise OSError("promotion unavailable")
+
+    monkeypatch.setattr(service.os, "replace", fail_replace)
+    result = commit(client, pending)
+    assert result["status"] == "committed"
+    assert result["counts"]["rows_new"] == 0 and result["counts"]["rows_unchanged"] == 1
+    assert result["diff"]["new"] == [] and result["diff"]["unchanged"] == ["T11234"]
+    assert sidecar.read_bytes() == original
+    assert service.repo.staged_snapshot_path(client.app.state.settings, run_id).exists()
+    assert "Snapshot promotion failed" in caplog.text
+    assert client.get(f"/api/v1/ingestion-runs/{run_id}").json() == result
+    assert client.get("/api/v1/ingestion-runs").json()["items"][1] == result
+    assert client.post(f"/api/v1/ingestion-runs/{run_id}/commit").status_code == 409
+    with database(client.app.state.settings) as db:
+        assert (
+            service.repo.run_response(db, client.app.state.settings, run_id).model_dump(mode="json")
+            == result
         )
         assert verify_chain(db)

@@ -1,6 +1,8 @@
 """REQ-ING-01..03/06: persisted preview/discard/commit orchestration."""
 
 import hashlib
+import logging
+import os
 from pathlib import Path
 from typing import Literal
 from zipfile import BadZipFile
@@ -18,6 +20,7 @@ from .apply import apply_preview
 from .models import file_sha256
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+logger = logging.getLogger(__name__)
 
 
 def upload(
@@ -88,34 +91,50 @@ def upload(
 
 
 def commit(settings: Settings, run_id: int, user_id: int, now: str) -> IngestionRun:
+    staged = repo.staged_snapshot_path(settings, run_id)
     with database(settings) as db:
         db.execute("BEGIN IMMEDIATE")
         run = repo.find_run(db, run_id)
         if run["status"] != "preview":
             raise Problem(409, "INGESTION_STATE", "Only a preview can be committed")
-        path = repo.upload_path(settings, run_id)
-        if not path.is_file() or file_sha256(path) != run["file_sha256"]:
-            raise Problem(409, "UPLOAD_HASH_MISMATCH", "Stored workbook is missing or changed")
         try:
-            preview = repo.parse(db, path, run["kind"])
-        except (ValueError, BadZipFile, InvalidFileException) as exc:
-            raise Problem(422, "INVALID_WORKBOOK", "Stored workbook could not be parsed") from exc
-        snapshot = repo.save_review(db, settings, run_id, preview, write_snapshot=False)
-        apply_preview(db, preview, run_id, now)
-        db.execute(
-            "UPDATE ingestion_runs SET status='committed', committed_at=? WHERE ingestion_run_id=?",
-            (now, run_id),
+            path = repo.upload_path(settings, run_id)
+            if not path.is_file() or file_sha256(path) != run["file_sha256"]:
+                raise Problem(409, "UPLOAD_HASH_MISMATCH", "Stored workbook is missing or changed")
+            try:
+                preview = repo.parse(db, path, run["kind"])
+            except (ValueError, BadZipFile, InvalidFileException) as exc:
+                raise Problem(
+                    422, "INVALID_WORKBOOK", "Stored workbook could not be parsed"
+                ) from exc
+            snapshot = repo.build_review(db, preview)
+            staged.write_text(snapshot.model_dump_json(), encoding="utf-8")
+            repo.save_review(db, settings, run_id, preview, write_snapshot=False)
+            apply_preview(db, preview, run_id, now)
+            db.execute(
+                "UPDATE ingestion_runs SET status='committed', committed_at=? "
+                "WHERE ingestion_run_id=?",
+                (now, run_id),
+            )
+            append_audit(
+                db,
+                ts=now,
+                action="INGEST_COMMIT",
+                user_id=user_id,
+                entity_type="ingestion_run",
+                entity_id=str(run_id),
+                details={"run_id": run_id, **snapshot.counts.model_dump()},
+            )
+            db.commit()
+        except BaseException:
+            staged.unlink(missing_ok=True)
+            raise
+    try:
+        os.replace(staged, repo.snapshot_path(settings, run_id))
+    except OSError:
+        logger.warning(
+            "Snapshot promotion failed for ingestion run %s; using staged snapshot", run_id
         )
-        append_audit(
-            db,
-            ts=now,
-            action="INGEST_COMMIT",
-            user_id=user_id,
-            entity_type="ingestion_run",
-            entity_id=str(run_id),
-            details={"run_id": run_id, **snapshot.counts.model_dump()},
-        )
-    repo.snapshot_path(settings, run_id).write_text(snapshot.model_dump_json(), encoding="utf-8")
     with database(settings) as db:
         return repo.run_response(db, settings, run_id)
 

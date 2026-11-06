@@ -31,6 +31,10 @@ def snapshot_path(settings: Settings, run_id: int) -> Path:
     return upload_path(settings, run_id).with_suffix(".json")
 
 
+def staged_snapshot_path(settings: Settings, run_id: int) -> Path:
+    return upload_path(settings, run_id).with_suffix(".pending.json")
+
+
 def find_run(db: sqlite3.Connection, run_id: int) -> sqlite3.Row:
     row = db.execute("SELECT * FROM ingestion_runs WHERE ingestion_run_id=?", (run_id,)).fetchone()
     if row is None:
@@ -89,14 +93,7 @@ def parse(db: sqlite3.Connection, path: Path, kind: Literal["DL", "CT"]) -> Prev
     )
 
 
-def save_review(
-    db: sqlite3.Connection,
-    settings: Settings,
-    run_id: int,
-    preview: Preview,
-    *,
-    write_snapshot: bool = True,
-) -> ReviewSnapshot:
+def build_review(db: sqlite3.Connection, preview: Preview) -> ReviewSnapshot:
     diff = preview.diff(existing_hashes(db, preview.kind))
     counts = RunCounts(
         rows_read=preview.rows_read,
@@ -106,7 +103,19 @@ def save_review(
         rows_rejected=diff.rejected,
         rows_incomplete=len(diff.incomplete),
     )
-    snapshot = ReviewSnapshot(diff=diff, counts=counts)
+    return ReviewSnapshot(diff=diff, counts=counts)
+
+
+def save_review(
+    db: sqlite3.Connection,
+    settings: Settings,
+    run_id: int,
+    preview: Preview,
+    *,
+    write_snapshot: bool = True,
+) -> ReviewSnapshot:
+    snapshot = build_review(db, preview)
+    counts = snapshot.counts
     if write_snapshot:
         snapshot_path(settings, run_id).write_text(snapshot.model_dump_json(), encoding="utf-8")
     db.execute(
@@ -170,11 +179,16 @@ def issues(db: sqlite3.Connection, run_id: int, limit: int, offset: int) -> Issu
 def run_response(db: sqlite3.Connection, settings: Settings, run_id: int) -> IngestionRun:
     row = find_run(db, run_id)
     path = snapshot_path(settings, run_id)
-    snapshot = (
-        ReviewSnapshot.model_validate_json(path.read_text(encoding="utf-8"))
-        if path.exists()
-        else None
-    )
+    snapshot = None
+    if row["status"] == "committed":
+        try:
+            snapshot = ReviewSnapshot.model_validate_json(
+                staged_snapshot_path(settings, run_id).read_text(encoding="utf-8")
+            )
+        except FileNotFoundError:
+            pass
+    if snapshot is None and path.exists():
+        snapshot = ReviewSnapshot.model_validate_json(path.read_text(encoding="utf-8"))
     page = issues(db, run_id, ISSUE_CAP, 0)
     return IngestionRun(
         **{
