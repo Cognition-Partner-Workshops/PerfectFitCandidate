@@ -16,6 +16,7 @@ import { BAND_ORDER, bandLabel } from '../lib/bands'
 import { useAuth } from '../auth/context'
 import { canEdit } from '../lib/permissions'
 import { groupExcluded, type ExcludedPerson } from '../lib/excluded'
+import { DataChangedBanner } from '../components/DataChangedBanner'
 
 function OverrideDialog({ row, onClose }: { row: MatchResult; onClose: () => void }) {
   const qc = useQueryClient()
@@ -316,6 +317,7 @@ export function MatchResultsPage() {
           Scoring run {newer.runId} is {progress.data?.status ?? newer.status}. {run ? 'Showing the last completed results until it finishes.' : 'Results appear when it finishes.'}
         </Banner>
       )}
+      <DataChangedBanner run={run} />
       <div className="page-header">
         <h1>Match Results</h1>
         <span className="meta">

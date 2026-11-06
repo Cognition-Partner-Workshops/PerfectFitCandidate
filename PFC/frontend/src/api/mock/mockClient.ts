@@ -90,6 +90,8 @@ interface MockAuditEntry {
 }
 
 interface MockState {
+  /** Reasons data changed since the mock run; cleared when a JD is confirmed (which re-runs matching). */
+  dataChanges?: string[]
   users: MockUser[]
   sessionUserId: number | null
   setupCode: string
@@ -371,7 +373,14 @@ export class MockApiClient implements ApiClient {
       demandsAssessed: scored.length,
       pairsScored: results.length,
       rolesWithoutCandidate: without,
+      dataChangedSinceRun: (this.state.dataChanges ?? []).length > 0,
+      dataChangedReasons: [...(this.state.dataChanges ?? [])],
     }
+  }
+
+  private noteDataChange(reason: string): void {
+    const changes = (this.state.dataChanges ??= [])
+    if (!changes.includes(reason)) changes.push(reason)
   }
 
   draftFor(r: MatchResult): EmailDraft {
@@ -550,6 +559,7 @@ export class MockApiClient implements ApiClient {
     const d = this.state.demands.find((x) => x.demandId === demandId)
     if (!d) fail(404, 'Demand not found', 'NOT_FOUND')
     d.jdStatus = 'Scored'
+    this.state.dataChanges = []
     this.audit(`JD requirements confirmed for ${d.codeRequisition}; scoring queued`)
     return this.done(undefined)
   }
@@ -579,6 +589,7 @@ export class MockApiClient implements ApiClient {
   async commitIngestion(id: number) {
     this.currentUser()
     this.audit(`Ingestion run ${id} committed`)
+    this.noteDataChange('DL/CT committed')
     return this.done(undefined)
   }
 
@@ -606,6 +617,7 @@ export class MockApiClient implements ApiClient {
   async syncCvs(ids: number[]) {
     this.currentUser()
     if (ids.length < 1) fail(422, 'Select at least one candidate', 'SYNC_EMPTY')
+    this.noteDataChange('CV synced')
     for (const r of this.state.raws) {
       if (ids.includes(r.resourceId) && r.cvStatus !== 'Not found') {
         r.cvStatus = 'Synced'
@@ -907,6 +919,7 @@ export class MockApiClient implements ApiClient {
     if (e.state !== 'Pending') fail(409, 'This entry has already been decided', 'ALREADY_DECIDED')
     const comment = d.comment?.trim()
     if ((d.action === 'modify' || d.action === 'revert') && !comment) fail(422, 'A reason is required', 'REASON_REQUIRED')
+    this.noteDataChange('OCC approval edit')
     if (d.action === 'modify') {
       const values = d.values ?? {}
       if (!Object.keys(values).length) fail(422, 'Enter at least one corrected value', 'NO_CHANGES')

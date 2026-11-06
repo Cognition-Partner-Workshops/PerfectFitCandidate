@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { DataChangedBanner } from '../components/DataChangedBanner'
 import type { EChartsCoreOption } from 'echarts/core'
 import { api } from '../api'
 import { toDashboardQuery } from '../api/mappers'
@@ -65,6 +66,8 @@ export function DashboardPage() {
   const demand = useQuery({ queryKey: ['analytics', 'demand', df], queryFn: () => api.analyticsDemand(df) })
   const bench = useQuery({ queryKey: ['analytics', 'bench', df], queryFn: () => api.analyticsBench(df) })
   const match = useQuery({ queryKey: ['analytics', 'match', df], queryFn: () => api.analyticsMatch(df) })
+  const runs = useQuery({ queryKey: ['runs'], queryFn: () => api.listMatchRuns() })
+  const lastRun = runs.data?.find((r) => r.status === 'completed')
   const all = useQuery({ queryKey: ['analytics', 'options'], queryFn: () => Promise.all([api.listDemands(), api.listResources()]) })
 
   const options = useMemo(() => {
@@ -85,6 +88,7 @@ export function DashboardPage() {
 
   return (
     <div className="page">
+      {lastRun && <DataChangedBanner run={lastRun} />}
       <div className="page-header">
         <h1>Dashboard</h1>
         <span className="spacer" />
