@@ -281,7 +281,12 @@ def resolve(
     db: sqlite3.Connection, candidate_id: int, body: IdentityResolution, user_id: int, now: str
 ) -> CandidateDetail:
     candidate = _candidate(db, candidate_id)
-    if body.action == "select_ct_record":
+    if body.action == "manual_entry":
+        db.execute(
+            "UPDATE candidates SET display_name=? WHERE candidate_id=?", (body.name, candidate_id)
+        )
+        status = "complete"
+    elif body.action == "select_ct_record":
         row = db.execute(
             "SELECT * FROM resources WHERE resource_id=?", (body.resource_id,)
         ).fetchone()
@@ -344,6 +349,7 @@ def resolve(
             "resource_id": body.resource_id,
             "before_status": candidate["identity_status"],
             "after_status": status,
+            **({"name_masked": "***"} if body.action == "manual_entry" else {}),
         },
     )
     return detail(db, candidate_id)

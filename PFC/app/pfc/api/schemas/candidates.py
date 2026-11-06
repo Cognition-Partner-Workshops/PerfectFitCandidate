@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import Field, field_validator, model_validator
 
-from .cv import CVFacts
+from .cv import PublicCVFacts
 from .occ_approvals import CamelModel
 
 IdentityStatus = Literal["complete", "incomplete", "ambiguous", "review_later"]
@@ -34,13 +34,24 @@ class CandidateClassification(CamelModel):
 
 
 class IdentityResolution(CamelModel):
-    action: Literal["generate_internal_id", "select_ct_record", "review_later"]
+    action: Literal["generate_internal_id", "select_ct_record", "review_later", "manual_entry"]
     resource_id: int | None = Field(default=None, gt=0)
+    name: str | None = Field(default=None, max_length=200)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def trim_name(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value
 
     @model_validator(mode="after")
     def valid_selection(self) -> "IdentityResolution":
         if (self.action == "select_ct_record") != (self.resource_id is not None):
             raise ValueError("Only select_ct_record requires a resourceId")
+        if self.action == "manual_entry":
+            if not self.name:
+                raise ValueError("Manual entry requires a nonblank name")
+        elif "name" in self.model_fields_set:
+            raise ValueError("Only manual_entry accepts a name")
         return self
 
 
@@ -76,7 +87,7 @@ class CandidateCV(CamelModel):
     modified_at: str
     extracted_at: str
     is_best: bool
-    facts: CVFacts | None = None
+    facts: PublicCVFacts | None = None
 
 
 class CTEmailOption(CamelModel):

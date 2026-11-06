@@ -91,9 +91,147 @@ mypy pfc
 pytest tests/unit/test_llm_validation.py
 ```
 
-## Duplicate-only correction validation
+## Post-extraction skill canonicalization — current result
 
-### Current main re-baseline — Linux VM, not target laptop
+### Before versus after — Linux VM, not target laptop
+
+| Run | Source commit | External report directory |
+|---|---|---|
+| Before, origin/main at fetch | `629e872f4482169d26237b31edff19bce198f81a` | `~/pfc-models/llm/before-canon/` |
+| After, canonicalization implementation | `ed57b0fe68586d74a51926e31f1c91d5536a0722` | `~/pfc-models/llm/after-canon/` |
+
+All four probes used the same pinned Qwen3-4B-Instruct-2507-Q4_K_M GGUF,
+SHA-256 `2fde00ce69dd4899c70d020845e2638353015bba0fdf161b3eb965f2bca4464e`,
+and official Linux CPU llama.cpp **b8936**, version **8936 (2dd84169d)**.
+Archive SHA-256:
+`9eb1116a03be6ab2056c38788cc90a1a86541443bf44b703eb6e2f809b068438`.
+The archive hash and all 43 extracted files were reverified, and each probe
+verified the GGUF hash. Temperature 0, seed 0, context 4,096 and three threads
+were unchanged. The generation-schema JSON was verified byte-identical to main;
+`llm_bridge.py`, its prompt and duplicate post-check were not changed.
+
+The after harness imports the production `_canonicalize_skills`, applying it
+only after successful LLM validation. Each after probe creates a fresh migrated
+DB with the default seed config and reads its OCC-backed domain config, rather
+than copying canonicalization logic or adding aliases to the scorer. The fresh
+default seed contains **13 skills and 31 synonym rows**. Exact-text harness
+scoring is unchanged.
+
+Review follow-up: the duplicate guard now includes both normalized item text
+and its resolved canonical, so an existing alias such as "Business Analyst"
+also blocks a rewrite to "Business analysis". After figures below were
+recomputed offline from the captured raw responses in `after-canon/`, using the
+production bridge/canonicalizer and a fresh default-seeded DB. All original-ten
+lists and all held-out lists remain identical to the live after results; jd11's
+Python and jd12's SQL rewrites are retained. Schema-invalid counts remain zero
+and LLM-used share remains 100%. Latency/RSS remain the earlier live measurements,
+not new offline measurements. The replay is saved outside git as
+`~/pfc-models/llm/after-canon/alias-guard-recomputed.json`.
+
+#### Original ten
+
+jd01–jd10 plus ten CVs; latency covers twenty generation calls.
+
+| Metric | Before | After |
+|---|---:|---:|
+| Mandatory precision | 100% (16/16) | 100% (16/16) |
+| Mandatory recall | 100% (16/16) | 100% (16/16) |
+| Preferred precision | 100% (10/10) | 100% (10/10) |
+| Preferred recall | 100% (10/10) | 100% (10/10) |
+| JD schema-invalid count | 0 | 0 |
+| JD LLM-used share | 100% (10/10) | 100% (10/10) |
+| JD fallback count | 0 | 0 |
+| Generation calls | 20 | 20 |
+| Median latency | 14.907 s | 14.338 s |
+| Maximum latency | 35.614 s | 28.741 s |
+| Startup → healthy | 5.054 s | 5.582 s |
+| Peak server RSS/HWM | 5,552,914,432 bytes | 5,553,041,408 bytes |
+| Final CV fact/span failures | 0 | 0 |
+
+**Gate: PASS.** All ten final mandatory/preferred text lists are identical,
+including order and casing. Main already contains #65's jd05 correction.
+Raw response texts are byte-identical for **20/20 calls**.
+
+#### Held-out five
+
+jd11–jd15, with no CVs; the fixtures and default synonyms were not changed.
+
+| Metric | Before | After |
+|---|---:|---:|
+| Mandatory precision | 10% (1/10) | 30% (3/10) |
+| Mandatory recall | 11.11% (1/9) | 33.33% (3/9) |
+| Preferred precision | 20% (1/5) | 20% (1/5) |
+| Preferred recall | 20% (1/5) | 20% (1/5) |
+| JD schema-invalid count | 0 | 0 |
+| JD LLM-used share | 100% (5/5) | 100% (5/5) |
+| JD fallback count | 0 | 0 |
+| Generation calls | 5 | 5 |
+| Median latency | 30.180 s | 21.630 s |
+| Maximum latency | 34.410 s | 23.746 s |
+| Startup → healthy | 3.065 s | 3.555 s |
+| Peak server RSS/HWM | 5,123,891,200 bytes | 5,124,034,560 bytes |
+
+Raw responses are byte-identical for **5/5 calls**. Only jd11's Python phrase
+and jd12's SQL phrase change after canonicalization. Latency and RSS are
+report-only; all four runs stayed below the 8 GB server-memory ceiling.
+These synthetic Linux VM results do not certify target-laptop performance.
+
+#### Per-phrase finding with the default seed
+
+The fixture contains **12 missed-skill phrases plus jd14's extra task phrase**,
+so all 13 are included. "No" means the before production synonym path did not
+resolve the whole phrase. "Unchanged" means the after canonicalizer retains
+the exact original phrase. The table was checked against a fresh seeded DB
+and the actual live after results; no scorer or seed changes were made.
+
+| JD | Phrase | Expected skill | Resolves before | After |
+|---|---|---|---|---|
+| jd11 | Use Python to develop ingestion jobs | Python | No | Python |
+| jd11 | Use SQL for reconciliation checks | SQL | No | Unchanged |
+| jd11 | Kafka experience for asynchronous order updates | Kafka | No | Unchanged |
+| jd12 | R for statistical reporting workflow | R | No | Unchanged |
+| jd12 | SQL to validate source extracts | SQL | No | SQL |
+| jd12 | Power BI experience for sharing dashboards with study coordinators | Power BI | No | Unchanged |
+| jd14 | Develop control software for remote environmental instruments | — extra | No | Unchanged |
+| jd14 | C++ is essential for the control loop | C++ | No | Unchanged |
+| jd14 | Must be able to diagnose device faults with Linux | Linux | No | Unchanged |
+| jd14 | Rust experience for future telemetry components | Rust | No | Unchanged |
+| jd15 | Terraform for environment provisioning | Terraform | No | Unchanged |
+| jd15 | Kubernetes knowledge to operate production clusters | Kubernetes | No | Unchanged |
+| jd15 | Prometheus experience for expanding operational dashboards | Prometheus | No | Unchanged |
+
+The jd11 SQL phrase matches **two** approved canonicals: SQL and Data migration
+(via "reconciliation"), so it is deliberately unchanged. Kafka, R, Power BI,
+C++, Linux, Rust, Terraform, Kubernetes and Prometheus have no approved default
+seed entries. The unit-test config does include Kafka, R, C and C++, verifying
+those rewrites and longest-first masking without expanding production seeds.
+`normalise_term('C++')` is `c++`; `normalise_term('C#')` is `c#`.
+
+#### Canonicalization and provenance boundaries
+
+Already-resolvable items are untouched. Otherwise approved resolvable terms
+are matched longest-first as whole words in normalized text, masking matched
+spans so C does not also match inside C++. Exactly one canonical must be found,
+and its normalized name must not already occur as item text or a resolved canonical
+in either skill list. Related-only
+terms do not qualify. Evidence and the other item metadata are preserved.
+
+The original phrase is stored as nullable `canonicalized_from` in revision
+`extraction_json`, omitting unset keys. Manual edits never run canonicalization;
+they inherit the marker only through the same validated ancestry, kind and
+normalized-text guard used by `classification_reason`. A manual assertion cannot
+forge it. No migration, API or UI field was added. Pydantic `SkipJsonSchema`
+keeps this internal marker out of generation without editing `llm_bridge.py`.
+Fallback analysis retains main's serialized extraction bytes; offline tests
+cover that boundary, persistence, save/confirm inheritance and API omission.
+
+Raw reports, source-SHA records and the per-JD/per-phrase comparison remain
+outside git in `before-canon/` and `after-canon/`; the machine-readable gate
+is `~/pfc-models/llm/after-canon/comparison.json`.
+
+## Historical: Duplicate-only correction validation
+
+### Main re-baseline before canonicalization — Linux VM, not target laptop
 
 Main's REQ-MAT-06 change added `ExtractedItem.evidence_unverified` to the
 generation schema, so both sides were rerun rather than reusing the older

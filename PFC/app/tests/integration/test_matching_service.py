@@ -260,6 +260,61 @@ def execute(
     return run_id
 
 
+def test_req_in_21_23_skills_json_does_not_affect_matching(
+    settings: Settings, runner: JobRunner
+) -> None:
+    with database(settings) as db:
+        seed_demand(db)
+        candidate = seed_candidate(db)
+        resource = seed_resource(db, candidate=candidate)
+        version = seed_cv(db, resource, candidate, skills=())
+        facts = {
+            "facts_schema": 2,
+            "facts": {
+                "skills": [
+                    {
+                        "value": "AWS",
+                        "canonical": "SQL",
+                        "evidence": "AWS",
+                        "span": [11, 14],
+                        "source": "llm",
+                    }
+                ]
+            },
+        }
+        db.execute(
+            "UPDATE cv_versions SET facts_json=? WHERE cv_version_id=?",
+            (json.dumps(facts), version),
+        )
+    first = execute(settings, runner)
+    with database(settings) as db:
+        facts["facts"].pop("skills")
+        db.execute(
+            "UPDATE cv_versions SET facts_json=? WHERE cv_version_id=?",
+            (json.dumps(facts), version),
+        )
+    second = execute(settings, runner)
+    with database(settings) as db:
+
+        def scored(run_id: int) -> tuple[Any, list[tuple[Any, ...]]]:
+            row = db.execute(
+                "SELECT result_id,score AS match_pct FROM match_results WHERE run_id=?", (run_id,)
+            ).fetchone()
+            assert row is not None
+            breakdown = [
+                tuple(item)
+                for item in db.execute(
+                    "SELECT component,points,max_points,inputs_json FROM score_breakdowns "
+                    "WHERE result_id=? ORDER BY component",
+                    (row["result_id"],),
+                )
+            ]
+            assert breakdown
+            return row["match_pct"], breakdown
+
+        assert scored(first) == scored(second)
+
+
 @pytest.mark.parametrize("llm", [FakeLlm(), FakeLlm(fail=True), FakeLlm(invalid=True), None])
 def test_req_mat_02_analyze_revisions_confirmation(
     settings: Settings,
