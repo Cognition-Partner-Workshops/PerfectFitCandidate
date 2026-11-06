@@ -98,6 +98,14 @@ def test_actual_home_prefix_is_redacted(monkeypatch: pytest.MonkeyPatch, tmp_pat
 
 
 @pytest.mark.parametrize(
+    "profile", [r"C:\Users\fixture-user\NestedProfile", "/home/fixture-user/NestedProfile"]
+)
+def test_specific_profile_takes_precedence_over_generic_prefix(profile: str) -> None:
+    output = ChildLogFilter([], [profile]).line(f"main: loading model '{profile}/models/one.gguf'")
+    assert output == "main: loading model '<profile>/models/one.gguf'"
+
+
+@pytest.mark.parametrize(
     "line",
     [
         "",

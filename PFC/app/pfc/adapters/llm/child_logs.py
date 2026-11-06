@@ -55,9 +55,9 @@ class ChildLogFilter:
             text = text.replace(secret, "<redacted>")
         text = _BEARER.sub("Bearer <redacted>", text)
         text = _KEY_FIELD.sub("api_keys: <redacted>", text)
-        text = _PROFILE.sub("<profile>", text)
         for profile in self.profiles:
             text = profile.sub("<profile>", text)
+        text = _PROFILE.sub("<profile>", text)
         if len(text) > MAX_LINE_CHARS:
             text = text[: MAX_LINE_CHARS - len(" [truncated]")] + " [truncated]"
         return text

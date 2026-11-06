@@ -22,6 +22,8 @@ from pfc.main import create_app
 
 SCRIPT = """
 import json, os, pathlib, signal, sys, time
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
 record = pathlib.Path(sys.argv[1])
 record.with_suffix(".key").write_text(os.environ.get("LLAMA_API_KEY", ""))
 record.with_suffix(".env.json").write_text(json.dumps({
@@ -197,6 +199,7 @@ def test_native_lines_are_filtered_before_child_log_write(
     monkeypatch.setenv("LLAMA_API_KEY", "PARENT_KEY_ONE")
     monkeypatch.setenv("LLAMA_ARG_API_KEY", "PARENT_KEY_TWO")
     monkeypatch.setenv("USERPROFILE", r"D:\CustomProfile\private-user")
+    monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
 
     async def scenario() -> None:
         service = supervisor(settings, tmp_path, mode)
