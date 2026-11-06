@@ -26,6 +26,8 @@ def _phone_candidates(text: str) -> Iterator[re.Match[str]]:
 def phone_matches(text: str) -> Iterator[re.Match[str]]:
     for match in _phone_candidates(text):
         value = match[0]
+        if YEAR_LIST.fullmatch(value):
+            continue
         if 7 <= len(re.sub(r"\D", "", value)) <= 15 and not re.fullmatch(
             r"\d{4}[-.]\d{4}|\d{4}[-.]\d{2}[-.]\d{2}|\d{2}[-.]\d{2}[-.]\d{4}", value
         ):

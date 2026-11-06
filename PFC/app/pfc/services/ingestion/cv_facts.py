@@ -268,14 +268,19 @@ def public_facts(raw: str | None) -> CVFacts | None:
         facts = CVFacts.model_validate(data.get("facts"))
     except ValidationError:
         return None
+    phone_value = facts.phone.value if facts.phone is not None else None
+
+    def redact(text: str) -> str:
+        if phone_value:
+            text = text.replace(phone_value, mask_phone(phone_value) or "***")
+        return mask_evidence(text)
+
     for key in KEYS:
         items = [getattr(facts, key)] if key in ("name", "phone") else getattr(facts, key)
         for fact in items:
             if fact is not None:
                 fact.value = (
-                    (mask_phone(fact.value) or "***")
-                    if key == "phone"
-                    else mask_evidence(fact.value)
+                    (mask_phone(fact.value) or "***") if key == "phone" else redact(fact.value)
                 )
-                fact.evidence = mask_evidence(fact.evidence)
+                fact.evidence = redact(fact.evidence)
     return facts

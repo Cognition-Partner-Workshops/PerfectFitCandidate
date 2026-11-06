@@ -281,3 +281,49 @@ def test_req_in_21_identical_normalized_cv_text_uses_one_model_call(
         assert rows[0][1] == rows[1][1]
     repeat = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
     assert repeat["unchanged"] == 2 and provider.calls == 1
+
+
+def test_req_in_23_legacy_year_like_phone_masked_in_both_responses(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(client, upload(client, "ct", [{}]))
+    text = (
+        "Name: Alex Border\n2020 2024\nalex@example.com\nExperience\n2020 2024 at Acme\n"
+        "Education\nCourse 2020 2024\nProjects\nWork 2020 2024"
+    )
+    resume_docx(root, "Alex.docx", text)
+    wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    with database(client.app.state.settings) as db:
+        row = db.execute("SELECT candidate_id,text_norm,facts_json FROM cv_versions").fetchone()
+        saved = json.loads(row["facts_json"])
+        assert saved["facts"]["phone"] is None
+        value = "2020 2024"
+        start = row["text_norm"].index(value)
+        saved["facts"]["phone"] = {
+            "value": value,
+            "evidence": value,
+            "span": [start, start + len(value)],
+            "source": "rule",
+        }
+        db.execute("UPDATE cv_versions SET facts_json=?", (json.dumps(saved),))
+        candidate = row["candidate_id"]
+    for endpoint in (
+        f"/api/v1/candidates/{candidate}/cv-versions",
+        f"/api/v1/candidates/{candidate}",
+    ):
+        response = client.get(endpoint)
+        assert response.status_code == 200, response.text
+        assert value not in response.text
+        items = (
+            response.json() if isinstance(response.json(), list) else response.json()["cvVersions"]
+        )
+        facts = items[0]["facts"]
+        assert facts["phone"]["value"] == facts["phone"]["evidence"] == "***24"
+        for category in ("experience", "qualifications", "projects"):
+            assert "***24" in facts[category][0]["evidence"]
+    with database(client.app.state.settings) as db:
+        assert json.loads(db.execute("SELECT facts_json FROM cv_versions").fetchone()[0]) == saved

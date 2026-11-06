@@ -169,13 +169,28 @@ def test_req_in_23_isolated_year_ranges_remain_readable(text: str) -> None:
         "2015 - 2019, 2020 - 2024",
         "2015; 2019 / 2020 – 2024",
         "2015 2019",
+        "2020 2024",
         "2015",
         "2015—2019 / 2020",
     ],
 )
 def test_req_in_23_date_only_lists_remain_readable(text: str) -> None:
     assert mask_evidence(text) == text
+    assert list(phone_matches(text)) == []
+    assert rule_facts(text).phone is None
     assert mask_evidence(f"Employment: {text} at Acme") == f"Employment: {text} at Acme"
+
+
+def test_req_in_23_legacy_year_like_phone_redacted_from_every_fact() -> None:
+    value = "2020 2024"
+    item = {"value": value, "evidence": value, "span": [0, len(value)], "source": "rule"}
+    facts = {key: item if key in ("name", "phone") else [item] for key in KEYS}
+    raw = json.dumps({"emails": [], "facts_schema": 1, "facts": facts})
+    public = public_facts(raw)
+    assert public is not None
+    for fact in all_facts(public):
+        assert fact["value"] == fact["evidence"] == "***24"
+    assert value not in public.model_dump_json()
 
 
 @pytest.mark.parametrize(
