@@ -71,5 +71,6 @@ disallow_untyped_defs = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 addopts = "-m 'not perf'"
 markers = ["perf: offline 500 by 500 NFR-01 performance regression (explicit CI step)"]

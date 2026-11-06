@@ -79,7 +79,7 @@ class FakeVectorStore:
         self.values.update(zip(owners, vectors, strict=True))
 
 
-def seed_population(db: sqlite3.Connection) -> None:
+def seed_population(db: sqlite3.Connection, size: int = SIZE) -> None:
     rng = random.Random(SEED)
     stamp = NOW.isoformat()
     grades = load_domain_config().grades.codes
@@ -88,7 +88,7 @@ def seed_population(db: sqlite3.Connection) -> None:
         [(skill,) for skill in SKILLS],
     )
     skill_ids = {row["name"]: row["skill_id"] for row in db.execute("SELECT * FROM skills")}
-    for index in range(1, SIZE + 1):
+    for index in range(1, size + 1):
         skills = rng.sample(SKILLS, 3)
         jd = "Required: " + ", ".join(skills[:2]) + ". Preferred: " + skills[2]
         start = (NOW.date() + timedelta(days=rng.randrange(-30, 91))).isoformat()
@@ -182,18 +182,18 @@ def seed_population(db: sqlite3.Connection) -> None:
             "canonical_skill_id) VALUES (?,'CT',?,?,?)",
             [(index, skill, skill.casefold(), skill_ids[skill]) for skill in resource_skills],
         )
-    assert db.execute("SELECT COUNT(*) FROM demands WHERE lifecycle='open'").fetchone()[0] == SIZE
+    assert db.execute("SELECT COUNT(*) FROM demands WHERE lifecycle='open'").fetchone()[0] == size
     assert (
         db.execute("SELECT COUNT(*) FROM jd_requirements WHERE status='confirmed'").fetchone()[0]
-        == SIZE
+        == size
     )
     assert (
         db.execute("SELECT COUNT(*) FROM resources WHERE eligibility='eligible'").fetchone()[0]
-        == 400
+        == size - size // 5
     )
     assert (
         db.execute("SELECT COUNT(*) FROM resources WHERE eligibility='excluded'").fetchone()[0]
-        == 100
+        == size // 5
     )
     assert not db.execute("PRAGMA foreign_key_check").fetchall()
 
