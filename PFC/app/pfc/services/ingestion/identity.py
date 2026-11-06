@@ -236,7 +236,15 @@ def detail(db: sqlite3.Connection, candidate_id: int) -> CandidateDetail:
     )
 
 
-def _requires_merge(db: sqlite3.Connection, candidate_id: int, resource_id: int) -> bool:
+def _requires_merge(
+    db: sqlite3.Connection, candidate_id: int, resource_id: int, email_key: str
+) -> bool:
+    if db.execute(
+        "SELECT 1 FROM candidate_emails WHERE candidate_id=? "
+        "AND NOT (email_key=? AND source='CT' AND confirmed=0)",
+        (candidate_id, email_key),
+    ).fetchone():
+        return True
     if db.execute(
         "SELECT 1 FROM resources WHERE candidate_id=? AND resource_id<>?",
         (candidate_id, resource_id),
@@ -288,7 +296,7 @@ def resolve(
             )
         old_id = row["candidate_id"]
         if old_id is not None and old_id != candidate_id:
-            if _requires_merge(db, old_id, row["resource_id"]):
+            if _requires_merge(db, old_id, row["resource_id"], row["email_key"]):
                 raise Problem(
                     409,
                     "IDENTITY_MERGE_REQUIRED",

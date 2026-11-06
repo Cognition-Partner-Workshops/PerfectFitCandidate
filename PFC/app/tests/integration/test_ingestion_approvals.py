@@ -605,7 +605,8 @@ def test_req_in_25_initial_surname_match_and_confirmed_identity_rejection(client
 
 
 @pytest.mark.parametrize(
-    "data_kind", ["none", "resume", "cv", "resource", "match", "outreach", "email_fk"]
+    "data_kind",
+    ["none", "resume", "cv", "resource", "match", "outreach", "email_fk", "other_email"],
 )
 def test_req_in_25_relink_requires_merge_when_old_candidate_has_data(client, data_kind):
     ingest(client, "dl", [{}])
@@ -632,26 +633,34 @@ def test_req_in_25_relink_requires_merge_when_old_candidate_has_data(client, dat
         elif data_kind == "match":
             db.execute("INSERT INTO embedding_models VALUES (1,'test','onnx','hash',384,1,'v1',1)")
             db.execute(
-                "INSERT INTO jd_requirements(jd_req_id,demand_version_id,revision,status,created_at) "
+                "INSERT INTO jd_requirements(jd_req_id,demand_version_id,revision,status,"
+                "created_at) "
                 "VALUES (1,1,1,'confirmed','2026-01-01')"
             )
             template = db.execute("SELECT template_id FROM scoring_templates LIMIT 1").fetchone()[0]
             db.execute(
                 "INSERT INTO match_runs(run_id,scope,template_id,embedding_model_id,engine_version,"
-                "synonyms_version,config_hash,status) VALUES (1,'full',?,1,'v1','v1','hash','completed')",
+                "synonyms_version,config_hash,status) "
+                "VALUES (1,'full',?,1,'v1','v1','hash','completed')",
                 (template,),
             )
             db.execute(
-                "INSERT INTO match_results(run_id,demand_id,demand_version_id,jd_req_id,resource_id,"
+                "INSERT INTO match_results(run_id,demand_id,demand_version_id,jd_req_id,"
+                "resource_id,"
                 "candidate_id,score,band,rank,shortlisted,grade_relation,location_assessment,"
                 "matching_evidence,gaps_checks,eligibility_evidence) "
                 "VALUES (1,1,1,1,2,2,90,'Strong',1,1,'exact','Aligned','[]','[]','[]')"
             )
         elif data_kind == "email_fk":
             db.execute(
-                "CREATE TABLE email_candidate_history(candidate_id REFERENCES candidates(candidate_id))"
+                "CREATE TABLE email_candidate_history("
+                "candidate_id REFERENCES candidates(candidate_id))"
             )
             db.execute("INSERT INTO email_candidate_history VALUES (2)")
+        elif data_kind == "other_email":
+            db.execute(
+                "INSERT INTO candidate_emails VALUES (2,'old@example.com','old@example.com','CV',0)"
+            )
         elif data_kind == "outreach":
             db.execute(
                 "INSERT INTO email_templates(email_template_id,name,version,subject,body_html,"
@@ -659,7 +668,8 @@ def test_req_in_25_relink_requires_merge_when_old_candidate_has_data(client, dat
             )
             db.execute(
                 "INSERT INTO email_messages(demand_id,resource_id,email_template_id,to_address,"
-                "cc_json,subject,body_html,status,idempotency_key,created_by,created_at,updated_at) "
+                "cc_json,subject,body_html,status,idempotency_key,created_by,"
+                "created_at,updated_at) "
                 "VALUES (1,2,999,' Alex@Example.com ','[]','Subject','Body','Draft','key',1,"
                 "'2026-01-01','2026-01-01')"
             )
@@ -748,7 +758,7 @@ def test_req_ing_03_restored_upload_clears_pending_and_restores_review(
     assert pending["change"] == change
     assert row(client, entity)["occ_reviewed_at"] is None
     restored_run = ingest(client, kind, [{field: "Original"}, other])
-    assert not any(e["entryId"] == pending["entryId"] for e in queue(client))
+    assert not any(e["targetId"] == 1 and e["state"] == "Pending" for e in queue(client))
     restored = row(client, entity)
     assert restored["occ_reviewed_by"] == original["occ_reviewed_by"] == 1
     assert restored["occ_reviewed_at"] == original["occ_reviewed_at"]
@@ -773,6 +783,37 @@ def test_req_ing_03_restoring_admin_values_keeps_latest_source_hash(client):
     assert restored["account_name"] == "Admin"
     assert restored["occ_reviewed_at"] == before["occ_reviewed_at"]
     assert restored["row_hash"] != before["row_hash"]
+
+
+def test_req_role_03_queue_sorts_pending_first_then_upload_time_and_id(client):
+    ingest(client, "dl", [{"Code Requisition": f"T1{n:04d}"} for n in range(1, 7)])
+    entries = {e["targetId"]: e for e in queue(client)}
+    decision(client, entries[4], "approve")
+    decision(client, entries[5], "modify", comment="Corrected", values={"bu": "Admin"})
+    decision(client, entries[6], "revert")
+    timestamps = {
+        1: "2020-01-01T00:00:00Z",
+        2: "2024-01-01T00:00:00Z",
+        3: "2024-01-01T00:00:00Z",
+        4: "2099-01-01T00:00:00Z",
+        5: "2099-01-01T00:00:00Z",
+        6: "2098-01-01T00:00:00Z",
+    }
+    with database(client.app.state.settings) as db:
+        db.executemany(
+            "UPDATE occ_approvals SET uploaded_at=? WHERE entity_id=?",
+            [(ts, entity_id) for entity_id, ts in timestamps.items()],
+        )
+    ordered = queue(client)
+    assert [e["targetId"] for e in ordered] == [3, 2, 1, 5, 4, 6]
+    assert [e["state"] for e in ordered] == [
+        "Pending",
+        "Pending",
+        "Pending",
+        "Modified",
+        "Approved",
+        "Reverted",
+    ]
 
 
 def test_req_role_03_audit_contains_business_changes_but_no_emails(client):

@@ -182,7 +182,10 @@ def entry(db: sqlite3.Connection, row: sqlite3.Row) -> ApprovalEntry:
 def list_entries(db: sqlite3.Connection) -> list[ApprovalEntry]:
     return [
         entry(db, r)
-        for r in db.execute("SELECT * FROM occ_approvals ORDER BY entry_id DESC").fetchall()
+        for r in db.execute(
+            "SELECT * FROM occ_approvals ORDER BY (state='Pending') DESC,"
+            "uploaded_at DESC,entry_id DESC"
+        ).fetchall()
     ]
 
 
