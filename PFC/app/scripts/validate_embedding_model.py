@@ -10,7 +10,7 @@ import numpy as np
 import onnxruntime as ort  # type: ignore[import-untyped]
 from numpy.typing import NDArray
 
-from pfc.adapters.vector.embeddings import OnnxEmbedder, Task, Vectors
+from pfc.adapters.vector.embeddings import OnnxEmbedder, Task, Vectors, task_prefix
 
 PAIRS = (
     (
@@ -107,6 +107,7 @@ def main() -> int:
     latencies: list[float] = []
     batch_seconds = 0.0
     batch_chunks = 0
+    batch_tokens = 0
     passed = True
     try:
         started = perf_counter()
@@ -144,10 +145,14 @@ def main() -> int:
         batches: dict[Task, Vectors] = {}
         for task in tasks:
             texts = [jd if task == "query" else cv for _, jd, cv in PAIRS]
+            tokens = sum(
+                len(embedder.tokenizer.encode(task_prefix(task) + text).ids) for text in texts
+            )
             started = perf_counter()
             batches[task] = embedder.embed(texts, task=task)
             batch_seconds += perf_counter() - started
             batch_chunks += len(texts)
+            batch_tokens += tokens
         vectors = np.concatenate([document, query, prefixed, *single_vectors, *batches.values()])
         passed &= check("output dimension is 768", vectors.shape[1] == 768)
         norms = np.linalg.norm(vectors, axis=1)
@@ -169,6 +174,16 @@ def main() -> int:
             f"retrieval top-1: {int((matching_ranks == 1).sum())}/{len(PAIRS)}",
             bool((matching_ranks == 1).all()),
         )
+        print("\nRelated vs unrelated sanity (unrelated = highest-scoring non-matching CV):")
+        for i, (role, _, _) in enumerate(PAIRS):
+            other = max((j for j in range(len(PAIRS)) if j != i), key=lambda j: scores[i, j])
+            related, unrelated = float(scores[i, i]), float(scores[i, other])
+            passed &= check(
+                f"pair {i + 1} ({role}): related CV {i + 1} cosine={related:.6f} > "
+                f"unrelated CV {other + 1} cosine={unrelated:.6f}, "
+                f"margin={related - unrelated:+.6f}",
+                related > unrelated,
+            )
     except Exception as exc:
         passed = False
         print(f"FAIL: {type(exc).__name__}: {exc}", flush=True)
@@ -184,7 +199,9 @@ def main() -> int:
         if batch_chunks:
             print(
                 f"Batch throughput ({batch_chunks} chunks, two {len(PAIRS)}-chunk batches): "
-                f"{batch_chunks / batch_seconds:.3f} chunks/s ({batch_seconds:.3f} s)"
+                f"{batch_chunks / batch_seconds:.3f} docs/s, "
+                f"{batch_tokens / batch_seconds:.3f} tokens/s "
+                f"({batch_tokens} tokenizer tokens incl. task prefixes; {batch_seconds:.3f} s)"
             )
         peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         mib = peak / (1024 * 1024 if sys.platform == "darwin" else 1024)
