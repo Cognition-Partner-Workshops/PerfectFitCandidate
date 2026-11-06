@@ -606,6 +606,33 @@ def test_per_user_active_model(client: TestClient) -> None:
         assert audit.verify_chain(db)
 
 
+def test_clear_active_model_choice(client: TestClient) -> None:
+    """REQ-LLM-06: null restores the instance default and audits the cleared choice."""
+    with database(client.app.state.settings) as db:
+        db.execute("UPDATE llm_models SET approved=1")
+        db.execute("UPDATE llm_models SET is_active=1 WHERE model_id=1")
+    login(client, "worker@example.com", "Analyst")
+    assert client.put("/api/v1/llm/active", json={"model_id": 2}).status_code == 200
+    cleared = client.put("/api/v1/llm/active", json={"model_id": None})
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["model_id"] == 1
+    assert client.get("/api/v1/llm/active").json()["model_id"] == 1
+    assert client.get("/api/v1/settings/me").json()["active_model_id"] == 1
+    assert client.put("/api/v1/llm/active", json={}).status_code == 422
+    with database(client.app.state.settings) as db:
+        assert not db.execute(
+            "SELECT 1 FROM settings WHERE user_id=2 AND key='llm.active_model'"
+        ).fetchone()
+        details = json.loads(
+            db.execute(
+                "SELECT details_json FROM audit_log WHERE action='SETTING_CHANGE' "
+                "AND entity_id='user:2:llm.active_model' ORDER BY audit_id DESC LIMIT 1"
+            ).fetchone()[0]
+        )
+        assert details == {"before": {"value": 2}, "after": None}
+        assert audit.verify_chain(db)
+
+
 def test_health_stub_and_override(client: TestClient) -> None:
     """REQ-LLM-01: the API reports unavailable without claiming adapter health."""
     login(client, "worker@example.com", "Analyst")

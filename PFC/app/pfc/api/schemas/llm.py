@@ -10,7 +10,7 @@ class ModelApproval(BaseModel):
 
 class ActiveModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    model_id: int = Field(ge=1)
+    model_id: int | None = Field(ge=1)
 
 
 class LlmHealth(BaseModel):
