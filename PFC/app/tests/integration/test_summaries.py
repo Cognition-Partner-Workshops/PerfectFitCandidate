@@ -167,6 +167,30 @@ def test_partial_drop_and_latest(api: Api, owner: tuple[str, str, int]) -> None:
     assert second.json()["droppedUngrounded"] == 0
 
 
+@pytest.mark.parametrize("include_grounded", [False, True])
+def test_grounding_checks_every_digit_run(
+    api: Api, owner: tuple[str, str, int], include_grounded: bool
+) -> None:
+    client, headers = api
+    sentences = [{"text": "10 years of SQL", "evidence": "SQL engineer"}]
+    if include_grounded:
+        sentences.append({"text": "４４ projects with 123456789 users", "evidence": "SQL engineer"})
+    client.app.state.llm_provider = Provider(
+        json.dumps({"sentences": sentences}), client.app.state.settings
+    )
+    response = client.post(owner[1], headers=headers)
+    if not include_grounded:
+        problem(response, 422, "SUMMARY_UNGROUNDED")
+        with database(client.app.state.settings) as db:
+            assert db.execute("SELECT count(*) FROM summaries").fetchone()[0] == 0
+        return
+    assert response.status_code == 200, response.text
+    assert response.json()["droppedUngrounded"] == 1
+    assert len(response.json()["sentences"]) == 1
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT dropped_ungrounded FROM summaries").fetchone()[0] == 1
+
+
 def test_created_at_records_generation_completion(api: Api, owner: tuple[str, str, int]) -> None:
     client, headers = api
     current = [NOW]

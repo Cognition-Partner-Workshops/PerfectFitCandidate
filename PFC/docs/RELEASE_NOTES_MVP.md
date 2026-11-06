@@ -74,6 +74,8 @@ fresh-head dispatch. Before a fresh dispatch, the packaging owner must adapt
 
 **REQ-LLM-02 — Implemented+tested:** Candidate Profile and JD review now offer local, grounded, masked summaries with expandable evidence and stale-source warnings; generated summaries never enter scoring. Live-model summary quality remains UAT only, and chat-with-data is Phase 2.
 
+Summary grounding checks verbatim evidence and numbers only, not whether a sentence follows from its quote.
+
 ## Known limitations and release gates
 
 All Partial and UAT-only requirements below remain visible release work. None is

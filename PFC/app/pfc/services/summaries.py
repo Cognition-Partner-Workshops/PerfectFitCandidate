@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import re
 import sqlite3
 import unicodedata
 from collections.abc import Callable
@@ -149,7 +150,9 @@ def generate(
     kept = [
         sentence
         for sentence in document.sentences
-        if _normalise(sentence.evidence) and _normalise(sentence.evidence) in normalised
+        if _normalise(sentence.evidence)
+        and _normalise(sentence.evidence) in normalised
+        and all(number in normalised for number in re.findall(r"\d+", _normalise(sentence.text)))
     ]
     if not kept:
         raise Problem(422, "SUMMARY_UNGROUNDED", "No summary sentences were grounded in the source")

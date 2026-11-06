@@ -480,6 +480,8 @@ coverage on this branch; live-model summary quality remains UAT only.
 
 ### REQ-LLM-02 — Partial → Implemented+tested
 
+Summary grounding checks verbatim evidence and numbers only, not whether a sentence follows from its quote.
+
 - **JD parsing:** shared local-provider path and automated
   `test_shared_provider_extraction`/fallback evidence under MAT-02.
 - **CV parsing:** `app/pfc/api/routers/cv.py::_submit` supplies the shared
