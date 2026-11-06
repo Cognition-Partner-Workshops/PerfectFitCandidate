@@ -22,11 +22,67 @@ from pfc.security import package_signing as signing
 from pfc.security.passwords import hasher
 from pfc.services.packages import staging
 from pfc.services.packages.importer import SettingsImporter
+from pfc.services.packages.inbox import PackageInbox
 from pfc.services.packages.keys import SigningKeys
 
 PREFIX = "/api/v1"
 PASSWORD = "Strong!Random4567"
 PASSPHRASE = "test signing passphrase"
+
+
+def test_startup_records_corrupt_inbox_without_applying(tmp_path: Path) -> None:
+    settings = Settings(
+        data_dir=tmp_path,
+        allowed_hosts=["testserver"],
+        argon_memory_cost=1024,
+        argon_time_cost=1,
+        argon_parallelism=1,
+    )
+    inbox = settings.data_dir / "inbox"
+    inbox.mkdir()
+    (inbox / "corrupt.pfcpkg").write_bytes(b"not a signed archive")
+    with TestClient(create_app(settings)) as client:
+        pending = PackageInbox(settings).list_pending()
+        assert len(pending) == 1 and not pending[0].valid
+        assert pending[0].error == "invalid_archive"
+        with database(settings) as db:
+            assert db.execute("SELECT count(*) FROM settings_packages").fetchone()[0] == 0
+            create_user(
+                db,
+                email="owner@example.com",
+                display_name="Owner",
+                role_id=1,
+                password_hash=hasher(settings).hash(PASSWORD),
+                now=datetime.now(UTC).isoformat(),
+                must_change_password=False,
+            )
+        login(client)
+        response = client.get(f"{PREFIX}/settings/settings-package/pending")
+        assert response.status_code == 200, response.text
+        assert response.json()[0]["fileName"] == "corrupt.pfcpkg"
+        assert response.json()[0]["valid"] is False
+        assert response.json()[0]["error"] == "invalid_archive"
+
+
+def test_startup_logs_unexpected_scan_error_and_continues(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def fail(settings: Settings) -> None:
+        raise OSError("inbox unavailable")
+
+    monkeypatch.setattr("pfc.main.scan_inbox", fail)
+    settings = Settings(
+        data_dir=tmp_path,
+        allowed_hosts=["testserver"],
+        argon_memory_cost=1024,
+        argon_time_cost=1,
+        argon_parallelism=1,
+    )
+    with TestClient(create_app(settings)) as client:
+        assert client.get(f"{PREFIX}/settings/settings-package/pending").status_code == 401
+    assert "Package inbox scan failed; startup continues" in caplog.text
 
 
 @pytest.fixture
@@ -41,7 +97,6 @@ def apps(tmp_path: Path) -> Iterator[tuple[TestClient, TestClient]]:
             argon_parallelism=1,
         )
         app = create_app(settings)
-        app.include_router(packages.router, prefix=PREFIX)
         clients.append(TestClient(app, raise_server_exceptions=False))
     with clients[0] as source, clients[1] as target:
         for client in (source, target):
