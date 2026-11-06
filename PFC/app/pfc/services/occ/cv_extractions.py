@@ -116,6 +116,11 @@ def remove(
             db.execute("DELETE FROM embedding_chunks WHERE chunk_id=?", (chunk_id,))
             counts.chunks_deleted += 1
     counts.matching_vectors_deleted = _matching_cache(db, settings, version_ids)
+    db.execute(
+        "DELETE FROM resource_skills WHERE source='CV' AND cv_version_id IN "
+        "(SELECT cv_version_id FROM cv_versions WHERE (? IS NULL OR candidate_id=?))",
+        (candidate_id, candidate_id),
+    )
     counts.versions_cleared = sum(row["extraction_removed_at"] is None for row in rows)
     summaries_cleared = db.execute(
         "DELETE FROM summaries WHERE owner_kind='candidate' AND source_version_id IN "

@@ -136,6 +136,7 @@ def _inputs(
     cv_bases: dict[str, list[SkillBasis]] = {}
     versions = db.execute(
         "SELECT * FROM cv_versions WHERE candidate_id IS NOT NULL "
+        "AND is_latest=1 AND extraction_removed_at IS NULL "
         "ORDER BY candidate_id,version_no,cv_version_id",
     ).fetchall()
     active_candidates = {r.candidate_id for r in resources}
@@ -146,17 +147,21 @@ def _inputs(
         skills = db.execute(
             "SELECT rs.*,s.name AS canonical FROM resource_skills rs "
             "LEFT JOIN skills s ON s.skill_id=rs.canonical_skill_id "
-            "WHERE rs.cv_version_id=? AND rs.source='CV' ORDER BY rs.resource_skill_id",
-            (version["cv_version_id"],),
+            "WHERE rs.cv_version_id=? AND rs.source='CV' AND rs.resource_id IN "
+            "(SELECT resource_id FROM resources WHERE candidate_id=? AND lifecycle='active') "
+            "ORDER BY rs.resource_skill_id",
+            (version["cv_version_id"], version["candidate_id"]),
         ).fetchall()
         evidence = tuple(
-            SkillEvidence(
-                item["skill_raw"],
-                normalise_term(item["skill_norm"]),
-                item["canonical"] or config.synonyms.resolve(item["skill_raw"]),
-                item["evidence"] or item["skill_raw"],
+            dict.fromkeys(
+                SkillEvidence(
+                    item["skill_raw"],
+                    normalise_term(item["skill_norm"]),
+                    item["canonical"] or config.synonyms.resolve(item["skill_raw"]),
+                    item["evidence"] or item["skill_raw"],
+                )
+                for item in skills
             )
-            for item in skills
         )
         cv_bases.setdefault(candidate, []).append(
             SkillBasis(

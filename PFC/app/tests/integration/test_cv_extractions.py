@@ -100,7 +100,7 @@ def test_removal_is_scoped_and_sync_restores_unchanged_file(
     client: TestClient,
     tmp_path: Path,
 ) -> None:
-    root, versions = prepare(client, tmp_path)
+    root, versions = prepare(client, tmp_path, "alex@example.com\nSkills\nSQL; Python")
     settings = client.app.state.settings
     candidate = min(versions)
     path = f"/api/v1/occ/candidates/{candidate}/cv-extractions"
@@ -108,7 +108,7 @@ def test_removal_is_scoped_and_sync_restores_unchanged_file(
     original_files = {
         file.name: (file.read_bytes(), file.stat().st_mtime_ns) for file in root.iterdir()
     }
-    preserved = snapshot(client, ("resources", "resource_skills", "candidate_emails", "resumes"))
+    preserved = snapshot(client, ("resources", "candidate_emails", "resumes"))
     with database(settings) as db:
         seed_summary(db, "candidate", candidate, versions[candidate])
         original = dict(
@@ -153,6 +153,10 @@ def test_removal_is_scoped_and_sync_restores_unchanged_file(
         )
         assert row["text_norm"] == "" and row["sections_json"] is None
         assert row["facts_json"] == "{}" and row["extraction_removed_at"]
+        assert not db.execute(
+            "SELECT 1 FROM resource_skills WHERE source='CV' AND cv_version_id=?",
+            (original["cv_version_id"],),
+        ).fetchone()
         for key in ("text_sha256", "version_no", "is_latest", "resume_id", "extracted_at"):
             assert row[key] == original[key]
         assert (
@@ -198,6 +202,14 @@ def test_removal_is_scoped_and_sync_restores_unchanged_file(
         assert row["sections_json"] is None and row["extraction_removed_at"] is None
         assert db.execute("SELECT count(*) FROM cv_versions").fetchone()[0] == 2
         assert db.execute("SELECT count(*) FROM embedding_chunks").fetchone()[0] == 2
+        assert [
+            r[0]
+            for r in db.execute(
+                "SELECT skill_raw FROM resource_skills WHERE cv_version_id=? "
+                "ORDER BY resource_skill_id",
+                (original["cv_version_id"],),
+            )
+        ] == ["SQL", "Python"]
     response = client.get(f"/api/v1/candidates/{candidate}/summary")
     assert response.status_code == 404
     assert response.json()["code"] == "SUMMARY_NOT_FOUND"
@@ -463,17 +475,21 @@ def test_removal_rolls_back_both_caches(
     assert all(value is not None for value in cache.get_vectors(owners))
 
 
-def test_removal_preserves_old_run_and_skills(client: TestClient) -> None:
+def test_removal_preserves_old_run_and_ct_skills(client: TestClient) -> None:
     settings = client.app.state.settings
     with database(settings) as db:
         seed_demand(db)
         candidate = seed_candidate(db)
         resource = seed_resource(db, "CVPerson", candidate=candidate)
         cv_id = seed_cv(db, resource, candidate)
+        db.execute(
+            "INSERT INTO resource_skills(resource_id,source,skill_raw,skill_norm) "
+            "VALUES (?,'CT','SQL','sql')",
+            (resource,),
+        )
     execute(settings, client.app.state.job_runner)
     tables = (
         "resources",
-        "resource_skills",
         "candidate_emails",
         "resumes",
         "match_runs",
@@ -490,6 +506,11 @@ def test_removal_preserves_old_run_and_skills(client: TestClient) -> None:
     response = client.delete(f"/api/v1/occ/candidates/{candidate}/cv-extractions")
     assert response.status_code == 200
     assert snapshot(client, tables) == before
+    with database(settings) as db:
+        assert [
+            tuple(row)
+            for row in db.execute("SELECT source,cv_version_id,skill_raw FROM resource_skills")
+        ] == [("CT", None, "SQL")]
     assert client.get(f"/api/v1/match-results/{result_id}").json() == detail.json()
     with database(settings) as db:
         assert db.execute(

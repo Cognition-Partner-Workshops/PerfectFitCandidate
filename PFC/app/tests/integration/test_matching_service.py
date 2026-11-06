@@ -231,6 +231,37 @@ def seed_cv(
     return cv_id
 
 
+def test_cv_inputs_only_latest_live_version_and_linked_resources(settings: Settings) -> None:
+    with database(settings) as db:
+        candidate = seed_candidate(db)
+        resource = seed_resource(db, candidate=candidate)
+        linked = seed_resource(db, "Same candidate", candidate=candidate)
+        other = seed_resource(db, "Unrelated")
+        old = seed_cv(db, resource, candidate, skills=("Python",))
+        db.execute("UPDATE cv_versions SET is_latest=0 WHERE cv_version_id=?", (old,))
+        latest = db.execute(
+            "INSERT INTO cv_versions(resume_id,candidate_id,version_no,text_sha256,text_norm,"
+            "extracted_by,is_latest,extracted_at) SELECT resume_id,candidate_id,2,'latest',"
+            "'SQL','test',1,extracted_at FROM cv_versions WHERE cv_version_id=?",
+            (old,),
+        ).lastrowid
+        for owner, term in [(resource, "SQL"), (linked, "SQL"), (other, "Wrong resource")]:
+            db.execute(
+                "INSERT INTO resource_skills(resource_id,cv_version_id,source,"
+                "skill_raw,skill_norm) "
+                "VALUES (?,?,'CV',?,?)",
+                (owner, latest, term, term.casefold()),
+            )
+        config = load_domain_config()
+        bases = _inputs(db, "all", [], config)[2][f"candidate:{candidate}"]
+        assert [b.basis_id for b in bases] == [f"CV:{latest}"]
+        assert [s.raw for s in bases[0].skills] == ["SQL"]
+        db.execute(
+            "UPDATE cv_versions SET extraction_removed_at=? WHERE cv_version_id=?", (STAMP, latest)
+        )
+        assert f"candidate:{candidate}" not in _inputs(db, "all", [], config)[2]
+
+
 def wait_done(runner: JobRunner, job_id: int) -> Job:
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:

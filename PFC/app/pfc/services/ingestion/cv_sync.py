@@ -17,6 +17,7 @@ from pfc.api.schemas.cv import CVSyncCounts, CVVersionItem
 from pfc.config import Settings
 from pfc.db.audit import append_audit
 from pfc.db.connection import database
+from pfc.domain.normalise import normalise_term
 from pfc.domain.normalise.text import normalise_text
 from pfc.jobs.runner import JobContext
 from pfc.security.problems import Problem
@@ -167,6 +168,45 @@ def _embed_affected(
             return ReembedCounts(), f"Embedding skipped: {exc}"
 
 
+def _replace_skills(db: sqlite3.Connection, cv_version_id: int) -> None:
+    version = db.execute(
+        "SELECT candidate_id,text_norm,facts_json,extraction_removed_at FROM cv_versions "
+        "WHERE cv_version_id=?",
+        (cv_version_id,),
+    ).fetchone()
+    db.execute(
+        "DELETE FROM resource_skills WHERE source='CV' AND cv_version_id=?", (cv_version_id,)
+    )
+    if version["extraction_removed_at"] is not None:
+        return
+    facts = validate_facts(
+        version["text_norm"], json.loads(version["facts_json"] or "{}").get("facts", {})
+    )
+    resources = db.execute(
+        "SELECT resource_id FROM resources WHERE candidate_id=?", (version["candidate_id"],)
+    ).fetchall()
+    for skill in facts.skills:
+        canonical = db.execute(
+            "SELECT skill_id FROM skills WHERE name=? COLLATE NOCASE AND is_active=1",
+            (skill.canonical,),
+        ).fetchone()
+        db.executemany(
+            "INSERT INTO resource_skills(resource_id,cv_version_id,source,skill_raw,skill_norm,"
+            "canonical_skill_id,evidence,years) VALUES (?,?,'CV',?,?,?,?,NULL)",
+            [
+                (
+                    resource[0],
+                    cv_version_id,
+                    skill.value,
+                    normalise_term(skill.value),
+                    canonical[0] if canonical else None,
+                    skill.evidence,
+                )
+                for resource in resources
+            ],
+        )
+
+
 def _persist(
     db: sqlite3.Connection,
     candidate_id: int | None,
@@ -274,6 +314,7 @@ def _persist(
                 "UPDATE resumes SET candidate_id=? WHERE resume_id=? AND candidate_id IS NULL",
                 (candidate_id, resume_id),
             )
+        _replace_skills(db, existing[0])
         return existing[0], False
     number = db.execute(
         "SELECT coalesce(max(version_no),0)+1 FROM cv_versions WHERE candidate_id IS ?",
@@ -304,6 +345,7 @@ def _persist(
         ),
     )
     assert cursor.lastrowid is not None
+    _replace_skills(db, cursor.lastrowid)
     return cursor.lastrowid, True
 
 
