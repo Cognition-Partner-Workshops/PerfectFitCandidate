@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response
 
-from pfc.api.schemas.auth import AuthView, ChangePassword, Login, SetupAdmin, UserView
+from pfc.api.schemas.auth import AuthView, ChangePassword, Login, SetupAdmin, SetupStatus, UserView
 from pfc.db import audit, sessions, users
 from pfc.db.connection import database
 from pfc.security.dependencies import Principal, current_user
@@ -35,6 +35,13 @@ def view(db: sqlite3.Connection, user: users.User, role: str, csrf: str) -> Auth
 
 def cookie(response: Response, token: str) -> None:
     response.set_cookie("pfc_session", token, httponly=True, samesite="strict", path="/")
+
+
+@router.get("/setup/status", response_model=SetupStatus)
+def setup_status(request: Request) -> SetupStatus:
+    """REQ-AUTH-03: public bootstrap availability, without account details."""
+    with database(request.app.state.settings) as db:
+        return SetupStatus(admin_exists=bool(users.count_admins(db)))
 
 
 @router.post("/setup/admin", response_model=UserView, status_code=201)

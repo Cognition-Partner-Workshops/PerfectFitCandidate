@@ -10,6 +10,10 @@ class SetupAdmin(BaseModel):
     password: str = Field(max_length=1024)
 
 
+class SetupStatus(BaseModel):
+    admin_exists: bool
+
+
 class Login(BaseModel):
     role: Literal["Admin", "Analyst"]
     email: str

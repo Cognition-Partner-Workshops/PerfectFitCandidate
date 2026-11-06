@@ -1,0 +1,37 @@
+[
+  {
+    "name": "Qwen3-4B-Instruct-2507 Q4_K_M",
+    "file": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+    "url": "https://huggingface.co/bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF/resolve/5ba9dff45461e5bab86959be7d585609fe9e6bc3/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+    "sha256": "2fde00ce69dd4899c70d020845e2638353015bba0fdf161b3eb965f2bca4464e",
+    "licence": "Apache-2.0"
+  },
+  {
+    "name": "nomic-embed-text-v1.5 ONNX int8",
+    "file": "nomic-embed-text-v1.5/model_int8.onnx",
+    "url": "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5/resolve/ac6fcd72429d86ff25c17895e47a9bfcfc50c1b2/onnx/model_int8.onnx",
+    "sha256": "b4342336debaea79de872370664b0aaeb67dea4605513d00ee236ea871a81f27",
+    "licence": "Apache-2.0"
+  },
+  {
+    "name": "nomic-embed-text-v1.5 tokenizer",
+    "file": "nomic-embed-text-v1.5/tokenizer.json",
+    "url": "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5/resolve/ac6fcd72429d86ff25c17895e47a9bfcfc50c1b2/tokenizer.json",
+    "sha256": "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66",
+    "licence": "Apache-2.0"
+  },
+  {
+    "name": "nomic-embed-text-v1.5 tokenizer config",
+    "file": "nomic-embed-text-v1.5/tokenizer_config.json",
+    "url": "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5/resolve/ac6fcd72429d86ff25c17895e47a9bfcfc50c1b2/tokenizer_config.json",
+    "sha256": "d7e0000bcc80134debd2222220427e6bf5fa20a669f40a0d0d1409cc18e0a9bc",
+    "licence": "Apache-2.0"
+  },
+  {
+    "name": "nomic-embed-text-v1.5 special tokens map",
+    "file": "nomic-embed-text-v1.5/special_tokens_map.json",
+    "url": "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5/resolve/ac6fcd72429d86ff25c17895e47a9bfcfc50c1b2/special_tokens_map.json",
+    "sha256": "5d5b662e421ea9fac075174bb0688ee0d9431699900b90662acd44b2a350503a",
+    "licence": "Apache-2.0"
+  }
+]
