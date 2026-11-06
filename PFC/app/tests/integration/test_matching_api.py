@@ -1,7 +1,7 @@
 """TDD §12 authenticated contracts against the production app and real SQLite."""
 
 import json
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +25,7 @@ from pfc.db.audit import verify_chain
 from pfc.db.connection import database
 from pfc.main import create_app
 from pfc.security.setup import code_path
+from pfc.services.embeddings.chunking import OwnerType
 from pfc.services.matching import MatchingPorts, confirm_requirements
 
 PASSWORD = "Strong!Random4567"
@@ -92,6 +93,71 @@ def writes() -> list[tuple[str, str, dict[str, Any] | None]]:
         ("POST", "/match-results/1/overrides", {"action": "pin", "reason": "Review"}),
         ("DELETE", "/match-results/1/overrides", {"reason": "Review"}),
     ]
+
+
+@pytest.mark.parametrize("mode", ["queued", "raise", "inactive", "empty"])
+def test_confirm_incremental_trigger(
+    api: Api, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, mode: str
+) -> None:
+    client, headers = api
+    with database(client.app.state.settings) as db:
+        demand_id = seed_demand(db, mandatory=() if mode == "empty" else ("SQL",))
+        seed_demand(db, "T1OTHER")
+        old = {
+            row[0]
+            for row in db.execute(
+                "SELECT i.item_id FROM jd_requirement_items i "
+                "JOIN jd_requirements r USING(jd_req_id) "
+                "JOIN demand_versions v USING(demand_version_id) WHERE v.demand_id=?",
+                (demand_id,),
+            )
+        }
+    draft = client.get(f"/api/v1/demands/{demand_id}/requirements").json()
+    draft["mandatorySkills"] = [] if mode == "empty" else ["Rust", "Go"]
+    response = client.put(f"/api/v1/demands/{demand_id}/requirements", headers=headers, json=draft)
+    assert response.status_code == 200, response.text
+    with database(client.app.state.settings) as db:
+        new = {
+            row[0]
+            for row in db.execute(
+                "SELECT i.item_id FROM jd_requirement_items i "
+                "JOIN jd_requirements r USING(jd_req_id) "
+                "JOIN demand_versions v USING(demand_version_id) "
+                "WHERE v.demand_id=? AND r.status='draft'",
+                (demand_id,),
+            )
+        }
+    calls: list[set[tuple[OwnerType, int]]] = []
+
+    def submit(
+        runner: object,
+        settings: Settings,
+        owners: Iterable[tuple[OwnerType, int]],
+        *,
+        created_by: int | None = None,
+    ) -> int | None:
+        calls.append(set(owners))
+        with database(settings) as db:
+            assert (
+                db.execute(
+                    "SELECT count(*) FROM jd_requirements WHERE status='superseded'"
+                ).fetchone()[0]
+                == 1
+            )
+        if mode == "raise":
+            raise RuntimeError("Submission unavailable")
+        return None if mode == "inactive" else 999
+
+    monkeypatch.setattr("pfc.api.routers.match.submit_incremental_embed", submit)
+    response = client.post(f"/api/v1/demands/{demand_id}/requirements/confirm", headers=headers)
+    assert response.status_code == 202, response.text
+    assert calls == ([{("jd_item", id) for id in old | new}] if old | new else [])
+    assert client.get(f"/api/v1/demands/{demand_id}/requirements").json()["status"] == "confirmed"
+    if mode in {"raise", "inactive"}:
+        assert any(
+            record.levelname == "WARNING" and "embedding" in record.message
+            for record in caplog.records
+        )
 
 
 def test_req_auth_01_all_routes_require_login(api: Api) -> None:

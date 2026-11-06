@@ -1,5 +1,6 @@
 """TDD §12 JD review and matching runs (Analyst and Admin)."""
 
+import logging
 import sqlite3
 from typing import Annotated
 
@@ -20,6 +21,9 @@ from pfc.db.connection import database
 from pfc.security.dependencies import Principal, require_role
 from pfc.security.problems import Problem
 from pfc.services import matching
+from pfc.services.embeddings.incremental import submit_incremental_embed
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=[Depends(require_role("Analyst"))])
 Analyst = Annotated[Principal, Depends(require_role("Analyst"))]
@@ -128,15 +132,50 @@ def edit(
 )
 def confirm(demand_id: int, request: Request, principal: Analyst) -> RunAccepted:
     available(request)
+    previous = None
     with database(request.app.state.settings) as db:
         find_demand(db, demand_id)
+        try:
+            previous = _confirmed_items(db, demand_id)
+        except Exception as exc:
+            logger.warning("Cannot snapshot requirements for incremental embedding: %s", exc)
         try:
             matching.confirm_requirements(
                 db, demand_id, None, principal.user.user_id, request.app.state.clock()
             )
         except (ValueError, sqlite3.IntegrityError) as exc:
             raise Problem(409, "REQUIREMENTS_CONFLICT", "No draft requirements to confirm") from exc
+    if previous is not None:
+        try:
+            with database(request.app.state.settings) as db:
+                items = previous | _confirmed_items(db, demand_id)
+            if (
+                items
+                and submit_incremental_embed(
+                    request.app.state.job_runner,
+                    request.app.state.settings,
+                    [("jd_item", id) for id in sorted(items)],
+                    created_by=principal.user.user_id,
+                )
+                is None
+            ):
+                logger.warning("Requirement embedding not queued: no active embedding model")
+        except Exception as exc:
+            logger.warning("Requirement embedding submission failed after confirmation: %s", exc)
     return dispatch(request, principal, RunRequest(scope="demands", demand_ids=[demand_id]))
+
+
+def _confirmed_items(db: sqlite3.Connection, demand_id: int) -> set[int]:
+    return {
+        row[0]
+        for row in db.execute(
+            "SELECT i.item_id FROM jd_requirement_items i "
+            "JOIN jd_requirements r ON r.jd_req_id=i.jd_req_id "
+            "JOIN demands d ON d.current_version_id=r.demand_version_id "
+            "WHERE d.demand_id=? AND r.status='confirmed'",
+            (demand_id,),
+        )
+    }
 
 
 @router.post("/match-runs", response_model=RunAccepted, status_code=202)

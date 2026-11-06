@@ -4,7 +4,7 @@ import json
 import os
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from io import BytesIO
 from pathlib import Path
 
@@ -22,6 +22,7 @@ from pfc.db.connection import database
 from pfc.jobs.runner import JobCancelled, JobContext
 from pfc.main import create_app
 from pfc.security.setup import code_path
+from pfc.services.embeddings.chunking import OwnerType
 from pfc.services.embeddings.reembed import reembed
 from pfc.services.embeddings.runtime import EmbeddingModelUnavailable
 from pfc.services.ingestion import cv_sync, service
@@ -140,6 +141,67 @@ def commit(client: TestClient, run: dict) -> dict:
     response = client.post(f"/api/v1/ingestion-runs/{run['ingestion_run_id']}/commit")
     assert response.status_code == 200, response.text
     return response.json()
+
+
+def test_dl_embedding_trigger_only_changed_versions(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[set[tuple[OwnerType, int]]] = []
+
+    def submit(
+        runner: object,
+        settings: Settings,
+        owners: Iterable[tuple[OwnerType, int]],
+        *,
+        created_by: int | None = None,
+    ) -> int:
+        assert runner is client.app.state.job_runner and created_by == 1
+        calls.append(set(owners))
+        return 999
+
+    monkeypatch.setattr("pfc.api.routers.ingestion.submit_incremental_embed", submit)
+    commit(client, upload(client, "dl", [{}, {"Code Requisition": "T21234"}]))
+    with database(client.app.state.settings) as db:
+        old = dict(db.execute("SELECT code_requisition,current_version_id FROM demands"))
+    assert calls == [{("jd", id) for id in old.values()}]
+    calls.clear()
+    rows: list[dict[str, object]] = [
+        {"JD": "Python"},
+        {"Code Requisition": "T21234"},
+        {"Code Requisition": "T31234", "JD": "Rust"},
+    ]
+    commit(client, upload(client, "dl", rows))
+    with database(client.app.state.settings) as db:
+        new = dict(db.execute("SELECT code_requisition,current_version_id FROM demands"))
+    assert calls == [{("jd", old["T11234"]), ("jd", new["T11234"]), ("jd", new["T31234"])}]
+    calls.clear()
+    rows[0]["Account Name"] = "Metadata only"
+    commit(client, upload(client, "dl", rows))
+    commit(client, upload(client, "ct", [{}]))
+    assert calls == []
+
+
+@pytest.mark.parametrize("failure", ["raise", "inactive", "snapshot"])
+def test_dl_commit_survives_embedding_trigger_failure(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    failure: str,
+) -> None:
+    def submit(*args: object, **kwargs: object) -> None:
+        if failure != "inactive":
+            raise RuntimeError("Submission unavailable")
+
+    monkeypatch.setattr("pfc.api.routers.ingestion.submit_incremental_embed", submit)
+    if failure == "snapshot":
+        monkeypatch.setattr("pfc.api.routers.ingestion._current_versions", submit)
+    result = commit(client, upload(client, "dl", [{}]))
+    assert result["status"] == "committed"
+    assert any(
+        record.levelname == "WARNING" and "embedding" in record.message for record in caplog.records
+    )
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT current_version_id FROM demands").fetchone()[0] is not None
 
 
 def test_req_ing_01_03_dl_preview_commit_versions_and_lifecycle(client: TestClient) -> None:
