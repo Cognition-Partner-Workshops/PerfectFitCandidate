@@ -350,6 +350,49 @@ def test_referenced_absent_rows_are_retained(pair: tuple[Settings, Settings]) ->
     assert (target.data_dir / "packages/v2.pfcpkg").exists()
 
 
+def test_absent_referenced_providers_are_disabled(pair: tuple[Settings, Settings]) -> None:
+    source, target = pair
+    with database(target) as db:
+        for identifier, name in ((9, "historical"), (10, "unused")):
+            db.execute(
+                "INSERT INTO llm_providers(provider_id, name, kind, enabled, fallback_order, "
+                "token_blob, owner_user_id, updated_at) "
+                "VALUES (?, ?, 'openai_compatible', 1, 1, ?, 1, ?)",
+                (identifier, name, b"local-token", NOW),
+            )
+        db.execute(
+            "INSERT INTO llm_calls(provider_id, model, purpose, request_sha256, status, "
+            "created_at) VALUES (9, 'local-model', 'chat', 'hash', 'ok', ?)",
+            (NOW,),
+        )
+        original = dict(db.execute("SELECT * FROM llm_providers WHERE provider_id=9").fetchone())
+    importer = SettingsImporter(target)
+    importer.apply(exported(source).path, actor_id=1)
+    with database(target) as db:
+        assert dict(db.execute("SELECT * FROM llm_providers WHERE provider_id=9").fetchone()) == {
+            **original,
+            "enabled": 0,
+        }
+        assert db.execute("SELECT 1 FROM llm_providers WHERE provider_id=10").fetchone() is None
+        assert db.execute("SELECT provider_id FROM llm_calls").fetchone()[0] == 9
+        assert not db.execute("PRAGMA foreign_key_check").fetchall()
+    with database(target) as db:
+        db.execute("UPDATE llm_providers SET enabled=1 WHERE provider_id=9")
+    importer.apply(exported(source).path, actor_id=1)
+    with database(target) as db:
+        assert (
+            db.execute("SELECT enabled FROM llm_providers WHERE provider_id=9").fetchone()[0] == 0
+        )
+        db.execute("UPDATE llm_providers SET enabled=1 WHERE provider_id=9")
+    importer.rollback(actor_id=1)
+    with database(target) as db:
+        assert dict(db.execute("SELECT * FROM llm_providers WHERE provider_id=9").fetchone()) == {
+            **original,
+            "enabled": 0,
+        }
+        assert db.execute("SELECT provider_id FROM llm_calls").fetchone()[0] == 9
+
+
 def test_unique_reference_value_swaps_are_atomic(pair: tuple[Settings, Settings]) -> None:
     source, target = pair
     with database(source) as db:

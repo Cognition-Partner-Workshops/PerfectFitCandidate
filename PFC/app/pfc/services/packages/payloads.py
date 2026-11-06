@@ -322,9 +322,14 @@ def _remove_absent(db: sqlite3.Connection, data: Snapshot) -> None:
             if row[primary] in retained:
                 continue
             if _referenced(db, table, row):
-                active = next((name for name in ("active", "is_active") if name in columns), None)
-                if active:
-                    db.execute(f"UPDATE {table} SET {active}=0 WHERE {primary}=?", (row[primary],))
+                flags = [name for name in ("active", "is_active", "enabled") if name in columns]
+                if flags:
+                    db.execute(
+                        f"UPDATE {table} SET "
+                        + ",".join(f"{name}=0" for name in flags)
+                        + f" WHERE {primary}=?",
+                        (row[primary],),
+                    )
             else:
                 db.execute(f"DELETE FROM {table} WHERE {primary}=?", (row[primary],))
 
