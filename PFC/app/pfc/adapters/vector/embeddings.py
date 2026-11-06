@@ -76,6 +76,44 @@ class FakeEmbedder:
         return normalise(np.asarray(rows, dtype=np.float32).reshape(-1, self.dimensions))
 
 
+def model_fingerprint(model_path: Path, tokenizer_path: Path) -> str:
+    """Hash a self-contained model directory, including external tensors (REQ-LLM-07).
+
+    Keep each approved model bundle in its own directory. All regular files,
+    including nested external-data files with arbitrary names, affect the version.
+    The tokenizer may live outside the bundle. Symlinks are not supported.
+    """
+    if model_path.is_symlink() or tokenizer_path.is_symlink():
+        raise ValueError("Model bundles must not contain symlinks")
+    model_path = model_path.resolve(strict=True)
+    tokenizer_path = tokenizer_path.resolve(strict=True)
+    if not model_path.is_file() or not tokenizer_path.is_file():
+        raise ValueError("Model and tokenizer must be regular files")
+    root = model_path.parent
+    files: dict[str, Path] = {}
+    for path in root.rglob("*"):
+        if path.is_symlink():
+            raise ValueError("Model bundles must not contain symlinks")
+        if path.is_dir():
+            continue
+        if not path.is_file():
+            raise ValueError("Model bundles must contain only regular files")
+        files[f"bundle/{path.relative_to(root).as_posix()}"] = path
+    files["selected-model"] = model_path
+    files["selected-tokenizer"] = tokenizer_path
+    digest = hashlib.sha256(b"pfc-model-bundle-v1\x00")
+    for name, path in sorted(files.items()):
+        encoded_name = name.encode("utf-8")
+        digest.update(len(encoded_name).to_bytes(8, "big"))
+        digest.update(encoded_name)
+        content_hash = hashlib.sha256()
+        with path.open("rb") as stream:
+            while block := stream.read(1024 * 1024):
+                content_hash.update(block)
+        digest.update(content_hash.digest())
+    return digest.hexdigest()
+
+
 class OnnxEmbedder:
     """CPU-only local nomic-embed-text-v1.5; never downloads (REQ-LLM-07)."""
 
@@ -97,13 +135,9 @@ class OnnxEmbedder:
         self._tokenizer = Tokenizer.from_file(str(tokenizer_path))
         self._tokenizer.enable_padding()
         self._tokenizer.enable_truncation(max_length=max_tokens)
-        digest = hashlib.sha256()
-        with model_path.open("rb") as model_file:
-            while block := model_file.read(1024 * 1024):
-                digest.update(block)
-        digest.update(tokenizer_path.read_bytes())
+        fingerprint = model_fingerprint(model_path, tokenizer_path)
         self.model_version = (
-            f"nomic-embed-text-v1.5:{digest.hexdigest()}:mean-l2-v1:d{dimensions}:t{max_tokens}"
+            f"nomic-embed-text-v1.5:{fingerprint}:mean-l2-v1:d{dimensions}:t{max_tokens}"
         )
         self._session = ort.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
 

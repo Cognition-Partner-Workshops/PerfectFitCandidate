@@ -6,7 +6,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pfc.adapters.vector.embeddings import FakeEmbedder, OnnxEmbedder, mean_pool, normalise
+from pfc.adapters.vector.embeddings import (
+    FakeEmbedder,
+    OnnxEmbedder,
+    mean_pool,
+    model_fingerprint,
+    normalise,
+)
 
 
 def test_pool_normalise_truncate():
@@ -52,3 +58,51 @@ def test_local_onnx():
     np.testing.assert_allclose(np.linalg.norm(vectors, axis=1), 1, atol=1e-5)
     np.testing.assert_allclose(vectors, embedder.embed(["example", ""]), atol=1e-6)
     assert "nomic-embed-text-v1.5:" in embedder.model_version
+
+
+def test_fingerprint_includes_external_weights(tmp_path):
+    """External tensor changes must invalidate persisted model versions (REQ-LLM-07)."""
+    model = tmp_path / "model.onnx"
+    model.write_bytes(b"graph")
+    tokenizer = tmp_path / "tokenizer.json"
+    tokenizer.write_bytes(b"{}")
+    tensors = tmp_path / "tensors"
+    tensors.mkdir()
+    weights = tensors / "arbitrary-name"
+    weights.write_bytes(b"weights-v1")
+    original = model_fingerprint(model, tokenizer)
+    assert model_fingerprint(model, tokenizer) == original
+    weights.write_bytes(b"weights-v2")
+    changed = model_fingerprint(model, tokenizer)
+    assert changed != original
+    weights.unlink()
+    assert model_fingerprint(model, tokenizer) not in (original, changed)
+
+
+def test_fingerprint_without_external_weights(tmp_path):
+    model = tmp_path / "model.onnx"
+    model.write_bytes(b"graph")
+    tokenizer = tmp_path / "tokenizer.json"
+    tokenizer.write_bytes(b"{}")
+    original = model_fingerprint(model, tokenizer)
+    model.write_bytes(b"new graph")
+    changed = model_fingerprint(model, tokenizer)
+    assert changed != original
+    tokenizer.write_bytes(b'{"changed": true}')
+    assert model_fingerprint(model, tokenizer) not in (original, changed)
+
+
+def test_fingerprint_rejects_missing_files_and_symlinks(tmp_path):
+    model = tmp_path / "model.onnx"
+    tokenizer = tmp_path / "tokenizer.json"
+    with pytest.raises(FileNotFoundError):
+        model_fingerprint(model, tokenizer)
+    model.write_bytes(b"graph")
+    tokenizer.write_bytes(b"{}")
+    link = tmp_path / "weights-link"
+    try:
+        link.symlink_to(model)
+    except OSError:
+        pytest.skip("Creating symlinks is not permitted")
+    with pytest.raises(ValueError, match="symlinks"):
+        model_fingerprint(model, tokenizer)
