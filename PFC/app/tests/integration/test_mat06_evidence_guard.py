@@ -18,7 +18,11 @@ from test_matching_service import (
 from pfc.db.connection import database
 from pfc.services.ingestion.cv_facts import rule_facts
 from pfc.services.matching import MatchingPorts, confirm_requirements
-from pfc.services.matching.evidence import DURATION_GAP, apply_experience_checks
+from pfc.services.matching.evidence import (
+    DURATION_GAP,
+    apply_experience_checks,
+    snapshot_experience,
+)
 
 
 def scores(db: Any, run: int) -> list[tuple[Any, ...]]:
@@ -31,6 +35,148 @@ def scores(db: Any, run: int) -> list[tuple[Any, ...]]:
             (run,),
         )
     ]
+
+
+def test_experience_years_follow_edited_items_and_revision_ancestry(api: Api) -> None:
+    client, headers = api
+    settings = client.app.state.settings
+    with database(settings) as db:
+        demand = seed_demand(db, confirmed=False)
+        initial = confirm_requirements(
+            db,
+            demand,
+            {
+                "mandatory_skills": [{"text": "C#"}],
+                "preferred_skills": [{"text": "Go"}],
+                "experience": [
+                    {"text": "SQL", "years": 10},
+                    {"text": "Python", "years": 3},
+                    {"text": "Java"},
+                ],
+            },
+            1,
+            NOW,
+        )
+    url = f"/api/v1/demands/{demand}/requirements"
+    body = client.get(url).json()
+    body["experience"] = ["Python", "Java", "SQL"]
+    body["experienceYears"] = 12
+    saved = client.put(url, headers=headers, json=body)
+    assert saved.status_code == 200, saved.text
+    finish(client, client.post(url + "/confirm", headers=headers))
+
+    def assert_mapping(expected: dict[str, float]) -> dict[str, Any]:
+        with database(settings) as db:
+            current = db.execute(
+                "SELECT jd_req_id FROM jd_requirements WHERE status='confirmed'"
+            ).fetchone()[0]
+            snapshot = snapshot_experience(db, {"demand": {"jd_req_id": current}}, [])
+            timed = snapshot["requirements"].get(str(current), [])
+            assert {item["text"]: item["years"] for item in timed} == expected
+            for item in timed:
+                stored = db.execute(
+                    "SELECT * FROM jd_requirement_items WHERE item_id=?", (item["item_id"],)
+                ).fetchone()
+                assert stored["jd_req_id"] == current
+                assert stored["text"] == item["text"]
+                assert stored["source_jd_req_id"] is not None
+            return snapshot
+
+    assert_mapping({"Python": 3, "SQL": 12})
+    body = client.get(url).json()
+    body["experience"] = ["Python", "Java"]
+    saved = client.put(url, headers=headers, json=body)
+    assert saved.status_code == 200, saved.text
+    finish(client, client.post(url + "/confirm", headers=headers))
+    assert_mapping({"Python": 3})
+    with database(settings) as db:
+        roots = {item["text"]: item["item_id"] for item in initial["items"]}
+        confirm_requirements(
+            db,
+            demand,
+            {
+                "experience": [
+                    {"text": "Python", "years": 4, "jdReqId": roots["Python"]},
+                    {"text": "SQL", "years": 15, "jdReqId": roots["SQL"]},
+                ]
+            },
+            1,
+            NOW,
+        )
+    assert_mapping({"Python": 4, "SQL": 15})
+    body = client.get(url).json()
+    body["experienceYears"] = None
+    saved = client.put(url, headers=headers, json=body)
+    assert saved.status_code == 200, saved.text
+    finish(client, client.post(url + "/confirm", headers=headers))
+    assert assert_mapping({}) == {"requirements": {}, "facts": {}}
+
+
+@pytest.mark.parametrize("timed", [False, True])
+def test_experience_checks_touch_only_demands_with_years(
+    api: Api, timed: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, headers = api
+    with database(client.app.state.settings) as db:
+        seed_resource(db)
+        seed_demand(db, code="PLAIN")
+        for code, years in [("UNTIMED", None), ("TIMED", 10 if timed else None)]:
+            demand = seed_demand(db, code=code, confirmed=False)
+            confirm_requirements(
+                db, demand, {"experience": [{"text": "SQL", "years": years}]}, 1, NOW
+            )
+
+    def check_updates(db: Any, run: int, snapshot: dict[str, Any]) -> None:
+        before = {
+            row["result_id"]: tuple(row)
+            for row in db.execute("SELECT * FROM match_results WHERE run_id=?", (run,))
+        }
+        affected = {
+            row["result_id"]
+            for row in db.execute("SELECT * FROM match_results WHERE run_id=?", (run,))
+            if snapshot["requirements"].get(str(row["jd_req_id"]))
+        }
+        assert len(affected) == int(timed)
+        db.execute("CREATE TEMP TABLE experience_updates(result_id INTEGER)")
+        db.execute(
+            "CREATE TEMP TRIGGER experience_update AFTER UPDATE OF "
+            "matching_evidence,gaps_checks ON match_results BEGIN "
+            "INSERT INTO experience_updates VALUES (NEW.result_id); END"
+        )
+        untouched = before.keys() - affected
+        for result_id in untouched:
+            db.execute(
+                "UPDATE score_breakdowns SET inputs_json='null' "
+                "WHERE result_id=? AND component='skills'",
+                (result_id,),
+            )
+        apply_experience_checks(db, run, snapshot)
+        assert {
+            row[0] for row in db.execute("SELECT result_id FROM experience_updates")
+        } == affected
+        for row in db.execute("SELECT * FROM match_results WHERE run_id=?", (run,)):
+            if row["result_id"] in untouched:
+                assert tuple(row) == before[row["result_id"]]
+        if not timed:
+            assert snapshot == {"requirements": {}, "facts": {}}
+
+    monkeypatch.setattr("pfc.services.matching.runs.apply_experience_checks", check_updates)
+    finish(client, client.post("/api/v1/match-runs", json={"scope": "full"}, headers=headers))
+
+
+def test_experience_snapshot_rejects_misaligned_items(api: Api) -> None:
+    client, _ = api
+    with database(client.app.state.settings) as db:
+        demand = seed_demand(db, confirmed=False)
+        confirmed = confirm_requirements(
+            db, demand, {"experience": [{"text": "SQL", "years": 10}]}, 1, NOW
+        )
+        db.execute(
+            "UPDATE jd_requirement_items SET text='Python' WHERE jd_req_id=?",
+            (confirmed["jd_req_id"],),
+        )
+        with pytest.raises(ValueError, match="does not match its confirmed extraction"):
+            snapshot_experience(db, {"demand": {"jd_req_id": confirmed["jd_req_id"]}}, [])
 
 
 @pytest.mark.parametrize("cv", ["absent", "short", "unrelated", "grounded", "fabricated"])

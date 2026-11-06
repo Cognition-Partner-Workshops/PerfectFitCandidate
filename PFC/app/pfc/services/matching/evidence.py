@@ -57,15 +57,32 @@ def snapshot_experience(
             or "{}"
         )
         items = db.execute(
-            "SELECT item_id,text FROM jd_requirement_items WHERE jd_req_id=? "
+            "SELECT item_id,text,position FROM jd_requirement_items WHERE jd_req_id=? "
             "AND kind='experience' ORDER BY position,item_id",
             (req_id,),
         ).fetchall()
-        requirements[str(req_id)] = [
-            {"item_id": str(item["item_id"]), "text": item["text"], "years": detail["years"]}
-            for item, detail in zip(items, data.get("experience", []), strict=False)
-            if detail.get("years") is not None
-        ]
+        offset = sum(len(data.get(field, [])) for field in ("mandatory_skills", "preferred_skills"))
+        experience = data.get("experience", [])
+        timed = []
+        for item in items:
+            if not experience:
+                continue
+            index = item["position"] - offset
+            if not 0 <= index < len(experience) or experience[index]["text"] != item["text"]:
+                raise ValueError("Experience item does not match its confirmed extraction")
+            detail = experience[index]
+            if detail.get("years") is not None:
+                timed.append(
+                    {
+                        "item_id": str(item["item_id"]),
+                        "text": item["text"],
+                        "years": detail["years"],
+                    }
+                )
+        if timed:
+            requirements[str(req_id)] = timed
+    if not requirements:
+        return {"requirements": {}, "facts": {}}
     candidates: dict[str, list[dict[str, str]]] = {}
     for row in db.execute(
         "SELECT candidate_id,text_norm,facts_json FROM cv_versions WHERE candidate_id IS NOT NULL"
@@ -87,11 +104,15 @@ def snapshot_experience(
 
 
 def apply_experience_checks(db: sqlite3.Connection, run_id: int, snapshot: dict[str, Any]) -> None:
+    requirements = [key for key, items in snapshot["requirements"].items() if items]
+    if not requirements:
+        return
     for row in db.execute(
         "SELECT r.result_id,r.resource_id,r.jd_req_id,r.gaps_checks,b.inputs_json "
         "FROM match_results r JOIN score_breakdowns b ON b.result_id=r.result_id "
-        "AND b.component='skills' WHERE r.run_id=?",
-        (run_id,),
+        "AND b.component='skills' WHERE r.run_id=? "
+        "AND r.jd_req_id IN (SELECT CAST(value AS INTEGER) FROM json_each(?))",
+        (run_id, json.dumps(requirements)),
     ).fetchall():
         facts = snapshot["facts"].get(str(row["resource_id"]), [])
         missing = {
