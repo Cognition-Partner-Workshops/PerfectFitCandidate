@@ -293,6 +293,11 @@ def resolve(
             ).fetchone():
                 raise Problem(409, "IDENTITY_CONFLICT", "Email is confirmed for another candidate")
             db.execute(
+                "DELETE FROM candidate_emails WHERE candidate_id=? AND source='manual' "
+                "AND email_key<>?",
+                (candidate_id, email_key),
+            )
+            db.execute(
                 "INSERT INTO candidate_emails(candidate_id,email,email_key,source,confirmed) "
                 "VALUES (?,?,?,'manual',1) ON CONFLICT(candidate_id,email_key) "
                 "DO UPDATE SET email=excluded.email,source='manual',confirmed=1",

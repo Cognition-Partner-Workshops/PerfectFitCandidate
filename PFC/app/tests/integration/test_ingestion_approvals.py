@@ -501,6 +501,74 @@ def test_req_in_23_manual_identity_cannot_override_any_ct_email(client, confirme
         assert not db.execute("SELECT 1 FROM audit_log WHERE action='IDENTITY_RESOLVE'").fetchone()
 
 
+def test_req_in_23_manual_email_correction_does_not_link_old_address(client):
+    ingest(client, "ct", [{"Email Address": None}])
+    login(client, "Analyst")
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "INSERT INTO candidate_emails(candidate_id,email,email_key,source,confirmed) "
+            "VALUES (1,'cv@example.com','cv@example.com','CV',0)"
+        )
+    for email in ["A@example.com", None, "B@example.com"]:
+        response = client.put(
+            "/api/v1/candidates/1/identity",
+            json={
+                "action": "manual_entry",
+                "name": "Morgan Synthetic",
+                **({"email": email} if email else {}),
+            },
+        )
+        assert response.status_code == 200, response.text
+        with database(client.app.state.settings) as db:
+            rows = db.execute(
+                "SELECT email,source,confirmed FROM candidate_emails "
+                "WHERE candidate_id=1 ORDER BY source"
+            ).fetchall()
+            assert [tuple(row) for row in rows] == [
+                ("cv@example.com", "CV", 0),
+                (email or "A@example.com", "manual", 1),
+            ]
+    login(client)
+    ingest(client, "ct", [{"Email Address": "A@example.com"}])
+    with database(client.app.state.settings) as db:
+        linked = db.execute(
+            "SELECT candidate_id FROM resources WHERE email_key='a@example.com'"
+        ).fetchone()
+        assert linked is not None and linked[0] != 1
+        assert (
+            db.execute(
+                "SELECT email FROM candidate_emails WHERE candidate_id=1 AND source='manual'"
+            ).fetchone()[0]
+            == "B@example.com"
+        )
+
+
+def test_req_in_23_manual_email_conflict_preserves_previous_address(client):
+    ingest(client, "ct", [{"Email Address": None}, {}])
+    with database(client.app.state.settings) as db:
+        db.execute("UPDATE candidate_emails SET confirmed=1")
+    login(client, "Analyst")
+    assert (
+        client.put(
+            "/api/v1/candidates/1/identity",
+            json={"action": "manual_entry", "name": "Morgan", "email": "old@example.com"},
+        ).status_code
+        == 200
+    )
+    response = client.put(
+        "/api/v1/candidates/1/identity",
+        json={"action": "manual_entry", "name": "Morgan", "email": "alex@example.com"},
+    )
+    assert response.status_code == 409, response.text
+    with database(client.app.state.settings) as db:
+        assert (
+            db.execute(
+                "SELECT email FROM candidate_emails WHERE candidate_id=1 AND source='manual'"
+            ).fetchone()[0]
+            == "old@example.com"
+        )
+
+
 def test_req_in_23_manual_identity_conflict_validation_and_access(client):
     ingest(client, "ct", [{"Email Address": None}, {}])
     with database(client.app.state.settings) as db:
