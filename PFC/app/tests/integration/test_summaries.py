@@ -106,8 +106,8 @@ def test_grounded_success_prompt_masking_metadata_and_score_isolation(
         "sourceVersionId",
     }
     assert saved["sentences"][1] == {
-        "text": "al**@example.com on ***89",
-        "evidence": "al**@example.com on ***89",
+        "text": "[email removed] on [phone removed]",
+        "evidence": "[email removed] on [phone removed]",
     }
     assert "alex@example.com" not in response.text and "+44 123456789" not in response.text
     assert provider.request is not None
@@ -148,6 +148,65 @@ def test_grounded_success_prompt_masking_metadata_and_score_isolation(
         assert before_breakdowns == [
             tuple(row) for row in db.execute(breakdown_query, (second_run,))
         ]
+
+
+@pytest.mark.parametrize(
+    "contact,redacted",
+    [
+        ("jonathan.smithers@example.com", "[email removed]"),
+        ("+44 7700 900123", "[phone removed]"),
+    ],
+)
+def test_contacts_are_fully_redacted_before_storage_and_response(
+    api: Api, owner: tuple[str, str, int], contact: str, redacted: str
+) -> None:
+    client, headers = api
+    kind, url, version = owner
+    settings = client.app.state.settings
+    with database(settings) as db:
+        if kind == "candidate":
+            db.execute(
+                "UPDATE cv_versions SET text_norm=? WHERE cv_version_id=?", (contact, version)
+            )
+        else:
+            db.execute(
+                "UPDATE demand_versions SET jd_text_norm=? WHERE demand_version_id=?",
+                (contact, version),
+            )
+    client.app.state.llm_provider = Provider(output(contact), settings)
+    response = client.post(url, headers=headers)
+    assert response.status_code == 200, response.text
+    expected = [{"text": redacted, "evidence": redacted}]
+    assert response.json()["sentences"] == expected
+    assert client.get(url).json()["sentences"] == expected
+    with database(settings) as db:
+        stored = db.execute("SELECT sentences_json FROM summaries").fetchone()[0]
+    assert json.loads(stored) == expected
+    for value in (response.text, stored):
+        assert "@" not in value
+        assert contact.partition("@")[0] not in value
+    if "@" not in contact:
+        for sentence in response.json()["sentences"]:
+            assert not any(
+                digit in sentence[field]
+                for field in ("text", "evidence")
+                for digit in contact
+                if digit.isdigit()
+            )
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("2019-2023", "2019-2023"),
+        ("123456", "123456"),
+        ("1234567", "[phone removed]"),
+        ("a@example.com; +44 7700 900123", "[email removed]; [phone removed]"),
+        ("", ""),
+    ],
+)
+def test_contact_redaction_uses_masker_detection(text: str, expected: str) -> None:
+    assert summaries.redact_contacts(text) == expected
 
 
 def test_partial_drop_and_latest(api: Api, owner: tuple[str, str, int]) -> None:

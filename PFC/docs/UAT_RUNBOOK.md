@@ -374,6 +374,67 @@ Requirements: KPI-02, KPI-05; exit criterion P1-EX-03. Method: [KPI_BASELINES.md
 
 Notes:
 
+## 9. Reading-only candidate and demand summaries
+
+Requirements: REQ-LLM-02. Run on the target laptop; Linux VM figures are not acceptance evidence.
+
+**Preconditions**
+
+- Steps 3 and 4 passed. Sign in as an Analyst, with the approved local model running.
+- One synthetic candidate has synced CV text and one synthetic demand has current JD text.
+  Keep changed synthetic CV/JD versions ready for the stale-banner check.
+
+**Actions**
+
+1. In Task Manager → Details, show **Peak working set (memory)** for `llama-server.exe`
+   and `python.exe`.
+2. Open the synthetic Candidate Profile → **Summary** and choose **Generate summary**.
+   Record the request latency in browser developer tools → Network and both process memory
+   readings. Expand each sentence's evidence and compare it with the synthetic CV.
+3. Open the synthetic demand's review drawer and repeat for its **Summary** card, recording
+   latency and memory separately. Confirm the button now says **Regenerate** on both cards.
+4. Sync a changed synthetic CV. Change the demand's **JD** cell in the synthetic DL,
+   then upload, approve and commit that DL to create a new JD version. Reopen both
+   summary cards without regenerating; record their stale banners.
+   Regenerate each and confirm the banner clears.
+5. For this synthetic test installation only, close PFC, record the approved GGUF file
+   paths and temporarily rename those files with a `.uat-disabled` suffix. Restart PFC
+   and confirm in Task Manager that no `llama-server.exe` is running. Choose **Regenerate**
+   on each card and record the HTTP 503 and the plain unavailable-model message. Close PFC,
+   restore the exact original GGUF filenames and restart with the approved model available.
+
+**Expected result**
+
+- Both cards show exactly: **AI summary for reading only — not used in scoring. Check
+  against the source.** Evidence expands and agrees with the source; contacts in text and
+  evidence are fully replaced with `[email removed]` / `[phone removed]`, not partially
+  masked. Record any unsupported claims: grounding checks evidence and numbers,
+  not whether the sentence follows from the quote.
+- Both source changes show **Source changed since this summary — regenerate**. Regeneration
+  clears the stale banner.
+- With the model stopped, each generation request returns 503 and the UI shows a plain
+  unavailable-model message, not a fabricated summary or raw error.
+- Record the latencies and peak process memory; combined model plus Python memory must be
+  ≤ 8 GB. A 422 or unavailable model during the initial generation is a failed check; record
+  the code and investigate rather than treating missing evidence as a pass.
+
+**Evidence**
+
+| Check | Value | Screenshot | Pass/Fail |
+| --- | --- | --- | --- |
+| Candidate summary latency (s) | | | |
+| Demand summary latency (s) | | | |
+| Candidate: model / Python peak working set (GB) | | | |
+| Demand: model / Python peak working set (GB) | | | |
+| Combined ≤ 8 GB | | | |
+| Reading-only label on both cards | | | |
+| Expandable evidence, grounding differences and masking | | | |
+| Candidate stale banner after CV change; clears after regenerate | | | |
+| Demand stale banner after JD change; clears after regenerate | | | |
+| Model stopped: 503 and plain message on both cards | | | |
+
+Notes:
+
 ## Sign-off
 
 | Role | Decision (Pass / Fail / Pass with actions) | Date |
