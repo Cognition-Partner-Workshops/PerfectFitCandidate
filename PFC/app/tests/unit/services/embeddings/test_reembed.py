@@ -329,7 +329,8 @@ def test_only_current_confirmed_items_and_latest_cvs_are_loaded(state: State) ->
         (NOW,),
     )
     db.execute(
-        "INSERT INTO jd_requirement_items VALUES (1,1,'mandatory_skill','Old item',NULL,NULL,0)"
+        "INSERT INTO jd_requirement_items(item_id,jd_req_id,kind,text,canonical_skill_id,"
+        "source_span,position) VALUES (1,1,'mandatory_skill','Old item',NULL,NULL,0)"
     )
     db.commit()
     run(state)
