@@ -11,6 +11,8 @@ from pypdf import PdfReader
 
 from pfc.services.ingestion.models import file_sha256
 
+EMAIL_PATTERN = re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}")
+
 
 class CandidateLookup(BaseModel):
     candidate_id: str
@@ -91,15 +93,13 @@ class ResumeFolderSource:
                 text = ""
                 extraction_failed = True
                 flags.append(f"extraction failed: {type(exc).__name__}")
-            emails = set(re.findall(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", text.lower()))
+            emails = set(EMAIL_PATTERN.findall(text.lower()))
+            filename_emails = set(EMAIL_PATTERN.findall(path.stem.lower()))
             matches: list[tuple[int, Literal["email_exact", "manual", "name_fuzzy"]]] = []
             for index, candidate in enumerate(candidates):
                 email = (candidate.email_address or "").strip().lower()
-                filename_email = email and re.search(
-                    r"(?<![\w.+-])" + re.escape(email) + r"(?![\w@-])", path.name.lower()
-                )
                 names = [_tokens(candidate.short_name), _tokens(candidate.display_name)]
-                if email and (email in emails or filename_email):
+                if email and (email in emails or email in filename_emails):
                     matches.append((index, "email_exact"))
                 elif not extraction_failed and relative in candidate.source_paths:
                     matches.append((index, "manual"))

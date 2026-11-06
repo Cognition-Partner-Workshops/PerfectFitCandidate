@@ -64,6 +64,21 @@ def test_req_in_25_email_boundary(tmp_path: Path) -> None:
     assert result.checks == ["CV not found"]
 
 
+@pytest.mark.parametrize(
+    "filename,expected", [("alex@example.com.au.pdf", False), ("AlEx@Example.com.pdf", True)]
+)
+def test_req_in_25_filename_email_exact_domain(
+    tmp_path: Path, filename: str, expected: bool
+) -> None:
+    writer = PdfWriter()
+    writer.add_blank_page(width=100, height=100)
+    writer.write(tmp_path / filename)
+    (result,) = ResumeFolderSource(tmp_path).scan([candidate(email_address="alex@example.com")])
+    assert bool(result.versions) is expected
+    if expected:
+        assert result.versions[0].identity_match == "email_exact"
+
+
 def test_req_in_22_missing_cv_not_error(tmp_path: Path) -> None:
     (result,) = ResumeFolderSource(tmp_path).scan([candidate(short_name="Nobody")])
     assert result.checks == ["CV not found"]
