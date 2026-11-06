@@ -420,6 +420,7 @@ def test_email_templates(client: TestClient) -> None:
     first = client.post(base, json=body).json()
     second = client.post(base, json={**body, "subject": "{role}"}).json()
     assert (first["version"], second["version"]) == (1, 2)
+    assert (first["is_default"], second["is_default"]) == (1, 0)
     assert len(client.get(base).json()) == 1
     assert len(client.get(base, params={"all": True}).json()) == 2
     for row in (first, second):
@@ -433,16 +434,18 @@ def test_email_templates(client: TestClient) -> None:
 @pytest.mark.parametrize(
     "body_html",
     [
-        "<style>p { color: red }</style><p>{candidate_name}</p>",
-        "<style>a{color:red}</style>",
+        "",
+        "<style>p {{ color: red }}</style><p>{candidate_name}</p>",
+        "<style>a{{color:red}}</style>",
         "{candidate_name}",
         "{{",
         "{{literal_braces}}",
-        "{unfinished",
+        "{{{candidate_name}}}",
+        "}}",
     ],
 )
 def test_email_literal_braces(client: TestClient, body_html: str) -> None:
-    """REQ-EML-03: CSS and literal braces are not placeholder identifiers."""
+    """REQ-EML-03: literal CSS braces must be escaped for format_map."""
     login(client)
     result = client.post(
         "/api/v1/occ/email-templates",
@@ -454,6 +457,45 @@ def test_email_literal_braces(client: TestClient, body_html: str) -> None:
     )
     assert result.status_code == 201, result.text
     assert result.json()["body_html"] == body_html
+    assert isinstance(body_html.format_map({"candidate_name": "Candidate"}), str)
+
+
+@pytest.mark.parametrize("field", ["subject", "body_html"])
+@pytest.mark.parametrize("new_version", [False, True])
+@pytest.mark.parametrize(
+    "text,code",
+    [
+        ("{candidate_name", "TEMPLATE_INVALID"),
+        ("}", "TEMPLATE_INVALID"),
+        ("{candidate_name:>10}", "TEMPLATE_INVALID"),
+        ("{candidate_name!r}", "TEMPLATE_INVALID"),
+        ("{candidate_name!s}", "TEMPLATE_INVALID"),
+        ("{candidate_name.__class__}", "TEMPLATE_INVALID"),
+        ("{candidate_name[0]}", "TEMPLATE_INVALID"),
+        ("{}", "TEMPLATE_INVALID"),
+        ("{unknown}", "UNKNOWN_PLACEHOLDER"),
+        ("<style>p { color: red }</style>", "TEMPLATE_INVALID"),
+        ("<style>a{color:red}</style>", "UNKNOWN_PLACEHOLDER"),
+    ],
+)
+def test_email_invalid_formatting(
+    client: TestClient,
+    field: str,
+    new_version: bool,
+    text: str,
+    code: str,
+) -> None:
+    login(client)
+    body = {"name": "validated", "subject": "{role}", "body_html": "{candidate_name}"}
+    base = "/api/v1/occ/email-templates"
+    if new_version:
+        assert client.post(base, json=body).status_code == 201
+    response = client.post(base, json={**body, field: text})
+    assert response.status_code == 422
+    assert response.headers["content-type"] == "application/problem+json"
+    assert response.json()["code"] == code
+    assert field in response.json()["detail"]
+    assert len(client.get(base, params={"all": True}).json()) == int(new_version)
 
 
 @pytest.mark.parametrize("token", ["{Unknown}", "{missing!r}"])

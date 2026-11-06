@@ -22,6 +22,7 @@ from pfc.adapters.email.transports import (
 from pfc.adapters.llm.providers import FakeProvider
 from pfc.api.routers.auth import router as auth_router
 from pfc.api.routers.email import router as email_router
+from pfc.api.routers.occ import router as occ_router
 from pfc.config import Settings
 from pfc.db import audit, users
 from pfc.db.connection import database
@@ -63,6 +64,7 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
     install_middleware(app)
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(email_router, prefix="/api/v1")
+    app.include_router(occ_router, prefix="/api/v1")
     app.state.email_transport = FakeTransport()
     with TestClient(app, raise_server_exceptions=False) as result:
         setup = result.post(
@@ -327,6 +329,39 @@ def test_concurrent_send_state_blocks_edit_and_approval(
             (draft["message_id"],),
         ).fetchone()[0]
     assert status == "Sending"
+
+
+def test_occ_template_saved_before_first_draft_is_reused(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/auth/login",
+        json={
+            "role": "Admin",
+            "email": "admin@example.test",
+            "password": "Strong!Random4567",
+        },
+    )
+    assert response.status_code == 200
+    saved = client.post(
+        "/api/v1/occ/email-templates",
+        headers={"X-CSRF-Token": response.json()["csrf_token"]},
+        json={
+            "name": "candidate_default",
+            "subject": "Saved {candidate_name} {{draft}}",
+            "body_html": "<p>Hello {candidate_name} {{literal}}</p>",
+        },
+    )
+    assert saved.status_code == 201, saved.text
+    run_id, _ = seed_matches(client)
+    response = create_drafts(client, login(client), run_id)
+    assert response.status_code == 201, response.text
+    assert all(draft["subject"].startswith("Saved ") for draft in response.json()["drafts"])
+    assert all("{draft}" in draft["subject"] for draft in response.json()["drafts"])
+    assert all("{literal}" in draft["body_html"] for draft in response.json()["drafts"])
+    with database(client.app.state.settings) as db:
+        rows = db.execute("SELECT * FROM email_templates").fetchall()
+        assert len(rows) == 1
+        assert rows[0]["email_template_id"] == saved.json()["email_template_id"]
+        assert rows[0]["is_default"] == 1
 
 
 def test_default_email_template_uses_occ_placeholders(client: TestClient) -> None:
