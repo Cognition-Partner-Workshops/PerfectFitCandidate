@@ -30,6 +30,10 @@ UPLOAD_PATTERN = re.compile(
     r"\bthis\.upload\s*\(\s*(?P<path>`[^`]*`|'[^']*'|\"[^\"]*\")",
     re.DOTALL,
 )
+CONDITIONAL_PATH_PATTERN = re.compile(
+    r"\$\{[^{}]*?\?\s*['\"](?P<first>/[^'\"]+)['\"]\s*:\s*['\"]"
+    r"(?P<second>/[^'\"]+)['\"]\s*\}"
+)
 ALLOWED_PENDING_LABELS = (
     "W2-1 ingestion",
     "W2-2 matching #10",
@@ -44,26 +48,20 @@ PENDING: dict[Route, str] = {
     ("GET", "/api/v1/analytics/match"): "W2-5 analytics/export",
     ("GET", "/api/v1/analytics/summary"): "W2-5 analytics/export",
     ("GET", "/api/v1/candidates/{}"): "W2-1 ingestion",
-    ("GET", "/api/v1/demands"): "W2-1 ingestion",
     ("GET", "/api/v1/demands/{}/requirements"): "W2-1 ingestion",
     ("GET", "/api/v1/match-runs"): "W2-2 matching #10",
     ("GET", "/api/v1/match-runs/{}/results"): "W2-2 matching #10",
+    ("GET", "/api/v1/occ/approvals"): "W2-1 ingestion: OCC approvals",
     ("GET", "/api/v1/occ/settings-package"): "W2-4b settings package",
-    ("GET", "/api/v1/resources"): "W2-1 ingestion",
-    ("GET", "/api/v1/resources/excluded"): "W2-1 ingestion",
     ("GET", "/api/v1/settings/settings-package/history"): "W2-4b settings package",
     ("POST", "/api/v1/demands/analyze"): "W2-1 ingestion",
     ("POST", "/api/v1/demands/{}/requirements/confirm"): "W2-1 ingestion",
-    ("POST", "/api/v1/ingestion-runs/{}/commit"): "W2-1 ingestion",
-    ("POST", "/api/v1/ingestion-runs/{}/discard"): "W2-1 ingestion",
     ("POST", "/api/v1/match-results/{}/overrides"): "W2-2 matching #10",
     ("POST", "/api/v1/occ/settings-package/export"): "W2-4b settings package",
     ("POST", "/api/v1/pii/unmask"): "W2-2 matching #10",
-    ("POST", "/api/v1/resources/cv-sync"): "W2-1 ingestion",
     ("POST", "/api/v1/settings/settings-package/import"): "W2-4b settings package",
     ("POST", "/api/v1/settings/settings-package/preview"): "W2-4b settings package",
     ("POST", "/api/v1/settings/settings-package/rollback"): "W2-4b settings package",
-    ("POST", "/api/v1/uploads/{}"): "W2-1 ingestion",
     ("PUT", "/api/v1/candidates/{}/identity"): "W2-1 ingestion",
     ("PUT", "/api/v1/demands/{}/requirements"): "W2-1 ingestion",
     ("PUT", "/api/v1/occ/bench-statuses"): (
@@ -72,21 +70,44 @@ PENDING: dict[Route, str] = {
     ("PUT", "/api/v1/occ/internal-domains"): (
         "MISMATCH: merged OCC router has no collection PUT operation"
     ),
+    ("PUT", "/api/v1/occ/demands/{}"): "W2-1 ingestion: OCC approvals",
     ("PUT", "/api/v1/occ/resource-team"): (
         "MISMATCH: merged OCC router only updates /occ/resource-team/{target}"
     ),
+    ("PUT", "/api/v1/occ/resources/{}"): "W2-1 ingestion: OCC approvals",
     ("PUT", "/api/v1/occ/status-map"): (
         "MISMATCH: merged OCC router only updates /occ/status-map/{source}"
     ),
 }
 
 
-def _frontend_path(path_literal: str) -> str:
+def _frontend_paths(path_literal: str) -> set[str]:
     path = path_literal[1:-1]
     path = re.sub(r"\$\{this\.qs\([^}]*\)\}", "", path)
-    path = path.split("?", 1)[0]
-    path = re.sub(r"\$\{[^}]+\}", "{}", path)
-    return f"{API_PREFIX}{path}"
+    paths = [path]
+    while True:
+        expanded_paths: list[str] = []
+        did_expand = False
+        for candidate in paths:
+            conditional = CONDITIONAL_PATH_PATTERN.search(candidate)
+            if conditional is None:
+                expanded_paths.append(candidate)
+                continue
+            did_expand = True
+            for branch in ("first", "second"):
+                expanded_paths.append(
+                    f"{candidate[: conditional.start()]}{conditional.group(branch)}"
+                    f"{candidate[conditional.end() :]}"
+                )
+        paths = expanded_paths
+        if not did_expand:
+            break
+
+    normalized_paths = set()
+    for candidate in paths:
+        normalized_path = re.sub(r"\$\{[^}]+\}", "{}", candidate).split("?", 1)[0]
+        normalized_paths.add(f"{API_PREFIX}{normalized_path}")
+    return normalized_paths
 
 
 def _is_mock_or_test(source_path: Path, api_directory: Path) -> bool:
@@ -107,12 +128,14 @@ def _frontend_calls(frontend_root: Path) -> set[Route]:
             continue
         source = source_path.read_text(encoding="utf-8")
         calls.update(
-            (match.group("method"), _frontend_path(match.group("path")))
+            (match.group("method"), path)
             for match in REQUEST_PATTERN.finditer(source)
+            for path in _frontend_paths(match.group("path"))
         )
         calls.update(
-            ("POST", _frontend_path(match.group("path")))
+            ("POST", path)
             for match in UPLOAD_PATTERN.finditer(source)
+            for path in _frontend_paths(match.group("path"))
         )
     return calls
 
