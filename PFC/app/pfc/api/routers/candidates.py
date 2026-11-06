@@ -11,16 +11,39 @@ from pfc.api.schemas.candidates import (
     ClassificationOverride,
     IdentityResolution,
 )
+from pfc.api.schemas.summaries import SummaryView
 from pfc.db.connection import database
 from pfc.security.dependencies import Principal, require_role
 from pfc.security.problems import Problem
 from pfc.security.sessions import stamp
+from pfc.services import summaries
 from pfc.services.candidates import classification
 from pfc.services.ingestion import identity
 
 router = APIRouter(prefix="/candidates", dependencies=[Depends(require_role("Analyst"))])
 Analyst = Annotated[Principal, Depends(require_role("Analyst"))]
 Admin = Annotated[Principal, Depends(require_role("Admin"))]
+
+
+@router.post("/{candidate_id}/summary")
+def generate_summary(
+    candidate_id: int,
+    request: Request,
+    principal: Annotated[Principal, Depends(require_role("Analyst"))],
+) -> SummaryView:
+    return summaries.generate(
+        request.app.state.settings,
+        getattr(request.app.state, "llm_provider", None),
+        "candidate",
+        candidate_id,
+        principal.user.user_id,
+        request.app.state.clock,
+    )
+
+
+@router.get("/{candidate_id}/summary")
+def summary(candidate_id: int, request: Request) -> SummaryView:
+    return summaries.latest(request.app.state.settings, "candidate", candidate_id)
 
 
 @router.put("/{candidate_id}/classification")

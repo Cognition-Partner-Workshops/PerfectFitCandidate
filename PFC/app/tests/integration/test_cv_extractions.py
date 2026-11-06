@@ -74,6 +74,15 @@ def snapshot(client: TestClient, tables: tuple[str, ...]) -> dict:
         }
 
 
+def seed_summary(db: sqlite3.Connection, kind: str, owner: int, version: int) -> None:
+    db.execute(
+        "INSERT INTO summaries(owner_kind,owner_id,source_version_id,source_sha256,model,"
+        "template_id,template_version,sentences_json,dropped_ungrounded,created_by,created_at) "
+        "VALUES (?,?,?,'fixture','fake','summary','1',?,0,1,'2026-01-01')",
+        (kind, owner, version, json.dumps([{"text": "SQL", "evidence": "SQL"}])),
+    )
+
+
 def matching_cache(
     client: TestClient, versions: dict[int, int]
 ) -> tuple[MatchingVectorStore, list]:
@@ -101,6 +110,7 @@ def test_removal_is_scoped_and_sync_restores_unchanged_file(
     }
     preserved = snapshot(client, ("resources", "resource_skills", "candidate_emails", "resumes"))
     with database(settings) as db:
+        seed_summary(db, "candidate", candidate, versions[candidate])
         original = dict(
             db.execute(
                 "SELECT * FROM cv_versions WHERE cv_version_id=?",
@@ -188,6 +198,69 @@ def test_removal_is_scoped_and_sync_restores_unchanged_file(
         assert row["sections_json"] is None and row["extraction_removed_at"] is None
         assert db.execute("SELECT count(*) FROM cv_versions").fetchone()[0] == 2
         assert db.execute("SELECT count(*) FROM embedding_chunks").fetchone()[0] == 2
+    response = client.get(f"/api/v1/candidates/{candidate}/summary")
+    assert response.status_code == 404
+    assert response.json()["code"] == "SUMMARY_NOT_FOUND"
+
+
+def test_summary_purge_only_targets_newly_cleared_versions(
+    client: TestClient, tmp_path: Path
+) -> None:
+    _, versions = prepare(client, tmp_path)
+    candidate = min(versions)
+    other = max(versions)
+    settings = client.app.state.settings
+    with database(settings) as db:
+        removed = db.execute(
+            "INSERT INTO cv_versions(resume_id,candidate_id,version_no,text_sha256,text_norm,"
+            "extracted_by,is_latest,extracted_at,extraction_removed_at) "
+            "SELECT resume_id,candidate_id,2,'removed','',extracted_by,0,extracted_at,"
+            "'2026-01-01' FROM cv_versions WHERE cv_version_id=?",
+            (versions[candidate],),
+        ).lastrowid
+        assert removed is not None
+        demand = seed_demand(db)
+        demand_version = db.execute(
+            "SELECT current_version_id FROM demands WHERE demand_id=?", (demand,)
+        ).fetchone()[0]
+        seed_summary(db, "candidate", candidate, versions[candidate])
+        seed_summary(db, "candidate", candidate, removed)
+        seed_summary(db, "candidate", other, versions[other])
+        seed_summary(db, "demand", demand, demand_version)
+        preserved = [
+            tuple(row)
+            for row in db.execute(
+                "SELECT * FROM summaries WHERE NOT "
+                "(owner_kind='candidate' AND source_version_id=?) ORDER BY summary_id",
+                (versions[candidate],),
+            )
+        ]
+    response = client.delete(f"/api/v1/occ/candidates/{candidate}/cv-extractions")
+    assert response.status_code == 200, response.text
+    assert "summariesCleared" not in response.json()
+    with database(settings) as db:
+        assert [
+            tuple(row) for row in db.execute("SELECT * FROM summaries ORDER BY summary_id")
+        ] == preserved
+        event = json.loads(
+            db.execute(
+                "SELECT details_json FROM audit_log WHERE action='CV_EXTRACTIONS_REMOVED' "
+                "ORDER BY audit_id DESC LIMIT 1"
+            ).fetchone()[0]
+        )
+        assert event["summaries_cleared"] == 1
+    assert client.delete(f"/api/v1/occ/candidates/{candidate}/cv-extractions").status_code == 200
+    with database(settings) as db:
+        assert [
+            tuple(row) for row in db.execute("SELECT * FROM summaries ORDER BY summary_id")
+        ] == preserved
+        event = json.loads(
+            db.execute(
+                "SELECT details_json FROM audit_log WHERE action='CV_EXTRACTIONS_REMOVED' "
+                "ORDER BY audit_id DESC LIMIT 1"
+            ).fetchone()[0]
+        )
+        assert event["summaries_cleared"] == 0
 
 
 @pytest.mark.parametrize("preserved_schema", [False, True])
@@ -371,7 +444,12 @@ def test_removal_rolls_back_both_caches(
 ) -> None:
     _, versions = prepare(client, tmp_path)
     cache, owners = matching_cache(client, versions)
-    before = snapshot(client, ("cv_versions", "embedding_chunks", "pfc_vector_records"))
+    with database(client.app.state.settings) as db:
+        for candidate, version in versions.items():
+            seed_summary(db, "candidate", candidate, version)
+    before = snapshot(
+        client, ("cv_versions", "embedding_chunks", "pfc_vector_records", "summaries")
+    )
 
     def fail(*args, **kwargs) -> None:
         raise RuntimeError("Audit failed")
