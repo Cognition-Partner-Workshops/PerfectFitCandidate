@@ -88,7 +88,9 @@ def test_req_mat_02_exact_normalized_precision_recall() -> None:
 
 
 class RawFake(FakeProvider):
-    async def generate(self, request, *, api_version=None):
+    async def generate(
+        self, request: PromptRequest, *, api_version: str | None = None
+    ) -> GenerateResult:
         return GenerateResult(self.text, "fake", "fake-v1")
 
 
@@ -101,8 +103,8 @@ class RawFake(FakeProvider):
         ("not json", "invalid_json"),
     ],
 )
-def test_req_mat_02_real_jd_bridge_in_anyio_worker(raw, reason) -> None:
-    async def probe():
+def test_req_mat_02_real_jd_bridge_in_anyio_worker(raw: str, reason: str | None) -> None:
+    async def probe() -> dict[str, Any]:
         provider = RecordingProvider(RawFake(raw))
         result = await anyio.to_thread.run_sync(run_jd, provider, "Required: SQL")
         assert result["fallback_reason"] == reason
@@ -139,20 +141,23 @@ def test_req_in_23_grounding_drops_are_not_rule_precedence() -> None:
     assert drops["categories"]["name"]["ungrounded"] == 0
     assert drops["categories"]["name"]["rule_precedence"] == 1
 
-    async def probe():
+    async def probe() -> CVFacts:
         provider = RecordingProvider(FakeProvider(raw))
         bridge = LLMBridge(provider, asyncio.get_running_loop(), asyncio.Semaphore(1))
-        result = await anyio.to_thread.run_sync(
-            extract_facts, text, bridge, 2, JobContext(None, 0, threading.Event())
-        )
-        assert result.facts.name.source == "rule"
+        context = JobContext(None, 0, threading.Event())  # type: ignore[arg-type]
+        result = await anyio.to_thread.run_sync(extract_facts, text, bridge, 2, context)
+        assert result.facts.name is not None and result.facts.name.source == "rule"
         assert result.facts.experience[0].source == "llm"
         assert result.facts.projects[0].source == "rule"
         assert final_fact_failures(text, result.facts) == 0
         return result.facts
 
     facts = anyio.run(probe)
-    fixture = {"id": "synthetic", "text": text, "expected": {key: [] for key in KEYS}}
+    fixture: dict[str, Any] = {
+        "id": "synthetic",
+        "text": text,
+        "expected": {key: [] for key in KEYS},
+    }
     fixture["expected"]["experience"] = ["Engineer at Acme"]
     assert score_cv(fixture, facts, raw)["scores"]["experience"]["recovered"] == 1
     broken = facts.model_copy(deep=True)
@@ -171,11 +176,13 @@ def test_req_in_23_invalid_and_missing_cv_responses() -> None:
 
 
 def test_req_llm_02_proxy_captures_adapter_rejected_raw_output() -> None:
-    async def probe():
+    async def probe() -> None:
         raw = '{"invented":true}'
-        transport = httpx.MockTransport(
-            lambda request: httpx.Response(200, json={"choices": [{"message": {"content": raw}}]})
-        )
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"choices": [{"message": {"content": raw}}]})
+
+        transport = httpx.MockTransport(respond)
         actual = LlamaCppProvider(
             "http://127.0.0.1:1234", "fake-model", api_key="synthetic-key", transport=transport
         )

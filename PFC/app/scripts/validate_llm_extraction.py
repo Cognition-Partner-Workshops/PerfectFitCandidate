@@ -17,10 +17,19 @@ from typing import Any
 
 import anyio
 import httpx
+import numpy as np
+from numpy.typing import NDArray
 from pydantic import ValidationError
 from starlette.datastructures import State
 
-from pfc.adapters.llm.providers import LLMProvider, PromptRequest, parse_output
+from pfc.adapters.llm.providers import (
+    Capabilities,
+    GenerateResult,
+    Health,
+    LLMProvider,
+    PromptRequest,
+    parse_output,
+)
 from pfc.adapters.llm.supervisor import LlamaServerSupervisor
 from pfc.api.schemas.cv import CVFacts
 from pfc.config import Settings
@@ -115,13 +124,13 @@ class RecordingProvider:
         self.wire_texts: list[str] = []
         self.name, self.kind = provider.name, provider.kind
 
-    def capabilities(self):
+    def capabilities(self) -> Capabilities:
         return self.provider.capabilities()
 
-    async def health(self):
+    async def health(self) -> Health:
         return await self.provider.health()
 
-    async def embed(self, texts):
+    async def embed(self, texts: list[str]) -> NDArray[np.float32]:
         return await self.provider.embed(texts)
 
     async def observe_response(self, response: httpx.Response) -> None:
@@ -133,10 +142,12 @@ class RecordingProvider:
         except (ValueError, KeyError, IndexError, TypeError):
             pass
 
-    async def generate(self, request: PromptRequest, *, api_version=None):
+    async def generate(
+        self, request: PromptRequest, *, api_version: str | None = None
+    ) -> GenerateResult:
         started = perf_counter()
         self.wire_texts = []
-        call = {"purpose": request.purpose, "raw": None, "error": None}
+        call: dict[str, Any] = {"purpose": request.purpose, "raw": None, "error": None}
         try:
             result = await self.provider.generate(request, api_version=api_version)
             call["raw"] = result.text
@@ -232,7 +243,15 @@ def totals(scores: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def summarize(jds, cvs, calls, *, load_s, peak_bytes, hardware):
+def summarize(
+    jds: list[dict[str, Any]],
+    cvs: list[dict[str, Any]],
+    calls: list[dict[str, Any]],
+    *,
+    load_s: float,
+    peak_bytes: int | None,
+    hardware: dict[str, Any],
+) -> dict[str, Any]:
     reasons = Counter(j["fallback_reason"] for j in jds if j["fallback_reason"])
     latencies = [c["latency_s"] for c in calls]
     return {
@@ -282,7 +301,7 @@ def summarize(jds, cvs, calls, *, load_s, peak_bytes, hardware):
     }
 
 
-def display(value, *, percent=False):
+def display(value: float | None, *, percent: bool = False) -> str:
     return "n/a" if value is None else f"{value * 100:.1f}%" if percent else f"{value:.3f}"
 
 
@@ -357,7 +376,7 @@ def process_memory(pid: int) -> int | None:
     return max(values) if values else None
 
 
-async def live(args) -> dict[str, Any]:
+async def live(args: argparse.Namespace) -> dict[str, Any]:
     fixtures = json.loads(args.fixtures.read_text())
     gguf, binary = args.gguf.expanduser().resolve(), args.llama_server.expanduser().resolve()
     lock = json.loads((Path(__file__).resolve().parents[2] / "packaging/MODELS.lock").read_text())
@@ -374,9 +393,9 @@ async def live(args) -> dict[str, Any]:
         raise ValueError("Binary must be named llama-server")
     state = State()
     supervisor = LlamaServerSupervisor(settings, app_state=state)
-    peak = None
+    peak: int | None = None
 
-    async def sample():
+    async def sample() -> None:
         nonlocal peak
         while True:
             if supervisor.proc is not None:
@@ -390,7 +409,7 @@ async def live(args) -> dict[str, Any]:
         started = perf_counter()
         await supervisor.start(pin["name"], gguf)
         load_s = perf_counter() - started
-        if supervisor.state != "ready" or state.llm_provider is None:
+        if supervisor.state != "ready" or state.llm_provider is None or supervisor.provider is None:
             raise RuntimeError(
                 f"Supervisor unavailable: {supervisor.state}: {supervisor.detail}; "
                 f"see {settings.data_dir}/logs/llm.log"
@@ -399,7 +418,8 @@ async def live(args) -> dict[str, Any]:
         # Observe before adapter schema validation; do not alter requests or validators.
         supervisor.provider._client.event_hooks["response"].append(provider.observe_response)
         bridge = LLMBridge(provider, asyncio.get_running_loop(), asyncio.Semaphore(1))
-        context = JobContext(None, 0, threading.Event())
+        # Standalone extraction uses cancellation only, never runner-backed persistence.
+        context = JobContext(None, 0, threading.Event())  # type: ignore[arg-type]
         jds, cvs = [], []
         for fixture in fixtures["jds"]:
             before = len(provider.calls)
@@ -411,14 +431,14 @@ async def live(args) -> dict[str, Any]:
             print(f"JD {fixture['id']}: {result['fallback_reason'] or 'llm'}", flush=True)
         for fixture in fixtures["cvs"]:
             before = len(provider.calls)
-            result = await anyio.to_thread.run_sync(
+            cv_result = await anyio.to_thread.run_sync(
                 extract_facts, normalise_text(fixture["text"]), bridge, 180, context
             )
             raw = provider.calls[-1]["raw"] if len(provider.calls) > before else None
-            scored = score_cv(fixture, result.facts, raw)
-            scored.update(extracted_by=result.extracted_by, failure=result.failure)
+            scored = score_cv(fixture, cv_result.facts, raw)
+            scored.update(extracted_by=cv_result.extracted_by, failure=cv_result.failure)
             cvs.append(scored)
-            print(f"CV {fixture['id']}: {result.extracted_by}; {result.failure}", flush=True)
+            print(f"CV {fixture['id']}: {cv_result.extracted_by}; {cv_result.failure}", flush=True)
         hardware = {
             "platform": platform.platform(),
             "python": platform.python_version(),
