@@ -62,6 +62,7 @@ class SettingsImporter:
                 trusted_keys=load_trusted_keys(self.settings),
                 app_version=app_version(),
                 current_version=_latest_version(db),
+                supported_schemas=(1, 2),
             )
             data = decode_snapshot(verified.settings_payloads)
             return SettingsPreview(
@@ -81,6 +82,7 @@ class SettingsImporter:
                     trusted_keys=load_trusted_keys(self.settings),
                     app_version=app_version(),
                     current_version=_latest_version(db),
+                    supported_schemas=(1, 2),
                 )
                 data = decode_snapshot(verified.settings_payloads)
                 preview = SettingsPreview(
@@ -159,6 +161,7 @@ class SettingsImporter:
                 trusted_keys=load_trusted_keys(self.settings),
                 app_version=app_version(),
                 current_version=0,
+                supported_schemas=(1, 2),
             )
             data = decode_snapshot(verified.settings_payloads)
             preview = SettingsPreview(

@@ -11,6 +11,7 @@ from pfc.security.passwords import hasher, validate_password
 from pfc.security.problems import Problem
 from pfc.security.sessions import parse
 from pfc.services.occ.common import audit_write, get_row, now
+from pfc.services.pii import mask_email
 
 
 def list_users(db: sqlite3.Connection, user_id: int) -> list[dict[str, Any]]:
@@ -21,6 +22,7 @@ def list_users(db: sqlite3.Connection, user_id: int) -> list[dict[str, Any]]:
     ):
         item = dict(row)
         item.pop("password_hash")
+        item["email"] = mask_email(item["email"])
         item["status"] = (
             "Disabled"
             if not item["is_active"]

@@ -287,7 +287,13 @@ def test_req_scr_01_pydantic_roundtrip_and_mapping_immutability(tmp_path):
 @pytest.mark.parametrize("codes", [[], ["C1", "C1"]])
 def test_req_grd_01_pydantic_grade_validation(codes):
     config = load_domain_config()
-    with pytest.raises(ValueError, match="nonempty and unique"):
+    if not codes:
+        empty = type(config.grades)(codes=codes)
+        assert empty.codes == ()
+        with pytest.raises(ValueError):
+            empty.ordinal("C1")
+        return
+    with pytest.raises(ValueError, match="unique"):
         type(config.grades)(codes=codes)
 
 

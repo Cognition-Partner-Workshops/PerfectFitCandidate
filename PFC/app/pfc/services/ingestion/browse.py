@@ -8,6 +8,7 @@ from pfc.api.schemas.resources import CVSummary, ResourceDetail, ResourceItem, R
 from pfc.config import Settings
 from pfc.db.connection import database
 from pfc.security.problems import Problem
+from pfc.services.pii import mask_email
 
 RESOURCE_SELECT = (
     "SELECT resources.*, (SELECT count(*) FROM cv_versions "
@@ -80,7 +81,7 @@ def _mask(email: str | None) -> str | None:
     local, separator, domain = email.strip().partition("@")
     if not separator or not local or not domain or "@" in domain:
         return "***"
-    return f"{local[0]}***@{domain}"
+    return mask_email(email)
 
 
 def _resource(row: sqlite3.Row) -> ResourceItem:

@@ -379,10 +379,10 @@ def verify_package(
                 raise PackageError(Reason.UNTRUSTED_KEY, "Signing key is not trusted")
             verify_signature(encoded, archive.read(SIGNATURE_NAME), public)
             _validate_manifest(manifest)
-            if manifest.schema_version not in supported_schemas:
-                raise PackageError(Reason.UNSUPPORTED_SCHEMA, "Unsupported package schema")
             if manifest.kind != expected_kind:
                 raise PackageError(Reason.WRONG_KIND, "Unexpected package kind")
+            if manifest.schema_version not in supported_schemas:
+                raise PackageError(Reason.UNSUPPORTED_SCHEMA, "Unsupported package schema")
             try:
                 compatible = (
                     Version(manifest.min_app_version)

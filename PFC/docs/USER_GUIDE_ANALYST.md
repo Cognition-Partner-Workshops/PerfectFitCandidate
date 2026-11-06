@@ -78,6 +78,8 @@ On the **Bench List**, the tabs **Eligible**, **Excluded from matching** and **A
 
 Each **ShortName** links to the **Candidate Profile**: the CT data as uploaded, eligibility, and the tabs **CV versions**, **Skills & evidence**, **Matches & score history** and **Activity**. When identity is incomplete or ambiguous, **Resolve identity** offers: select the matching CT record (the email is copied from the CT, never typed), generate an internal ID and continue (the default), or review later.
 
+**CV facts.** On **CV versions**, each synced CV has a **CV facts** card: name, phone, experience, qualifications and projects. Each value shows its source (**Rule** or **Local AI**) and an expandable **Evidence** quote from the CV. Only values found in the CV text are shown; a category with nothing found shows "Not found in CV", and nothing is filled in or guessed. Phone numbers and emails stay masked in values and evidence, and there is no reveal for CV facts. A CV version whose facts have not been extracted yet (for example, one synced before fact extraction existed) shows "CV facts not extracted yet" instead; that is different from "Not found in CV", which means facts were extracted but that category was empty.
+
 ## 5. Sync CVs
 
 1. Set **Settings → Data sources → Resume folder path** once.
@@ -92,6 +94,8 @@ The Bench List **CV status** column shows **Synced (N)** when N CV versions are 
 1. On **Demand List**, choose **Analyze JD** on a row, or **Analyze all new (N)** for every demand that has not been analysed.
 2. The **JD review** window shows the normalised, read-only job description and the extracted requirements. Add or remove **mandatory** and **preferred** skills (type and press Enter; ✕ removes).
 3. **Save draft** keeps your edits. **Confirm & Start ▶** saves and starts a scoring run; it needs at least one mandatory skill.
+
+**How the requirements were extracted.** When the local AI model extracted the requirements, the window shows a quiet "Extracted by local AI model" note. If the model was unavailable or its answer was unusable, the backend extracts them with rules instead. The window then shows a warning with the backend's reason code, such as `provider_unavailable`, `provider_error` or `schema_invalid`. Check every requirement carefully before **Confirm & Start**. Older drafts show neither note. Either way, nothing is scored until you choose **Confirm & Start**.
 
 The scoring template is read-only for Analysts. The JD status column moves from Not analysed → Analysed — awaiting confirmation → Confirmed — scoring → Scored.
 

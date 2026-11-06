@@ -5,17 +5,17 @@ import sqlite3
 from collections import Counter, defaultdict
 from collections.abc import Iterator
 from datetime import date
-from functools import cached_property
+from functools import cache, cached_property
 from typing import Any
 
 from pfc.api.schemas.analytics import DashboardFilters
-from pfc.domain.config_loader import load_domain_config
 from pfc.domain.normalise import normalise_term, tokenise_skills
 from pfc.security.problems import Problem
 from pfc.services import matching
 from pfc.services.matching import results as result_views
 from pfc.services.matching.lifecycle import reconcile_runs
 from pfc.services.matching.results import _mask_email, active_overrides, apply_overrides
+from pfc.services.occ.domain import occ_domain_config
 
 BANDS = ("Strong", "Potential", "Avg", "Weak", "Insufficient data")
 
@@ -45,11 +45,8 @@ def counts(values: list[str], limit: int | None = None) -> list[dict[str, Any]]:
 class Population:
     def __init__(self, db: sqlite3.Connection, filters: DashboardFilters, today: date):
         self.db, self.filters, self.today = db, filters, today
-        self.config = load_domain_config()
-        self.grades = (
-            tuple(row[0] for row in db.execute("SELECT code FROM grades ORDER BY ordinal"))
-            or self.config.grades.codes
-        )
+        self.config = occ_domain_config(db)
+        self.grades = self.config.grades.codes
         if filters.run_id is None:
             reconcile_runs(db)
             source = db.execute(
@@ -128,14 +125,9 @@ class Population:
             "person_location": ("location", "r.location"),
             "status": ("status", "r.bench_status"),
         }
-        columns = [
-            "m.result_id",
-            "m.demand_id",
-            "m.resource_id",
-            "m.score",
-            "m.band",
-            "m.mandatory_missing",
-        ]
+        columns = ["m.result_id", "m.score"]
+        if not validation or self.overrides:
+            columns += ["m.demand_id", "m.resource_id", "m.band", "m.mandatory_missing"]
         selected = (
             {
                 key: self._snapshot(key, fallback)
@@ -184,12 +176,16 @@ class Population:
             if validation and self.has_match_filters
             else None
         )
-        for source in self.db.execute(
+        mask = cache(result_views._mask_email)
+        cursor = self.db.execute(
             "SELECT " + ",".join(columns) + joins + " WHERE m.run_id=?", (self.run["run_id"],)
-        ):
-            row = dict(source)
+        )
+        cursor.row_factory = None
+        names = tuple(column[0] for column in cursor.description)
+        for source in cursor:
+            row = dict(zip(names, source, strict=True))
             if validation:
-                row["person_email"] = result_views._mask_email(
+                row["person_email"] = mask(
                     row["email_snapshot"] if row["has_email_snapshot"] else row["email_address"]
                 )
             if included is not None:
@@ -219,7 +215,7 @@ class Population:
             row["result_id"]
             for row in self.db.execute(
                 "SELECT b.result_id,b.inputs_json FROM score_breakdowns b "
-                "JOIN match_results m USING(result_id) "
+                "JOIN match_results m INDEXED BY ix_results_demand USING(result_id) "
                 "WHERE m.run_id=? AND b.inputs_json LIKE '%capacity%'",
                 (self.run["run_id"],),
             )

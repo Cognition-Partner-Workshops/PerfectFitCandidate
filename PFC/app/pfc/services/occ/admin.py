@@ -24,6 +24,7 @@ from pfc.security.secrets_store import (
 from pfc.services.candidates import classification
 from pfc.services.candidates.classification import normalize_domain
 from pfc.services.occ.common import audit_write, get_row, now
+from pfc.services.occ.seed import RELATED_SEED_MARKER
 
 _MISSING = object()
 
@@ -232,7 +233,8 @@ def settings_get(db: sqlite3.Connection, user_id: int, settings: Settings) -> di
     result = {}
     for row in db.execute(
         "SELECT key,value_json FROM settings WHERE scope='system' AND user_id IS NULL "
-        "AND key!='location.aliases' ORDER BY key"
+        "AND key NOT IN ('location.aliases',?) ORDER BY key",
+        (RELATED_SEED_MARKER,),
     ):
         value = json.loads(row["value_json"])
         if isinstance(value, str) and value.startswith(PREFIX):
@@ -256,7 +258,9 @@ def settings_put(
     db: sqlite3.Connection, user_id: int, values: dict[str, Any], settings: Settings
 ) -> dict[str, Any]:
     for key in values:
-        if key == "location.aliases" or not re.fullmatch(r"[a-z][a-z0-9_]*(\.[a-z0-9_]+)+", key):
+        if key in {"location.aliases", RELATED_SEED_MARKER} or not re.fullmatch(
+            r"[a-z][a-z0-9_]*(\.[a-z0-9_]+)+", key
+        ):
             raise Problem(422, "VALIDATION_ERROR", "Invalid or reserved settings key")
     before = settings_get(db, user_id, settings)
     try:
