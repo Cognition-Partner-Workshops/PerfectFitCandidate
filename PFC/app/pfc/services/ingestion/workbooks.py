@@ -228,7 +228,7 @@ def parse_workbook(
             if key is not None:
                 if key in previous:
                     earlier = previous[key]
-                    earlier.rejected = True
+                    earlier.superseded = True
                     earlier.issues.append(
                         RowIssue(
                             severity="warning",

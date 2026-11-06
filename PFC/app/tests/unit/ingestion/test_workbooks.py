@@ -1,14 +1,15 @@
-"""Synthetic REQ-IN-01..14 and REQ-ING-01..03/06 previews; no personal data."""
+"""Focused REQ-IN-01..14 and REQ-ING-01..03/06 tests using synthetic workbooks."""
 
+import hashlib
 from datetime import date, datetime
 from pathlib import Path
 
 import pytest
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill
-from openpyxl.utils.datetime import CALENDAR_WINDOWS_1900
+from openpyxl.utils.datetime import CALENDAR_WINDOWS_1900, to_excel
 
-from pfc.services.ingestion.models import diff_rows, is_no_op, row_hash
+from pfc.services.ingestion.models import ParsedRow, diff_rows, file_sha256, is_no_op, row_hash
 from pfc.services.ingestion.workbooks import CT, DL, parse_date, parse_workbook
 
 
@@ -28,122 +29,288 @@ def workbook(tmp_path: Path, kind: str, rows: list[list[object]]) -> Path:
     sheet.append(headers)
     for row in rows:
         sheet.append(row)
-    sheet.cell(100000, 1).fill = PatternFill("solid", fgColor="FFFFFF")
     path = tmp_path / f"{kind}.xlsx"
     book.save(path)
+    book.close()
     return path
 
 
-def test_req_in_01_03_dl_last_wins_and_rejections(tmp_path: Path) -> None:
-    path = workbook(
-        tmp_path,
-        "DL",
-        [
-            ["T11234", date(2026, 11, 4), "Example", "B1", "Role", "UK", "BU", "Owner", "old"],
-            [
-                "T11234",
-                "4/11/2026",
-                "Example",
-                "B1",
-                "Role",
-                "UK",
-                "BU",
-                "Owner",
-                "```markdown\n? SQL\n• Python\n```",
-            ],
-            ["OtherID", "bad", None, "Z9", None, None, None, None, "JD"],
-            [None, None, None, None, None, None, None, None, "missing"],
-        ],
+def dl_row(**changes: object) -> list[object]:
+    fields: dict[str, object] = dict.fromkeys(DL, None)
+    fields.update({"Code Requisition": "T11234", "Code Local Grade": "B1", "JD": "SQL"})
+    fields.update(changes)
+    return list(fields.values())
+
+
+def ct_row(**changes: object) -> list[object]:
+    fields: dict[str, object] = dict.fromkeys(CT, None)
+    fields.update(
+        {
+            "ShortName": "Alex",
+            "Email Address": "alex@example.com",
+            "Grade": "B1",
+            "Bench Status": "Available",
+            "Skills": "SQL",
+            "Available Capacity": "N",
+        }
     )
-    preview = parse_workbook(path, "DL", empty_row_limit=3)
-    assert preview.header_row == 3
+    fields.update(changes)
+    return list(fields.values())
+
+
+def test_req_in_01_arbitrary_nonfirst_sheet(tmp_path: Path) -> None:
+    preview = parse_workbook(workbook(tmp_path, "DL", [dl_row()]), "DL")
     assert preview.sheet_name == "Unpredictable sheet"
-    assert preview.rows_read == 4
-    assert preview.rows_rejected == 2
-    assert preview.rows[0].issues[0].code == "DUPLICATE_IN_FILE"
-    assert preview.rows[1].fields["jd_text_norm"] == "- SQL\n- Python"
-    assert preview.rows[1].fields["position_start_date"] == "2026-11-04"
-    assert {i.code for i in preview.rows[2].issues} == {
-        "REQ_ID_FORMAT",
-        "DATE_UNPARSEABLE",
-        "UNKNOWN_GRADE",
-    }
-    assert preview.rows[3].issues[0].severity == "error"
-    assert is_no_op(preview.file_sha256, {preview.file_sha256})
-    assert not is_no_op(preview.file_sha256, set())
-    diff = preview.diff({"T11234": preview.rows[1].row_hash, "gone": "old", "OtherID": "old"})
-    assert diff.unchanged == ["T11234"]
-    assert diff.changed == ["OtherID"]
-    assert diff.missing == ["gone"]
-    assert diff.rejected == 2
-    assert preview.diff({}).new == ["T11234", "OtherID"]
-    assert diff_rows([], {"old": "hash"}).missing == ["old"]
-    assert row_hash({"a": 1, "b": None}) == row_hash({"b": None, "a": 1})
+    assert preview.rows[0].key == "T11234"
 
 
-def test_req_in_10_14_ct_cached_formulas_and_verbatim_email(tmp_path: Path) -> None:
-    path = workbook(
-        tmp_path,
-        "CT",
-        [
-            [
-                " Alex ",
-                " Alex@example.com ",
-                "B1",
-                "UK",
-                "New custom status",
-                "SQL",
-                "N",
-                "Wed 4/11/2026",
-                None,
-                '=HYPERLINK("https://example.com", "Link")',
-                "RG1",
-                "=1+1",
-            ],
-            ["Taylor", "invalid", "Z9", "UK", "Available", "Python", "Y", 46330, "nonsense"],
-            ["alex", "alex@example.com", "B1", "UK", "Available", "SQL", "N"],
-            [None, "missing@example.com", "B1", "UK", "Available"],
-        ],
-    )
-    preview = parse_workbook(path, "CT", empty_row_limit=2)
-    first = preview.rows[0]
-    assert first.key == ("alex", "alex@example.com")
-    assert first.fields["email_address"] == " Alex@example.com "
-    assert first.fields["tracker_text"] is None
-    assert first.fields["group_owner"] is None
-    assert first.fields["bench_start_date"] == "2026-11-04"
-    assert first.fields["bench_end_date"] is None
-    assert first.fields["bench_end_date_parse_status"] == "blank"
-    assert {i.code for i in first.issues} == {
-        "EMAIL_INVALID",
-        "UNMAPPED_STATUS",
-        "DUPLICATE_IN_FILE",
-    }
-    second = preview.rows[1]
-    assert second.fields["bench_start_date"] is not None
-    assert second.fields["bench_end_date_parse_status"] == "unparseable"
-    issue = next(i for i in second.issues if i.code == "DATE_UNPARSEABLE")
-    assert issue.raw_value == "nonsense"
-    assert issue.row_number == 5
-    assert {i.code for i in second.issues} == {"DATE_UNPARSEABLE", "EMAIL_INVALID", "UNKNOWN_GRADE"}
-    assert preview.rows_rejected == 2
-    assert preview.diff({}).new == [("taylor", "invalid"), ("alex", "alex@example.com")]
+def test_req_in_01_header_offset_and_case_whitespace(tmp_path: Path) -> None:
+    preview = parse_workbook(workbook(tmp_path, "DL", [dl_row()]), "DL")
+    assert preview.header_row == 3
+    assert preview.rows[0].row_number == 4
+
+
+def test_req_in_02_nonstandard_id_is_warning_only(tmp_path: Path) -> None:
+    row = parse_workbook(
+        workbook(tmp_path, "DL", [dl_row(**{"Code Requisition": "OtherID"})]), "DL"
+    ).rows[0]
+    assert row.key == "OtherID"
+    assert not row.rejected
+    assert not row.fields["id_format_ok"]
+    assert [(i.code, i.severity) for i in row.issues] == [("REQ_ID_FORMAT", "warning")]
+
+
+def test_req_in_02_missing_requisition_rejected(tmp_path: Path) -> None:
+    row = parse_workbook(
+        workbook(tmp_path, "DL", [dl_row(**{"Code Requisition": None})]), "DL"
+    ).rows[0]
+    assert row.rejected and row.key is None
+    assert [(i.code, i.severity) for i in row.issues] == [("MISSING_KEY", "error")]
+
+
+def test_req_in_03_jd_bullets_and_fences(tmp_path: Path) -> None:
+    row = parse_workbook(
+        workbook(tmp_path, "DL", [dl_row(JD=" ```markdown\n? SQL\n• Python\n``` ")]), "DL"
+    ).rows[0]
+    assert row.fields["jd_text_norm"] == "- SQL\n- Python"
+
+
+def test_req_in_10_title_and_blank_shortname_header(tmp_path: Path) -> None:
+    preview = parse_workbook(workbook(tmp_path, "CT", [ct_row()]), "CT")
+    assert preview.header_row == 3
+    assert preview.rows[0].fields["short_name"] == "Alex"
+
+
+def test_req_in_10_aliases(tmp_path: Path) -> None:
+    row = parse_workbook(workbook(tmp_path, "CT", [ct_row()]), "CT").rows[0]
+    assert row.fields["skills_raw"] == "SQL"
+    assert row.fields["available_capacity"] == "N"
 
 
 @pytest.mark.parametrize(
-    "value", [datetime(2026, 11, 4), date(2026, 11, 4), "Wed 4/11/2026", "2026-11-04", "04-11-2026"]
+    "value",
+    [
+        "Wed 4/11/2026",
+        datetime(2026, 11, 4),
+        date(2026, 11, 4),
+        to_excel(datetime(2026, 11, 4)),
+        "2026-11-04",
+        "04-11-2026",
+    ],
 )
-def test_req_in_12_dates(value: object) -> None:
-    assert parse_date(value, CALENDAR_WINDOWS_1900) == date(2026, 11, 4)
+def test_req_in_12_workbook_date_formats(tmp_path: Path, value: object) -> None:
+    row = parse_workbook(
+        workbook(tmp_path, "CT", [ct_row(**{"Bench Start Date": value})]), "CT"
+    ).rows[0]
+    assert row.fields["bench_start_date"] == "2026-11-04"
+    assert not row.issues
 
 
-def test_req_ing_02_empty_and_errors(tmp_path: Path) -> None:
-    path = workbook(tmp_path, "DL", [])
-    assert parse_workbook(path, "DL").rows == []
-    with pytest.raises(ValueError, match="No CT header"):
-        parse_workbook(path, "CT")
+def test_req_in_12_unparseable_date_raw_issue(tmp_path: Path) -> None:
+    row = parse_workbook(
+        workbook(tmp_path, "CT", [ct_row(**{"Bench End Date": "nonsense"})]), "CT"
+    ).rows[0]
+    assert row.fields["bench_end_date"] is None
+    assert row.fields["bench_end_date_parse_status"] == "unparseable"
+    (issue,) = row.issues
+    assert (issue.code, issue.severity, issue.raw_value, issue.column, issue.row_number) == (
+        "DATE_UNPARSEABLE",
+        "warning",
+        "nonsense",
+        "bench_end_date",
+        4,
+    )
+    assert not row.rejected
+
+
+def test_req_in_12_blank_end_date_no_issue(tmp_path: Path) -> None:
+    row = parse_workbook(workbook(tmp_path, "CT", [ct_row()]), "CT").rows[0]
+    assert row.fields["bench_end_date"] is None
+    assert row.fields["bench_end_date_parse_status"] == "blank"
+    assert not row.issues
+
+
+def test_req_elig_07_unmapped_status_kept(tmp_path: Path) -> None:
+    row = parse_workbook(
+        workbook(tmp_path, "CT", [ct_row(**{"Bench Status": "Custom"})]), "CT"
+    ).rows[0]
+    assert not row.rejected
+    assert row.fields["bench_status"] == "Custom"
+    assert [(i.code, i.severity) for i in row.issues] == [("UNMAPPED_STATUS", "warning")]
+
+
+@pytest.mark.parametrize("kind,field", [("CT", "Grade"), ("DL", "Code Local Grade")])
+def test_req_ing_02_unknown_grade_warning(tmp_path: Path, kind: str, field: str) -> None:
+    values = (ct_row if kind == "CT" else dl_row)(**{field: "Z9"})
+    row = parse_workbook(workbook(tmp_path, kind, [values]), kind).rows[0]
+    assert not row.rejected
+    assert [(i.code, i.severity) for i in row.issues] == [("UNKNOWN_GRADE", "warning")]
+
+
+def test_req_in_13_formula_cached_none(tmp_path: Path) -> None:
+    row = parse_workbook(
+        workbook(
+            tmp_path,
+            "CT",
+            [
+                ct_row(
+                    **{
+                        "Tracker": '=HYPERLINK("https://example.com", "Link")',
+                        "Group Owner": "=1+1",
+                    }
+                )
+            ],
+        ),
+        "CT",
+    ).rows[0]
+    assert row.fields["tracker_text"] is None
+    assert row.fields["group_owner"] is None
+    assert not row.rejected
+
+
+def test_req_in_14_verbatim_email_normalised_key(tmp_path: Path) -> None:
+    row = parse_workbook(
+        workbook(
+            tmp_path,
+            "CT",
+            [ct_row(**{"ShortName": " Alex ", "Email Address": " AlEx@Example.com "})],
+        ),
+        "CT",
+    ).rows[0]
+    assert row.fields["email_address"] == " AlEx@Example.com "
+    assert row.key == ("alex", "alex@example.com")
+
+
+def test_req_in_14_invalid_email_warning_only(tmp_path: Path) -> None:
+    row = parse_workbook(
+        workbook(tmp_path, "CT", [ct_row(**{"Email Address": "invalid"})]), "CT"
+    ).rows[0]
+    assert row.fields["email_address"] == "invalid"
+    assert not row.rejected
+    assert [(i.code, i.severity) for i in row.issues] == [("EMAIL_INVALID", "warning")]
+
+
+@pytest.mark.parametrize("gap,expected", [(2, 2), (4, 1)])
+def test_req_ing_02_bounded_formatted_rows(tmp_path: Path, gap: int, expected: int) -> None:
+    path = workbook(tmp_path, "DL", [dl_row()])
+    book = load_workbook(path)
+    sheet = book["Unpredictable sheet"]
+    for number in range(5, 2001):
+        sheet.cell(number, 1).fill = PatternFill("solid", fgColor="FFFFFF")
+    for column, value in enumerate(dl_row(**{"Code Requisition": "T21234"}), 1):
+        sheet.cell(5 + gap, column, value)
+    book.save(path)
+    book.close()
+    assert parse_workbook(path, "DL", empty_row_limit=3).rows_read == expected
+
+
+@pytest.mark.parametrize("limit", [0, -1])
+def test_req_ing_02_empty_limit_validation(tmp_path: Path, limit: int) -> None:
     with pytest.raises(ValueError, match="positive"):
-        parse_workbook(path, "DL", empty_row_limit=0)
+        parse_workbook(tmp_path / "any.xlsx", "DL", empty_row_limit=limit)
+
+
+def test_req_ing_01_reject_non_xlsx(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match=".xlsx"):
         parse_workbook(tmp_path / "macro.xlsm", "DL")
+
+
+def test_req_in_01_missing_header(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="No CT header"):
+        parse_workbook(workbook(tmp_path, "DL", []), "CT")
+
+
+def test_req_ing_02_empty_preview_serialises(tmp_path: Path) -> None:
+    preview = parse_workbook(workbook(tmp_path, "DL", []), "DL")
+    dumped = preview.model_dump()
+    assert dumped["rows_read"] == dumped["rows_rejected"] == dumped["rows_superseded"] == 0
+    assert dumped["warnings"] == dumped["errors"] == 0
+    assert dumped["issues"] == []
+
+
+@pytest.mark.parametrize("kind", ["DL", "CT"])
+def test_req_in_02_11_duplicate_last_wins_superseded(tmp_path: Path, kind: str) -> None:
+    make_row = dl_row if kind == "DL" else ct_row
+    preview = parse_workbook(workbook(tmp_path, kind, [make_row(), make_row(), make_row()]), kind)
+    assert [r.superseded for r in preview.rows] == [True, True, False]
+    assert not any(r.rejected for r in preview.rows)
+    assert [i.code for i in preview.rows[0].issues] == ["DUPLICATE_IN_FILE"]
+    diff = preview.diff({})
+    assert diff.new == [preview.rows[-1].key]
+    assert diff.rejected == 0
+    dumped = preview.model_dump()
+    assert dumped["rows_read"] == 3
+    assert dumped["rows_superseded"] == dumped["warnings"] == 2
+    assert dumped["rows_rejected"] == dumped["errors"] == 0
+    assert len(dumped["issues"]) == 2
+
+
+def test_req_ing_02_diff_all_categories() -> None:
+    def row(key: str | None, digest: str, **flags: bool) -> ParsedRow:
+        return ParsedRow(row_number=1, key=key, fields={}, row_hash=digest, **flags)
+
+    rows = [
+        row("new", "n"),
+        row("changed", "c"),
+        row("same", "s"),
+        row(None, "r", rejected=True),
+        row("skipped", "x", superseded=True),
+    ]
+    diff = diff_rows(rows, {"changed": "old", "same": "s", "missing": "m"})
+    assert diff.model_dump() == {
+        "new": ["new"],
+        "changed": ["changed"],
+        "unchanged": ["same"],
+        "missing": ["missing"],
+        "rejected": 1,
+    }
+    assert diff_rows([], {"old": "hash"}).missing == ["old"]
+
+
+def test_req_ing_02_preview_serialised_errors_and_warnings(tmp_path: Path) -> None:
+    preview = parse_workbook(
+        workbook(tmp_path, "DL", [dl_row(**{"Code Requisition": None, "Code Local Grade": "Z9"})]),
+        "DL",
+    )
+    dumped = preview.model_dump()
+    assert dumped["rows_rejected"] == dumped["errors"] == dumped["warnings"] == 1
+    assert {issue["code"] for issue in dumped["issues"]} == {"MISSING_KEY", "UNKNOWN_GRADE"}
+    assert '"rows_rejected":1' in preview.model_dump_json()
+
+
+def test_req_ing_02_canonical_hash_order() -> None:
+    assert row_hash({"a": 1, "b": None}) == row_hash({"b": None, "a": 1})
+    assert row_hash({"a": 1}) != row_hash({"a": 2})
+
+
+def test_req_ing_06_file_hash_no_op(tmp_path: Path) -> None:
+    path = tmp_path / "file.txt"
+    path.write_bytes(b"synthetic")
+    digest = file_sha256(path)
+    assert digest == hashlib.sha256(b"synthetic").hexdigest()
+    assert is_no_op(digest, {digest})
+    assert not is_no_op(digest, set())
+
+
+def test_req_in_12_invalid_date() -> None:
     assert parse_date("bad", CALENDAR_WINDOWS_1900) is None

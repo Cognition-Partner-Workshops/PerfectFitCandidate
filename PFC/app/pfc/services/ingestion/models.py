@@ -6,7 +6,7 @@ from collections.abc import Iterable, Mapping, Set
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 type RowKey = str | tuple[str, str]
 
@@ -42,6 +42,7 @@ class ParsedRow(BaseModel):
     row_hash: str
     issues: list[RowIssue] = Field(default_factory=list)
     rejected: bool = False
+    superseded: bool = False
 
 
 class Diff(BaseModel):
@@ -57,6 +58,8 @@ def diff_rows(rows: Iterable[ParsedRow], existing: Mapping[RowKey, str]) -> Diff
     result = Diff()
     seen: set[RowKey] = set()
     for row in rows:
+        if row.superseded:
+            continue
         if row.rejected or row.key is None:
             result.rejected += 1
             continue
@@ -80,14 +83,32 @@ class Preview(BaseModel):
     header_row: int
     rows: list[ParsedRow]
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def rows_read(self) -> int:
         return len(self.rows)
 
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def rows_rejected(self) -> int:
         return sum(row.rejected for row in self.rows)
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def rows_superseded(self) -> int:
+        return sum(row.superseded for row in self.rows)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def warnings(self) -> int:
+        return sum(issue.severity == "warning" for issue in self.issues)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def errors(self) -> int:
+        return sum(issue.severity == "error" for issue in self.issues)
+
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def issues(self) -> list[RowIssue]:
         return [issue for row in self.rows for issue in row.issues]
