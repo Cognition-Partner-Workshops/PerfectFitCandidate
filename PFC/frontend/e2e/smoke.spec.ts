@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { copyFileSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test } from '@playwright/test'
 
@@ -19,6 +19,15 @@ async function upload(page: import('@playwright/test').Page, button: string, lab
   await expect(page.getByText('Rows read 2')).toBeVisible()
   await commit.click()
   await expect(commit).toBeHidden()
+}
+
+async function signIn(page: import('@playwright/test').Page) {
+  const form = page.getByRole('form', { name: 'Sign in' })
+  await form.getByRole('combobox').selectOption('Admin')
+  await form.locator('input[type="email"]').fill(EMAIL)
+  await form.locator('#login-password').fill(PASSWORD)
+  await form.getByRole('button', { name: 'Sign in' }).click()
+  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
 }
 
 /** Waits on the run's own status (no fixed sleeps): queued/running → completed. */
@@ -46,12 +55,7 @@ test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({
   await page.getByRole('button', { name: 'Next' }).click()
   await page.getByRole('button', { name: 'Go to sign in' }).click()
 
-  const signIn = page.getByRole('form', { name: 'Sign in' })
-  await signIn.getByRole('combobox').selectOption('Admin')
-  await signIn.locator('input[type="email"]').fill(EMAIL)
-  await signIn.locator('#login-password').fill(PASSWORD)
-  await signIn.getByRole('button', { name: 'Sign in' }).click()
-  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
+  await signIn(page)
   // Dashboard reads the four /analytics/* endpoints; on an empty data dir it must load without an error.
   await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible()
   await expect(page.getByText('Requisitions assessed')).toBeVisible()
@@ -161,4 +165,95 @@ test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({
   await page.reload()
   await expect(page.getByText(/Mode: (incremental|full)/)).toBeVisible()
   await expect(page.getByText('Data changed since this run')).toHaveCount(0)
+})
+
+// REQ-LLM-02 summary cards. Runs after the smoke test above, on its admin, DL/CT and confirmed JD.
+// Uses SmokeTaylor (C1, listed under All), who has no match results: a profile with match results
+// currently fails to load.
+// `serve.py` injects the backend's FakeProvider as a summaries-only stub, with one reply for every
+// source: the backend keeps only the sentences whose evidence is in that source.
+const LABEL = 'AI summary for reading only — not used in scoring. Check against the source.'
+const CV_EMAIL = 'taylor.longname-consultant@example.com'
+const CV_PHONE = '07700 900123'
+
+async function syncTaylorCv(page: import('@playwright/test').Page, candidateId: string, versions: number) {
+  await page.goto('/#/bench')
+  await page.getByRole('tab', { name: /^All \(/ }).click()
+  await page.getByRole('row', { name: /SmokeTaylor/ }).getByRole('button', { name: 'Sync', exact: true }).click()
+  await expect
+    .poll(async () => ((await (await page.request.get(`/api/v1/candidates/${candidateId}/cv-versions`)).json()) as unknown[]).length, {
+      timeout: 30_000,
+      intervals: [250, 500, 1000],
+    })
+    .toBe(versions)
+}
+
+async function expectEvidence(card: import('@playwright/test').Locator, count: number) {
+  await expect(card.getByText(LABEL, { exact: true })).toBeVisible()
+  const sentences = card.locator('details')
+  await expect(sentences).toHaveCount(count)
+  for (let i = 0; i < count; i++) {
+    const evidence = sentences.nth(i)
+    await expect(evidence.locator('blockquote')).toBeHidden()
+    await evidence.getByText('Evidence', { exact: true }).click()
+    await expect(evidence.locator('blockquote')).toBeVisible()
+    await expect(evidence.locator('blockquote')).not.toBeEmpty()
+  }
+}
+
+test('summary cards: grounded evidence, stale source, provider unavailable, no raw PII (REQ-LLM-02)', async ({ page }) => {
+  await page.goto('/')
+  await signIn(page)
+  await page.goto('/#/settings/data')
+  await page.getByLabel('Resume folder path').fill(`${data}fixtures/resumes`)
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible()
+
+  await page.goto('/#/bench')
+  await page.getByRole('tab', { name: /^All \(/ }).click()
+  await page.getByRole('link', { name: 'SmokeTaylor' }).click()
+  await expect(page.getByRole('heading', { name: /SmokeTaylor/ })).toBeVisible()
+  const candidateId = page.url().split('/').pop()!.split('?')[0]
+  await syncTaylorCv(page, candidateId, 1)
+
+  // Candidate Profile: generate, label, every sentence's evidence expands; the CV's email and phone never show raw.
+  await page.goto(`/#/candidates/${candidateId}`)
+  const card = page.getByRole('region', { name: 'Summary' })
+  await card.getByRole('button', { name: 'Generate summary' }).click()
+  await expect(card.getByText('Built reporting pipelines for retail banking clients.')).toBeAttached()
+  await expectEvidence(card, 3)
+  await expect(card.getByText(/^Reach Taylor at /)).toBeVisible()
+  const body = page.locator('body')
+  for (const raw of [CV_EMAIL, CV_PHONE, CV_PHONE.replace(' ', '')]) await expect(body).not.toContainText(raw)
+
+  // A new CV version makes the summary stale until it is regenerated.
+  copyFileSync(`${data}fixtures/cv-v2/taylor@example.com.docx`, `${data}fixtures/resumes/taylor@example.com.docx`)
+  await syncTaylorCv(page, candidateId, 2)
+  await page.goto(`/#/candidates/${candidateId}`)
+  await page.reload()
+  const stale = card.getByText('Source changed since this summary — regenerate')
+  await expect(stale).toBeVisible()
+  await card.getByRole('button', { name: 'Regenerate' }).click()
+  await expect(card.getByRole('button', { name: 'Regenerate' })).toBeEnabled()
+  await expect(stale).toHaveCount(0)
+  await expectEvidence(card, 3)
+  for (const raw of [CV_EMAIL, CV_PHONE, CV_PHONE.replace(' ', '')]) await expect(body).not.toContainText(raw)
+
+  // Demand review drawer: the JD keeps only its own sentence.
+  await page.goto('/#/demands')
+  await page.getByRole('row', { name: /T10001/ }).getByRole('button', { name: 'Review JD' }).click()
+  const demandCard = page.getByRole('dialog').getByRole('region', { name: 'Summary' })
+  await demandCard.getByRole('button', { name: 'Generate summary' }).click()
+  await expectEvidence(demandCard, 1)
+  await expect(demandCard.getByText('The role needs SQL and Python.')).toBeVisible()
+  await expect(demandCard.locator('blockquote')).toHaveText('SQL, Python')
+
+  // Provider unavailable: Generate gets the backend's 503 and shows the user-facing message.
+  writeFileSync(`${data}llm-down`, '')
+  try {
+    await demandCard.getByRole('button', { name: 'Regenerate' }).click()
+    await expect(demandCard.getByRole('alert')).toHaveText('The local AI is unavailable. Try again when it is ready.')
+  } finally {
+    rmSync(`${data}llm-down`, { force: true })
+  }
 })
