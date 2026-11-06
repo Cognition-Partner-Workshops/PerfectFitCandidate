@@ -63,6 +63,11 @@ def normalise_jd(text: str) -> str:
     return text.strip()
 
 
+def valid_ct_email(email: str) -> bool:
+    """REQ-IN-14: CT syntax predicate applied to the parser's stripped email key."""
+    return re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email) is not None
+
+
 def _label(value: Any) -> str:
     return " ".join(str(value or "").lower().split())
 
@@ -244,7 +249,7 @@ def parse_workbook(
                     issue(
                         "MISSING_EMAIL", "email_address", "Incomplete identity; email not provided"
                     )
-                if email and not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
+                if email and not valid_ct_email(email):
                     issue("EMAIL_INVALID", "email_address", "Email copied verbatim; syntax invalid")
                 if _label(business["bench_status"]) not in {_label(s) for s in known_statuses}:
                     issue("UNMAPPED_STATUS", "bench_status", "Unmapped status; not excluded")
