@@ -18,8 +18,7 @@ from pfc.adapters.llm.providers import (
 from pfc.api.routers import match
 from pfc.db.connection import database
 from pfc.services.matching import MatchingPorts
-from pfc.services.matching.llm_bridge import JdLlmBridge
-from pfc.services.matching.requirements import Requirements
+from pfc.services.matching.llm_bridge import JdLlmBridge, jd_generation_schema
 
 
 class Provider(FakeProvider):
@@ -113,7 +112,7 @@ def test_shared_provider_extraction(
         assert provider.requests == []
     else:
         request = provider.requests[0]
-        assert request.json_schema == Requirements.model_json_schema()
+        assert request.json_schema == jd_generation_schema()
         assert request.purpose == "jd_extract" and request.temperature == 0
         assert request.messages[-1]["content"] == "Required: SQL\nPreferred: Python"
     if reason is not None:
