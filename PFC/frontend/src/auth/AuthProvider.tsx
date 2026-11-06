@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../api'
 import type { CurrentUser, LoginRequest } from '../api/types'
 import { AuthContext, LAST_ROLE_KEY, type AuthState } from './context'
@@ -20,6 +21,7 @@ async function loadSession(): Promise<LoadResult> {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient()
   const [user, setUser] = useState<CurrentUser | null>(null)
   const [loading, setLoading] = useState(true)
   const [adminExists, setAdminExists] = useState<boolean | null>(null)
@@ -47,17 +49,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (req: LoginRequest) => {
     const u = await api.login(req)
+    queryClient.clear()
     localStorage.setItem(LAST_ROLE_KEY, req.role)
     setSignedOutReason(null)
     setUser(u)
     return u
-  }, [])
+  }, [queryClient])
 
   const logout = useCallback(async (reason?: 'timeout') => {
     await api.logout()
+    queryClient.clear()
     setUser(null)
     setSignedOutReason(reason ?? null)
-  }, [])
+  }, [queryClient])
 
   const value = useMemo<AuthState>(
     () => ({ user, loading, adminExists, unreachable, login, logout, refresh, setUser, signedOutReason }),

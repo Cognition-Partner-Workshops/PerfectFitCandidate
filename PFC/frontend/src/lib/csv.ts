@@ -25,7 +25,7 @@ export const RESULT_COLUMNS = [
 export const DISCLAIMER = 'Scores are relative matching metrics for human review, not hiring decisions.'
 
 function cell(value: string): string {
-  const v = /^[=+\-@]/.test(value) ? `'${value}` : value
+  const v = /^[\s]*[=+\-@]/.test(value) ? `'${value}` : value
   return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v
 }
 

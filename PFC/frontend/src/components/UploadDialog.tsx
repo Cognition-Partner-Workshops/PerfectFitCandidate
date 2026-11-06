@@ -9,7 +9,7 @@ export function UploadDialog({ kind, onClose }: { kind: 'dl' | 'ct'; onClose: ()
   const qc = useQueryClient()
   const [preview, setPreview] = useState<UploadPreview | null>(null)
   const label = kind === 'dl' ? 'Demand List' : 'Candidate Tracker'
-  const upload = useMutation({ mutationFn: (f: File) => api.uploadWorkbook(kind, f), onSuccess: setPreview })
+  const upload = useMutation({ mutationFn: (f: File) => api.uploadWorkbook(kind, f), onMutate: () => setPreview(null), onSuccess: setPreview })
   const commit = useMutation({
     mutationFn: (id: number) => api.commitIngestion(id),
     onSuccess: () => {

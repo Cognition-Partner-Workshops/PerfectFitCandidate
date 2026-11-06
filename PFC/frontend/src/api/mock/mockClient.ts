@@ -623,6 +623,7 @@ export class MockApiClient implements ApiClient {
   async unmask(entity: 'resource' | 'candidate' | 'occ_user', id: number, field: 'email' | 'phone') {
     this.currentUser()
     let value: string | null | undefined
+    if (entity === 'occ_user') this.requireAdmin()
     if (entity === 'occ_user') value = this.state.users.find((u) => u.userId === id)?.email
     else {
       const raw = this.state.raws.find((r) => r.resourceId === id)
@@ -690,7 +691,7 @@ export class MockApiClient implements ApiClient {
   async analyticsBench(f: DashboardFilters) {
     this.currentUser()
     const { demands, resources } = this.filtered(f)
-    return this.done(benchAnalytics(resources, demands, new Date('2026-11-06T00:00:00Z')))
+    return this.done(benchAnalytics(resources, demands, new Date()))
   }
 
   async analyticsMatch(f: DashboardFilters) {

@@ -119,7 +119,6 @@ export function scoreAll(
 ): MatchResult[] {
   const w = template.weights
   const out: MatchResult[] = []
-  let id = 1
   for (const d of demands.filter((x) => x.jdStatus === 'Scored')) {
     const rows: MatchResult[] = []
     for (const res of resources) {
@@ -200,7 +199,7 @@ export function scoreAll(
     const hasSuitable = rows.some((r) => r.band !== 'Weak')
     const shortlist = (hasSuitable ? rows.filter((r) => r.band !== 'Weak') : rows).slice(0, 5)
     shortlist.forEach((r, i) => {
-      r.resultId = id++
+      r.resultId = r.demandId * 10_000 + r.resourceId
       r.rank = i + 1
       r.emailPreselected = i < 4
       out.push(r)

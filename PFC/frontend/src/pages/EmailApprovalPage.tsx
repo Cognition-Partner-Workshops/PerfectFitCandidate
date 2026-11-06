@@ -41,7 +41,10 @@ export function EmailApprovalPage() {
     setError(e instanceof Error ? e.message : 'Action failed')
   }
   const approve = useMutation({
-    mutationFn: ({ id, resend }: { id: number; resend?: boolean }) => api.approveEmail(id, resend),
+    mutationFn: async ({ id, resend }: { id: number; resend?: boolean }) => {
+      if (edits[id]) await api.updateEmail(id, edits[id])
+      return api.approveEmail(id, resend)
+    },
     onSuccess: () => void refresh(),
     onError: (e, vars) => {
       if (e instanceof ApiError && e.code === 'EMAIL_DUPLICATE_PAIR') setResendFor(items.find((x) => x.emailId === vars.id) ?? null)
