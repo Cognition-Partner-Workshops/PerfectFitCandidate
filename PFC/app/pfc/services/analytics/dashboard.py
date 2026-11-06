@@ -244,6 +244,7 @@ def validation(p: Population) -> list[dict[str, Any]]:
     """REQ-OUT-01/02/03/10, P1-EX-04: inspect scored facts and output serializers."""
     mask = cache(_mask_email)
     required_mask = cache(_required_mask)
+    legacy_mask = cache(_legacy_mask)
 
     @cache
     def valid_score(score: Any) -> bool:
@@ -287,7 +288,7 @@ def validation(p: Population) -> list[dict[str, Any]]:
             email_ok
             and bool(source)
             and (
-                required_mask(snapshot) == expected
+                snapshot in (expected, legacy_mask(source))
                 if row["has_email_snapshot"]
                 else row["person_email"] == expected
             )
@@ -355,6 +356,13 @@ def validation(p: Population) -> list[dict[str, Any]]:
         {"id": key, "label": label, "passed": passed, "detail": detail}
         for key, label, passed, detail in checks
     ]
+
+
+def _legacy_mask(value: str) -> str:
+    """REQ-OUT-03: the 2+6 mask that runs saved before the full-local-part rule."""
+    local, separator, domain = value.partition("@")
+    shown = "*" * len(local) if len(local) <= 2 else local[:2] + "*" * min(6, len(local) - 2)
+    return shown + local[8:] + separator + domain
 
 
 def _required_mask(value: str) -> str:

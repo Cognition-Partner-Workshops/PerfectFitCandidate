@@ -2,6 +2,7 @@
 
 import pytest
 
+from pfc.services.analytics.dashboard import _legacy_mask
 from pfc.services.pii import mask_email, mask_emails_in, mask_emails_in_json
 
 
@@ -39,3 +40,10 @@ def test_stored_text_masked_under_the_old_rule_is_remasked() -> None:
     assert mask_emails_in_json({"a": ["Al******er@capgemini.com", 3]}) == {
         "a": ["Al********@capgemini.com", 3]
     }
+
+
+def test_dashboard_legacy_mask_is_the_old_2_plus_6_rule() -> None:
+    assert _legacy_mask("AlexBorder@capgemini.com") == "Al******er@capgemini.com"
+    assert _legacy_mask("jonathan.smithers@example.com") == "jo******.smithers@example.com"
+    assert _legacy_mask("Alex@x.com") == "Al**@x.com"
+    assert _legacy_mask("ab@x.com") == "**@x.com"

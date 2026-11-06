@@ -942,3 +942,14 @@ def test_req_out_03_runs_saved_under_the_old_mask_read_with_the_new_one(api: Api
     assert profile.json()["matches"][0]["matchingEvidence"][-1] == new_text
     checks = {c["id"]: c for c in client.get("/api/v1/analytics/match").json()["validation"]}
     assert checks["email-copy"]["passed"] and checks["masked-email"]["passed"], checks
+    for unmasked in (SAMPLE_EMAIL, "AlexBordxr@capgemini.com"):
+        with database(settings) as db:
+            db.execute(
+                "UPDATE score_breakdowns SET inputs_json="
+                "json_set(inputs_json,'$.display_facts.person_email',?) "
+                "WHERE component='skills' AND result_id IN (SELECT result_id FROM match_results "
+                "JOIN resources USING(resource_id) WHERE email_address=?)",
+                (unmasked, SAMPLE_EMAIL),
+            )
+        checks = {c["id"]: c for c in client.get("/api/v1/analytics/match").json()["validation"]}
+        assert not checks["email-copy"]["passed"], (unmasked, checks)
