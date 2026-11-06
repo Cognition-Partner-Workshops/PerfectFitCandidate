@@ -103,6 +103,13 @@ describe('mock settings packages (REQ-OCC-01/02)', () => {
     expect(after.find((h) => h.isCurrent)?.version).toBe(6)
     expect(await code(api.rollbackPackage())).toBe('PACKAGE_NO_ROLLBACK')
   })
+  it('rolls back more than one step', async () => {
+    await api.login({ role: 'Admin', email: ADMIN.email, password: ADMIN.password })
+    for (const v of [7, 8]) await api.importPackage({ previewId: (await api.previewPackage(new File(['x'], `PFC-settings-v${v}.pfcpkg`))).previewId })
+    expect((await api.rollbackPackage()).find((h) => h.isCurrent)?.version).toBe(7)
+    expect((await api.rollbackPackage()).find((h) => h.isCurrent)?.version).toBe(6)
+    expect(await code(api.rollbackPackage())).toBe('PACKAGE_NO_ROLLBACK')
+  })
   it('exports a monotonic signed package', async () => {
     await api.login({ role: 'Admin', email: ADMIN.email, password: ADMIN.password })
     expect(await code(api.exportPackage(''))).toBe('PASSPHRASE_REQUIRED')

@@ -988,7 +988,7 @@ export class MockApiClient implements ApiClient {
     const previous = h.find((x) => x !== latest && x.status === 'applied' && latest && x.version < latest.version)
     if (!latest?.canRollback || !previous) fail(409, 'Nothing to roll back', 'PACKAGE_NO_ROLLBACK')
     this.state.packageHistory = h.map((x) =>
-      x === latest ? { ...x, status: 'rolled_back', isCurrent: false, canRollback: false } : x === previous ? { ...x, isCurrent: true } : x,
+      x === latest ? { ...x, status: 'rolled_back', isCurrent: false, canRollback: false } : x === previous ? { ...x, isCurrent: true, canRollback: h.some((y) => y.status === 'applied' && y.version < previous.version) } : x,
     )
     this.state.installedPackageVersion = previous.version
     this.audit(`Settings package rolled back to v${previous.version}`)
