@@ -1,4 +1,5 @@
 import csv
+import hmac
 import io
 import json
 import re
@@ -6,9 +7,138 @@ import sqlite3
 from datetime import UTC, datetime
 from typing import Any
 
+from pfc.config import Settings
 from pfc.db.audit import verify_chain
 from pfc.security.problems import Problem
+from pfc.security.secrets_store import (
+    PREFIX,
+    SecretStore,
+    SecretStoreError,
+    identity_scalar,
+    redact_sensitive,
+    redacted_marker,
+    redaction_fingerprint,
+    sensitive_key,
+    sensitive_setting,
+)
 from pfc.services.occ.common import audit_write, get_row, now
+
+_MISSING = object()
+
+
+def _restore_redacted(value: Any, previous: Any, key: str, settings: Settings) -> Any:
+    store = SecretStore(settings.data_dir)
+
+    def has_marker(node: Any) -> bool:
+        if isinstance(node, dict):
+            return any(has_marker(v) for v in node.values())
+        if isinstance(node, list):
+            return any(has_marker(v) for v in node)
+        return redacted_marker(node)
+
+    if not has_marker(value):
+        return value
+
+    def fingerprint(node: Any, *, stored: bool = False) -> str:
+        if not stored and redacted_marker(node):
+            result = redaction_fingerprint(node)
+            if result is None:
+                raise Problem(422, "VALIDATION_ERROR", "Invalid identity fingerprint")
+            return result
+        try:
+            return store.fingerprint(node)
+        except SecretStoreError as exc:
+            raise Problem(503, "SECRET_STORE_UNAVAILABLE", "Secret storage unavailable") from exc
+
+    def existing_at(path: tuple[Any, ...]) -> Any:
+        nonlocal previous
+        if isinstance(previous, str) and previous.startswith(PREFIX):
+            try:
+                previous = json.loads(SecretStore(settings.data_dir).decrypt(previous))
+            except (SecretStoreError, ValueError, UnicodeError) as exc:
+                raise Problem(
+                    503, "SECRET_STORE_UNAVAILABLE", "Secret storage unavailable"
+                ) from exc
+        old = previous
+        for part in path:
+            if isinstance(old, dict) and isinstance(part, str):
+                old = old.get(part, _MISSING)
+            elif isinstance(old, list) and isinstance(part, tuple):
+                identity, expected = part
+                matches = [
+                    item
+                    for item in old
+                    if isinstance(item, dict)
+                    and identity in item
+                    and hmac.compare_digest(fingerprint(item[identity], stored=True), expected)
+                ]
+                if len(matches) != 1:
+                    return _MISSING
+                old = matches[0]
+            else:
+                return _MISSING
+        return old
+
+    def restore(node: Any, path: tuple[Any, ...], sensitive: bool) -> Any:
+        if isinstance(node, dict):
+            return {
+                k: restore(v, (*path, k), sensitive or sensitive_key(str(k)))
+                for k, v in node.items()
+            }
+        if isinstance(node, list):
+            identities = [
+                next(
+                    (
+                        (name, fingerprint(item[name]))
+                        for name in ("id", "name", "key", "provider")
+                        if isinstance(item, dict) and name in item and item[name] != "[REDACTED]"
+                    ),
+                    None,
+                )
+                for item in node
+            ]
+            result = []
+            for item, identity in zip(node, identities, strict=True):
+                if identity is not None:
+                    duplicates = [
+                        other
+                        for other, candidate in zip(node, identities, strict=True)
+                        if candidate is not None
+                        and identity[0] == candidate[0]
+                        and hmac.compare_digest(identity[1], candidate[1])
+                    ]
+                    if len(duplicates) > 1 and any(has_marker(other) for other in duplicates):
+                        raise Problem(
+                            422, "VALIDATION_ERROR", "Re-enter the credential; duplicate identity"
+                        )
+                result.append(restore(item, (*path, identity), sensitive))
+            return result
+        if redacted_marker(node):
+            if node == "[REDACTED]" and path and identity_scalar(str(path[-1]), node):
+                raise Problem(422, "VALIDATION_ERROR", "Identity requires a fingerprint")
+            old = existing_at(path)
+            if None in path or (old is _MISSING and any(isinstance(p, tuple) for p in path)):
+                raise Problem(
+                    422, "VALIDATION_ERROR", "Re-enter the credential; no unique identity match"
+                )
+            if node != "[REDACTED]":
+                supplied = redaction_fingerprint(node)
+                if (
+                    old is _MISSING
+                    or supplied is None
+                    or not hmac.compare_digest(supplied, fingerprint(old, stored=True))
+                ):
+                    raise Problem(422, "VALIDATION_ERROR", "Identity fingerprint does not match")
+                return old
+            if sensitive or (isinstance(old, str) and old.startswith(PREFIX)):
+                if old is _MISSING:
+                    raise Problem(
+                        422, "VALIDATION_ERROR", "Redacted credential has no existing value"
+                    )
+                return old
+        return node
+
+    return restore(value, (), sensitive_key(key))
 
 
 def recipients(db: sqlite3.Connection, user_id: int) -> list[dict[str, Any]]:
@@ -101,40 +231,78 @@ def delete_domain(db: sqlite3.Connection, user_id: int, domain: str) -> None:
     audit_write(db, user_id, "OCC_EDIT", "internal_email_domains", domain, before, None)
 
 
-def settings_get(db: sqlite3.Connection, user_id: int) -> dict[str, Any]:
+def settings_get(db: sqlite3.Connection, user_id: int, settings: Settings) -> dict[str, Any]:
     """REQ-ROLE-04: system settings, excluding dedicated reference endpoints."""
-    return {
-        row["key"]: json.loads(row["value_json"])
-        for row in db.execute(
-            "SELECT key,value_json FROM settings WHERE scope='system' AND user_id IS NULL "
-            "AND key!='location.aliases' ORDER BY key"
-        )
-    }
+    result = {}
+    for row in db.execute(
+        "SELECT key,value_json FROM settings WHERE scope='system' AND user_id IS NULL "
+        "AND key!='location.aliases' ORDER BY key"
+    ):
+        value = json.loads(row["value_json"])
+        if isinstance(value, str) and value.startswith(PREFIX):
+            try:
+                value = json.loads(SecretStore(settings.data_dir).decrypt(value))
+                if not sensitive_setting(row["key"], value):
+                    value = "[REDACTED]"
+            except (SecretStoreError, ValueError, UnicodeError):
+                result[row["key"]] = "[REDACTED]"
+                continue
+        try:
+            result[row["key"]] = redact_sensitive(
+                value, row["key"], store=SecretStore(settings.data_dir)
+            )
+        except SecretStoreError:
+            result[row["key"]] = "[REDACTED]"
+    return result
 
 
-def settings_put(db: sqlite3.Connection, user_id: int, values: dict[str, Any]) -> dict[str, Any]:
+def settings_put(
+    db: sqlite3.Connection, user_id: int, values: dict[str, Any], settings: Settings
+) -> dict[str, Any]:
     for key in values:
         if key == "location.aliases" or not re.fullmatch(r"[a-z][a-z0-9_]*(\.[a-z0-9_]+)+", key):
             raise Problem(422, "VALIDATION_ERROR", "Invalid or reserved settings key")
-    before = settings_get(db, user_id)
+    before = settings_get(db, user_id, settings)
     try:
         encoded = {key: json.dumps(value, allow_nan=False) for key, value in values.items()}
     except (ValueError, TypeError) as exc:
         raise Problem(422, "VALIDATION_ERROR", "Settings values must be JSON") from exc
     for key, value in values.items():
+        previous = db.execute(
+            "SELECT value_json FROM settings WHERE scope='system' AND user_id IS NULL AND key=?",
+            (key,),
+        ).fetchone()
+        previous_value = json.loads(previous[0]) if previous else _MISSING
+        restored = _restore_redacted(value, previous_value, key, settings)
         if key in before and before[key] == value:
             continue
+        value = restored
+        encoded[key] = json.dumps(value, allow_nan=False)
+        secret = sensitive_setting(key, value)
+        encrypted_audit = secret or (
+            isinstance(previous_value, str) and previous_value.startswith(PREFIX)
+        )
+        if secret:
+            try:
+                encoded[key] = json.dumps(
+                    SecretStore(settings.data_dir).encrypt(encoded[key].encode("utf-8"))
+                )
+            except SecretStoreError as exc:
+                raise Problem(
+                    503, "SECRET_STORE_UNAVAILABLE", "Secret storage unavailable"
+                ) from exc
         db.execute(
             "INSERT INTO settings(scope,key,value_json,admin_only,updated_by,updated_at)"
             " VALUES ('system',?,?,1,?,?) ON CONFLICT DO UPDATE SET value_json=excluded.value_json,"
             "admin_only=1,updated_by=excluded.updated_by,updated_at=excluded.updated_at",
             (key, encoded[key], user_id, now()),
         )
-        secret = any(marker in key for marker in ("password", "secret", "token", "credential"))
-        old = {"value": "[REDACTED]" if secret else before[key]} if key in before else None
-        new = {"value": "[REDACTED]" if secret else value}
+        old = (
+            {"value": "[encrypted]" if encrypted_audit else before[key]} if key in before else None
+        )
+        new = {"value": "[encrypted]" if encrypted_audit else redact_sensitive(value, key)}
         audit_write(db, user_id, "SETTING_CHANGE", "settings", key, old, new)
-    return settings_get(db, user_id)
+    return settings_get(db, user_id, settings)
 
 
 def audit_timestamp(value: str) -> str:

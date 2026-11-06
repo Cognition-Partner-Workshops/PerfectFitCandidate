@@ -6,12 +6,14 @@ from contextlib import contextmanager
 import sqlite_vec  # type: ignore[import-untyped]
 
 from pfc.config import Settings
+from pfc.security.secrets_store import SecretStore
 
 logger = logging.getLogger(__name__)
 
 
 class Connection(sqlite3.Connection):
     vec_available: bool = False
+    secret_store: SecretStore | None = None
 
 
 def load_vec(connection: Connection) -> bool:
@@ -20,7 +22,7 @@ def load_vec(connection: Connection) -> bool:
         sqlite_vec.load(connection)
         return True
     except (AttributeError, sqlite3.Error, OSError):
-        logger.warning("sqlite-vec unavailable; using keyword-only fallback", exc_info=True)
+        logger.warning("sqlite-vec unavailable; using keyword-only fallback")
         return False
     finally:
         try:
@@ -35,6 +37,7 @@ def connect(settings: Settings) -> Connection:
     connection = sqlite3.connect(path, factory=Connection, check_same_thread=False)
     try:
         connection.row_factory = sqlite3.Row
+        connection.secret_store = SecretStore(settings.data_dir)
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=NORMAL")
         connection.execute("PRAGMA foreign_keys=ON")

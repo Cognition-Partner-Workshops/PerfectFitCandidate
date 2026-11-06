@@ -266,14 +266,14 @@ def domain_preview(body: DomainPreview, db: DB, admin: Admin) -> dict[str, Any]:
 
 
 @router.get("/settings")
-def settings_get(db: DB, admin: Admin) -> dict[str, Any]:
+def settings_get(db: DB, admin: Admin, request: Request) -> dict[str, Any]:
     """REQ-ROLE-04: system-wide Admin settings."""
-    return administration.settings_get(db, admin.user.user_id)
+    return administration.settings_get(db, admin.user.user_id, request.app.state.settings)
 
 
 @router.put("/settings")
-def settings_put(body: dict[str, Any], db: DB, admin: Admin) -> dict[str, Any]:
-    return administration.settings_put(db, admin.user.user_id, body)
+def settings_put(body: dict[str, Any], db: DB, admin: Admin, request: Request) -> dict[str, Any]:
+    return administration.settings_put(db, admin.user.user_id, body, request.app.state.settings)
 
 
 Filters = Annotated[AuditFilters, Query()]
@@ -306,7 +306,7 @@ def audit_export(db: DB, admin: Admin, filters: Filters) -> Response:
 @router.get("/llm-models")
 def llm_models(db: DB, admin: Admin) -> list[dict[str, Any]]:
     """REQ-LLM-01/06: static, Admin-managed model approval list."""
-    return llm.list_models(db, admin.user.user_id)
+    return llm.occ_models(db, admin.user.user_id)
 
 
 @router.put("/llm-models/{target}")
@@ -317,8 +317,14 @@ def llm_approve(
     admin: Admin,
     request: Request,
     background_tasks: BackgroundTasks,
-) -> dict[str, Any]:
-    result = llm.approve(db, admin.user.user_id, target, body.approved)
+) -> list[dict[str, Any]]:
+    llm.approve(db, admin.user.user_id, target, body.approved, is_default=body.is_default is True)
     db.commit()
-    background_tasks.add_task(restart_selected_model, request.app.state.settings, request.app.state)
-    return result
+    supervisor = getattr(request.app.state, "llm_supervisor", None)
+    if supervisor is not None:
+        resolved = supervisor.resolve_model(db)
+        if resolved != supervisor.running_model:
+            background_tasks.add_task(
+                restart_selected_model, request.app.state.settings, request.app.state
+            )
+    return llm.occ_models(db, admin.user.user_id)

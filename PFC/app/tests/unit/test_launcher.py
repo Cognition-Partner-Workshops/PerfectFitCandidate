@@ -59,8 +59,9 @@ def test_launch(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
         opened.append(url)
         browser_opened.set()
 
-    def server(app, *, host: str, port: int, workers: int) -> None:
+    def server(app, *, host: str, port: int, workers: int, access_log: bool) -> None:
         assert host == "127.0.0.1" and workers == 1
+        assert access_log is False
         assert browser_opened.wait(5)
         from fastapi.testclient import TestClient
 

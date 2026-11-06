@@ -134,7 +134,7 @@ class JobRunner:
         except JobCancelled:
             self._finish(job_id, "cancelled", "cancelled")
         except Exception:
-            logger.exception("Background job %s failed", job_id)
+            logger.error("Background job %s failed", job_id)
             self._finish(job_id, "failed", "Job failed")
 
     def get(self, job_id: int) -> Job | None:
