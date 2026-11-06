@@ -219,7 +219,7 @@ export interface ApiClient {
   /** GET /occ/approvals (DL/CT entries pending OCC review) */
   listApprovals(): Promise<ApprovalEntry[]>
   /** PUT /occ/demands/{id} or /occ/resources/{id} — approve, modify (reason required) or revert */
-  decideApproval(entryId: number, decision: ApprovalDecision): Promise<ApprovalEntry>
+  decideApproval(entry: ApprovalEntry, decision: ApprovalDecision): Promise<ApprovalEntry>
 
   /** GET /occ/grades */
   listGrades(): Promise<Grade[]>

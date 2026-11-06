@@ -485,6 +485,8 @@ export interface UploadPreview {
 export interface ApprovalEntry {
   entryId: number
   source: 'DL' | 'CT'
+  /** demandId (DL) or resourceId (CT) addressed by PUT /occ/demands|resources/{id}. */
+  targetId: number
   /** Code Requisition (DL) or ShortName + masked email (CT). */
   key: string
   change: 'New' | 'Updated' | 'Removed'

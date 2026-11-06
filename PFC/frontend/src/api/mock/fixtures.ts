@@ -100,10 +100,10 @@ export const MODELS: LlmModel[] = [
 
 /** OCC DL/CT approval queue seed (GUI_OCC_DESIGN.md §16.4). Fictitious data only. */
 export const APPROVALS: ApprovalEntry[] = [
-  { entryId: 501, source: 'DL', key: 'T1A123', change: 'Updated', uploadedBy: 'Analyst upload', uploadedAt: '2026-11-05T09:12:00Z', state: 'Pending', conflict: false, fields: [{ field: 'Position Start Date', before: '2026-12-01', after: '2026-12-15' }] },
-  { entryId: 502, source: 'DL', key: 'T3N777', change: 'New', uploadedBy: 'Analyst upload', uploadedAt: '2026-11-05T09:12:00Z', state: 'Pending', conflict: false, fields: [{ field: 'Demand Request Name', before: null, after: 'Azure Platform Engineer' }, { field: 'Code Local Grade', before: null, after: 'C1' }] },
-  { entryId: 503, source: 'CT', key: 'ALEXANDER · Al******ander@example.com', change: 'Updated', uploadedBy: 'Analyst upload', uploadedAt: '2026-11-05T10:40:00Z', state: 'Pending', conflict: true, fields: [{ field: 'Bench Status', before: 'Available', after: 'CV with client - Proactive Proposed', adminValue: 'Available' }] },
-  { entryId: 504, source: 'CT', key: 'LMARTIN · Lu******tin@example.com', change: 'Removed', uploadedBy: 'Analyst upload', uploadedAt: '2026-11-04T16:05:00Z', state: 'Pending', conflict: false, fields: [{ field: 'Row', before: 'present', after: null }] },
+  { entryId: 501, source: 'DL', targetId: DEMANDS.find((d) => d.codeRequisition === 'T1A123')?.demandId ?? 1, key: 'T1A123', change: 'Updated', uploadedBy: 'Analyst upload', uploadedAt: '2026-11-05T09:12:00Z', state: 'Pending', conflict: false, fields: [{ field: 'Position Start Date', before: '2026-12-01', after: '2026-12-15' }] },
+  { entryId: 502, source: 'DL', targetId: 9001, key: 'T3N777', change: 'New', uploadedBy: 'Analyst upload', uploadedAt: '2026-11-05T09:12:00Z', state: 'Pending', conflict: false, fields: [{ field: 'Demand Request Name', before: null, after: 'Azure Platform Engineer' }, { field: 'Code Local Grade', before: null, after: 'C1' }] },
+  { entryId: 503, source: 'CT', targetId: RESOURCES.find((r) => r.shortName === 'ALEXANDER')?.resourceId ?? 1, key: 'ALEXANDER · Al******ander@example.com', change: 'Updated', uploadedBy: 'Analyst upload', uploadedAt: '2026-11-05T10:40:00Z', state: 'Pending', conflict: true, fields: [{ field: 'Bench Status', before: 'Available', after: 'CV with client - Proactive Proposed', adminValue: 'Available' }] },
+  { entryId: 504, source: 'CT', targetId: RESOURCES.find((r) => r.shortName === 'LMARTIN')?.resourceId ?? 2, key: 'LMARTIN · Lu******tin@example.com', change: 'Removed', uploadedBy: 'Analyst upload', uploadedAt: '2026-11-04T16:05:00Z', state: 'Pending', conflict: false, fields: [{ field: 'Row', before: 'present', after: null }] },
 ]
 
 export const GRADE_SEED: Grade[] = ['A3', 'A4', 'B1', 'B2', 'C1', 'C2', 'D1', 'D2', 'E1'].map((code, i) => ({ code, order: i + 1, retired: false }))

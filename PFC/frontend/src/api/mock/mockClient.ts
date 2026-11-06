@@ -63,8 +63,6 @@ import { maskEmail, maskPhone } from '../../lib/mask'
 
 // Bump when persisted mock shapes or IDs change so stale state is discarded.
 const STORAGE_KEY = 'pfc.mock.v3'
-const LOCKOUT_ATTEMPTS = 5
-const LOCKOUT_MINUTES = 15
 
 interface MockUser extends OccUser {
   passwordHash: string
@@ -270,6 +268,16 @@ export class MockApiClient implements ApiClient {
     this.state.audit.unshift({ at: iso(), summary, candidateId, user: u?.fullName ?? 'System', role: u?.role ?? 'System', ...meta })
   }
 
+  /** Saved OCC admin settings (§16.14); older persisted states fall back to defaults. */
+  private policy(): AdminSettings {
+    return this.state.adminSettings ?? ADMIN_SETTINGS
+  }
+
+  private minPasswordLength(role: Role): number {
+    const p = this.policy()
+    return role === 'Admin' ? p.adminMinPasswordLength : p.analystMinPasswordLength
+  }
+
   private nextId(): number {
     this.state.nextId += 1
     return this.state.nextId
@@ -315,7 +323,7 @@ export class MockApiClient implements ApiClient {
 
   computeResults(): MatchResult[] {
     const demands = this.state.demands.map((d) => ({ ...d, matches: 0, bestBand: null }))
-    const results = scoreAll(demands, this.state.raws, this.resources(), this.activeTemplate(), 1)
+    const results = scoreAll(demands, this.state.raws, this.resources(), this.activeTemplate(), 1, this.policy().emailsPreselected)
     return results.map((r) => {
       const o = this.state.overrides[r.resultId]
       return o ? { ...r, override: o } : r
@@ -391,7 +399,7 @@ export class MockApiClient implements ApiClient {
   async setupAdmin(req: { setupCode: string; fullName: string; email: string; password: string }) {
     if (this.state.users.some((u) => u.role === 'Admin')) fail(409, 'An administrator already exists', 'SETUP_DONE')
     if (req.setupCode.trim().toUpperCase() !== this.state.setupCode) fail(400, 'The setup code is not valid', 'SETUP_CODE_INVALID')
-    if (!checkPassword(req.password, 'Admin', { email: req.email, name: req.fullName }).ok)
+    if (!checkPassword(req.password, 'Admin', { email: req.email, name: req.fullName }).ok || req.password.length < this.minPasswordLength('Admin'))
       fail(422, 'Password does not meet the administrator policy', 'PASSWORD_POLICY')
     this.state.users.push({
       userId: this.nextId(),
@@ -424,12 +432,13 @@ export class MockApiClient implements ApiClient {
     if (!valid) {
       if (user) {
         user.failures += 1
-        if (user.failures >= LOCKOUT_ATTEMPTS) {
-          user.lockedUntil = Date.now() + LOCKOUT_MINUTES * 60_000
+        const { lockoutAttempts, lockoutMinutes } = this.policy()
+        if (user.failures >= lockoutAttempts) {
+          user.lockedUntil = Date.now() + lockoutMinutes * 60_000
           user.status = 'Locked'
-          this.audit(`Account locked after ${LOCKOUT_ATTEMPTS} failed sign-ins`)
+          this.audit(`Account locked after ${lockoutAttempts} failed sign-ins`)
           this.save()
-          fail(423, 'Too many attempts', 'ACCOUNT_LOCKED', { retryAfterSeconds: LOCKOUT_MINUTES * 60 })
+          fail(423, 'Too many attempts', 'ACCOUNT_LOCKED', { retryAfterSeconds: lockoutMinutes * 60 })
         }
       }
       this.audit('Sign-in failed')
@@ -457,7 +466,7 @@ export class MockApiClient implements ApiClient {
   async changePassword(req: { currentPassword: string; newPassword: string }) {
     const u = this.currentUser()
     if (u.passwordHash !== mockHash(req.currentPassword)) fail(400, 'Current password is incorrect', 'PASSWORD_MISMATCH')
-    if (!checkPassword(req.newPassword, u.role, { email: u.email, name: u.fullName }).ok)
+    if (!checkPassword(req.newPassword, u.role, { email: u.email, name: u.fullName }).ok || req.newPassword.length < this.minPasswordLength(u.role))
       fail(422, 'Password does not meet the policy', 'PASSWORD_POLICY')
     if (req.newPassword === req.currentPassword) fail(422, 'Choose a different password', 'PASSWORD_REUSED')
     u.passwordHash = mockHash(req.newPassword)
@@ -656,7 +665,8 @@ export class MockApiClient implements ApiClient {
   }
 
   async unmask(entity: 'resource' | 'candidate' | 'occ_user', id: number, field: 'email' | 'phone') {
-    this.currentUser()
+    const me = this.currentUser()
+    if (me.role === 'Analyst' && !this.policy().analystsMayUnmask) fail(403, 'Unmasking is disabled for Analysts', 'UNMASK_DISABLED')
     let value: string | null | undefined
     if (entity === 'occ_user') this.requireAdmin()
     if (entity === 'occ_user') value = this.state.users.find((u) => u.userId === id)?.email
@@ -821,9 +831,9 @@ export class MockApiClient implements ApiClient {
     return this.done(this.state.approvals)
   }
 
-  async decideApproval(entryId: number, d: ApprovalDecision) {
+  async decideApproval(entry: ApprovalEntry, d: ApprovalDecision) {
     this.requireAdmin()
-    const e = this.state.approvals.find((x) => x.entryId === entryId)
+    const e = this.state.approvals.find((x) => x.entryId === entry.entryId)
     if (!e) fail(404, 'Entry not found', 'NOT_FOUND')
     if (e.state !== 'Pending') fail(409, 'This entry has already been decided', 'ALREADY_DECIDED')
     const comment = d.comment?.trim()

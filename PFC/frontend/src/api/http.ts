@@ -15,14 +15,16 @@ interface HistoryRow {
   file_name?: string
 }
 
-export function toImportRecord(r: HistoryRow): PackageImportRecord {
-  return {
+/** Rollback reverts the current package to the previous applied one, so only the current row offers it. */
+export function toImportRecords(rows: HistoryRow[]): PackageImportRecord[] {
+  const hasPrevious = rows.some((r) => !r.current && r.status === 'applied')
+  return rows.map((r) => ({
     version: r.version,
     importedAt: r.applied_at,
     importedBy: r.applied_by,
     fileName: r.file_name ?? `v${r.version}`,
-    canRollback: !r.current && r.status === 'applied',
-  }
+    canRollback: r.current && r.status === 'applied' && hasPrevious,
+  }))
 }
 
 export class HttpApiClient implements ApiClient {
@@ -148,7 +150,7 @@ export class HttpApiClient implements ApiClient {
   /** Backend rows: `{version, applied_at, applied_by, status, current}`; any non-current applied version can be rolled back to. */
   packageHistory: ApiClient['packageHistory'] = async () => {
     const rows = await this.request<HistoryRow[]>('GET', '/settings/settings-package/history')
-    return rows.map(toImportRecord)
+    return toImportRecords(rows)
   }
 
   listUsers: ApiClient['listUsers'] = () => this.request('GET', '/occ/users')
@@ -185,12 +187,8 @@ export class HttpApiClient implements ApiClient {
   exportPackage: ApiClient['exportPackage'] = () => this.request('POST', '/occ/settings-package/export')
 
   listApprovals: ApiClient['listApprovals'] = () => this.request('GET', '/occ/approvals')
-  decideApproval: ApiClient['decideApproval'] = async (id, d) => {
-    const entries = await this.listApprovals()
-    const e = entries.find((x) => x.entryId === id)
-    const base = e?.source === 'CT' ? '/occ/resources' : '/occ/demands'
-    return this.request('PUT', `${base}/${id}`, d)
-  }
+  decideApproval: ApiClient['decideApproval'] = (e, d) =>
+    this.request('PUT', `${e.source === 'CT' ? '/occ/resources' : '/occ/demands'}/${e.targetId}`, d)
   listGrades: ApiClient['listGrades'] = () => this.request('GET', '/occ/grades')
   saveGrades: ApiClient['saveGrades'] = (g) => this.request('PUT', '/occ/grades', g)
   listOccModels: ApiClient['listOccModels'] = () => this.request('GET', '/occ/llm-models')

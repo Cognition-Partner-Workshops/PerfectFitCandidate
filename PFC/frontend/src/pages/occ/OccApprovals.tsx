@@ -17,7 +17,7 @@ export function OccApprovals() {
   const [comment, setComment] = useState('')
   const [values, setValues] = useState<Record<string, string>>({})
   const decide = useMutation({
-    mutationFn: ({ id, d }: { id: number; d: ApprovalDecision }) => api.decideApproval(id, d),
+    mutationFn: ({ entry, d }: { entry: ApprovalEntry; d: ApprovalDecision }) => api.decideApproval(entry, d),
     onSuccess: () => {
       setPending(null)
       setComment('')
@@ -96,7 +96,7 @@ export function OccApprovals() {
                 <td>
                   {e.state === 'Pending' && (
                     <div className="row" style={{ gap: 4 }}>
-                      <button className="btn btn-sm btn-primary" aria-label={`Approve ${e.key}`} onClick={() => decide.mutate({ id: e.entryId, d: { action: 'approve' } })}>
+                      <button className="btn btn-sm btn-primary" aria-label={`Approve ${e.key}`} onClick={() => decide.mutate({ entry: e, d: { action: 'approve' } })}>
                         Approve
                       </button>
                       {e.change !== 'Removed' && (
@@ -129,7 +129,7 @@ export function OccApprovals() {
                 disabled={!comment.trim() || (pending.action === 'modify' && !Object.values(values).some((v) => v.trim()))}
                 onClick={() =>
                   decide.mutate({
-                    id: pending.entry.entryId,
+                    entry: pending.entry,
                     d: { action: pending.action, comment, values: pending.action === 'modify' ? Object.fromEntries(Object.entries(values).filter(([, v]) => v.trim())) : undefined },
                   })
                 }

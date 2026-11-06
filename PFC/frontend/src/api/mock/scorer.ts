@@ -116,6 +116,7 @@ export function scoreAll(
   resources: Resource[],
   template: ScoringTemplate,
   runId: number,
+  emailsPreselected = 4,
 ): MatchResult[] {
   const w = template.weights
   const out: MatchResult[] = []
@@ -201,7 +202,7 @@ export function scoreAll(
     shortlist.forEach((r, i) => {
       r.resultId = r.demandId * 10_000 + r.resourceId
       r.rank = i + 1
-      r.emailPreselected = i < 4
+      r.emailPreselected = i < emailsPreselected
       out.push(r)
     })
   }

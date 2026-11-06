@@ -4,7 +4,7 @@ import { ADMIN, ANALYST_PASSWORD, renderApp, seed, signIn } from '../../test/uti
 import { api } from '../../api'
 import { auditToCsv, AUDIT_COLUMNS } from '../../lib/csv'
 import { gradeWindow, moveItem } from '../../lib/occ'
-import { toImportRecord } from '../../api/http'
+import { toImportRecords } from '../../api/http'
 
 describe('OCC helpers', () => {
   it('computes the ±1 grade window over active grades (REQ-GRD-01)', () => {
@@ -27,14 +27,13 @@ describe('OCC helpers', () => {
   })
 
   it('maps backend package history rows (agent E shape)', () => {
-    expect(toImportRecord({ version: 6, applied_at: '2026-11-01T09:00:00Z', applied_by: 'OCC Admin', status: 'applied', current: false })).toEqual({
-      version: 6,
-      importedAt: '2026-11-01T09:00:00Z',
-      importedBy: 'OCC Admin',
-      fileName: 'v6',
-      canRollback: true,
-    })
-    expect(toImportRecord({ version: 7, applied_at: 'x', applied_by: 'y', status: 'applied', current: true }).canRollback).toBe(false)
+    const rows = toImportRecords([
+      { version: 7, applied_at: '2026-11-05T09:00:00Z', applied_by: 'OCC Admin', status: 'applied', current: true },
+      { version: 6, applied_at: '2026-11-01T09:00:00Z', applied_by: 'OCC Admin', status: 'applied', current: false },
+    ])
+    expect(rows[0]).toEqual({ version: 7, importedAt: '2026-11-05T09:00:00Z', importedBy: 'OCC Admin', fileName: 'v7', canRollback: true })
+    expect(rows[1].canRollback).toBe(false)
+    expect(toImportRecords([{ version: 6, applied_at: 'x', applied_by: 'y', status: 'applied', current: true }])[0].canRollback).toBe(false)
   })
 })
 
@@ -45,11 +44,12 @@ describe('OCC mock API (GUI_OCC_DESIGN.md §16.4/§16.8/§16.10/§16.12/§16.14)
   })
 
   it('requires a reason to modify or revert, and audits decisions', async () => {
-    await expect(api.decideApproval(501, { action: 'revert' })).rejects.toMatchObject({ problem: { code: 'REASON_REQUIRED' } })
-    const e = await api.decideApproval(501, { action: 'modify', comment: 'Client confirmed date', values: { 'Position Start Date': '2026-12-20' } })
+    const [entry] = await api.listApprovals()
+    await expect(api.decideApproval(entry, { action: 'revert' })).rejects.toMatchObject({ problem: { code: 'REASON_REQUIRED' } })
+    const e = await api.decideApproval(entry, { action: 'modify', comment: 'Client confirmed date', values: { 'Position Start Date': '2026-12-20' } })
     expect(e.state).toBe('Modified')
     expect(e.fields[0].after).toBe('2026-12-20')
-    await expect(api.decideApproval(501, { action: 'approve' })).rejects.toMatchObject({ problem: { code: 'ALREADY_DECIDED' } })
+    await expect(api.decideApproval(entry, { action: 'approve' })).rejects.toMatchObject({ problem: { code: 'ALREADY_DECIDED' } })
     const log = await api.auditLog({ entity: 'demand' })
     expect(log[0].summary).toContain('T1A123: Modified')
   })
@@ -78,6 +78,22 @@ describe('OCC mock API (GUI_OCC_DESIGN.md §16.4/§16.8/§16.10/§16.12/§16.14)
     await expect(api.saveAdminSettings({ ...s, maskCount: 4 })).rejects.toMatchObject({ problem: { code: 'VALIDATION' } })
     await expect(api.saveAdminSettings({ ...s, emailsPreselected: 6 })).rejects.toMatchObject({ problem: { code: 'VALIDATION' } })
     expect((await api.saveAdminSettings({ ...s, idleTimeoutMinutes: 30 })).idleTimeoutMinutes).toBe(30)
+  })
+
+  it('enforces saved admin settings: lockout, unmask, password floor, pre-select count', async () => {
+    const { analystEmail } = await seed({ analyst: true })
+    await signIn('Admin', ADMIN.email, ADMIN.password)
+    const s = await api.getAdminSettings()
+    await api.saveAdminSettings({ ...s, lockoutAttempts: 3, analystsMayUnmask: false, analystMinPasswordLength: 20, emailsPreselected: 2 })
+    const results = await api.getResults(1)
+    expect(results.filter((r) => r.codeRequisition === 'T1A123' && r.emailPreselected).map((r) => r.rank)).toEqual([1, 2])
+    await api.logout()
+    await signIn('Analyst', analystEmail, ANALYST_PASSWORD)
+    await expect(api.unmask('resource', results[0].resourceId, 'email')).rejects.toMatchObject({ problem: { code: 'UNMASK_DISABLED' } })
+    await expect(api.changePassword({ currentPassword: ANALYST_PASSWORD, newPassword: 'Longer#Pass2027' })).rejects.toMatchObject({ problem: { code: 'PASSWORD_POLICY' } })
+    await api.logout()
+    for (let i = 0; i < 2; i++) await expect(api.login({ email: analystEmail, password: 'wrong', role: 'Analyst' })).rejects.toMatchObject({ status: 401 })
+    await expect(api.login({ email: analystEmail, password: 'wrong', role: 'Analyst' })).rejects.toMatchObject({ problem: { code: 'ACCOUNT_LOCKED' } })
   })
 
   it('filters the audit log by date, user and action', async () => {
