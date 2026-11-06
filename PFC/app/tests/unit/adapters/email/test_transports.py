@@ -149,6 +149,29 @@ def test_reconcile_after_restart_and_manual_send(message):
         second.close()
 
 
+def test_send_preserves_analyst_draft_edits(message):
+    """Approved Outlook edits, not original generated fields, are sent (REQ-EML-01/02)."""
+    app = Application()
+    transport = transports.OutlookComTransport(com_factory=lambda: app)
+    try:
+        transport.create_draft(message, display=True)
+        mail = app.created[0]
+        mail.To = "edited-to@example.test"
+        mail.CC = "edited-cc@example.test"
+        mail.Subject = "Analyst subject"
+        mail.HTMLBody = "<p>Analyst-edited body</p>"
+        mail.paths[:] = ["/analyst-added.docx"]
+        assert transport.send(replace(message, approved=True)).status == "sent"
+        assert mail.To == "edited-to@example.test"
+        assert mail.CC == "edited-cc@example.test"
+        assert mail.Subject == "Analyst subject"
+        assert mail.HTMLBody == "<p>Analyst-edited body</p>"
+        assert mail.paths == ["/analyst-added.docx"]
+        assert len(app.created) == mail.sent == mail.saved == 1
+    finally:
+        transport.close()
+
+
 def test_uncertain_failure_requires_reconciliation(message):
     app = Application()
     app.fail = True

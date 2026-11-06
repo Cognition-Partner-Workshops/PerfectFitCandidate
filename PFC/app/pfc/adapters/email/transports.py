@@ -145,8 +145,9 @@ class OutlookComTransport:
 
     def _mail(self, message: EmailMessage) -> Any:
         mail = self._find(message.idempotency_key, (16,))
-        if mail is None:
-            mail = self._application().CreateItem(0)
+        if mail is not None:
+            return mail
+        mail = self._application().CreateItem(0)
         mail.To = message.to
         mail.CC = message.cc
         mail.Subject = message.subject
