@@ -20,24 +20,23 @@ public static class OfflineSmokeProfile {
         if (-not [OfflineSmokeProfile]::GetUserProfileDirectory($identity.Token, $buffer, [ref]$size)) {
             throw [ComponentModel.Win32Exception]::new([Runtime.InteropServices.Marshal]::GetLastWin32Error())
         }
-        $profile = [IO.Path]::GetFullPath($buffer.ToString()).TrimEnd('\')
+        $profileDir = [IO.Path]::GetFullPath($buffer.ToString()).TrimEnd('\')
     } finally {
         $identity.Dispose()
     }
-    $env:USERPROFILE = $profile
-    $drive = [IO.Path]::GetPathRoot($profile).TrimEnd('\')
+    $env:USERPROFILE = $profileDir
+    $drive = [IO.Path]::GetPathRoot($profileDir).TrimEnd('\')
     $env:HOMEDRIVE = $drive
-    $env:HOMEPATH = $profile.Substring($drive.Length)
-    # GetFolderPath can fall back to these variables if the native lookup fails.
-    Remove-Item Env:LOCALAPPDATA, Env:APPDATA -ErrorAction SilentlyContinue
-    $localAppData = [Environment]::GetFolderPath('LocalApplicationData', 'Create')
-    $appData = [Environment]::GetFolderPath('ApplicationData', 'Create')
+    $env:HOMEPATH = $profileDir.Substring($drive.Length)
+    $localAppData = Join-Path $profileDir 'AppData\Local'
+    $appData = Join-Path $profileDir 'AppData\Roaming'
     [Console]::Error.WriteLine("Offline smoke user: $(& whoami.exe); LOCALAPPDATA: $localAppData")
     foreach ($folder in @($localAppData, $appData)) {
-        if ([string]::IsNullOrWhiteSpace($folder) -or -not [IO.Path]::GetFullPath($folder).StartsWith("$profile\", [StringComparison]::OrdinalIgnoreCase)) {
-            throw "Smoke app-data folder is not under the current token's profile '$profile': '$folder'"
+        if ([string]::IsNullOrWhiteSpace($folder) -or -not [IO.Path]::GetFullPath($folder).StartsWith("$profileDir\", [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Smoke app-data folder is not under the current token's profile '$profileDir': '$folder'"
         }
     }
+    New-Item -ItemType Directory -Force -Path $localAppData, $appData | Out-Null
     $env:LOCALAPPDATA = $localAppData
     $env:APPDATA = $appData
     $env:TEMP = $env:TMP = Join-Path $localAppData 'Temp'
@@ -117,7 +116,7 @@ try {
         & taskkill.exe /PID $process.Id /T /F | Out-Null
     }
     foreach ($rule in $rules) { Remove-NetFirewallRule -DisplayName $rule -ErrorAction Continue }
-    foreach ($profile in $profiles) { Set-NetFirewallProfile -Profile $profile.Name -Enabled $profile.Enabled -ErrorAction Continue }
+    foreach ($firewallProfile in $profiles) { Set-NetFirewallProfile -Profile $firewallProfile.Name -Enabled $firewallProfile.Enabled -ErrorAction Continue }
     Copy-Item "$root/stderr.txt" $evidence -ErrorAction SilentlyContinue
     Remove-LocalUser -Name $user -ErrorAction Continue
 }
