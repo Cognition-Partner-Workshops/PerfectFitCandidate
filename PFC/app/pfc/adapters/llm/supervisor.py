@@ -149,6 +149,7 @@ class LlamaServerSupervisor:
         self.restart_reset_window_s = restart_reset_window_s
         self.restart_backoff_s = restart_backoff_s
         self._restart_attempts = 0
+        self._ready_since = 0.0
         self.settings = settings
         self.binary = settings.llama_dir / (
             "llama-server.exe" if sys.platform == "win32" else "llama-server"
@@ -336,6 +337,7 @@ class LlamaServerSupervisor:
                 base_url, model_name, api_key=api_key, transport=self.transport
             )
             self.state, self.detail = "ready", ""
+            self._ready_since = asyncio.get_running_loop().time()
             self._publish(FallbackProvider(self.provider, self.provider))
             self._monitor = asyncio.create_task(self._watch())
         except Exception as exc:
@@ -354,11 +356,13 @@ class LlamaServerSupervisor:
 
     async def _watch(self) -> None:
         loop = asyncio.get_running_loop()
-        healthy_since = loop.time()
+        healthy_since = self._ready_since
         while self.proc is not None and self.proc.poll() is None:
             if loop.time() - healthy_since >= self.restart_reset_window_s:
                 self._restart_attempts = 0
             await asyncio.sleep(self.poll_interval_s)
+        if loop.time() - healthy_since >= self.restart_reset_window_s:
+            self._restart_attempts = 0
         async with self._lock:
             await self._cleanup()
         while self._restart_attempts < 3:

@@ -316,6 +316,44 @@ def test_healthy_window_refills_restart_budget(settings: Settings, tmp_path: Pat
     asyncio.run(scenario())
 
 
+def test_healthy_exit_between_polls_refills_restart_budget(
+    settings: Settings, tmp_path: Path
+) -> None:
+    async def crash_and_recover(service: LlamaServerSupervisor) -> None:
+        proc = service.proc
+        assert proc is not None
+        proc.kill()
+        await asyncio.to_thread(proc.wait)
+        async with asyncio.timeout(5):
+            while service.proc is proc or service.check().status != "ok":
+                assert service.check().detail != "llama-server exited; restart attempts exhausted"
+                await asyncio.sleep(0.001)
+
+    async def scenario() -> None:
+        service = supervisor(
+            settings,
+            tmp_path,
+            restart_backoff_s=(0.01, 0.01, 0.01),
+            restart_reset_window_s=0.1,
+        )
+        try:
+            await service.start("one", settings.models_dir / "one.gguf")
+            for attempt in range(1, 4):
+                await crash_and_recover(service)
+                assert service._restart_attempts == attempt
+            service.poll_interval_s = 0.5
+            await asyncio.sleep(0.15)
+            assert service._restart_attempts == 3
+            service.poll_interval_s = 0.01
+            for attempt in range(1, 4):
+                await crash_and_recover(service)
+                assert service._restart_attempts == attempt
+        finally:
+            await service.stop()
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("switch", [False, True])
 def test_stop_or_switch_cancels_restart_backoff(
     settings: Settings, tmp_path: Path, switch: bool
