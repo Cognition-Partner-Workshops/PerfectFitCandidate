@@ -45,29 +45,29 @@ grade-compatible pairs from the same 500 × 500 population.
 
 | Operation | VM before | VM after | GitHub before | GitHub after |
 |---|---:|---:|---:|---:|
-| Full matching | 23.302 | 23.640 | 45.008 | 31.817 |
-| GET /analytics/summary | 4.631 | 0.080 | 13.933 | 0.092 |
-| GET /analytics/demand | 4.789 | 0.056 | 9.498 | 0.060 |
-| GET /analytics/bench | 4.949 | 0.076 | 7.812 | 0.089 |
-| GET /analytics/match | 6.598 | 0.571 | 15.503 | 0.688 |
+| Full matching | 23.302 | 25.070 | 45.008 | 43.365 |
+| GET /analytics/summary | 4.631 | 0.079 | 13.933 | 0.118 |
+| GET /analytics/demand | 4.789 | 0.054 | 9.498 | 0.076 |
+| GET /analytics/bench | 4.949 | 0.075 | 7.812 | 0.114 |
+| GET /analytics/match | 6.598 | 0.557 | 15.503 | 0.810 |
 
 Provenance (all counts are logical CPUs; RAM is OS-reported):
 - **VM before/after:** Linux-6.8.0-1060-aws-x86_64-with-glibc2.35,
   Python 3.12.16, Intel(R) Xeon(R) Processor, 8 CPUs,
   33,655,369,728 bytes RAM (~31.34 GiB). Before: SHA
   `8ec55a7080dfe213b451b15c0ef3e3b422091f96`, benchmark files uncommitted.
-  After: SHA `40aa05e4ce1b25d1efb79a4c5ec6474e6354d0b1`, optimization
-  uncommitted at measurement, subsequently committed as `26dc675`.
+  After: SHA `26dc675c72955858c2eaee70241a1654b4188cf9`, with the
+  tighter perf guards and documentation uncommitted at measurement.
 - **GitHub before:** PR #29 backend job `127749979209`, SHA
   `770320c0ca91cd28875a52c47107f375a68a342a`, clean tree;
   Ubuntu 26.04.1, Linux-7.0.0-1019-azure-x86_64-with-glibc2.43,
   Python 3.13.18, AMD EPYC 7763 64-Core Processor, 4 CPUs,
   16,759,439,360 bytes RAM (~15.61 GiB).
-- **GitHub after:** push backend job `127756274221`, SHA
-  `26dc675c72955858c2eaee70241a1654b4188cf9`, clean tree;
+- **GitHub after:** push backend job `127760671435`, SHA
+  `3ea2348f0e3e535a0f702143be1510a35c6446f3`, clean tree;
   Ubuntu 26.04.1, same Linux/glibc/Python versions as GitHub before,
-  AMD EPYC 9V74 80-Core Processor, 4 CPUs, 16,759,443,456 bytes RAM.
-  The hosted CPU changed, so this is not a controlled hardware A/B comparison.
+  AMD EPYC 7763 64-Core Processor, 4 CPUs, 16,759,439,360 bytes RAM.
+  The reported CPU class matches before, but hosted load is not controlled.
 
 No cgroup CPU/memory limits were reported. Raw samples, hardware, Python, current
 Git SHA/dirty state, counts and thresholds print as `NFR01_RESULT=` JSON.
@@ -97,13 +97,13 @@ browser timings cannot establish target-laptop acceptance: benchmark the Windows
 
 Limits: **180 s** full matching (unchanged), and **2 s each** for summary, demand,
 bench and match medians. Each analytics limit is at least twice its measured
-GitHub median: 0.184 / 0.121 / 0.178 / 1.375 s respectively round up to 2 s.
+GitHub median: 0.236 / 0.153 / 0.229 / 1.620 s respectively round up to 2 s.
 These API regression guards do not establish full target-laptop NFR acceptance.
 Matching also has a 180 s cancellation timeout.
 
 The `perf` marker is excluded from ordinary `pytest`. CI explicitly runs it
 **once on Linux** after the ordinary backend suite; Windows runs the ordinary
-suite only to avoid duplicating this ~37 s benchmark on the measured GitHub runner.
+suite only to avoid duplicating this ~49 s benchmark on the measured GitHub runner.
 The standard-library
 provenance collector also supports manual Windows runs. CI uses Python 3.13;
 these recorded VM measurements use 3.12.16.
