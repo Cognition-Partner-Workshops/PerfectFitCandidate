@@ -738,7 +738,10 @@ export class MockApiClient implements ApiClient {
     const me = this.currentUser()
     if (includeEmails && me.role === 'Analyst' && !this.policy().analystsMayUnmask) fail(403, 'Unmasking is disabled for Analysts', 'UNMASK_DISABLED')
     if (format === 'xlsx') fail(501, 'XLSX export needs the backend', 'NOT_IMPLEMENTED')
-    const rows = applyResultFilters(await this.getResults(runId), f)
+    const raw = new Map(this.state.raws.map((r) => [r.resourceId, r.email]))
+    const rows = applyResultFilters(await this.getResults(runId), f).map((r) =>
+      includeEmails ? { ...r, personEmailMasked: raw.get(r.resourceId) ?? r.personEmailMasked } : r,
+    )
     return { blob: new Blob([resultsToCsv(rows, `Run ${runId}`)], { type: 'text/csv;charset=utf-8' }), fileName: `PFC-results-run${runId}.csv` }
   }
 
