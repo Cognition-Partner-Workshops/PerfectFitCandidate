@@ -62,7 +62,7 @@ class JdRequirements(WireModel):
         return self
 
     def extraction(self, previous_experience: list[dict[str, Any]]) -> dict[str, Any]:
-        experience = (
+        experience: list[dict[str, Any]] = (
             [{"text": text} for text in self.experience]
             if self.experience is not None
             else [dict(item) for item in previous_experience]

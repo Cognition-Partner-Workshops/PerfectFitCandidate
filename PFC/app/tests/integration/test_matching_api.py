@@ -154,6 +154,7 @@ def test_req_mat_02_full_flow_drafts_results_overrides_exclusions(api: Api) -> N
         confirmed = confirm_requirements(db, demand_id, None, 1, NOW)["jd_req_id"]
     draft.update(
         experienceYears=5,
+        experience=["5 years experience"],
         qualifications="Degree; Certification",
         domain="Finance; Retail",
         location="London",
@@ -450,6 +451,10 @@ def test_experience_survives_flat_requirement_edits(api: Api) -> None:
     cleared = client.put(url, headers=headers, json={"demandId": demand_id, "experience": []})
     assert cleared.status_code == 200 and cleared.json()["experience"] == []
     problem(
+        client.put(url, headers=headers, json={"demandId": demand_id, "jdReqId": 999}),
+        409,
+    )
+    problem(
         client.put(
             url,
             headers=headers,
@@ -505,17 +510,6 @@ def test_band_adjustment_remains_visible_after_pin(api: Api) -> None:
     )
     assert revoked.status_code == 200 and revoked.json()["override"]["action"] == "pin"
     assert [value["action"] for value in revoked.json()["activeOverrides"]] == ["pin"]
-    problem(
-        client.put(
-            url,
-            headers=headers,
-            json={
-                "demandId": demand_id,
-                "jdReqId": 999,
-            },
-        ),
-        409,
-    )
 
 
 def test_empty_missing_validation_production_openapi_and_removed_paths(api: Api) -> None:
