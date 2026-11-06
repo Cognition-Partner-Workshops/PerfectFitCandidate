@@ -140,6 +140,10 @@ def test_req_in_23_phone_next_to_year_range_is_found_and_masked(line: str) -> No
         "2020-2024.555",
         "44-2020-2024",
         "+44 2020/2024 555",
+        "+44 2015-2019 555",
+        "(020) 2020 2024",
+        "2015-2019 +44 20 7946 0958",
+        "+2015-2019",
     ],
 )
 def test_req_in_23_year_ranges_joined_to_digits_are_masked(line: str) -> None:
@@ -147,7 +151,7 @@ def test_req_in_23_year_ranges_joined_to_digits_are_masked(line: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "text", ["2015-2019 at Acme", "Dates: 2015 - 2019.", "2015–2019", "2015/2019"]
+    "text", ["2015-2019", "2015-2019 at Acme", "Dates: 2015 - 2019.", "2015–2019", "2015/2019"]
 )
 def test_req_in_23_isolated_year_ranges_remain_readable(text: str) -> None:
     assert mask_evidence(text) == text

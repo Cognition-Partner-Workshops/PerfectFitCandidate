@@ -165,12 +165,21 @@ def test_req_in_23_backfill_preserves_emails_and_version(
 
 
 @pytest.mark.parametrize(
-    "line", ["+44 2020-2024 555", "+44 7700 900123 2020-2024", "2020-2024 +44 7700 900123"]
+    "line,phone_value",
+    [
+        ("+44 2020-2024 555", None),
+        ("+44 7700 900123 2020-2024", "+44 7700 900123"),
+        ("2020-2024 +44 7700 900123", "+44 7700 900123"),
+        ("+44 2015-2019 555", None),
+        ("(020) 2020 2024", "(020) 2020 2024"),
+        ("2015-2019 +44 20 7946 0958", "+44 20 7946 0958"),
+    ],
 )
 def test_req_in_23_adjacent_phone_and_years_masked_in_both_responses(
     client: TestClient,
     tmp_path: Path,
     line: str,
+    phone_value: str | None,
 ) -> None:
     root = tmp_path / "resumes"
     root.mkdir()
@@ -181,10 +190,10 @@ def test_req_in_23_adjacent_phone_and_years_masked_in_both_responses(
     with database(client.app.state.settings) as db:
         version = db.execute("SELECT candidate_id,text_norm,facts_json FROM cv_versions").fetchone()
         phone = json.loads(version["facts_json"])["facts"]["phone"]
-        if line == "+44 2020-2024 555":
+        if phone_value is None:
             assert phone is None
         else:
-            assert phone["value"] == "+44 7700 900123"
+            assert phone["value"] == phone_value
             assert version["text_norm"][slice(*phone["span"])] == phone["evidence"]
         candidate = version["candidate_id"]
     for endpoint in (
@@ -197,10 +206,10 @@ def test_req_in_23_adjacent_phone_and_years_masked_in_both_responses(
         items = (
             response.json() if isinstance(response.json(), list) else response.json()["cvVersions"]
         )
-        if line == "+44 2020-2024 555":
+        if phone_value is None:
             assert items[0]["facts"]["phone"] is None
         else:
-            assert items[0]["facts"]["phone"]["value"] == "***23"
+            assert items[0]["facts"]["phone"]["value"] == "***" + phone_value[-2:]
         project = items[0]["facts"]["projects"][0]
         assert project["evidence"] == project["value"] == "***" + line[-2:]
 
