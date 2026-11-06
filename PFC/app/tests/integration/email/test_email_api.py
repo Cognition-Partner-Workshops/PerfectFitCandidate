@@ -26,8 +26,9 @@ from pfc.db.connection import database
 from pfc.db.migrate import migrate
 from pfc.security.middleware import install_middleware
 from pfc.security.passwords import hasher
-from pfc.security.problems import install_handlers
+from pfc.security.problems import Problem, install_handlers
 from pfc.security.setup import code_path, generate_setup_code
+from pfc.services.email import EmailService
 
 NOW = "2026-01-01T00:00:00Z"
 ANALYST_PASSWORD = "AnalystStrong123"
@@ -243,6 +244,55 @@ def test_demand_scope_and_result_filter_select_only_top_five(client: TestClient)
     assert response.json()["drafts"][0]["result_id"] == result_ids[4]
     assert response.json()["drafts"][0]["rank"] == 5
     assert response.json()["drafts"][0]["selected"] is False
+
+
+@pytest.mark.parametrize("operation", ["edit", "approve"])
+def test_concurrent_send_state_blocks_edit_and_approval(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    run_id, _ = seed_matches(client)
+    csrf = login(client)
+    draft = create_drafts(client, csrf, run_id).json()["drafts"][0]
+    with database(client.app.state.settings) as db:
+        user_id = int(
+            db.execute("SELECT user_id FROM users WHERE email='analyst@example.test'").fetchone()[0]
+        )
+    service = EmailService(
+        client.app.state.settings,
+        cast(FakeTransport, client.app.state.email_transport),
+        None,
+        client.app.state.clock,
+    )
+    original_get = service._get_draft_row
+    transitioned = False
+
+    def transition_before_update(db, message_id):
+        nonlocal transitioned
+        row = original_get(db, message_id)
+        if not transitioned:
+            db.execute(
+                "UPDATE email_messages SET status='Sending' WHERE message_id=?",
+                (message_id,),
+            )
+            db.commit()
+            transitioned = True
+        return row
+
+    monkeypatch.setattr(service, "_get_draft_row", transition_before_update)
+    with pytest.raises(Problem) as error:
+        if operation == "edit":
+            service.patch_draft(
+                draft["message_id"], user_id=user_id, subject="Updated", body_html=None
+            )
+        else:
+            service.approve(draft["message_id"], user_id=user_id)
+    assert error.value.status == 409
+    with database(client.app.state.settings) as db:
+        status = db.execute(
+            "SELECT status FROM email_messages WHERE message_id=?",
+            (draft["message_id"],),
+        ).fetchone()[0]
+    assert status == "Sending"
 
 
 def test_verbatim_email_and_missing_email_issue(client: TestClient) -> None:

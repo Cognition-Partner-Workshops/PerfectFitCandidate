@@ -418,18 +418,22 @@ class EmailService:
         safe_body = sanitize_email_html(body_html) if body_html is not None else None
         now = stamp(self.clock())
         with database(self.settings) as db:
+            db.execute("BEGIN IMMEDIATE")
             row = self._get_draft_row(db, message_id)
             if row is None:
                 raise Problem(404, "EMAIL_DRAFT_NOT_FOUND", "Email draft not found")
             if row["status"] in {"Sent", "Sending", "Discarded"}:
                 raise Problem(409, "EMAIL_DRAFT_NOT_EDITABLE", "Email draft cannot be edited")
             updated_status = "Draft" if row["status"] in {"Approved", "Failed"} else row["status"]
-            db.execute(
+            cursor = db.execute(
                 "UPDATE email_messages SET subject=COALESCE(?, subject), "
                 "body_html=COALESCE(?, body_html), status=?, approved_by=NULL, approved_at=NULL, "
-                "last_error=NULL, updated_at=? WHERE message_id=?",
+                "last_error=NULL, updated_at=? WHERE message_id=? "
+                "AND status NOT IN ('Sent','Sending','Discarded')",
                 (subject, safe_body, updated_status, now, message_id),
             )
+            if cursor.rowcount == 0:
+                raise Problem(409, "EMAIL_DRAFT_NOT_EDITABLE", "Email draft cannot be edited")
             audit.append_audit(
                 db,
                 ts=now,
@@ -570,6 +574,7 @@ class EmailService:
     def approve(self, message_id: int, *, user_id: int) -> EmailDraft:
         now = stamp(self.clock())
         with database(self.settings) as db:
+            db.execute("BEGIN IMMEDIATE")
             row = self._get_draft_row(db, message_id)
             if row is None:
                 raise Problem(404, "EMAIL_DRAFT_NOT_FOUND", "Email draft not found")
@@ -585,11 +590,14 @@ class EmailService:
                     "EMAIL_PLACEHOLDER_UNRESOLVED",
                     "Resolve all email template placeholders before approval",
                 )
-            db.execute(
+            cursor = db.execute(
                 "UPDATE email_messages SET status='Approved', approved_by=?, approved_at=?, "
-                "last_error=NULL, updated_at=? WHERE message_id=?",
+                "last_error=NULL, updated_at=? WHERE message_id=? "
+                "AND status NOT IN ('Sent','Sending','Discarded')",
                 (user_id, now, now, message_id),
             )
+            if cursor.rowcount == 0:
+                raise Problem(409, "EMAIL_NOT_APPROVABLE", "Email cannot be approved in this state")
             audit.append_audit(
                 db,
                 ts=now,
