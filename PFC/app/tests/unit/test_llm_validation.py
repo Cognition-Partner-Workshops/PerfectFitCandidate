@@ -93,6 +93,30 @@ def test_req_mat_02_exact_normalized_precision_recall() -> None:
     assert score_values([], [])["precision"] is None
 
 
+def test_held_out_jd_fixtures_are_separate_and_well_formed() -> None:
+    original = json.loads(FIXTURES.read_text(encoding="utf-8"))
+    held_out = json.loads(
+        FIXTURES.with_name("llm_validation_held_out.json").read_text(encoding="utf-8")
+    )
+    assert held_out["split"] == "held_out_5" and held_out["cvs"] == []
+    assert [row["id"] for row in original["jds"]] == [f"jd{i:02}" for i in range(1, 11)]
+    assert [row["id"] for row in held_out["jds"]] == [f"jd{i:02}" for i in range(11, 16)]
+    cues = {"nice to have", "desirable", "a plus", "ideally", "bonus"}
+    observed: set[str] = set()
+    for row in held_out["jds"]:
+        text = row["text"].casefold()
+        expected = row["expected"]
+        assert set(expected) == {"mandatory_skills", "preferred_skills"}
+        assert set(expected["mandatory_skills"]).isdisjoint(expected["preferred_skills"])
+        for values in expected.values():
+            assert values and all(
+                isinstance(value, str) and value.casefold() in text for value in values
+            )
+        assert re.search(r"\b(must|required|essential)\b", text)
+        observed.update(cue for cue in cues if cue in text)
+    assert observed == cues
+
+
 class RawFake(FakeProvider):
     async def generate(
         self, request: PromptRequest, *, api_version: str | None = None

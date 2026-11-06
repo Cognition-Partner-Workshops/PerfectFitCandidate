@@ -6,6 +6,7 @@ import { api, ApiError } from '../api'
 import type { Demand, JdRequirements, JdStatus } from '../api/types'
 import { BandChip, Banner, Chip, EmptyState, ErrorState, Modal, Spinner } from '../components/ui'
 import { UploadDialog } from '../components/UploadDialog'
+import { SummaryCard } from '../components/SummaryCard'
 import { formatDate, roleLocation } from '../lib/format'
 
 const STATUS_TONE: Record<JdStatus, 'neutral' | 'info' | 'success' | 'warning'> = {
@@ -109,6 +110,7 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
         )
       }
     >
+      <SummaryCard kind="demand" id={demand.demandId} />
       <span className="muted small">
         {demand.demandRequestName} · {demand.accountName} · {demand.codeLocalGrade} · DL region: {roleLocation(demand.region) || '—'} · Start{' '}
         {formatDate(demand.positionStartDate)}

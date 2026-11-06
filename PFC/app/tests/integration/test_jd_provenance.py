@@ -1,13 +1,161 @@
 """Extraction provenance follows the reviewed revision lineage."""
 
+import json
+
 import pytest
 from test_jd_llm_extract import Provider
 from test_matching_api import Api, finish
 from test_matching_api import api as api
 from test_matching_service import NOW, FakeLlm, seed_demand, seed_resource
 
+from pfc.adapters.llm.providers import FakeProvider
 from pfc.db.connection import database
 from pfc.services.matching import MatchingPorts, confirm_requirements, get_requirements
+
+
+def test_classification_reason_survives_api_save_and_confirm(api: Api) -> None:
+    client, headers = api
+    client.app.state.llm_provider = FakeProvider(
+        json.dumps(
+            {
+                "mandatory_skills": [{"text": "SQL"}, {"text": "PostgreSQL"}],
+                "preferred_skills": [{"text": "PostgreSQL"}],
+            }
+        )
+    )
+    with database(client.app.state.settings) as db:
+        demand = seed_demand(db, confirmed=False)
+        seed_resource(db)
+        db.execute(
+            "UPDATE demand_versions SET jd_text_norm=? WHERE demand_version_id="
+            "(SELECT current_version_id FROM demands WHERE demand_id=?)",
+            ("Database specialist\nREQUIRED SKILLS: SQL\nPREFERRED SKILLS: PostgreSQL", demand),
+        )
+    url = f"/api/v1/demands/{demand}"
+    response = client.post(url + "/analyze", headers=headers)
+    assert response.status_code == 200, response.text
+    original = response.json()
+    assert original["mandatorySkills"] == ["SQL"]
+    assert original["preferredSkills"] == ["PostgreSQL"]
+    for _ in range(2):
+        draft = client.get(url + "/requirements").json()
+        kept = next(item for item in draft["items"] if item["text"] == "PostgreSQL")
+        assert kept["classificationReason"] == "classification_adjusted"
+        assert kept["evidenceUnverified"] is True and kept["evidence"] is None
+        source_id = kept["jdReqId"]
+        kept["classificationReason"] = None
+        saved = client.put(url + "/requirements", headers=headers, json=draft)
+        assert saved.status_code == 200, saved.text
+        adjusted = next(item for item in saved.json()["items"] if item["text"] == "PostgreSQL")
+        assert adjusted["classificationReason"] == "classification_adjusted"
+        assert adjusted["evidenceUnverified"] is True and adjusted["evidence"] is None
+        assert saved.json()["extractionMethod"] == "llm"
+        assert saved.json()["fallbackReason"] is None
+        with database(client.app.state.settings) as db:
+            source = db.execute(
+                "SELECT source_jd_req_id FROM jd_requirement_items WHERE item_id=?",
+                (adjusted["jdReqId"],),
+            ).fetchone()
+            assert source[0] == source_id
+            stored = db.execute(
+                "SELECT extraction_json FROM jd_requirements WHERE jd_req_id=?",
+                (saved.json()["jdReqId"],),
+            ).fetchone()
+            assert json.loads(stored[0])["preferred_skills"][0]["classification_reason"] == (
+                "classification_adjusted"
+            )
+            assert json.loads(stored[0])["preferred_skills"][0]["evidence_unverified"] is True
+    finish(client, client.post(url + "/requirements/confirm", headers=headers))
+    confirmed = client.get(url + "/requirements").json()
+    assert confirmed["status"] == "confirmed"
+    assert confirmed["extractionMethod"] == original["extractionMethod"] == "llm"
+    assert confirmed["fallbackReason"] is None and confirmed["warnings"] == []
+    assert (
+        next(item for item in confirmed["items"] if item["text"] == "PostgreSQL")[
+            "evidenceUnverified"
+        ]
+        is True
+    )
+    assert (
+        next(item for item in confirmed["items"] if item["text"] == "PostgreSQL")[
+            "classificationReason"
+        ]
+        == "classification_adjusted"
+    )
+
+
+@pytest.mark.parametrize("source_id", [None, 999999])
+def test_manual_item_cannot_assert_classification_reason(api: Api, source_id: int | None) -> None:
+    client, headers = api
+    with database(client.app.state.settings) as db:
+        demand = seed_demand(db, confirmed=False)
+    response = client.put(
+        f"/api/v1/demands/{demand}/requirements",
+        headers=headers,
+        json={
+            "demandId": demand,
+            "mandatorySkills": ["SQL"],
+            "items": [
+                {
+                    "kind": "mandatory_skill",
+                    "text": "SQL",
+                    "jdReqId": source_id,
+                    "classificationReason": "classification_adjusted",
+                }
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["items"][0]["classificationReason"] is None
+    assert response.json()["extractionMethod"] is None
+    assert response.json()["fallbackReason"] is None
+
+
+@pytest.mark.parametrize(
+    ("kind", "text", "expected"),
+    [
+        ("preferred_skill", "MySQL", None),
+        ("mandatory_skill", "PostgreSQL", None),
+        ("preferred_skill", "PostgreSQL!", None),
+        ("preferred_skill", "  ＰＯＳＴＧＲＥＳＱＬ  ", "classification_adjusted"),
+    ],
+)
+def test_reused_item_id_requires_same_kind_and_normalized_text(
+    api: Api, kind: str, text: str, expected: str | None
+) -> None:
+    client, headers = api
+    client.app.state.llm_provider = FakeProvider(
+        json.dumps(
+            {
+                "mandatory_skills": [{"text": "PostgreSQL"}],
+                "preferred_skills": [{"text": "PostgreSQL"}],
+            }
+        )
+    )
+    with database(client.app.state.settings) as db:
+        demand = seed_demand(db, confirmed=False)
+        db.execute(
+            "UPDATE demand_versions SET jd_text_norm=? WHERE demand_version_id="
+            "(SELECT current_version_id FROM demands WHERE demand_id=?)",
+            ("PREFERRED SKILLS: PostgreSQL", demand),
+        )
+    url = f"/api/v1/demands/{demand}"
+    analyzed = client.post(url + "/analyze", headers=headers)
+    assert analyzed.status_code == 200, analyzed.text
+    source = analyzed.json()["items"][0]
+    assert source["classificationReason"] == "classification_adjusted"
+    response = client.put(
+        url + "/requirements",
+        headers=headers,
+        json={
+            "demandId": demand,
+            "mandatorySkills" if kind == "mandatory_skill" else "preferredSkills": [text],
+            "items": [{**source, "kind": kind, "text": text}],
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["items"][0]["classificationReason"] == expected
+    assert client.get(url + "/requirements").json()["items"][0]["classificationReason"] == expected
 
 
 @pytest.mark.parametrize("mode", ["ready", "down"])

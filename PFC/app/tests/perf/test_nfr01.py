@@ -27,27 +27,14 @@ from pfc.services.matching import MatchingPorts
 from pfc.services.matching.ports import ChunkOwner, Task
 from pfc.services.matching.runs import _inputs
 from pfc.services.matching.semantic import VectorCache
+from scripts.generate_uat_data import LOCATIONS, SEED, SKILLS
 
-SEED = 19401
 SIZE = 500
 SAMPLES = 3
 MATCH_LIMIT_SECONDS = 180.0
 DEMAND_LIST_LIMIT_SECONDS = 2.0
 ANALYTICS_LIMIT_SECONDS = {"summary": 2.0, "demand": 2.0, "bench": 2.0, "match": 2.0}
 NOW = datetime(2026, 11, 6, tzinfo=UTC)
-SKILLS = (
-    "SQL",
-    "Python",
-    "Java",
-    "AWS",
-    "Azure",
-    "Business Analysis",
-    "Agile",
-    "Scrum",
-    "Power BI",
-    "Excel",
-)
-LOCATIONS = ("Manchester", "London", "Birmingham", "Leeds")
 PASSWORD = "Strong!Random4567"
 
 
