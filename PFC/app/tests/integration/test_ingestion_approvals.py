@@ -560,6 +560,7 @@ def test_req_in_24_candidate_cv_and_match_metadata_are_masked(client):
             "modifiedAt": "2026-01-01",
             "extractedAt": "2026-01-02",
             "isBest": True,
+            "facts": None,
         }
     ]
     assert result["matches"][0]["score"] == 90
