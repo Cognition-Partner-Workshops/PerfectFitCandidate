@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import hashlib
+import io
+import json
 import zipfile
 from pathlib import Path
 
 import pytest
 
+from PFC.packaging import build_zip
 from PFC.packaging.build_zip import (
     HashMismatchError,
     _safe_path,
@@ -50,6 +53,48 @@ def test_verify_sha256_accepts_matching_digest(tmp_path) -> None:
     digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
 
     assert verify_sha256(artifact, digest) == digest
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("matches", [False, True])
+def test_with_models_verifies_lock_hashes(tmp_path: Path, monkeypatch, cached, matches) -> None:
+    payload = b"tiny fake model"
+    digest = hashlib.sha256(payload).hexdigest() if matches else "0" * 64
+    lock = tmp_path / "MODELS.lock"
+    url = "https://example.invalid/pinned-model"
+    lock.write_text(
+        json.dumps(
+            [
+                {
+                    "name": "fake",
+                    "file": "model.gguf",
+                    "url": url,
+                    "sha256": digest,
+                    "licence": "test",
+                }
+            ]
+        )
+    )
+    monkeypatch.setattr(build_zip, "MODELS_LOCK_PATH", lock)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    if cached:
+        (cache / digest).write_bytes(payload)
+
+    def transport(request, **kwargs):
+        assert request.full_url == url
+        assert not cached, "Cache hits must not download"
+        return io.BytesIO(payload)
+
+    monkeypatch.setattr(build_zip.urllib.request, "urlopen", transport)
+    output = tmp_path / "models"
+    if matches:
+        build_zip.bundle_models(output, cache)
+        assert (output / "model.gguf").read_bytes() == payload
+    else:
+        with pytest.raises(HashMismatchError, match="SHA-256 mismatch"):
+            build_zip.bundle_models(output, cache)
+        assert not (output / "model.gguf").exists()
 
 
 def test_parse_manifest_validates_required_fields() -> None:

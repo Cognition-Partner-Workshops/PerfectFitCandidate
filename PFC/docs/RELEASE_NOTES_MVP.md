@@ -33,11 +33,26 @@ merged PR, code/test evidence, status and remaining work.
 
 | Deliverable | Evidence / readiness |
 |---|---|
-| Portable ZIP and release notes | Build/helpers and hosted-Windows dependency smoke workflow exist in `../packaging/`; these are draft release notes. Model-complete artifact and target-laptop acceptance remain open. |
+| Portable ZIP and release notes | Dispatch/tag model-complete build and offline standard-user smoke exist in `../packaging/`; execution evidence is tracked under REQ-PKG-02. Target-laptop acceptance remains open. These are draft release notes. |
 | Default assets | `../templates/` and `../config/` contain the default email template, scoring-template v1, synonyms and status priorities/mapping; seed/config/CRUD tests are cited in the matrix. |
 | Analyst and OCC guides | [USER_GUIDE_ANALYST.md](USER_GUIDE_ANALYST.md), [ADMIN_GUIDE_OCC.md](ADMIN_GUIDE_OCC.md). Some Pending notes predate merged fixes. |
 | UAT report and KPI baselines | Not supplied by this inventory. Real KPI-01 labels/holdout measurement and KPI-02–05 baselines are required. |
 | As-built designs and decisions | [FDD.md](FDD.md), [TDD.md](TDD.md), [GUI_OCC_DESIGN.md](GUI_OCC_DESIGN.md) exist. Full as-built reconciliation and explicit closure evidence for O-03/O-04/O-05/O-07 are not certified here. |
+
+## Installing the model-complete portable ZIP
+
+Use `pfc-windows-x64-with-models` from a manual/tag packaging run, not the
+model-free PR artifact. Extract it to a user-writable folder and start `PFC.cmd`.
+Embedded Python, CPU llama.cpp, the built frontend, and every GGUF/ONNX/tokenizer
+file pinned in `MODELS.lock` are included; runtime installation/downloads are not
+required. Complete the local first-admin setup and explicitly approve/select model
+candidates. Bundling a model does not silently approve it.
+
+See [packaging instructions](../packaging/README.md) for dispatch, hash verification,
+cache behavior and offline-smoke details. The Windows CI smoke uses a disposable
+standard account and synthetic re-embed data. It explicitly starts the locked GGUF
+with a small context for a tiny generation; production approval defaults remain
+unchanged. GitHub's `windows-latest` is not the locked-down corporate laptop.
 
 ## Known limitations and release gates
 
@@ -68,9 +83,9 @@ silently accepted/deferred by these notes. The matrix has no Not started rows.
   storage controls, real child logs and residual decisions remain in
   [SECURITY_REVIEW.md](SECURITY_REVIEW.md). That review did not perform enterprise
   SonarQube SAST.
-- **REQ-PKG-02:** the default package command/CI omits `--with-models`. Optional
-  pinned downloads do not mean the default ZIP contains GGUF/ONNX/tokenizer assets.
-  A model-complete offline artifact/first run is not established.
+- **REQ-PKG-02:** PR packages remain model-free. Dispatch/tag packaging builds a
+  separate model-complete artifact and runs an offline standard-user Windows smoke.
+  Execution evidence is recorded in the traceability row only after that run passes.
 - **REQ-LLM-01, REQ-PKG-01 and Phase 1 REQ-EML-04:** real bundled GGUF quality/RAM,
   locked-down launch, and corporate Outlook approval/send/reconciliation need
   Phase 0 laptop UAT. **REQ-OUT-11** professional-look acceptance is also UAT-only;
