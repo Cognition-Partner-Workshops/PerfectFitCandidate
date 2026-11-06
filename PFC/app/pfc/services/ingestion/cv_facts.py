@@ -271,9 +271,10 @@ def public_facts(raw: str | None) -> CVFacts | None:
     phone_value = facts.phone.value if facts.phone is not None else None
 
     def redact(text: str) -> str:
+        text = mask_evidence(text)
         if phone_value:
             text = text.replace(phone_value, mask_phone(phone_value) or "***")
-        return mask_evidence(text)
+        return text
 
     for key in KEYS:
         items = [getattr(facts, key)] if key in ("name", "phone") else getattr(facts, key)
