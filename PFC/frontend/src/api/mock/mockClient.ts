@@ -8,6 +8,8 @@ import { ApiError, type ApiClient, type EmailList, type StatusMapData } from '..
 import { applyChanges } from '../crud'
 import type {
   CandidateDetail,
+  CandidateClassification,
+  CandidateType,
   CvFact,
   CvFacts,
   CurrentUser,
@@ -46,6 +48,7 @@ import type {
   AuditQuery,
   Grade,
   LlmModel as OccLlmModel,
+  MatchRunRequest,
 } from '../types'
 import {
   ADMIN_SETTINGS,
@@ -93,6 +96,8 @@ interface MockAuditEntry {
 }
 
 interface MockState {
+  classificationOverrides?: Record<number, CandidateClassification>
+  removedExtractions?: number[]
   /** Reasons data changed since the mock run finished. The mock never completes a new run, so they are only cleared on reset. */
   dataChanges?: string[]
   users: MockUser[]
@@ -364,7 +369,7 @@ export class MockApiClient implements ApiClient {
 
   resources(): Resource[] {
     const { raws, statuses, statusMap, domains } = this.state
-    return raws.map((r) => toResource(r, statuses, statusMap, domains))
+    return raws.map((r) => ({ ...toResource(r, statuses, statusMap, domains), candidateType: this.classification(r.resourceId).effectiveClassification }))
   }
 
   computeResults(): MatchResult[] {
@@ -384,6 +389,8 @@ export class MockApiClient implements ApiClient {
     })
   }
 
+  private lastRun: { mode: 'incremental' | 'full'; reason: string } = { mode: 'full', reason: 'requested_full' }
+
   private run(): MatchRun {
     const results = this.computeResults()
     const scored = this.state.demands.filter((d) => d.jdStatus === 'Confirmed')
@@ -399,7 +406,19 @@ export class MockApiClient implements ApiClient {
       rolesWithoutCandidate: without,
       dataChangedSinceRun: (this.state.dataChanges ?? []).length > 0,
       dataChangedReasons: [...(this.state.dataChanges ?? [])],
+      scope: 'full',
+      demandIds: [],
+      mode: this.lastRun.mode,
+      modeReason: this.lastRun.reason,
     }
+  }
+
+  async startMatchRun(req: MatchRunRequest) {
+    this.currentUser()
+    // Mirrors the backend: only a full-scope run can be incremental.
+    this.lastRun = req.incremental && req.scope === 'full' ? { mode: 'incremental', reason: 'inputs_compared' } : { mode: 'full', reason: req.incremental ? 'scope_not_full' : 'requested_full' }
+    this.state.dataChanges = []
+    return this.done({ runId: 1, jobId: 1 })
   }
 
   private noteDataChange(reason: string): void {
@@ -653,6 +672,7 @@ export class MockApiClient implements ApiClient {
     this.noteDataChange('CV synced')
     for (const r of this.state.raws) {
       if (ids.includes(r.resourceId) && r.cvStatus !== 'Not found') {
+        this.state.removedExtractions = this.state.removedExtractions?.filter((id) => Math.floor(id / 10) !== r.resourceId)
         r.cvStatus = 'Synced'
         r.cvCount = Math.max(1, r.cvCount)
       }
@@ -673,6 +693,7 @@ export class MockApiClient implements ApiClient {
     const detail: CandidateDetail = {
       candidateId,
       internalRef: `PFC-C-${String(candidateId).padStart(6, '0')}`,
+      classification: this.classification(candidateId),
       resource,
       phoneMasked: maskPhone(raw.phone),
       identityStatus: raw.identityStatus,
@@ -685,7 +706,7 @@ export class MockApiClient implements ApiClient {
         extractedAt: '2026-11-04T09:30:00Z',
         isBest: i === 0,
         // Only the latest version has extracted facts; older versions predate fact extraction. CV fact phones use the backend's `***` + last-two mask.
-        facts: i === 0 ? mockCvFacts(raw.shortName, raw.skills, raw.phone ? `***${raw.phone.slice(-2)}` : null) : null,
+        facts: i === 0 && !this.state.removedExtractions?.includes(candidateId * 10 + i) ? mockCvFacts(raw.shortName, raw.skills, raw.phone ? `***${raw.phone.slice(-2)}` : null) : null,
       })),
       matches: this.computeResults().filter((r) => r.candidateId === candidateId),
       activity: this.state.audit.filter((a) => a.candidateId === candidateId).slice(0, 20),
@@ -693,6 +714,62 @@ export class MockApiClient implements ApiClient {
     return this.done(detail)
   }
 
+
+  private classification(candidateId: number): CandidateClassification {
+    const raw = this.state.raws.find((r) => r.resourceId === candidateId)
+    if (!raw) fail(404, 'Candidate not found', 'NOT_FOUND')
+    const computed = classify(raw.email, this.state.domains)
+    const override = this.state.classificationOverrides?.[candidateId]
+    return {
+      candidateId, computedClassification: computed,
+      effectiveClassification: override?.classificationOverride ?? computed,
+      classificationOverride: override?.classificationOverride ?? null,
+      overrideReason: override?.overrideReason ?? null,
+      overrideBy: override?.overrideBy ?? null,
+      overrideAt: override?.overrideAt ?? null,
+    }
+  }
+
+  async setClassification(candidateId: number, body: { classification: CandidateType | null; reason: string }) {
+    const user = this.requireAdmin()
+    const current = this.classification(candidateId)
+    if (!body.reason.trim() || (body.classification !== null && !['Internal', 'External', 'Unknown'].includes(body.classification))) fail(422, 'A valid classification and reason are required', 'VALIDATION_ERROR')
+    const value: CandidateClassification = {
+      ...current, classificationOverride: body.classification,
+      effectiveClassification: body.classification ?? current.computedClassification,
+      overrideReason: body.classification === null ? null : body.reason.trim().replace(/[\w.+-]+@[\w.-]+/g, '[REDACTED]'),
+      overrideBy: body.classification === null ? null : user.userId,
+      overrideAt: body.classification === null ? null : iso(),
+    }
+    this.state.classificationOverrides ??= {}
+    this.state.classificationOverrides[candidateId] = value
+    this.audit('Classification override updated', candidateId)
+    this.save()
+    return this.done(value)
+  }
+
+  async listCvExtractions(candidateId: number) {
+    this.requireAdmin()
+    const detail = await this.getCandidate(candidateId)
+    return detail.cvVersions.map((v, i) => ({
+      cvVersionId: v.cvVersionId, fileName: v.fileName,
+      versionNo: detail.cvVersions.length - i, extractedAt: v.extractedAt,
+      removed: this.state.removedExtractions?.includes(v.cvVersionId) ?? false,
+    }))
+  }
+
+  private async clearExtractions(candidateId?: number) {
+    this.requireAdmin()
+    const ids = candidateId === undefined ? this.state.raws.map((r) => r.resourceId) : [candidateId]
+    const versions = (await Promise.all(ids.map((id) => this.listCvExtractions(id)))).flat().filter((v) => !v.removed)
+    this.state.removedExtractions = [...(this.state.removedExtractions ?? []), ...versions.map((v) => v.cvVersionId)]
+    this.audit('CV extractions removed', candidateId)
+    this.save()
+    return this.done({ versionsCleared: versions.length, chunksDeleted: versions.length, vectorsDeleted: versions.length, matchingVectorsDeleted: versions.length })
+  }
+
+  async clearCandidateExtractions(candidateId: number) { return this.clearExtractions(candidateId) }
+  async clearAllExtractions() { return this.clearExtractions() }
 
   async resolveIdentity(candidateId: number, resolution: { action: string; resourceId?: number }) {
     this.currentUser()

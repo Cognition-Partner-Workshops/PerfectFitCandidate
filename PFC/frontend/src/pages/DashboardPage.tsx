@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { DataChangedBanner } from '../components/DataChangedBanner'
+import { runMode } from '../lib/runMode'
 import type { EChartsCoreOption } from 'echarts/core'
 import { api } from '../api'
 import { toDashboardQuery } from '../api/mappers'
@@ -103,6 +104,7 @@ export function DashboardPage() {
         {s?.run && (
           <span className="meta">
             Run: {formatDateTime(s.run.finishedAt)} · Template v{s.run.templateVersion}
+            {shownRun.data && runMode(shownRun.data) && ` · Mode: ${runMode(shownRun.data)}`}
           </span>
         )}
       </div>

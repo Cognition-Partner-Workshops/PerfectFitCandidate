@@ -226,12 +226,17 @@ export class HttpApiClient implements ApiClient {
   syncCvs: ApiClient['syncCvs'] = (ids) => this.request('POST', '/resources/cv-sync', { resource_ids: ids })
 
   getCandidate: ApiClient['getCandidate'] = (id) => this.request('GET', `/candidates/${id}`)
+  setClassification: ApiClient['setClassification'] = (id, body) => this.request('PUT', `/candidates/${id}/classification`, body)
+  listCvExtractions: ApiClient['listCvExtractions'] = (id) => this.request('GET', `/occ/candidates/${id}/cv-extractions`)
+  clearCandidateExtractions: ApiClient['clearCandidateExtractions'] = (id) => this.request('DELETE', `/occ/candidates/${id}/cv-extractions`)
+  clearAllExtractions: ApiClient['clearAllExtractions'] = () => this.request('DELETE', '/occ/cv-extractions')
   resolveIdentity: ApiClient['resolveIdentity'] = (id, r) => this.request('PUT', `/candidates/${id}/identity`, r)
 
   listMatchRuns: ApiClient['listMatchRuns'] = () => this.request('GET', '/match-runs')
   getMatchRun: ApiClient['getMatchRun'] = (runId) => this.request('GET', `/match-runs/${runId}`)
   getResults: ApiClient['getResults'] = (runId) => this.request('GET', `/match-runs/${runId}/results`)
   getRunExcluded: ApiClient['getRunExcluded'] = (runId) => this.request('GET', `/match-runs/${runId}/excluded`)
+  startMatchRun: ApiClient['startMatchRun'] = (req) => this.request('POST', '/match-runs', req)
   addOverride: ApiClient['addOverride'] = (id, o) => this.request('POST', `/match-results/${id}/overrides`, o)
   unmask: ApiClient['unmask'] = async (entity, id, field) =>
     (await this.request<{ value: string }>('POST', '/pii/unmask', { entity, id, field })).value
