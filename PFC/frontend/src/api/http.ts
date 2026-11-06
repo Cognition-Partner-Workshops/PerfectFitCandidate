@@ -1,4 +1,5 @@
 import { ApiError, type ApiClient } from './client'
+import { applyChanges } from './crud'
 import { ADMIN_SETTINGS } from './mock/fixtures'
 import {
   fromAdminSettings,
@@ -26,10 +27,16 @@ import {
   type RecipientRow,
   type SynonymRow,
   type UserRow,
+  fromBenchStatus,
+  fromStatusMapEntry,
+  toBenchStatus,
+  toStatusMapEntry,
+  type BenchRow,
+  type StatusMapRow,
   toResource,
   type ResourceItem,
 } from './mappers'
-import type { CurrentUser, PersonalSettings, ProblemDetails } from './types'
+import type { BenchStatus, CurrentUser, InternalDomain, PersonalSettings, ProblemDetails, ResourceTeamMember, StatusMapEntry } from './types'
 
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
@@ -281,10 +288,41 @@ export class HttpApiClient implements ApiClient {
       }),
     )
 
-  listBenchStatuses: ApiClient['listBenchStatuses'] = () => this.request('GET', '/occ/bench-statuses')
-  saveBenchStatuses: ApiClient['saveBenchStatuses'] = (s) => this.request('PUT', '/occ/bench-statuses', s)
-  getStatusMap: ApiClient['getStatusMap'] = () => this.request('GET', '/occ/status-map')
-  saveStatusMap: ApiClient['saveStatusMap'] = (e) => this.request('PUT', '/occ/status-map', e)
+  listBenchStatuses: ApiClient['listBenchStatuses'] = async () =>
+    (await this.request<BenchRow[]>('GET', '/occ/bench-statuses')).map(toBenchStatus)
+  /** Diffed against the server's list and sent one call at a time (TDD.md §12 per-item CRUD). */
+  saveBenchStatuses: ApiClient['saveBenchStatuses'] = async (next) => {
+    const same = (a: BenchStatus, b: BenchStatus) => JSON.stringify(fromBenchStatus(a)) === JSON.stringify(fromBenchStatus(b))
+    await applyChanges(await this.listBenchStatuses(), next, (s) => s.code, same, {
+      create: (s) => this.request('POST', '/occ/bench-statuses', fromBenchStatus(s)),
+      update: (s) => this.request('PUT', `/occ/bench-statuses/${encodeURIComponent(s.code)}`, fromBenchStatus(s)),
+      remove: (s) => this.request('DELETE', `/occ/bench-statuses/${encodeURIComponent(s.code)}`),
+    })
+    const statuses = await this.listBenchStatuses()
+    // status_map rows carry their own priority/exclusion copied from the target status, which matching uses.
+    for (const row of await this.request<StatusMapRow[]>('GET', '/occ/status-map')) {
+      const body = fromStatusMapEntry(toStatusMapEntry(row), statuses)
+      if (body.canonical_code && (body.priority !== row.priority || body.is_excluded !== !!row.is_excluded))
+        await this.request('PUT', `/occ/status-map/${encodeURIComponent(row.source_value)}`, body)
+    }
+    return statuses
+  }
+  /** The backend has no unmapped-value list yet, so `unmapped` is empty over HTTP. */
+  getStatusMap: ApiClient['getStatusMap'] = async () => ({
+    entries: (await this.request<StatusMapRow[]>('GET', '/occ/status-map')).map(toStatusMapEntry),
+    unmapped: [],
+  })
+  saveStatusMap: ApiClient['saveStatusMap'] = async (next) => {
+    const statuses = await this.listBenchStatuses()
+    const put = (e: StatusMapEntry) =>
+      this.request('PUT', `/occ/status-map/${encodeURIComponent(e.sourceText)}`, fromStatusMapEntry(e, statuses))
+    await applyChanges((await this.getStatusMap()).entries, next, (e) => e.sourceText, (a, b) => a.canonicalCode === b.canonicalCode, {
+      create: put,
+      update: put,
+      remove: (e) => this.request('DELETE', `/occ/status-map/${encodeURIComponent(e.sourceText)}`),
+    })
+    return this.getStatusMap()
+  }
 
   listSynonyms: ApiClient['listSynonyms'] = async () => (await this.request<SynonymRow[]>('GET', '/occ/synonyms')).map(toSynonym)
   /** The backend stores one term per row, so each variant is posted separately (REQ-MAT-05). */
@@ -333,11 +371,32 @@ export class HttpApiClient implements ApiClient {
 
   listResourceTeam: ApiClient['listResourceTeam'] = async () =>
     (await this.request<RecipientRow[]>('GET', '/occ/resource-team')).map(toMember)
-  saveResourceTeam: ApiClient['saveResourceTeam'] = (m) => this.request('PUT', '/occ/resource-team', m)
+  saveResourceTeam: ApiClient['saveResourceTeam'] = async (next) => {
+    const rows = await this.request<RecipientRow[]>('GET', '/occ/resource-team')
+    const idOf = (m: ResourceTeamMember) => rows.find((r) => r.email.toLowerCase() === m.email.toLowerCase())?.recipient_id
+    const same = (a: ResourceTeamMember, b: ResourceTeamMember) => a.displayName === b.displayName && a.active === b.active
+    await applyChanges(rows.map(toMember), next, (m) => m.email.toLowerCase(), same, {
+      create: async (m) => {
+        const r = await this.request<RecipientRow>('POST', '/occ/resource-team', { email: m.email, display_name: m.displayName || null })
+        if (!m.active) await this.request('PUT', `/occ/resource-team/${r.recipient_id}`, { is_active: false })
+      },
+      update: (m) => this.request('PUT', `/occ/resource-team/${idOf(m)}`, { display_name: m.displayName || null, is_active: m.active }),
+      remove: (m) => this.request('DELETE', `/occ/resource-team/${idOf(m)}`),
+    })
+    return this.listResourceTeam()
+  }
 
   listInternalDomains: ApiClient['listInternalDomains'] = async () =>
     (await this.request<{ domain: string }[]>('GET', '/occ/internal-domains')).map(toDomain)
-  saveInternalDomains: ApiClient['saveInternalDomains'] = (d) => this.request('PUT', '/occ/internal-domains', d)
+  /** No update route: an edited domain is a delete plus an add. */
+  saveInternalDomains: ApiClient['saveInternalDomains'] = async (next) => {
+    await applyChanges(await this.listInternalDomains(), next, (d: InternalDomain) => d.domain, () => true, {
+      create: (d) => this.request('POST', '/occ/internal-domains', { domain: d.domain }),
+      update: async () => undefined,
+      remove: (d) => this.request('DELETE', `/occ/internal-domains/${encodeURIComponent(d.domain)}`),
+    })
+    return this.listInternalDomains()
+  }
   previewClassification: ApiClient['previewClassification'] = async (d) =>
     toPreview(await this.request('POST', '/occ/internal-domains/preview', { domains: d.map((x) => x.domain) }))
 

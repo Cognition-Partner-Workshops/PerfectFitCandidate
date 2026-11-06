@@ -373,6 +373,7 @@ export interface BenchStatus {
   priority: number | null
   tieredPoints: number
   caveat: string
+  availableFromBenchStart?: boolean
 }
 
 export interface StatusMapEntry {
