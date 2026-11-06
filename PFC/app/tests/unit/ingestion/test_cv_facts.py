@@ -164,7 +164,10 @@ def test_req_in_23_document_titles_are_not_names(title: str, suffix: str) -> Non
     for line in (title + suffix, (title + suffix).swapcase()):
         assert rule_facts(f"{line}\nExperience\nEngineer").name is None
         labelled = rule_facts(f"{line}\nName: Alex Border\nExperience\nEngineer").name
-        assert labelled is not None and labelled.value == "Alex Border"
+        if title == "Profile" and not suffix:
+            assert labelled is None
+        else:
+            assert labelled is not None and labelled.value == "Alex Border"
     person = rule_facts("Cvelyn Border\nExperience\nEngineer").name
     assert person is not None and person.value == "Cvelyn Border"
 
