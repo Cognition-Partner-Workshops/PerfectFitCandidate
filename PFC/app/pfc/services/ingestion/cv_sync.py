@@ -385,19 +385,25 @@ def sync(
             counts.warnings += 1
             continue
         groups[candidate_id].append(version)
+    facts_cache: dict[str, ExtractedFacts] = {}
     for index, (candidate_id, found) in enumerate(groups.items()):
         context.raise_if_cancelled()
         prepared: dict[str, ExtractedFacts] = {}
         for version in found:
             text = normalise_text(version.text_norm)
+            text_digest = hashlib.sha256(text.encode()).hexdigest()
             with database(settings) as db:
                 previous = db.execute(
                     "SELECT v.facts_json FROM cv_versions v JOIN resumes r USING(resume_id) "
                     "WHERE r.file_sha256=? AND v.text_sha256=?",
-                    (version.file_sha256, hashlib.sha256(text.encode()).hexdigest()),
+                    (version.file_sha256, text_digest),
                 ).fetchone()
             if previous is None or "facts_schema" not in json.loads(previous[0] or "{}"):
-                extracted = extract_facts(text, facts_bridge, facts_timeout, context)
+                if text_digest not in facts_cache:
+                    facts_cache[text_digest] = extract_facts(
+                        text, facts_bridge, facts_timeout, context
+                    )
+                extracted = facts_cache[text_digest]
                 prepared[version.source_path] = extracted
                 counts.facts_llm_timeout += int(extracted.failure == "timeout")
                 counts.facts_llm_failed += int(extracted.failure == "error")

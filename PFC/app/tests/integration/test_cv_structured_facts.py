@@ -194,3 +194,41 @@ def test_req_in_23_adjacent_phone_and_years_masked_in_both_responses(
         )
         assert items[0]["facts"]["phone"]["value"] == "***23"
         assert "***" in items[0]["facts"]["projects"][0]["evidence"]
+
+
+@pytest.mark.parametrize("invalid", [False, True])
+def test_req_in_21_identical_normalized_cv_text_uses_one_model_call(
+    client: TestClient,
+    tmp_path: Path,
+    invalid: bool,
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(client, upload(client, "ct", [{}]))
+    resume_docx(root, "First.docx", TEXT)
+    resume_docx(root, "Second.docx", TEXT.replace("Engineer at", "Engineer  at"))
+
+    class Provider(FakeProvider):
+        calls = 0
+
+        async def generate(
+            self,
+            request: PromptRequest,
+            *,
+            api_version: str | None = None,
+        ) -> GenerateResult:
+            self.calls += 1
+            return await super().generate(request, api_version=api_version)
+
+    provider = Provider("invalid JSON" if invalid else payload())
+    client.app.state.llm_provider = provider
+    summary = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert summary["new_versions"] == 2 and provider.calls == 1
+    assert summary["facts_llm_failed"] == (2 if invalid else 0)
+    with database(client.app.state.settings) as db:
+        rows = db.execute("SELECT text_sha256,facts_json FROM cv_versions").fetchall()
+        assert len(rows) == 2 and rows[0][0] == rows[1][0]
+        assert rows[0][1] == rows[1][1]
+    repeat = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert repeat["unchanged"] == 2 and provider.calls == 1
