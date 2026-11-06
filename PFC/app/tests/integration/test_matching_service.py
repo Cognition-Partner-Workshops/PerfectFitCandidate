@@ -490,7 +490,7 @@ def test_req_mat_03_run_persistence_uniqueness_cv_exclusions(
         detail = result_detail(db, cv_row["result_id"])
         assert {s["cv_version_id"] for s in detail["cv_scores"]} == {None, cv_id}
         assert len(detail["breakdown"]) == 6
-        assert cv_row["person_email"] == "Al******er@capgemini.com"
+        assert cv_row["person_email"] == "Al********@capgemini.com"
         assert "AlexBorder@" not in json.dumps(detail)
         assert all(r["potential_person"] != "Inactive" for r in matches)
         weak = demand_matches(db, weak_id)

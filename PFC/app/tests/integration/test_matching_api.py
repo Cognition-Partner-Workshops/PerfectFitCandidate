@@ -231,7 +231,7 @@ def test_candidate_profile_parses_match_evidence_and_masks_email(api: Api) -> No
     assert SAMPLE_EMAIL not in masked.text
     match = next(m for m in masked.json()["matches"] if m["resultId"] == row["resultId"])
     for key in keys:
-        assert match[key] == [*row[key], "Contact Al******er@capgemini.com"]
+        assert match[key] == [*row[key], "Contact Al********@capgemini.com"]
 
 
 def test_req_mat_02_full_flow_drafts_results_overrides_exclusions(api: Api) -> None:
@@ -320,7 +320,7 @@ def test_req_mat_02_full_flow_drafts_results_overrides_exclusions(api: Api) -> N
     assert row["bu"] == "DATA" and row["region"] == "Manchester"
     assert row["personGrade"] == "C1" and row["personLocation"] == "Manchester"
     assert row["positionStartDate"] == "2026-11-16" and row["demandRequestName"] == "Data role"
-    assert row["personEmailMasked"] == "Al******er@capgemini.com" and SAMPLE_EMAIL not in rows.text
+    assert row["personEmailMasked"] == "Al********@capgemini.com" and SAMPLE_EMAIL not in rows.text
     assert row["candidateType"] == "Internal" and row["incompleteIdentity"]
     assert "override" not in row and len(row["breakdown"]) == 6
     for key in ("matchingEvidence", "gapsChecks", "eligibilityEvidence"):

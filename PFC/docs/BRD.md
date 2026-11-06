@@ -311,7 +311,7 @@ BRL-12: Normally the **top 5** people per requisition, one row per requisitionâ€
 
 | Rule | Statement |
 |---|---|
-| BRL-17 | Email masked by default (6 characters after the 2nd position, e.g. `Al******der@capgemini.com`); phone masked; unmasking is authorised and audit-logged. Masking is a presentation control, not encryption. |
+| BRL-17 | Email masked by default (first 2 local-part characters kept, every later local-part character masked, e.g. `Al*********@capgemini.com`); phone masked; unmasking is authorised and audit-logged. Masking is a presentation control, not encryption. |
 | BRL-18 | CV content and inference stay local by default; external calls only after PII masking + encryption and explicit opt-in (Phase 3). |
 
 ## 8. Success metrics and KPIs

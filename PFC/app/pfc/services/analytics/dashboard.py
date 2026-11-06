@@ -13,6 +13,7 @@ from pfc.domain.scoring.models import Resource
 from pfc.security.problems import Problem
 from pfc.services.matching import export
 from pfc.services.matching.results import _mask_email
+from pfc.services.pii import mask_email
 
 from .population import BANDS, Population, capacity, counts
 
@@ -357,17 +358,8 @@ def validation(p: Population) -> list[dict[str, Any]]:
 
 
 def _required_mask(value: str) -> str:
-    """REQ-OUT-03: independently verify six masked positions after the first two."""
-    local, separator, domain = value.partition("@")
-    return (
-        (
-            "*" * len(local)
-            if len(local) <= 2
-            else local[:2] + "*" * min(6, len(local) - 2) + local[8:]
-        )
-        + separator
-        + domain
-    )
+    """REQ-OUT-03: the masked form a stored display email must equal."""
+    return mask_email(value) or ""
 
 
 def _distance_ok(value: Any) -> bool:

@@ -548,14 +548,14 @@ def test_req_out_02_email_snapshot_case_is_not_normalized(
         db.execute("UPDATE resources SET email_address='AlexBorder@Example.COM'")
         db.execute(
             "UPDATE score_breakdowns SET inputs_json=? WHERE component='skills'",
-            (json.dumps({"display_facts": {"person_email": "Al******er@Example.COM"}}),),
+            (json.dumps({"display_facts": {"person_email": "Al********@Example.COM"}}),),
         )
         if changed:
             db.execute(
                 "UPDATE score_breakdowns SET inputs_json=? "
                 "WHERE component='skills' AND result_id=?",
                 (
-                    json.dumps({"display_facts": {"person_email": "al******er@example.com"}}),
+                    json.dumps({"display_facts": {"person_email": "al********@example.com"}}),
                     ids["results"][0],
                 ),
             )

@@ -134,7 +134,7 @@ describe('OCC screens', () => {
     for (const [name, masked, raw] of [
       ['Short Admin', '**@x.com', 'ab@x.com'],
       ['Single Analyst', '*@x.com', 'a@x.com'],
-      ['Alex Account', 'Al******er@capgemini.com', 'AlexBorder@capgemini.com'],
+      ['Alex Account', 'Al********@capgemini.com', 'AlexBorder@capgemini.com'],
     ]) {
       const row = (await screen.findByText(name)).closest('tr')!
       expect(within(row).getByText(masked)).toBeTruthy()

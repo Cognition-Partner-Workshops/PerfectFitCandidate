@@ -688,9 +688,9 @@ Columns follow DL field order: Code Requisition, Position Start Date, Account Na
 │☐ │ShortName │Name            │Email Address          │Grade│Location        │Bench Status          │Eligibility│Avail.  │Bench     │Group │Skills    │CV status │Action    │
 │  │          │                │                       │     │                │                      │          │Cap. ⓘ  │Start     │      │          │          │          │
 ├──┼──────────┼────────────────┼───────────────────────┼─────┼────────────────┼──────────────────────┼──────────┼────────┼──────────┼──────┼──────────┼──────────┼──────────┤
-│☐ │ALEXANDER │Alex Alexander  │Al******er@capgemini… │C1   │Edinburgh/Glasg.│Available             │✓ Eligible│Y       │12 Oct 26 │RG2   │SQL, BA…  │✓ Synced  │[↻ Sync]  │
+│☐ │ALEXANDER │Alex Alexander  │Al********@capgemini… │C1   │Edinburgh/Glasg.│Available             │✓ Eligible│Y       │12 Oct 26 │RG2   │SQL, BA…  │✓ Synced  │[↻ Sync]  │
 │  │          │                │  ◉ Show               │     │                │                      │          │        │          │      │          │ 2 CVs    │          │
-│☐ │BSMITH    │Bea Smith       │Be******th@capgemini.… │C2   │London          │CV with client -      │⚠ Eligible│N       │01 Sep 26 │RG1   │PM, Agile │✕ Not     │[↻ Sync]  │
+│☐ │BSMITH    │Bea Smith       │Be********@capgemini.… │C2   │London          │CV with client -      │⚠ Eligible│N       │01 Sep 26 │RG1   │PM, Agile │✕ Not     │[↻ Sync]  │
 │  │          │                │  ◉ Show               │     │                │ Demand Proposed      │ caveat   │        │          │      │          │  found   │          │
 └──┴──────────┴────────────────┴───────────────────────┴─────┴────────────────┴──────────────────────┴──────────┴────────┴──────────┴──────┴──────────┴──────────┴──────────┘
 ```
@@ -724,7 +724,7 @@ Exclusion reasons (shown as text after the badge, multiple allowed, and in a too
 
 ### 10.4 Masked email with Show/Hide
 
-Email displayed masked by default: first 2 characters, then 6 masked characters, then the remainder (e.g. `Al******er@capgemini.com`) (REQ-OUT-03). The eye toggle **Show** reveals the full address for that row until **Hide** or page navigation; each Show writes an audit entry (user, candidate, timestamp) (REQ-AUTH-05). Copying the email copies the exact source value (REQ-IN-14). Phone numbers, where extracted from CVs, follow the same pattern on the Candidate Profile.
+Email displayed masked by default: first 2 characters of the local part, then one `*` for each remaining local-part character, then `@` and the domain (e.g. `Al********@capgemini.com`) (REQ-OUT-03). The eye toggle **Show** reveals the full address for that row until **Hide** or page navigation; each Show writes an audit entry (user, candidate, timestamp) (REQ-AUTH-05). Copying the email copies the exact source value (REQ-IN-14). Phone numbers, where extracted from CVs, follow the same pattern on the Candidate Profile.
 
 ### 10.5 States
 
@@ -783,9 +783,9 @@ Users may hide columns for their view; they may not reorder the 16 data columns 
 │☐ │ # │Requis.│Start Date│Account │Role  │D.Gr│Role Loc│Potential │Person Email  │P. │Person  │Match │Band     │Loc.     │Matching │Gaps /   │Elig.    │ ⋯   │
 │  │   │       │          │        │      │    │        │Person    │              │Gr.│Location│%     │         │Assess.  │Evidence │Checks   │Evidence │     │
 ├──┼───┼───────┼──────────┼────────┼──────┼────┼────────┼──────────┼──────────────┼───┼────────┼──────┼─────────┼─────────┼─────────┼─────────┼─────────┼─────┤
-│☑ │#1 │T1A123 │15 Dec 26 │Acme Bk │TC14_…│D1  │London  │A. Alex.  │Al******er@… │D1 │London  │◕ 93 %│✓ Strong │Aligned  │BA, SQL… │None     │Blank BED│ ⋯   │
+│☑ │#1 │T1A123 │15 Dec 26 │Acme Bk │TC14_…│D1  │London  │A. Alex.  │Al********@… │D1 │London  │◕ 93 %│✓ Strong │Aligned  │BA, SQL… │None     │Blank BED│ ⋯   │
 │  │⚑ │       │          │        │      │    │        │          │ ◉            │   │        │      │         │         │ ▸ more  │         │ ▸ more  │     │
-│☑ │#2 │T1A123 │15 Dec 26 │Acme Bk │TC14_…│D1  │London  │B. Smith  │Be******th@…  │C2 │Glasgow │◔ 84 %│Potential│Pot. trav│PM, Agile│±1 grade;│⚠ CV with│ ⋯   │
+│☑ │#2 │T1A123 │15 Dec 26 │Acme Bk │TC14_…│D1  │London  │B. Smith  │Be********@…  │C2 │Glasgow │◔ 84 %│Potential│Pot. trav│PM, Agile│±1 grade;│⚠ CV with│ ⋯   │
 │  │   │       │          │        │      │    │        │          │ ◉            │±1 │        │      │         │         │         │ ▸ more  │ client  │     │
 ├──┴───┴───────┴──────────┴────────┴──────┴────┴────────┴──────────┴──────────────┴───┴────────┴──────┴─────────┴─────────┴─────────┴─────────┴─────────┴─────┤
 │ ▸ T2B456 · Snowflake Data Engineer · … (5 matches, best Potential)                        │
@@ -834,12 +834,12 @@ Users may hide columns for their view; they may not reorder the 16 data columns 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
 │ ‹ Back   (AA) Alex Alexander · ALEXANDER                         [↻ Sync CV] [✉ Draft email] │
-│          Al******er@capgemini.com ◉ Show · Phone +44 ******89 ◉ · C1 · Edinburgh/Glasgow │
+│          Al********@capgemini.com ◉ Show · Phone +44 ******89 ◉ · C1 · Edinburgh/Glasgow │
 │          ✓ Eligible · Available · RG2 (Owner: J. Doe) · Internal (P2)                     │
 ├─ Overview │ CV versions (2) │ Skills & evidence │ Matches & score history │ Activity ──────┤
 │ ┌───────────── CT data (as uploaded) ─────────────┐ ┌──────── Eligibility ───────────────┐ │
 │ │ ShortName        ALEXANDER                      │ │ ✓ Status Available (priority 1)    │ │
-│ │ Email Address    Al******er@capgemini.com      │ │ ✓ Group RG2 (not "Not on Bench")   │ │
+│ │ Email Address    Al********@capgemini.com      │ │ ✓ Group RG2 (not "Not on Bench")   │ │
 │ │ Grade            C1                             │ │ ✓ Bench End Date blank             │ │
 │ │ Location         Edinburgh/Glasgow              │ │ ✓ Grade recorded                   │ │
 │ │ Bench Status     Available                      │ │ ✓ Skills sufficient                │ │
@@ -924,7 +924,7 @@ Raised when CV extraction or identity resolution finds a missing name or email, 
 │ [Draft][Approved][Sent][Failed]│ T1A123 · TC14_Data Business Analyst · Acme Bank         │
 │ [Search…]                     │ Candidate: Alex Alexander · ◕ 93 % Strong   Status: Draft │
 │ ▾ T1A123 · Acme Bank  ⏱ 6 h left│─────────────────────────────────────────────────────────│
-│   ☑ #1 A. Alexander 93 % Draft│ To   Al******er@capgemini.com ◉                         │
+│   ☑ #1 A. Alexander 93 % Draft│ To   Al********@capgemini.com ◉                         │
 │   ☑ #2 B. Smith    84 % Draft │ CC   Resource team (3) ▾  bench.team@…, …   [Edit list ›] │
 │   ☑ #3 C. Patel    81 % Draft │ Subject [ Opportunity: TC14 Data Business Analyst (T1A123) ]│
 │   ☑ #4 D. Okafor   78 % Draft │ Attach  JD_T1A123.pdf (generated)                       │
@@ -1120,8 +1120,8 @@ Table: Name, corporate email, role (Admin/Analyst), persona tag (A/B/C, informat
 ```text
 ┌ Users & passwords ─────────────────────────────────────────────────── [+ Add user] ┐
 │ Name          Email                       Role     Persona Status   Last sign-in   │
-│ Olivia Admin  Ol******in@capgemini.com    Admin    —       Active   04 Nov 09:01  ⋯ │
-│ Bea Smith     be******th@capgemini.com    Analyst  A       Locked   03 Nov 17:22 ⋯ │
+│ Olivia Admin  Ol********@capgemini.com    Admin    —       Active   04 Nov 09:01  ⋯ │
+│ Bea Smith     be********@capgemini.com    Analyst  A       Locked   03 Nov 17:22 ⋯ │
 │                                                   [Unlock] [Reset password] [Disable]│
 └────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1276,7 +1276,7 @@ Per REQ-AUTH-08: **Generate User ZIP** (select user → builds a per-user packag
 | Group | Settings |
 |---|---|
 | Security | Password policy (Admin strong-password rules, Analyst minimum), lockout threshold and duration, session inactivity timeout (REQ-AUTH-03/04) — default values defined in [TDD.md](TDD.md). |
-| Privacy | Masking pattern (default: keep 2, mask 6) for email and phone (REQ-OUT-03); whether Analysts may unmask (default yes, logged, per capability matrix §2 of the baseline). |
+| Privacy | Masking pattern (default: keep 2, mask the rest of the local part) for email and phone (REQ-OUT-03); whether Analysts may unmask (default yes, logged, per capability matrix §2 of the baseline). |
 | Matching defaults | Top-N per requisition (default 5, REQ-MAT-03); emails pre-selected per JD (default 4, O-07); Weak-match inclusion rule display (REQ-MAT-04); default JD-extraction settings. |
 | Data | Stale-data banner threshold; date display format (single global format, REQ-OUT-02). |
 | Email | Turnaround target (default 24 h, REQ-EML-07); default follow-up offset is one business day (Phase 2). |

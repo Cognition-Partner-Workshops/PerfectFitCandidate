@@ -11,14 +11,12 @@ ANALYST_UNMASK_KEY = "privacy.analysts_may_unmask"
 
 
 def mask_email(value: str | None) -> str | None:
+    """REQ-OUT-03: keep 2 local-part characters and mask the rest; no `@` means all local part."""
     if not value:
         return value
     local, separator, domain = value.partition("@")
-    if len(local) <= 2:
-        local = "*" * len(local)
-    else:
-        local = local[:2] + "*" * min(6, len(local) - 2) + local[8:]
-    return local + separator + domain
+    shown = local[:2] if len(local) > 2 else ""
+    return shown + "*" * (len(local) - len(shown)) + separator + domain
 
 
 QUERIES = {
