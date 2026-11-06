@@ -194,6 +194,34 @@ def test_req_in_23_adjacent_phone_and_years_masked_in_both_responses(
         )
         assert items[0]["facts"]["phone"]["value"] == "***23"
         assert "***" in items[0]["facts"]["projects"][0]["evidence"]
+        assert "2020-2024" in items[0]["facts"]["projects"][0]["evidence"]
+        assert "2020-2024" in items[0]["facts"]["projects"][0]["value"]
+
+
+def test_req_in_23_plain_year_range_preserved_in_both_responses(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(client, upload(client, "ct", [{}]))
+    resume_docx(root, "Alex.docx", "alex@example.com\nExperience\n2015-2019 at Acme")
+    wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    with database(client.app.state.settings) as db:
+        candidate = db.execute("SELECT candidate_id FROM cv_versions").fetchone()[0]
+    for endpoint in (
+        f"/api/v1/candidates/{candidate}/cv-versions",
+        f"/api/v1/candidates/{candidate}",
+    ):
+        response = client.get(endpoint)
+        assert response.status_code == 200, response.text
+        items = (
+            response.json() if isinstance(response.json(), list) else response.json()["cvVersions"]
+        )
+        assert items[0]["facts"]["phone"] is None
+        fact = items[0]["facts"]["experience"][0]
+        assert fact["evidence"] == fact["value"] == "2015-2019 at Acme"
 
 
 @pytest.mark.parametrize("invalid", [False, True])

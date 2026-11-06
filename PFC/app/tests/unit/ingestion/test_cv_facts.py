@@ -113,6 +113,7 @@ def test_req_in_23_year_ranges_are_not_phone_facts(years: str) -> None:
     text = f"Experience\n{years} at Acme"
     assert list(phone_matches(text)) == []
     assert rule_facts(text).phone is None
+    assert mask_evidence(text) == text
     candidate = {"value": years, "evidence": years, "span": [0, len(years)], "source": "llm"}
     assert validate_facts(years, {"phone": candidate}).phone is None
     phone = rule_facts(f"{text}\nPhone: +44 123456789").phone
@@ -126,6 +127,7 @@ def test_req_in_23_phone_next_to_year_range_is_found_and_masked(line: str) -> No
     assert line[slice(*fact.span)] == fact.evidence == fact.value
     assert "+44 7700 900123" not in mask_evidence(line)
     assert "7700" not in mask_evidence(line)
+    assert "2020-2024" in mask_evidence(line)
 
 
 @pytest.mark.parametrize(
