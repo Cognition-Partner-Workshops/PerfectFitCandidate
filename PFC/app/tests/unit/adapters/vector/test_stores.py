@@ -1,6 +1,8 @@
 """Shared store contract: model isolation and cosine retrieval (REQ-MAT-01, REQ-LLM-07)."""
 
 import sqlite3
+from collections.abc import Iterator
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -9,7 +11,7 @@ from pfc.adapters.vector import stores
 
 
 @pytest.fixture(params=[stores.NumpyStore, stores.SqliteVecStore])
-def store(request):
+def store(request: pytest.FixtureRequest) -> Iterator[stores.NumpyStore]:
     try:
         result = request.param(dimensions=3)
     except stores.ExtensionUnavailable:
@@ -18,7 +20,7 @@ def store(request):
     result.close()
 
 
-def test_contract(store):
+def test_contract(store: stores.NumpyStore) -> None:
     vector = np.array([2, 0, 0], dtype=np.float32)
     assert store.search(vector, model_version="v1") == []
     assert store.count() == 0
@@ -46,7 +48,7 @@ def test_contract(store):
     assert store.count() == 3
 
 
-def test_ties_and_invalid(store):
+def test_ties_and_invalid(store: stores.NumpyStore) -> None:
     vector = np.ones(3, dtype=np.float32)
     for id in (5, 2):
         store.upsert(id, vector, "v1")
@@ -66,7 +68,9 @@ def test_ties_and_invalid(store):
 
 
 @pytest.mark.parametrize("implementation", [stores.NumpyStore, stores.SqliteVecStore])
-def test_persistence_and_transaction(tmp_path, implementation):
+def test_persistence_and_transaction(
+    tmp_path: Path, implementation: type[stores.NumpyStore]
+) -> None:
     path = tmp_path / "vectors.db"
     try:
         store = implementation(path, dimensions=3)
@@ -89,8 +93,8 @@ def test_persistence_and_transaction(tmp_path, implementation):
     connection.close()
 
 
-def test_factory_fallback_and_errors(monkeypatch, tmp_path):
-    def unavailable(connection):
+def test_factory_fallback_and_errors(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def unavailable(connection: sqlite3.Connection) -> None:
         raise stores.ExtensionUnavailable("policy")
 
     monkeypatch.setattr(stores, "load_extension", unavailable)
@@ -102,7 +106,7 @@ def test_factory_fallback_and_errors(monkeypatch, tmp_path):
         stores.create_vector_store(tmp_path / "fallback.db", dimensions=4)
 
 
-def test_factory_prefers_sqlite():
+def test_factory_prefers_sqlite() -> None:
     store = stores.create_vector_store(dimensions=3)
     try:
         if type(store) is stores.NumpyStore:
@@ -112,8 +116,8 @@ def test_factory_prefers_sqlite():
         store.close()
 
 
-def test_atomic_index_failure(store, monkeypatch):
-    def fail(id, blob):
+def test_atomic_index_failure(store: stores.NumpyStore, monkeypatch: pytest.MonkeyPatch) -> None:
+    def fail(id: int, blob: bytes | None) -> None:
         raise RuntimeError("index write failed")
 
     monkeypatch.setattr(store, "_update_index", fail)

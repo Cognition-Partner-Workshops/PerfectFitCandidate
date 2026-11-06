@@ -12,18 +12,19 @@ from pfc.adapters.llm.providers import (
     ExternalProviderPlaceholder,
     FakeProvider,
     FallbackProvider,
+    GenerateResult,
     LlamaCppProvider,
     PromptRequest,
     ProviderError,
 )
 
 
-def test_http_schema_grammar_health_and_concurrency():
-    async def scenario():
+def test_http_schema_grammar_health_and_concurrency() -> None:
+    async def scenario() -> None:
         active = peak = 0
         payloads = []
 
-        async def handler(request):
+        async def handler(request: httpx.Request) -> httpx.Response:
             nonlocal active, peak
             assert request.headers["authorization"] == "Bearer test"
             if request.url.path == "/health":
@@ -74,8 +75,8 @@ def test_http_schema_grammar_health_and_concurrency():
         httpx.Response(200, json={"choices": [{"message": {"content": "[]"}}]}),
     ],
 )
-def test_http_errors(response):
-    async def scenario():
+def test_http_errors(response: httpx.Response) -> None:
+    async def scenario() -> None:
         client = LlamaCppProvider(
             "http://localhost:8000",
             "m",
@@ -91,9 +92,9 @@ def test_http_errors(response):
     asyncio.run(scenario())
 
 
-def test_timeout_and_health_failure():
-    async def scenario():
-        async def handler(request):
+def test_timeout_and_health_failure() -> None:
+    async def scenario() -> None:
+        async def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path == "/health":
                 raise httpx.ConnectError("offline")
             await asyncio.sleep(1)
@@ -113,15 +114,17 @@ def test_timeout_and_health_failure():
 
 
 @pytest.mark.parametrize("conflict,succeed", [(True, True), (True, False), (False, False)])
-def test_direct_local_fallback(conflict, succeed):
+def test_direct_local_fallback(conflict: bool, succeed: bool) -> None:
     class Primary(FakeProvider):
         name = "primary"
-        calls = []
+        calls: list[str | None] = []
 
-        def capabilities(self):
+        def capabilities(self) -> Capabilities:
             return Capabilities(api_versions=("old", "new"), data_residency="external")
 
-        async def generate(self, request, *, api_version=None):
+        async def generate(
+            self, request: PromptRequest, *, api_version: str | None = None
+        ) -> GenerateResult:
             self.calls.append(api_version)
             if api_version == "new" and succeed:
                 return await super().generate(request, api_version=api_version)
@@ -134,8 +137,8 @@ def test_direct_local_fallback(conflict, succeed):
     assert result.fallback_chain
 
 
-def test_disabled_and_fake():
-    async def scenario():
+def test_disabled_and_fake() -> None:
+    async def scenario() -> None:
         request = PromptRequest([])
         fake = FakeProvider()
         assert await fake.generate(request) == await fake.generate(request)
@@ -155,6 +158,6 @@ def test_disabled_and_fake():
     asyncio.run(scenario())
 
 
-def test_reject_remote_server():
+def test_reject_remote_server() -> None:
     with pytest.raises(ValueError, match="loopback"):
         LlamaCppProvider("https://example.com", "m", api_key="test")

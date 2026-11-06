@@ -5,19 +5,26 @@ import io
 import json
 import stat
 import zipfile
+from collections.abc import Callable, Mapping
 from dataclasses import replace
+from typing import Any
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
 from pfc.security import package_signing as ps
 
+KeyPair = tuple[Ed25519PrivateKey, Ed25519PublicKey]
+
 
 @pytest.fixture
-def keys():
+def keys() -> KeyPair:
     return ps.generate_keypair()
 
 
-def build(private, *, version=2, schema=1, rollback=False):
+def build(
+    private: Ed25519PrivateKey, *, version: int = 2, schema: int = 1, rollback: bool = False
+) -> bytes:
     return ps.build_settings_package(
         {f"settings.v{schema}.json": {"synonyms": [], "accounts": []}},
         private=private,
@@ -30,13 +37,19 @@ def build(private, *, version=2, schema=1, rollback=False):
     )
 
 
-def verify(package, public, **kwargs):
+def verify(package: bytes, public: Ed25519PublicKey, **kwargs: Any) -> ps.VerifiedPackage:
     return ps.verify_package(
         package, trusted_keys=[public], app_version="0.1.0", current_version=1, **kwargs
     )
 
 
-def rewrite(package, *, updates=None, remove=(), compression=zipfile.ZIP_STORED):
+def rewrite(
+    package: bytes,
+    *,
+    updates: Mapping[str, bytes] | None = None,
+    remove: tuple[str, ...] = (),
+    compression: int = zipfile.ZIP_STORED,
+) -> bytes:
     with zipfile.ZipFile(io.BytesIO(package)) as archive:
         members = {name: archive.read(name) for name in archive.namelist() if name not in remove}
     members.update(updates or {})
@@ -47,13 +60,15 @@ def rewrite(package, *, updates=None, remove=(), compression=zipfile.ZIP_STORED)
     return output.getvalue()
 
 
-def assert_reason(reason, function, *args, **kwargs):
+def assert_reason(
+    reason: ps.Reason, function: Callable[..., Any], *args: Any, **kwargs: Any
+) -> None:
     with pytest.raises(ps.PackageError) as error:
         function(*args, **kwargs)
     assert error.value.reason == reason
 
 
-def test_roundtrip_and_serialisation(keys):
+def test_roundtrip_and_serialisation(keys: KeyPair) -> None:
     private, public = keys
     password = hashlib.sha256(ps.serialise_public_key(ps.generate_keypair()[1])).digest()
     encrypted = ps.serialise_private_key(private, password)
@@ -83,7 +98,7 @@ def test_roundtrip_and_serialisation(keys):
         ps.verify_signature(encoded, archive.read(ps.SIGNATURE_NAME), public)
 
 
-def test_tampering_and_wrong_key(keys):
+def test_tampering_and_wrong_key(keys: KeyPair) -> None:
     private, public = keys
     package = build(private)
     tampered = rewrite(package, updates={"settings.v1.json": b"{}"})
@@ -107,7 +122,7 @@ def test_tampering_and_wrong_key(keys):
 
 
 @pytest.mark.parametrize("version", [1, 2, 3])
-def test_replay_and_older(keys, version):
+def test_replay_and_older(keys: KeyPair, version: int) -> None:
     private, public = keys
     assert_reason(
         ps.Reason.STALE_VERSION,
@@ -120,7 +135,7 @@ def test_replay_and_older(keys, version):
 
 
 @pytest.mark.parametrize("app", ["0.0.9", "1.0.1", "not-a-version"])
-def test_incompatible_app(keys, app):
+def test_incompatible_app(keys: KeyPair, app: str) -> None:
     private, public = keys
     assert_reason(
         ps.Reason.INCOMPATIBLE_APP,
@@ -132,7 +147,7 @@ def test_incompatible_app(keys, app):
     )
 
 
-def test_schema_and_kind(keys):
+def test_schema_and_kind(keys: KeyPair) -> None:
     private, public = keys
     assert_reason(ps.Reason.UNSUPPORTED_SCHEMA, verify, build(private, schema=2), public)
     assert_reason(ps.Reason.WRONG_KIND, verify, build(private), public, expected_kind="model")
@@ -141,12 +156,12 @@ def test_schema_and_kind(keys):
 @pytest.mark.parametrize(
     "remove", [("settings.v1.json",), (ps.MANIFEST_NAME,), (ps.SIGNATURE_NAME,)]
 )
-def test_missing_members(keys, remove):
+def test_missing_members(keys: KeyPair, remove: tuple[str, ...]) -> None:
     private, public = keys
     assert_reason(ps.Reason.MEMBERS, verify, rewrite(build(private), remove=remove), public)
 
 
-def test_extra_and_duplicate(keys):
+def test_extra_and_duplicate(keys: KeyPair) -> None:
     private, public = keys
     package = build(private)
     assert_reason(
@@ -159,14 +174,14 @@ def test_extra_and_duplicate(keys):
 
 
 @pytest.mark.parametrize("name", ["../evil", "/absolute", "C:/evil", "..\\evil", "a/../b", "a//b"])
-def test_unsafe_paths(keys, name):
+def test_unsafe_paths(keys: KeyPair, name: str) -> None:
     private, public = keys
     assert_reason(
         ps.Reason.UNSAFE_PATH, verify, rewrite(build(private), updates={name: b"x"}), public
     )
 
 
-def test_limits_and_bomb(keys):
+def test_limits_and_bomb(keys: KeyPair) -> None:
     private, public = keys
     package = build(private)
     limits = ps.PackageLimits()
@@ -181,12 +196,12 @@ def test_limits_and_bomb(keys):
     assert_reason(ps.Reason.SIZE_LIMIT, verify, bomb, public)
 
 
-def test_model_streaming(keys):
+def test_model_streaming(keys: KeyPair) -> None:
     private, public = keys
 
     class BoundedStream(io.BytesIO):
-        def read(self, size=-1):
-            assert 0 < size <= ps.CHUNK_SIZE
+        def read(self, size: int | None = -1) -> bytes:
+            assert size is not None and 0 < size <= ps.CHUNK_SIZE
             return super().read(size)
 
     model = BoundedStream(b"model-artifact" * 100_000)
@@ -214,7 +229,7 @@ def test_model_streaming(keys):
     assert not model.closed and not output.closed
 
 
-def test_malformed_and_symlink(keys):
+def test_malformed_and_symlink(keys: KeyPair) -> None:
     private, public = keys
     assert_reason(ps.Reason.INVALID_ARCHIVE, verify, b"not a zip", public)
     package = build(private)
@@ -233,7 +248,7 @@ def test_malformed_and_symlink(keys):
     assert_reason(ps.Reason.INVALID_ARCHIVE, verify, output.getvalue(), public)
 
 
-def test_invalid_signed_payload(keys):
+def test_invalid_signed_payload(keys: KeyPair) -> None:
     private, public = keys
     package = build(private)
     payload = b'{"duplicate":1,"duplicate":2}'
@@ -255,7 +270,7 @@ def test_invalid_signed_payload(keys):
     assert_reason(ps.Reason.INVALID_PAYLOAD, verify, tampered, public)
 
 
-def test_invalid_build_arguments(keys):
+def test_invalid_build_arguments(keys: KeyPair) -> None:
     private, _ = keys
     with pytest.raises(ps.PackageError):
         build(private, version=0)
@@ -273,7 +288,7 @@ def test_invalid_build_arguments(keys):
     )
 
 
-def test_corrupt_compressed_member(keys):
+def test_corrupt_compressed_member(keys: KeyPair) -> None:
     private, public = keys
     compressed = rewrite(build(private), compression=zipfile.ZIP_DEFLATED)
     with zipfile.ZipFile(io.BytesIO(compressed)) as archive:
@@ -291,7 +306,9 @@ def test_corrupt_compressed_member(keys):
 @pytest.mark.parametrize(
     "marked,allowed", [(False, False), (False, True), (True, False), (True, True)]
 )
-def test_signed_rollback_requires_marker_and_permission(keys, version, marked, allowed):
+def test_signed_rollback_requires_marker_and_permission(
+    keys: KeyPair, version: int, marked: bool, allowed: bool
+) -> None:
     """Only explicit authorization AND Admin-signed intent bypass monotonicity (REQ-OCC-02)."""
     private, public = keys
     package = build(private, version=version, rollback=marked)
@@ -317,7 +334,7 @@ def test_signed_rollback_requires_marker_and_permission(keys, version, marked, a
         )
 
 
-def test_rollback_cannot_bypass_trust_integrity_or_compatibility(keys):
+def test_rollback_cannot_bypass_trust_integrity_or_compatibility(keys: KeyPair) -> None:
     private, public = keys
     package = build(private, version=1, rollback=True)
     assert_reason(
@@ -359,7 +376,7 @@ def test_rollback_cannot_bypass_trust_integrity_or_compatibility(keys):
     )
 
 
-def test_legacy_manifest_without_rollback_marker(keys):
+def test_legacy_manifest_without_rollback_marker(keys: KeyPair) -> None:
     private, public = keys
     package = build(private)
     with zipfile.ZipFile(io.BytesIO(package)) as archive:

@@ -15,7 +15,7 @@ from pfc.adapters.vector.embeddings import (
 )
 
 
-def test_pool_normalise_truncate():
+def test_pool_normalise_truncate() -> None:
     hidden = np.array([[[3, 4, 9], [1, 2, 3], [99, 99, 99]]], dtype=np.float32)
     pooled = mean_pool(hidden, np.array([[1, 1, 0]], dtype=np.int64))
     np.testing.assert_array_equal(pooled, [[2, 3, 6]])
@@ -30,7 +30,7 @@ def test_pool_normalise_truncate():
             normalise(pooled, size)
 
 
-def test_fake_deterministic_prefix_and_empty():
+def test_fake_deterministic_prefix_and_empty() -> None:
     embedder = FakeEmbedder(32)
     vectors = embedder.embed(["hello", "", "hello"])
     np.testing.assert_array_equal(vectors[0], vectors[2])
@@ -46,7 +46,7 @@ def test_fake_deterministic_prefix_and_empty():
 @pytest.mark.skipif(
     not os.environ.get("PFC_EMBEDDING_MODEL_PATH"), reason="Local ONNX not supplied"
 )
-def test_local_onnx():
+def test_local_onnx() -> None:
     model = Path(os.environ["PFC_EMBEDDING_MODEL_PATH"])
     tokenizer = Path(
         os.environ.get("PFC_EMBEDDING_TOKENIZER_PATH", str(model.parent / "tokenizer.json"))
@@ -60,7 +60,7 @@ def test_local_onnx():
     assert "nomic-embed-text-v1.5:" in embedder.model_version
 
 
-def test_fingerprint_includes_external_weights(tmp_path):
+def test_fingerprint_includes_external_weights(tmp_path: Path) -> None:
     """External tensor changes must invalidate persisted model versions (REQ-LLM-07)."""
     model = tmp_path / "model.onnx"
     model.write_bytes(b"graph")
@@ -79,7 +79,7 @@ def test_fingerprint_includes_external_weights(tmp_path):
     assert model_fingerprint(model, tokenizer) not in (original, changed)
 
 
-def test_fingerprint_without_external_weights(tmp_path):
+def test_fingerprint_without_external_weights(tmp_path: Path) -> None:
     model = tmp_path / "model.onnx"
     model.write_bytes(b"graph")
     tokenizer = tmp_path / "tokenizer.json"
@@ -92,7 +92,7 @@ def test_fingerprint_without_external_weights(tmp_path):
     assert model_fingerprint(model, tokenizer) not in (original, changed)
 
 
-def test_fingerprint_rejects_missing_files_and_symlinks(tmp_path):
+def test_fingerprint_rejects_missing_files_and_symlinks(tmp_path: Path) -> None:
     model = tmp_path / "model.onnx"
     tokenizer = tmp_path / "tokenizer.json"
     with pytest.raises(FileNotFoundError):
