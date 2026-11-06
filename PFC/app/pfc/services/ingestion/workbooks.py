@@ -258,6 +258,7 @@ def parse_workbook(
                 row_hash=row_hash(business),
                 issues=issues,
                 rejected=key is None,
+                jd_text_raw=str(raw.get("jd_text_norm") or "") if kind == "DL" else None,
             )
             if kind == "CT" and key is not None and not business["email_key"]:
                 incomplete.setdefault(business["short_name_key"], []).append(row)
