@@ -119,7 +119,7 @@ async def _upload(
                 if len(form.multi_items()) != 1 or not isinstance(upload, UploadFile):
                     raise problem("invalid_upload")
                 return await run_in_threadpool(
-                    UploadStaging(request.app.state.settings).preview,
+                    UploadStaging(request.app.state.settings, clock=lambda: _now(request)).preview,
                     upload.file,
                     kind=kind,
                     user_id=principal.user.user_id,
@@ -189,7 +189,7 @@ def apply(body: ApplyRequest, request: Request, principal: Authenticated) -> App
             assert isinstance(result, SettingsPreview)
         else:
             assert body.token is not None
-            result = UploadStaging(request.app.state.settings).apply(
+            result = UploadStaging(request.app.state.settings, clock=lambda: _now(request)).apply(
                 body.token,
                 kind="settings",
                 user_id=principal.user.user_id,
@@ -249,7 +249,7 @@ def model_apply(body: ApplyRequest, request: Request, principal: Admin) -> Model
             assert isinstance(result, ModelApplyResult)
         else:
             assert body.token is not None
-            result = UploadStaging(request.app.state.settings).apply(
+            result = UploadStaging(request.app.state.settings, clock=lambda: _now(request)).apply(
                 body.token,
                 kind="model",
                 user_id=principal.user.user_id,

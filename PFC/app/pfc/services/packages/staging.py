@@ -5,6 +5,7 @@ import json
 import os
 import secrets
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import BinaryIO, Literal, TypeVar
@@ -32,13 +33,32 @@ def file_digest(path: Path) -> str:
 
 
 class UploadStaging:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, *, clock: Callable[[], int] | None = None) -> None:
         self.settings = settings
         self.directory = settings.data_dir / "packages" / "staged"
+        self.clock = clock or (lambda: int(time.time()))
+        self.expired_tokens = self.purge_expired()
+
+    def _purge_expired(self, now: int) -> set[str]:
+        expired = set()
+        for metadata in self.directory.glob("*.json"):
+            stored = json.loads(metadata.read_bytes())
+            if stored["expires_at"] <= now:
+                (self.directory / f"{metadata.stem}.upload").unlink(missing_ok=True)
+                metadata.unlink(missing_ok=True)
+                expired.add(metadata.stem)
+        return expired
+
+    def purge_expired(self, *, now: int | None = None) -> set[str]:
+        if not self.directory.exists():
+            return set()
+        with FileLock(self.directory / ".staging.lock", timeout=30):
+            return self._purge_expired(self.clock() if now is None else now)
 
     def preview(
         self, stream: BinaryIO, *, kind: Kind, user_id: int, session_id: int, now: int
     ) -> tuple[str, SettingsPreview | ModelPreview]:
+        self.purge_expired(now=now)
         self.directory.mkdir(parents=True, exist_ok=True)
         token = secrets.token_urlsafe(32)
         path = self.directory / f"{token}.upload"
@@ -95,6 +115,9 @@ class UploadStaging:
         if not self.directory.exists():
             raise PackageServiceError("preview_missing", "Preview not found")
         with FileLock(self.directory / ".staging.lock", timeout=30):
+            expired = self._purge_expired(now) | self.expired_tokens
+            if token in expired:
+                raise PackageServiceError("preview_expired", "Preview expired")
             path = self.directory / f"{token}.upload"
             metadata = self.directory / f"{token}.json"
             if not metadata.is_file() or not path.is_file():
@@ -114,3 +137,8 @@ class UploadStaging:
             metadata.unlink(missing_ok=True)
             path.unlink(missing_ok=True)
             return result
+
+
+def purge_expired_previews(settings: Settings, *, clock: Callable[[], int] | None = None) -> None:
+    """Startup cleanup for unused preview uploads (REQ-OCC-02/03)."""
+    UploadStaging(settings, clock=clock)

@@ -11,6 +11,7 @@ from pfc.config import Settings
 from pfc.services.packages.common import PackageServiceError, atomic_write, package_lock
 from pfc.services.packages.importer import SettingsImporter, SettingsPreview
 from pfc.services.packages.models import JobSubmitter, ModelApplyResult, ModelImporter
+from pfc.services.packages.staging import purge_expired_previews
 
 
 @dataclass(frozen=True)
@@ -115,6 +116,7 @@ class PackageInbox:
 
 def scan_inbox(settings: Settings) -> list[PendingPackage]:
     """Startup integration point, without HTTP/lifespan changes (REQ-OCC-02)."""
+    purge_expired_previews(settings)
     return PackageInbox(settings).scan()
 
 
