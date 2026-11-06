@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Upload, X } from 'lucide-react'
-import { api } from '../api'
+import { api, ApiError } from '../api'
 import type { Demand, JdRequirements } from '../api/types'
 import { BandChip, Banner, Chip, EmptyState, ErrorState, Modal, Spinner } from '../components/ui'
 import { UploadDialog } from '../components/UploadDialog'
@@ -44,7 +44,21 @@ function SkillChips({ label, skills, onChange }: { label: string; skills: string
 /** JD review drawer: Analyze JD → review requirements → Confirm & Start (REQ-MAT-02, §9.3). */
 function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) {
   const qc = useQueryClient()
-  const req = useQuery({ queryKey: ['requirements', demand.demandId], queryFn: () => api.getRequirements(demand.demandId) })
+  // Analyze only when no draft exists yet (GET → 404): each analysis stores a new draft revision, and the
+  // demand list carries no JD status from the backend, so the row's status can't tell us.
+  const req = useQuery({
+    queryKey: ['requirements', demand.demandId],
+    queryFn: async () => {
+      try {
+        return await api.getRequirements(demand.demandId)
+      } catch (e) {
+        if (!(e instanceof ApiError && e.code === 'REQUIREMENTS_NOT_FOUND')) throw e
+      }
+      const draft = await api.analyzeDemand(demand.demandId)
+      void qc.invalidateQueries({ queryKey: ['demands'] })
+      return draft
+    },
+  })
   const [edit, setEdit] = useState<JdRequirements | null>(null)
   const value = edit ?? req.data
   const done = () => {
@@ -80,7 +94,9 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
       <span className="muted small">
         {demand.demandRequestName} · {demand.accountName} · {demand.codeLocalGrade} · {roleLocation(demand.region)} · Start {formatDate(demand.positionStartDate)}
       </span>
-      {!value ? (
+      {req.isError && !value ? (
+        <ErrorState error={req.error} />
+      ) : !value ? (
         <Spinner />
       ) : (
         <div className="grid-12">
@@ -91,6 +107,13 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
             </pre>
           </div>
           <div className="span-6 stack">
+            {value.extractionMethod === 'rule_based_fallback' && (
+              <Banner tone="warning">
+                <strong>Extracted by rules, not the local AI model</strong> (reason: {value.fallbackReason ?? 'reason_not_recorded'}). Check every
+                requirement carefully before Confirm &amp; Start.
+              </Banner>
+            )}
+            {value.extractionMethod === 'llm' && <span className="small muted">Extracted by local AI model</span>}
             <SkillChips label="Mandatory skills" skills={value.mandatorySkills} onChange={(s) => setEdit({ ...value, mandatorySkills: s })} />
             <SkillChips label="Preferred skills" skills={value.preferredSkills} onChange={(s) => setEdit({ ...value, preferredSkills: s })} />
             <label className="field">
@@ -105,11 +128,14 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
               <input type="checkbox" checked={value.mandatoryOnsite} onChange={(e) => setEdit({ ...value, mandatoryOnsite: e.target.checked })} /> Mandatory onsite
             </label>
             {value.synonymsApplied.length > 0 && <span className="small muted">Synonyms applied: {value.synonymsApplied.join(', ')}</span>}
-            {value.warnings.map((w) => (
-              <Banner key={w} tone="warning">
-                {w}
-              </Banner>
-            ))}
+            {/* The backend repeats the fallback as a warning; the banner above already shows it. */}
+            {value.warnings
+              .filter((w) => !(value.extractionMethod === 'rule_based_fallback' && w.startsWith('Rule-based fallback:')))
+              .map((w) => (
+                <Banner key={w} tone="warning">
+                  {w}
+                </Banner>
+              ))}
           </div>
         </div>
       )}

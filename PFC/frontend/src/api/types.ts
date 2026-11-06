@@ -89,6 +89,10 @@ export interface JdRequirements {
   mandatoryOnsite: boolean
   synonymsApplied: string[]
   warnings: string[]
+  /** How the draft was extracted; null for older rows and manual drafts. */
+  extractionMethod?: 'llm' | 'rule_based_fallback' | null
+  /** Backend reason code when extraction fell back to rules (e.g. "provider_unavailable"). */
+  fallbackReason?: string | null
 }
 
 export interface Resource {
@@ -289,6 +293,25 @@ export interface CvVersion {
   modifiedAt: string
   extractedAt: string
   isBest: boolean
+  /** Structured facts grounded in the CV text; null when facts have not been extracted yet (e.g. legacy versions). */
+  facts?: CvFacts | null
+}
+
+/** One CV fact: `evidence` is the quote it was read from; phones and emails arrive masked. */
+export interface CvFact {
+  value: string
+  evidence: string
+  /** [start, end] character offsets into the stored normalised CV text. */
+  span: [number, number]
+  source: 'rule' | 'llm'
+}
+
+export interface CvFacts {
+  name: CvFact | null
+  phone: CvFact | null
+  experience: CvFact[]
+  qualifications: CvFact[]
+  projects: CvFact[]
 }
 
 export interface CandidateDetail {
