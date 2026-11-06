@@ -150,6 +150,16 @@ class Population:
                     else "Confirmed — scoring"
                 )
             )
+            if (
+                latest is None
+                and self.db.execute(
+                    "SELECT 1 FROM jd_requirements q JOIN demand_versions v "
+                    "ON v.demand_version_id=q.demand_version_id "
+                    "WHERE v.demand_id=? AND v.demand_version_id!=? LIMIT 1",
+                    (row["demand_id"], row["current_version_id"]),
+                ).fetchone()
+            ):
+                status = "JD changed"
             assessed = json.loads((self.run or {}).get("dq_summary_json") or "{}").get(
                 "demands", {}
             )

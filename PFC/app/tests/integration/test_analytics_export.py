@@ -260,6 +260,41 @@ def test_export_paging_ignores_excluded_rows(
         assert verify_chain(db)
 
 
+@pytest.mark.parametrize("old_status", ["confirmed", "draft", "superseded"])
+def test_changed_jd_status_preserves_analysis_history(
+    populated: tuple[Api, dict[str, Any]], old_status: str
+) -> None:
+    api, ids = populated
+    demand_id = ids["demands"][0]
+    with database(api[0].app.state.settings) as db:
+        db.execute(
+            "UPDATE jd_requirements SET status=? WHERE demand_version_id="
+            "(SELECT current_version_id FROM demands WHERE demand_id=?)",
+            (old_status, demand_id),
+        )
+        version_id = db.execute(
+            "INSERT INTO demand_versions"
+            "(demand_id,version_no,jd_text_raw,jd_text_norm,jd_sha256,created_at) "
+            "VALUES (?,2,'Changed JD','Changed JD','changed-jd',?)",
+            (demand_id, NOW.isoformat()),
+        ).lastrowid
+        db.execute(
+            "UPDATE demands SET current_version_id=? WHERE demand_id=?", (version_id, demand_id)
+        )
+        never_analyzed = seed_demand(db, "T19999", confirmed=False)
+    rows = {row["demandId"]: row for row in get(api, "/analytics/demand")["rows"]}
+    assert rows[demand_id]["jdStatus"] == "JD changed"
+    assert rows[never_analyzed]["jdStatus"] == "Not analysed"
+    with database(api[0].app.state.settings) as db:
+        db.execute(
+            "INSERT INTO jd_requirements(demand_version_id,revision,status,created_at) "
+            "VALUES (?,1,'draft',?)",
+            (version_id, NOW.isoformat()),
+        )
+    rows = {row["demandId"]: row for row in get(api, "/analytics/demand")["rows"]}
+    assert rows[demand_id]["jdStatus"] == "Analysed — awaiting confirmation"
+
+
 def test_overrides_filters_and_explicit_run(populated: tuple[Api, dict[str, Any]]) -> None:
     api, ids = populated
     client, csrf = api
