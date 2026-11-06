@@ -501,6 +501,45 @@ def test_pending_model_rbac(apps: tuple[TestClient, TestClient]) -> None:
     assert response.status_code == 200, response.text
 
 
+def test_admin_reembedding_retry(
+    apps: tuple[TestClient, TestClient], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source, target = apps
+    source_csrf, csrf = login(source), login(target)
+    assert export(source, source_csrf).status_code == 200
+    provision(source, target)
+    package = model_package(source)
+    token = preview(target, csrf, package, model=True).json()["token"]
+
+    def fail(*args: Any, **kwargs: Any) -> int:
+        raise RuntimeError("queue unavailable")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(target.app.state.job_runner, "submit", fail)
+        problem(apply(target, csrf, token, model=True), 503, "PACKAGE_REEMBEDDING_PENDING")
+    response = preview(target, csrf, package, model=True)
+    problem(response, 409, "PACKAGE_MODEL_INSTALLED_PENDING")
+    assert "reembed" in response.json()["detail"]
+    endpoint = f"{PREFIX}/models/addons/1/reembed"
+    problem(target.post(endpoint), 403, "CSRF_INVALID")
+    csrf = login(target, role="Analyst", email="installer@example.com")
+    problem(target.post(endpoint, headers={"X-CSRF-Token": csrf}), 403, "FORBIDDEN")
+    target.cookies.clear()
+    problem(target.post(endpoint), 401, "AUTH_REQUIRED")
+    csrf = login(target)
+    response = target.post(endpoint, headers={"X-CSRF-Token": csrf})
+    assert response.status_code == 200, response.text
+    assert response.json()["version"] == 1 and response.json()["job_id"] > 0
+    assert target.post(endpoint, headers={"X-CSRF-Token": csrf}).json() == response.json()
+    problem(
+        target.post(f"{PREFIX}/models/addons/99/reembed", headers={"X-CSRF-Token": csrf}),
+        404,
+        "PACKAGE_NOT_FOUND",
+    )
+    with database(target.app.state.settings) as db:
+        assert db.execute("SELECT count(*) FROM embedding_models").fetchone()[0] == 1
+
+
 def test_body_limits_and_invalid_multipart(
     apps: tuple[TestClient, TestClient], monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, Request, Response
+from fastapi import Path as PathParameter
 from fastapi.routing import APIRoute
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
@@ -26,6 +27,7 @@ from pfc.api.schemas.packages import (
     OneTimePassword,
     PayloadDiffResponse,
     PendingResponse,
+    ReembedResponse,
     SettingsPreviewResponse,
     SigningKeyResponse,
 )
@@ -262,6 +264,18 @@ def model_apply(body: ApplyRequest, request: Request, principal: Admin) -> Model
         return ModelApplyResponse(
             version=result.version, model_id=result.model_id, job_id=result.job_id
         )
+
+
+@router.post("/models/addons/{version}/reembed", response_model=ReembedResponse)
+def reembed(
+    version: Annotated[int, PathParameter(ge=1)], request: Request, principal: Admin
+) -> ReembedResponse:
+    """Explicit Admin retry of committed model installation (REQ-OCC-03)."""
+    with package_errors():
+        job_id = ModelImporter(request.app.state.settings, jobs=_jobs(request)).retry_reembedding(
+            version, actor_id=principal.user.user_id
+        )
+        return ReembedResponse(version=version, job_id=job_id)
 
 
 @router.get("/settings/settings-package/history", response_model=list[HistoryResponse])

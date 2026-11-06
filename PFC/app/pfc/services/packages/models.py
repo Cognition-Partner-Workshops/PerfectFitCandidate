@@ -104,9 +104,18 @@ class ModelImporter:
             trusted_keys=load_trusted_keys(self.settings),
             expected_kind="model",
             app_version=app_version(),
-            current_version=self._current_version(),
+            current_version=0,
         )
         manifest = verified.manifest
+        if manifest.package_version <= self._current_version():
+            receipt = self._receipts / f"v{manifest.package_version}.json"
+            if receipt.is_file() and json.loads(receipt.read_bytes())["job_id"] is None:
+                raise PackageServiceError(
+                    "model_installed_pending", "Model already installed; retry re-embedding"
+                )
+            raise signing.PackageError(
+                signing.Reason.STALE_VERSION, "Model version must be newer than installed"
+            )
         if METADATA not in manifest.payloads or manifest.payloads[METADATA].size > 65536:
             raise PackageServiceError("model_metadata", "Missing/oversized signed model metadata")
         with zipfile.ZipFile(stream) as archive:

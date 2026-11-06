@@ -74,6 +74,10 @@ class ModelApplyResponse(ApplyResponse):
     job_id: int
 
 
+class ReembedResponse(ApplyResponse):
+    job_id: int
+
+
 class PendingResponse(BaseModel):
     id: str
     file_name: str
