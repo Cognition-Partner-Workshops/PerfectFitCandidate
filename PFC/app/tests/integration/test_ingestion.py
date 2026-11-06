@@ -1022,6 +1022,8 @@ def test_req_in_21_24_cv_sync_versions_and_metadata(client: TestClient, tmp_path
         "too_large": 0,
         "embedded": 0,
         "warnings": 0,
+        "facts_llm_failed": 0,
+        "facts_llm_timeout": 0,
         "embedding_counts": {"embedded": 0, "reused": 0, "skipped": 0, "deleted": 0},
         "embedding_notes": ["Embedding skipped: no active embedding model"],
     }

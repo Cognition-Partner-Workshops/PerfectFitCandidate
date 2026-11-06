@@ -1,6 +1,24 @@
 """REQ-IN-21/24: local CV synchronisation contracts."""
 
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
+
+
+class CVFact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    value: StrictStr
+    evidence: StrictStr
+    span: list[StrictInt] = Field(min_length=2, max_length=2)
+    source: Literal["rule", "llm"]
+
+
+class CVFacts(BaseModel):
+    name: CVFact | None = None
+    phone: CVFact | None = None
+    experience: list[CVFact] = Field(default_factory=list)
+    qualifications: list[CVFact] = Field(default_factory=list)
+    projects: list[CVFact] = Field(default_factory=list)
 
 
 class CVSyncRequest(BaseModel):
@@ -20,6 +38,7 @@ class CVVersionItem(BaseModel):
     identity_match: str | None
     is_latest: bool
     extracted_at: str
+    facts: CVFacts | None = None
 
 
 class CVSyncCounts(BaseModel):
@@ -34,3 +53,5 @@ class CVSyncCounts(BaseModel):
     too_large: int = 0
     embedded: int = 0
     warnings: int = 0
+    facts_llm_failed: int = 0
+    facts_llm_timeout: int = 0
