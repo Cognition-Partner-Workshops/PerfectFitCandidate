@@ -183,7 +183,7 @@ class OutlookComTransport:
                 return DeliveryResult(key, "sent")
             if key in self._uncertain:
                 raise EmailTransportError("Previous send outcome uncertain; reconcile before retry")
-            mail = self._mail(message)
+            mail = self._mail(message, regenerate=True)
             self._uncertain.add(key)
             mail.Send()
             self._sent.add(key)
