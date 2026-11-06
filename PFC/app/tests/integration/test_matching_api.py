@@ -208,7 +208,7 @@ def test_req_mat_02_full_flow_drafts_results_overrides_exclusions(api: Api) -> N
     assert row["positionStartDate"] == "2026-11-16" and row["demandRequestName"] == "Data role"
     assert row["personEmailMasked"] == "Al******er@capgemini.com" and SAMPLE_EMAIL not in rows.text
     assert row["candidateType"] == "Internal" and row["incompleteIdentity"]
-    assert row["override"] is None and len(row["breakdown"]) == 6
+    assert "override" not in row and len(row["breakdown"]) == 6
     for key in ("matchingEvidence", "gapsChecks", "eligibilityEvidence"):
         assert isinstance(row[key], list) and all(isinstance(value, str) for value in row[key])
     detail = client.get(f"/api/v1/match-results/{row['resultId']}")
@@ -277,7 +277,7 @@ def test_req_mat_02_full_flow_drafts_results_overrides_exclusions(api: Api) -> N
         404,
     )
     revoked = client.request("DELETE", endpoint, headers=headers, json={"reason": "Undo latest"})
-    assert revoked.status_code == 200 and revoked.json()["override"] is None
+    assert revoked.status_code == 200 and "override" not in revoked.json()
     for action in ("pin", "unpin", "exclude", "include"):
         changed = client.post(
             endpoint, headers=headers, json={"action": action, "reason": "Review"}

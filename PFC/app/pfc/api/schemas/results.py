@@ -162,6 +162,13 @@ class ResultRow(WireModel):
     effective_shortlisted: bool
     shortlisted: bool
 
+    @model_serializer(mode="wrap")
+    def serialize(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        output: dict[str, Any] = handler(self)
+        if self.override is None:
+            output.pop("override", None)
+        return output
+
 
 class CvScoreView(WireModel):
     cv_version_id: int | None
