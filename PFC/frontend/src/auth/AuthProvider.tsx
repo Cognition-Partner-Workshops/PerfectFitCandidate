@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { api, ApiError } from '../api'
+import { api, ApiError, setUnauthorizedHandler } from '../api'
 import type { CurrentUser, LoginRequest } from '../api/types'
 import { AuthContext, LAST_ROLE_KEY, type AuthState } from './context'
 
@@ -26,7 +26,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [adminExists, setAdminExists] = useState<boolean | null>(null)
   const [unreachable, setUnreachable] = useState(false)
-  const [signedOutReason, setSignedOutReason] = useState<'timeout' | null>(null)
+  const [signedOutReason, setSignedOutReason] = useState<'timeout' | 'expired' | null>(null)
 
   const apply = useCallback((r: LoadResult) => {
     setUnreachable(r.unreachable)
@@ -46,6 +46,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       alive = false
     }
   }, [apply])
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      queryClient.clear()
+      setUser(null)
+      setSignedOutReason('expired')
+    })
+    return () => setUnauthorizedHandler(null)
+  }, [queryClient])
 
   const login = useCallback(async (req: LoginRequest) => {
     const u = await api.login(req)

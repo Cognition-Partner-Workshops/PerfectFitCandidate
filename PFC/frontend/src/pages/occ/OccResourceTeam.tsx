@@ -11,7 +11,9 @@ export function OccResourceTeam() {
   const list = useQuery({ queryKey: ['occ', 'resource-team'], queryFn: () => api.listResourceTeam() })
   const [email, setEmail] = useState('')
   const [name, setName] = useState('')
-  const save = useMutation({ mutationFn: (m: ResourceTeamMember[]) => api.saveResourceTeam(m), onSuccess: (m) => qc.setQueryData(['occ', 'resource-team'], m) })
+  const save = useMutation({ mutationFn: (m: ResourceTeamMember[]) => api.saveResourceTeam(m), onSuccess: (m) => qc.setQueryData(['occ', 'resource-team'], m),
+    onError: () => void qc.invalidateQueries({ queryKey: ['occ', 'resource-team'] }),
+  })
   if (list.isLoading) return <Spinner />
   if (list.isError) return <ErrorState error={list.error} />
   const members = list.data ?? []
@@ -20,6 +22,7 @@ export function OccResourceTeam() {
   return (
     <section className="card stack" aria-label="Resource-team list">
       <h2>Resource-team email list</h2>
+      {save.isError && <ErrorState error={save.error} />}
       {members.length === 0 ? (
         <EmptyState message="No resource-team recipients — candidate emails will be sent without CC." />
       ) : (
