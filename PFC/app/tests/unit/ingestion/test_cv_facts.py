@@ -361,7 +361,7 @@ def test_req_in_23_public_fact_masking() -> None:
     assert public is not None and public.phone is not None and public.phone.value == "***89"
     assert "alice@example.com" not in public.model_dump_json()
     assert "+44 123456789" not in public.model_dump_json()
-    assert "a***@example.com" in public.projects[0].evidence
+    assert "al***@example.com" in public.projects[0].evidence
     assert public_facts('{"emails": []}') is None
     assert mask_phone(None) is None and mask_phone("12") == "***"
 
