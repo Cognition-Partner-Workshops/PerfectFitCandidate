@@ -622,3 +622,11 @@ export interface EmailTemplateVersion {
 }
 
 export type EmailTemplateDraft = Pick<EmailTemplateVersion, 'name' | 'subject' | 'bodyHtml'>
+
+/** BitLocker protection of the data directory's volume; informational only (REQ-AUTH-06). */
+export type VolumeEncryption = 'Encrypted' | 'Not encrypted' | 'Unknown'
+
+export interface SystemHealth {
+  status: string
+  dataVolumeEncryption: VolumeEncryption
+}
