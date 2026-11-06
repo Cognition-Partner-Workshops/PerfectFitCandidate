@@ -93,6 +93,7 @@ export interface JdRequirements {
   mandatorySkills: string[]
   preferredSkills: string[]
   experienceYears: number | null
+  experience?: string[] | null
   qualifications: string
   domain: string
   location: string
@@ -111,6 +112,8 @@ export interface JdRequirements {
     evidenceUnverified?: boolean
   }[]
 }
+
+export type JdRequirementItem = NonNullable<JdRequirements['items']>[number]
 
 export interface Resource {
   resourceId: number
