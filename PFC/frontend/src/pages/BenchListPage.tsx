@@ -100,9 +100,9 @@ export function BenchListPage() {
                   <td>
                     <input type="checkbox" checked={selected.has(r.resourceId)} onChange={() => toggle(r.resourceId)} aria-label={`Select ${r.shortName}`} />
                   </td>
-                  <td className="mono">{r.shortName}</td>
+                  <td className="mono">{r.candidateId ? <Link to={`/candidates/${r.candidateId}`}>{r.shortName}</Link> : r.shortName}</td>
                   <td>
-                    {r.candidateId ? <Link to={`/candidates/${r.candidateId}`}>{orNotRecorded(r.name)}</Link> : orNotRecorded(r.name)}
+                    {orNotRecorded(r.name)}
                     {r.identityStatus !== 'complete' && <Chip tone="warning">Incomplete identity</Chip>}
                   </td>
                   <td>
