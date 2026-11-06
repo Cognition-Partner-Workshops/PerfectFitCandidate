@@ -272,8 +272,8 @@ def settings_get(db: DB, admin: Admin) -> dict[str, Any]:
 
 
 @router.put("/settings")
-def settings_put(body: dict[str, Any], db: DB, admin: Admin) -> dict[str, Any]:
-    return administration.settings_put(db, admin.user.user_id, body)
+def settings_put(body: dict[str, Any], db: DB, admin: Admin, request: Request) -> dict[str, Any]:
+    return administration.settings_put(db, admin.user.user_id, body, request.app.state.settings)
 
 
 Filters = Annotated[AuditFilters, Query()]

@@ -1,5 +1,6 @@
 """P1-EX-08: REQ-AUTH-02..07 and REQ-OUT-03 security regression checks."""
 
+import json
 import logging
 import re
 import threading
@@ -8,13 +9,13 @@ from pathlib import Path
 
 import pytest
 from argon2 import Type
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from pfc.config import Settings
 from pfc.db.connection import database
 from pfc.main import create_app
 from pfc.security.passwords import hasher
+from pfc.security.secrets_store import SecretStore, SecretStoreError
 from pfc.security.setup import code_path
 
 EMAIL = "reviewer@example.com"
@@ -65,12 +66,17 @@ def login(client: TestClient) -> None:
 
 
 def api_operations(client: TestClient) -> list[tuple[str, str]]:
-    return sorted(
-        (method, re.sub(r"\{[^}]+\}", "999999", route.path))
-        for route in client.app.routes
-        if isinstance(route, APIRoute) and route.path.startswith("/api/v1/")
-        for method in route.methods - {"HEAD", "OPTIONS"}
-    )
+    operations = []
+    for route in client.app.routes:
+        contexts = getattr(route, "effective_route_contexts", None)
+        for effective in contexts() if contexts is not None else [route]:
+            path = getattr(effective, "path", "")
+            if path.startswith("/api/v1/"):
+                operations.extend(
+                    (method, re.sub(r"\{[^}]+\}", "999999", path))
+                    for method in effective.methods - {"HEAD", "OPTIONS"}
+                )
+    return sorted(operations)
 
 
 def test_all_api_writes_require_csrf(client: TestClient) -> None:
@@ -153,6 +159,7 @@ def test_auth_defaults_and_cookie_rotation(client: TestClient) -> None:
     assert response.status_code == 200
     assert client.cookies.get("pfc_session") not in {first, second}
     for old in (first, second):
+        client.cookies.clear()
         client.cookies.set("pfc_session", old)
         assert client.get("/api/v1/auth/me").status_code == 401
 
@@ -207,3 +214,87 @@ def test_job_exception_payload_not_logged(
     assert runner.get(job_id).status == "failed"
     assert "Background job" in caplog.text
     assert EMAIL not in caplog.text and PASSWORD not in caplog.text
+
+
+def test_secret_settings_encrypted_and_write_only(client: TestClient) -> None:
+    """REQ-AUTH-06: the existing generic settings writer must not persist/return credentials."""
+    setup(client)
+    login(client)
+    secrets = {
+        "smtp.password": "SensitiveSMTPPassword",
+        "llm.api_key": "SensitiveProviderKey",
+        "provider.options": {"auth": [{"access_token": "SensitiveNestedToken"}]},
+    }
+    response = client.put("/api/v1/occ/settings", json=secrets)
+    assert response.status_code == 200
+    assert response.json() == {key: "[REDACTED]" for key in secrets}
+    assert client.get("/api/v1/occ/settings").json() == response.json()
+    with database(client.app.state.settings) as db:
+        for key, value in secrets.items():
+            row = db.execute("SELECT value_json FROM settings WHERE key=?", (key,)).fetchone()
+            encrypted = json.loads(row["value_json"])
+            assert (
+                json.loads(SecretStore(client.app.state.settings.data_dir).decrypt(encrypted))
+                == value
+            )
+            details = db.execute("SELECT details_json FROM audit_log").fetchall()
+            for secret in ("SensitiveSMTPPassword", "SensitiveProviderKey", "SensitiveNestedToken"):
+                assert secret not in row["value_json"]
+                assert all(secret not in r[0] for r in details if r[0])
+        before = db.execute("SELECT key,value_json FROM settings ORDER BY key").fetchall()
+    assert client.put("/api/v1/occ/settings", json=response.json()).status_code == 200
+    with database(client.app.state.settings) as db:
+        assert [tuple(r) for r in before] == [
+            tuple(r) for r in db.execute("SELECT key,value_json FROM settings ORDER BY key")
+        ]
+
+
+def test_secret_setting_failure_is_atomic(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    setup(client)
+    login(client)
+    before = client.get("/api/v1/occ/settings").json()
+    assert client.put("/api/v1/occ/settings", json={}).json() == before
+    with database(client.app.state.settings) as db:
+        audits_before = db.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0]
+
+    def unavailable(self: SecretStore, value: bytes) -> str:
+        raise SecretStoreError("unavailable")
+
+    monkeypatch.setattr(SecretStore, "encrypt", unavailable)
+    response = client.put(
+        "/api/v1/occ/settings",
+        json={
+            "matching.top_n": 10,
+            "smtp.password": "do-not-store",
+        },
+    )
+    assert response.status_code == 503
+    assert response.json()["code"] == "SECRET_STORE_UNAVAILABLE"
+    assert client.get("/api/v1/occ/settings").json() == before
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT COUNT(*) FROM audit_log").fetchone()[0] == audits_before
+
+
+def test_legacy_secret_setting_hidden_and_upgraded_on_resave(client: TestClient) -> None:
+    setup(client)
+    login(client)
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "INSERT INTO settings(scope,key,value_json,updated_at) "
+            "VALUES ('system','smtp.password',?,datetime('now'))",
+            (json.dumps("LegacyCredential"),),
+        )
+    assert client.get("/api/v1/occ/settings").json()["smtp.password"] == "[REDACTED]"
+    assert (
+        client.put("/api/v1/occ/settings", json={"smtp.password": "LegacyCredential"}).status_code
+        == 200
+    )
+    with database(client.app.state.settings) as db:
+        assert (
+            "LegacyCredential"
+            not in db.execute(
+                "SELECT value_json FROM settings WHERE key='smtp.password'"
+            ).fetchone()[0]
+        )

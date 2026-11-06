@@ -6,8 +6,10 @@ import sqlite3
 from datetime import UTC, datetime
 from typing import Any
 
+from pfc.config import Settings
 from pfc.db.audit import verify_chain
 from pfc.security.problems import Problem
+from pfc.security.secrets_store import SecretStore, SecretStoreError, sensitive_setting
 from pfc.services.occ.common import audit_write, get_row, now
 
 
@@ -104,7 +106,11 @@ def delete_domain(db: sqlite3.Connection, user_id: int, domain: str) -> None:
 def settings_get(db: sqlite3.Connection, user_id: int) -> dict[str, Any]:
     """REQ-ROLE-04: system settings, excluding dedicated reference endpoints."""
     return {
-        row["key"]: json.loads(row["value_json"])
+        row["key"]: (
+            "[REDACTED]"
+            if sensitive_setting(row["key"], json.loads(row["value_json"]))
+            else json.loads(row["value_json"])
+        )
         for row in db.execute(
             "SELECT key,value_json FROM settings WHERE scope='system' AND user_id IS NULL "
             "AND key!='location.aliases' ORDER BY key"
@@ -112,7 +118,9 @@ def settings_get(db: sqlite3.Connection, user_id: int) -> dict[str, Any]:
     }
 
 
-def settings_put(db: sqlite3.Connection, user_id: int, values: dict[str, Any]) -> dict[str, Any]:
+def settings_put(
+    db: sqlite3.Connection, user_id: int, values: dict[str, Any], settings: Settings
+) -> dict[str, Any]:
     for key in values:
         if key == "location.aliases" or not re.fullmatch(r"[a-z][a-z0-9_]*(\.[a-z0-9_]+)+", key):
             raise Problem(422, "VALIDATION_ERROR", "Invalid or reserved settings key")
@@ -124,13 +132,22 @@ def settings_put(db: sqlite3.Connection, user_id: int, values: dict[str, Any]) -
     for key, value in values.items():
         if key in before and before[key] == value:
             continue
+        secret = sensitive_setting(key, value)
+        if secret:
+            try:
+                encoded[key] = json.dumps(
+                    SecretStore(settings.data_dir).encrypt(encoded[key].encode("utf-8"))
+                )
+            except SecretStoreError as exc:
+                raise Problem(
+                    503, "SECRET_STORE_UNAVAILABLE", "Secret storage unavailable"
+                ) from exc
         db.execute(
             "INSERT INTO settings(scope,key,value_json,admin_only,updated_by,updated_at)"
             " VALUES ('system',?,?,1,?,?) ON CONFLICT DO UPDATE SET value_json=excluded.value_json,"
             "admin_only=1,updated_by=excluded.updated_by,updated_at=excluded.updated_at",
             (key, encoded[key], user_id, now()),
         )
-        secret = any(marker in key for marker in ("password", "secret", "token", "credential"))
         old = {"value": "[REDACTED]" if secret else before[key]} if key in before else None
         new = {"value": "[REDACTED]" if secret else value}
         audit_write(db, user_id, "SETTING_CHANGE", "settings", key, old, new)
