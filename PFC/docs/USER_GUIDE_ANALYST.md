@@ -78,6 +78,10 @@ On the **Bench List**, the tabs **Eligible**, **Excluded from matching** and **A
 
 Each **ShortName** links to the **Candidate Profile**: the CT data as uploaded, eligibility, and the tabs **CV versions**, **Skills & evidence**, **Matches & score history** and **Activity**. When identity is incomplete or ambiguous, **Resolve identity** offers: select the matching CT record (the email is copied from the CT, never typed), generate an internal ID and continue (the default), or review later.
 
+The profile's **Overview → Classification** shows the effective classification used by the application and the computed classification from current emails and internal domains. When an Admin has overridden it, the redacted reason, setter's user ID and time are shown. Analysts see this read-only; ask an Admin to set or clear an override. Clearing requires a reason and recomputes immediately. Domains are a heuristic, not proof of employment.
+
+An Admin can clear cached CV text in **OCC → Cached CV text**. This preserves original CV files, candidate identities and past match runs; the next CV sync re-reads the files. A removed extraction may have no facts until that sync completes.
+
 **CV facts.** On **CV versions**, each synced CV has a **CV facts** card: name, phone, experience, qualifications and projects. Each value shows its source (**Rule** or **Local AI**) and an expandable **Evidence** quote from the CV. Only values found in the CV text are shown; a category with nothing found shows "Not found in CV", and nothing is filled in or guessed. Phone numbers and emails stay masked in values and evidence, and there is no reveal for CV facts. A CV version whose facts have not been extracted yet (for example, one synced before fact extraction existed) shows "CV facts not extracted yet" instead; that is different from "Not found in CV", which means facts were extracted but that category was empty.
 
 ## 5. Sync CVs

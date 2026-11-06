@@ -5,6 +5,7 @@ import { api } from '../api'
 import type { CandidateDetail, CvFact, CvFacts, CvVersion, IdentityResolution } from '../api/types'
 import { BandChip, Banner, Chip, EligibilityBadge, ErrorState, MaskedValue, MatchDoughnut, Modal, Spinner } from '../components/ui'
 import { formatDate, formatDateTime, initials, orNotRecorded } from '../lib/format'
+import { CandidateClassificationCard } from './CandidateClassificationCard'
 
 type Tab = 'overview' | 'cv' | 'skills' | 'matches' | 'activity'
 
@@ -205,6 +206,7 @@ export function CandidateProfilePage() {
       </div>
       {tab === 'overview' && (
         <div className="grid-12">
+          <div className="span-12"><CandidateClassificationCard key={d.candidateId} classification={d.classification} /></div>
           <section className="card span-8">
             <h3>CT data (as uploaded)</h3>
             <table className="data">

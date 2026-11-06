@@ -16,7 +16,7 @@ from pfc.api.schemas.candidates import (
 )
 from pfc.db.audit import append_audit
 from pfc.security.problems import Problem
-from pfc.services.candidates.classification import reclassify_candidate
+from pfc.services.candidates.classification import get_classification, reclassify_candidate
 
 from .browse import _mask
 from .cv_facts import public_facts
@@ -205,6 +205,7 @@ def detail(db: sqlite3.Connection, candidate_id: int) -> CandidateDetail:
     phone = candidate["phone"]
     return CandidateDetail(
         candidate_id=candidate_id,
+        classification=get_classification(db, candidate_id),
         internal_ref=candidate["internal_ref"],
         resource=_resource(db, candidate, len(versions)),
         phone_masked=mask_phone(phone),
