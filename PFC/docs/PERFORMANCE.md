@@ -574,3 +574,70 @@ Reproduce from `PFC/app` with the backend environment loaded:
 ```sh
 pytest -m perf -s tests/perf
 ```
+
+## Live summaries — Linux VM, not target laptop
+
+2026-11-06: production summary generation, grounding and full contact redaction on
+all 15 JDs (ten original plus five held-out) and ten CVs. Linux 6.8.0-1060-aws x86_64,
+8 logical CPUs, 33,655,369,728 bytes RAM, Python 3.12.16; supervisor defaults: context
+4096 and 3 CPU threads. Pinned Qwen3-4B-Instruct-2507-Q4_K_M with verified MODELS.lock
+SHA-256 and official Linux CPU llama.cpp b8936 / 8936 (2dd84169d), verified against
+the published archive digest. Startup to healthy: **4.067 s**.
+
+### JD
+
+| Metric | Value |
+|---|---:|
+| Calls | 15 |
+| Schema-valid calls | 15 |
+| 200 | 15 |
+| 422 SUMMARY_UNGROUNDED | 0 |
+| 422 SUMMARY_INVALID | 0 |
+| 503 LLM_UNAVAILABLE | 0 |
+| Sentences returned | 44 |
+| Sentences kept | 43 |
+| Evidence drops | 1 |
+| Digit-rule drops | 0 |
+| Kept share | 97.7% |
+| Calls ending in 422 | 0.0% |
+| Median latency (s) | 22.587 |
+| Maximum latency (s) | 30.771 |
+| Remaining email/phone patterns | 0 |
+| Peak model RSS/HWM (bytes) | 5330759680 |
+| Model ≤ 8 GB | PASS |
+
+### CV
+
+| Metric | Value |
+|---|---:|
+| Calls | 10 |
+| Schema-valid calls | 10 |
+| 200 | 10 |
+| 422 SUMMARY_UNGROUNDED | 0 |
+| 422 SUMMARY_INVALID | 0 |
+| 503 LLM_UNAVAILABLE | 0 |
+| Sentences returned | 47 |
+| Sentences kept | 47 |
+| Evidence drops | 0 |
+| Digit-rule drops | 0 |
+| Kept share | 100.0% |
+| Calls ending in 422 | 0.0% |
+| Median latency (s) | 27.337 |
+| Maximum latency (s) | 30.986 |
+| Remaining email/phone patterns | 0 |
+| Peak model RSS/HWM (bytes) | 5713330176 |
+| Model ≤ 8 GB | PASS |
+
+Every live call returned 200 and post-redaction email/phone-pattern counts were zero,
+including `jd08`. One `jd03` sentence failed evidence grounding; none failed only the
+digit rule. These are diagnostic counts, not an entailment-quality certification.
+Latency includes health, inference, validation, grounding and redaction, including
+failed calls if any; it is not just server token generation. RSS/HWM uses the existing
+50 ms `/proc` sampler plus a final sample per category; CV HWM can include the preceding
+JD phase. The 8 GB comparison is model-process memory, not combined Python/embedding
+memory. No laptop or browser check was performed.
+
+Count-only per-call artifacts: `~/pfc-models/llm/validation/summaries.run2.{json,md,log}`.
+No live output text is committed or stored in these reports. See LLM_VALIDATION.md's
+**Count-only summary pass** for the exact command and definitions; UAT_RUNBOOK.md step 9
+covers laptop latency/memory, reading-only labels, evidence, stale states and model-down 503.

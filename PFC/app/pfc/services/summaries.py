@@ -7,12 +7,14 @@ import re
 import sqlite3
 import unicodedata
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, NoReturn
 
 import httpx
 import jsonschema
 from anyio import from_thread
+from pydantic import ValidationError
 
 from pfc.adapters.llm.providers import LLMProvider, PromptRequest, ProviderError
 from pfc.api.schemas.summaries import SummaryDocument, SummarySentence, SummaryView
@@ -20,7 +22,7 @@ from pfc.config import Settings
 from pfc.db.connection import database
 from pfc.security.problems import Problem
 from pfc.security.sessions import stamp
-from pfc.services.ingestion.masking import mask_evidence
+from pfc.services.ingestion.masking import EMAIL, MASK_PHONE, YEAR_LIST
 
 OwnerKind = Literal["candidate", "demand"]
 SYSTEM_PROMPT = (
@@ -129,6 +131,56 @@ def _normalise(value: str) -> str:
     return " ".join(unicodedata.normalize("NFKC", value).split()).casefold()
 
 
+def redact_contacts(text: str) -> str:
+    text = EMAIL.sub("[email removed]", text)
+    for match in reversed(list(MASK_PHONE.finditer(text))):
+        if not YEAR_LIST.fullmatch(match[0]) and len(re.sub(r"\D", "", match[0])) >= 7:
+            text = text[: match.start()] + "[phone removed]" + text[match.end() :]
+    return text
+
+
+@dataclass(frozen=True)
+class TextSummary:
+    sentences: list[SummarySentence]
+    model: str
+    returned: int
+    evidence_drops: int
+    digit_drops: int
+
+    @property
+    def dropped_ungrounded(self) -> int:
+        return self.evidence_drops + self.digit_drops
+
+
+async def summarise_text(provider: LLMProvider, text: str) -> TextSummary:
+    """Generate, ground and redact without persistence; empty sentences means all were dropped."""
+    document, model = await _generate(provider, text)
+    normalised = _normalise(text)
+    kept = []
+    evidence_drops = digit_drops = 0
+    for sentence in document.sentences:
+        evidence = _normalise(sentence.evidence)
+        if not evidence or evidence not in normalised:
+            evidence_drops += 1
+        elif not all(
+            number in normalised for number in re.findall(r"\d+", _normalise(sentence.text))
+        ):
+            digit_drops += 1
+        else:
+            try:
+                kept.append(
+                    SummarySentence(
+                        text=redact_contacts(sentence.text),
+                        evidence=redact_contacts(sentence.evidence),
+                    )
+                )
+            except ValidationError as exc:
+                raise Problem(
+                    422, "SUMMARY_INVALID", "The model returned an invalid summary"
+                ) from exc
+    return TextSummary(kept, model, len(document.sentences), evidence_drops, digit_drops)
+
+
 def generate(
     settings: Settings,
     provider: LLMProvider | None,
@@ -145,23 +197,9 @@ def generate(
         raise Problem(503, "LLM_UNAVAILABLE", "Local summary provider is unavailable")
     version_id, text = original
     source_sha256 = hashlib.sha256(text.encode("utf-8")).hexdigest()
-    document, model = from_thread.run(_generate, provider, text)
-    normalised = _normalise(text)
-    kept = [
-        sentence
-        for sentence in document.sentences
-        if _normalise(sentence.evidence)
-        and _normalise(sentence.evidence) in normalised
-        and all(number in normalised for number in re.findall(r"\d+", _normalise(sentence.text)))
-    ]
-    if not kept:
+    result = from_thread.run(summarise_text, provider, text)
+    if not result.sentences:
         raise Problem(422, "SUMMARY_UNGROUNDED", "No summary sentences were grounded in the source")
-    masked = [
-        SummarySentence(
-            text=mask_evidence(sentence.text), evidence=mask_evidence(sentence.evidence)
-        )
-        for sentence in kept
-    ]
     with database(settings) as db:
         db.execute("BEGIN IMMEDIATE")
         now = stamp(clock())
@@ -174,19 +212,19 @@ def generate(
                 owner_id,
                 version_id,
                 source_sha256,
-                model,
-                json.dumps([item.model_dump() for item in masked]),
-                len(document.sentences) - len(kept),
+                result.model,
+                json.dumps([item.model_dump() for item in result.sentences]),
+                result.dropped_ungrounded,
                 user_id,
                 now,
             ),
         )
         current = source(db, kind, owner_id)
         return SummaryView(
-            sentences=masked,
-            model=model,
+            sentences=result.sentences,
+            model=result.model,
             created_at=now,
             stale=_stale(current, version_id, source_sha256),
-            dropped_ungrounded=len(document.sentences) - len(kept),
+            dropped_ungrounded=result.dropped_ungrounded,
             source_version_id=version_id,
         )
