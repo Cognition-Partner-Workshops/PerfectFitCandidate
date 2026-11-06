@@ -156,18 +156,12 @@ def activate(db: sqlite3.Connection, user_id: int, target: int) -> dict[str, Any
 def validate_placeholders(subject: str, body: str) -> None:
     for field, text in (("subject", subject), ("body_html", body)):
         try:
-            literal_text = ""
+            approval_parts = []
             for literal, name, spec, conversion in Formatter().parse(text):
-                literal_text += literal
-                if UNRESOLVED_PLACEHOLDER.search(literal_text):
-                    raise Problem(
-                        422,
-                        "TEMPLATE_INVALID",
-                        f"{field}: escaped literal would be an unresolved placeholder at approval",
-                    )
+                approval_parts.append(literal)
                 if name is None:
                     continue
-                literal_text = ""
+                approval_parts.append("x")
                 if not name.isidentifier():
                     raise Problem(
                         422,
@@ -185,6 +179,12 @@ def validate_placeholders(subject: str, body: str) -> None:
                         "TEMPLATE_INVALID",
                         f"{field}: format specifications and conversions are not supported",
                     )
+            if UNRESOLVED_PLACEHOLDER.search("".join(approval_parts)):
+                raise Problem(
+                    422,
+                    "TEMPLATE_INVALID",
+                    f"{field}: escaped literal could be an unresolved placeholder at approval",
+                )
         except ValueError as exc:
             raise Problem(422, "TEMPLATE_INVALID", f"{field}: {exc}") from exc
 
