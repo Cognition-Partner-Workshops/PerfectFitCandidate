@@ -25,6 +25,7 @@ from pfc.db import audit
 from pfc.db.connection import database
 from pfc.security.problems import Problem
 from pfc.security.sessions import stamp
+from pfc.services.pii import mask_emails_in
 
 logger = logging.getLogger(__name__)
 TEMPLATE_PATH = (
@@ -156,6 +157,11 @@ def sanitize_email_html(value: str) -> str:
 
 
 def _plain_text(value: str | None) -> str:
+    """REQ-OUT-03: stored evidence may hold emails masked under the old rule."""
+    return mask_emails_in(_stored_text(value))
+
+
+def _stored_text(value: str | None) -> str:
     if not value:
         return ""
     try:

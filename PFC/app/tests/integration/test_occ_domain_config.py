@@ -408,7 +408,7 @@ def test_jd_resolution_uses_occ_synonyms(api: Api, action: str) -> None:
 @pytest.mark.parametrize(
     "email,expected",
     [
-        ("AlexBorder@capgemini.com", "Al******er@capgemini.com"),
+        ("AlexBorder@capgemini.com", "Al********@capgemini.com"),
         ("a@x.com", "*@x.com"),
         ("ab@x.com", "**@x.com"),
         ("abc@x.com", "ab*@x.com"),
@@ -439,7 +439,7 @@ def test_mask_email_empty_and_unformatted_values(api: Api) -> None:
     assert mask_email(None) is None
     assert mask_email("") == ""
     assert mask_email("a") == "*"
-    assert mask_email("abcdefghijk") == "ab******ijk"
+    assert mask_email("abcdefghijk") == "ab*********"
 
 
 def test_validation_reuses_pure_checks_only_within_a_request(

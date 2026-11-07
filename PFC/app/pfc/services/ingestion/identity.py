@@ -17,6 +17,7 @@ from pfc.db.audit import append_audit
 from pfc.security.problems import Problem
 from pfc.services.candidates.classification import get_classification, reclassify_candidate
 from pfc.services.matching.export import evidence_parts
+from pfc.services.pii import mask_emails_in
 
 from .browse import _mask
 from .cv_facts import public_facts
@@ -43,7 +44,7 @@ def _name_keys(value: str | None) -> set[str]:
 
 
 def _masked_text(value: str) -> str:
-    return re.sub(r"[\w.+-]+@[\w.-]+", lambda m: _mask(m[0]) or "***", value)
+    return mask_emails_in(value)
 
 
 def _options(db: sqlite3.Connection, candidate: sqlite3.Row) -> list[sqlite3.Row]:

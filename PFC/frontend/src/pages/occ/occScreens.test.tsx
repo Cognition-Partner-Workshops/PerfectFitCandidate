@@ -75,7 +75,7 @@ describe('OCC mock API (GUI_OCC_DESIGN.md §16.4/§16.8/§16.10/§16.12/§16.14)
     const s = await api.getAdminSettings()
     expect(s).toMatchObject({ lockoutAttempts: 5, lockoutMinutes: 15, idleTimeoutMinutes: 60, topN: 5, emailsPreselected: 4 })
     await expect(api.saveAdminSettings({ ...s, adminMinPasswordLength: 12 })).rejects.toMatchObject({ problem: { code: 'VALIDATION' } })
-    await expect(api.saveAdminSettings({ ...s, maskCount: 4 })).rejects.toMatchObject({ problem: { code: 'VALIDATION' } })
+    await expect(api.saveAdminSettings({ ...s, maskKeep: 4 })).rejects.toMatchObject({ problem: { code: 'VALIDATION' } })
     await expect(api.saveAdminSettings({ ...s, emailsPreselected: 6 })).rejects.toMatchObject({ problem: { code: 'VALIDATION' } })
     expect((await api.saveAdminSettings({ ...s, idleTimeoutMinutes: 30 })).idleTimeoutMinutes).toBe(30)
   })
@@ -134,7 +134,7 @@ describe('OCC screens', () => {
     for (const [name, masked, raw] of [
       ['Short Admin', '**@x.com', 'ab@x.com'],
       ['Single Analyst', '*@x.com', 'a@x.com'],
-      ['Alex Account', 'Al******er@capgemini.com', 'AlexBorder@capgemini.com'],
+      ['Alex Account', 'Al********@capgemini.com', 'AlexBorder@capgemini.com'],
     ]) {
       const row = (await screen.findByText(name)).closest('tr')!
       expect(within(row).getByText(masked)).toBeTruthy()

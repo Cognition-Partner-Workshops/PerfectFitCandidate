@@ -48,8 +48,8 @@ export function OccAdminSettings() {
           <input type="number" value={s.topN} readOnly disabled />
         </label>
         <label className="field">
-          Email masking (keep / mask)
-          <input value={`${s.maskKeep} / ${s.maskCount}`} readOnly disabled />
+          Email masking
+          <input value={`Keep first ${s.maskKeep}, mask rest of local part`} readOnly disabled />
         </label>
       </div>
       <label className="row" style={{ gap: 6 }}>

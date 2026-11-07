@@ -8,7 +8,7 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from pfc.services.pii import mask_email
+from pfc.services.pii import mask_email, mask_emails_in_json
 
 from .common import atomic, audit, timestamp
 from .data_changes import annotate_data_changes
@@ -293,7 +293,7 @@ def result_detail(db: sqlite3.Connection, result_id: int) -> dict[str, Any] | No
         return None
     result = next(row for row in _rows(db, run[0]) if row["result_id"] == result_id)
     result["breakdown"] = [
-        {**dict(row), "inputs": json.loads(row["inputs_json"])}
+        {**dict(row), "inputs": mask_emails_in_json(json.loads(row["inputs_json"]))}
         for row in db.execute(
             "SELECT * FROM score_breakdowns WHERE result_id=? ORDER BY CASE component "
             "WHEN 'skills' THEN 0 WHEN 'grade' THEN 1 WHEN 'location' THEN 2 "

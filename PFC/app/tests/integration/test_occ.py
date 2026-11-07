@@ -117,7 +117,7 @@ def test_unchanged_role_preserves_session(client: TestClient) -> None:
 @pytest.mark.parametrize(
     "email,masked",
     [
-        ("AlexBorder@capgemini.com", "Al******er@capgemini.com"),
+        ("AlexBorder@capgemini.com", "Al********@capgemini.com"),
         ("ab@x.com", "**@x.com"),
         ("a@x.com", "*@x.com"),
     ],

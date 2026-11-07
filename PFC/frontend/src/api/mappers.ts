@@ -193,7 +193,6 @@ export const ADMIN_SETTING_KEYS: Record<keyof AdminSettings, string> = {
   lockoutMinutes: 'auth.lockout_minutes',
   idleTimeoutMinutes: 'auth.idle_timeout_minutes',
   maskKeep: 'pii.mask_keep',
-  maskCount: 'pii.mask_count',
   analystsMayUnmask: 'pii.analysts_may_unmask',
   topN: 'matching.top_n',
   emailsPreselected: 'email.preselected_count',
