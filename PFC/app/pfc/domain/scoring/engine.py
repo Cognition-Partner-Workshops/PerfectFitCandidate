@@ -75,7 +75,7 @@ def build_combined_basis(
         key: tuple[str, str | int] = (
             ("id", canonical_id)
             if canonical_id is not None
-            else ("norm", normalise_term(skill.normalised))
+            else ("norm", normalise_term(canonical or skill.normalised))
         )
         skills[key] = skill
     return SkillBasis(

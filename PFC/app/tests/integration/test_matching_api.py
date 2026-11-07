@@ -231,7 +231,7 @@ def test_candidate_profile_parses_match_evidence_and_masks_email(api: Api) -> No
     assert SAMPLE_EMAIL not in masked.text
     match = next(m for m in masked.json()["matches"] if m["resultId"] == row["resultId"])
     for key in keys:
-        assert match[key] == [*row[key], "Contact Al******er@capgemini.com"]
+        assert match[key] == [*row[key], "Contact Al********@capgemini.com"]
 
 
 def test_req_mat_02_full_flow_drafts_results_overrides_exclusions(api: Api) -> None:
@@ -320,7 +320,7 @@ def test_req_mat_02_full_flow_drafts_results_overrides_exclusions(api: Api) -> N
     assert row["bu"] == "DATA" and row["region"] == "Manchester"
     assert row["personGrade"] == "C1" and row["personLocation"] == "Manchester"
     assert row["positionStartDate"] == "2026-11-16" and row["demandRequestName"] == "Data role"
-    assert row["personEmailMasked"] == "Al******er@capgemini.com" and SAMPLE_EMAIL not in rows.text
+    assert row["personEmailMasked"] == "Al********@capgemini.com" and SAMPLE_EMAIL not in rows.text
     assert row["candidateType"] == "Internal" and row["incompleteIdentity"]
     assert "override" not in row and len(row["breakdown"]) == 6
     for key in ("matchingEvidence", "gapsChecks", "eligibilityEvidence"):
@@ -877,3 +877,79 @@ def test_empty_missing_validation_production_openapi_and_removed_paths(api: Api)
         f"/demands/{demand_id}/matches",
     ):
         problem(client.get("/api/v1" + path), 404)
+
+
+LEGACY_MASKS = {
+    SAMPLE_EMAIL: ("Al******er@capgemini.com", "Al********@capgemini.com"),
+    "jonathan.smithers@example.com": (
+        "jo******.smithers@example.com",
+        "jo***************@example.com",
+    ),
+}
+
+
+def test_req_out_03_runs_saved_under_the_old_mask_read_with_the_new_one(api: Api) -> None:
+    """REQ-OUT-03: snapshots masked with the old 2+6 rule are re-masked on every read."""
+    client, headers = api
+    settings = client.app.state.settings
+    with database(settings) as db:
+        seed_demand(db)
+        candidate_id = seed_candidate(db)
+        seed_resource(db, candidate=candidate_id, email=SAMPLE_EMAIL)
+        seed_resource(db, "Jonathan", email="jonathan.smithers@example.com")
+    run_id = finish(
+        client, client.post("/api/v1/match-runs", headers=headers, json={"scope": "full"})
+    )
+    with database(settings) as db:
+        for email, (legacy, _) in LEGACY_MASKS.items():
+            db.execute(
+                "UPDATE score_breakdowns SET inputs_json="
+                "json_set(inputs_json,'$.display_facts.person_email',?) "
+                "WHERE component='skills' AND result_id IN (SELECT result_id FROM match_results "
+                "JOIN resources USING(resource_id) WHERE email_address=?)",
+                (legacy, email),
+            )
+        legacy_text = "Contact " + " or ".join(legacy for legacy, _ in LEGACY_MASKS.values())
+        db.execute(
+            "UPDATE match_results SET matching_evidence=matching_evidence || ?",
+            (f"; {legacy_text}",),
+        )
+    new = {masked for _, masked in LEGACY_MASKS.values()}
+    new_text = "Contact " + " or ".join(masked for _, masked in LEGACY_MASKS.values())
+
+    def no_leak(text: str) -> None:
+        assert "******er@" not in text and "smithers" not in text
+        assert SAMPLE_EMAIL not in text
+
+    rows = client.get(f"/api/v1/match-runs/{run_id}/results")
+    assert rows.status_code == 200, rows.text
+    no_leak(rows.text)
+    assert {row["personEmailMasked"] for row in rows.json()} == new
+    assert all(row["matchingEvidence"][-1] == new_text for row in rows.json())
+    for row in rows.json():
+        detail = client.get(f"/api/v1/match-results/{row['resultId']}")
+        assert detail.status_code == 200, detail.text
+        no_leak(detail.text)
+        skills = next(b for b in detail.json()["breakdown"] if b["component"] == "skills")
+        assert skills["inputs"]["display_facts"]["person_email"] == row["personEmailMasked"]
+    export = client.get(f"/api/v1/match-runs/{run_id}/export?format=csv")
+    assert export.status_code == 200, export.text
+    no_leak(export.text)
+    assert all(masked in export.text for masked in new) and new_text in export.text
+    profile = client.get(f"/api/v1/candidates/{candidate_id}")
+    assert profile.status_code == 200, profile.text
+    no_leak(profile.text)
+    assert profile.json()["matches"][0]["matchingEvidence"][-1] == new_text
+    checks = {c["id"]: c for c in client.get("/api/v1/analytics/match").json()["validation"]}
+    assert checks["email-copy"]["passed"] and checks["masked-email"]["passed"], checks
+    for unmasked in (SAMPLE_EMAIL, "AlexBordxr@capgemini.com"):
+        with database(settings) as db:
+            db.execute(
+                "UPDATE score_breakdowns SET inputs_json="
+                "json_set(inputs_json,'$.display_facts.person_email',?) "
+                "WHERE component='skills' AND result_id IN (SELECT result_id FROM match_results "
+                "JOIN resources USING(resource_id) WHERE email_address=?)",
+                (unmasked, SAMPLE_EMAIL),
+            )
+        checks = {c["id"]: c for c in client.get("/api/v1/analytics/match").json()["validation"]}
+        assert not checks["email-copy"]["passed"], (unmasked, checks)

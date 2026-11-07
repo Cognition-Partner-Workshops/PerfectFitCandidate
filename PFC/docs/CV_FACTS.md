@@ -49,10 +49,20 @@ evidence mask phone numbers and emails. Response spans remain coordinates in
 the original stored text, so redacted evidence does not retain its original
 length. Raw facts remain local in SQLite; audits contain counts, not CV facts.
 Neither `candidates.phone` nor CV `resource_skills` is written by enrichment.
-Skills do not change matching scores or embedding inputs; existing embeddings use
-normalized CV text/sections, not `facts_json`. Writing scoring skill records is
-deliberately deferred pending the lead's decision. An integration regression runs
-matching with and without JSON skills and compares scores and complete breakdowns.
+Grounded CV fact skills count alongside CT skills toward exact/synonym and semantic
+credit under each CV basis. Matching combines
+existing CV `resource_skills` first with nonduplicate JSON skill facts, resolving
+canonical names against the run's current approved synonyms. Recognised CV-only
+skills earn skill credit and can lift NO_SKILLS when CT has no recognised skills.
+Removed extractions contribute no JSON skill facts. Fact changes invalidate the
+resource's incremental fingerprint. These facts are never written to `resource_skills`.
+When matching runs, `semantic_inputs` formats each basis skill as
+`Skill: <raw>\nEvidence: <evidence>`. Its per-skill vectors are created and cached
+in the vector store with purpose `matching`, and feed semantic credit.
+This happens at match time, not during Sync. Sync separately embeds CV text/sections.
+Integration regressions cover CV-labelled evidence, credit, NO_SKILLS and changed-only
+rescoring. IN-21 stays Partial because Sync itself does not store skill-fact vectors,
+and no test asserts skill-fact vector persistence.
 
 Public facts add `warnings: [{code, message}]`, computed on response rather than
 stored. A null phone produces `PHONE_NOT_FOUND` / `Phone not found in CV.`; otherwise

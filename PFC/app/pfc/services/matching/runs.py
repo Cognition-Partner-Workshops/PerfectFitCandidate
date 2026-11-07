@@ -140,6 +140,10 @@ def _inputs(
         "ORDER BY candidate_id,version_no,cv_version_id",
     ).fetchall()
     active_candidates = {r.candidate_id for r in resources}
+    canonical_ids = {
+        normalise_term(row["name"]): row["skill_id"]
+        for row in db.execute("SELECT skill_id,name FROM skills WHERE is_active=1")
+    }
     for version in versions:
         candidate = f"candidate:{version['candidate_id']}"
         if candidate not in active_candidates:
@@ -157,9 +161,11 @@ def _inputs(
                 SkillEvidence(
                     item["skill_raw"],
                     normalise_term(item["skill_norm"]),
-                    item["canonical"] or config.synonyms.resolve(item["skill_raw"]),
+                    config.synonyms.resolve(item["skill_raw"]),
                     item["evidence"] or item["skill_raw"],
-                    item["canonical_skill_id"],
+                    canonical_ids.get(
+                        normalise_term(config.synonyms.resolve(item["skill_raw"]) or "")
+                    ),
                 )
                 for item in skills
             )

@@ -24,7 +24,7 @@ from pfc.security.dependencies import Principal, require_role
 from pfc.security.problems import Problem
 from pfc.services import matching
 from pfc.services.matching.export import evidence_parts, export_results
-from pfc.services.pii import require_unmask_permission
+from pfc.services.pii import mask_emails_in, require_unmask_permission
 
 router = APIRouter(dependencies=[Depends(require_role("Analyst"))])
 Analyst = Annotated[Principal, Depends(require_role("Analyst"))]
@@ -123,7 +123,7 @@ def result_view(db: sqlite3.Connection, row: dict[str, Any], *, detail: bool = F
         active_overrides=active,
     )
     for key in ("matching_evidence", "gaps_checks", "eligibility_evidence"):
-        fields[key] = evidence_parts(row[key])
+        fields[key] = [mask_emails_in(part) for part in evidence_parts(row[key])]
     if detail:
         fields["cv_scores"] = [
             CvScoreView(

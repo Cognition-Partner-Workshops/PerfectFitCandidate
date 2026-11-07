@@ -15,7 +15,7 @@ function result(p: Partial<MatchResult>): MatchResult {
   return {
     resultId: 1, runId: 1, demandId: 1, resourceId: 1, candidateId: 1, rank: 1, codeRequisition: 'T1A123',
     positionStartDate: '2026-12-15', accountName: 'Acme Bank', bu: 'BCM', demandRequestName: 'Role', demandGrade: 'D1',
-    region: 'London', personName: 'Alex', personEmailMasked: 'Al******er@example.com', personGrade: 'D1', personLocation: 'London',
+    region: 'London', personName: 'Alex', personEmailMasked: 'Al********@example.com', personGrade: 'D1', personLocation: 'London',
     benchStatus: 'Available', score: 93, band: 'Strong', gradeRelation: 'exact', locationAssessment: 'Aligned',
     matchingEvidence: ['SQL'], gapsChecks: ['None'], eligibilityEvidence: ['Bench End Date blank'], mandatoryMissing: 0,
     candidateType: 'Internal', incompleteIdentity: false, emailPreselected: true, breakdown: [], ...p,
@@ -36,8 +36,9 @@ describe('format (REQ-OUT-02/10, GQ-11)', () => {
 })
 
 describe('masking (REQ-OUT-03)', () => {
-  it('masks 6 characters after the 2nd position', () => {
-    expect(maskEmail('AlexBorder@capgemini.com')).toBe('Al******er@capgemini.com')
+  it('keeps 2 characters and masks the rest of the local part', () => {
+    expect(maskEmail('AlexBorder@capgemini.com')).toBe('Al********@capgemini.com')
+    expect(maskEmail('jonathan.smithers@example.com')).toBe('jo***************@example.com')
     expect(maskEmail('ab@x.com')).toBe('**@x.com')
     expect(maskEmail(null)).toBeNull()
   })
@@ -47,14 +48,23 @@ describe('masking (REQ-OUT-03)', () => {
     ['abc@x.com', 'ab*@x.com'],
     ['abcdefg@x.com', 'ab*****@x.com'],
     ['abcdefgh@x.com', 'ab******@x.com'],
-    ['abcdefghi@x.com', 'ab******i@x.com'],
+    ['abcdefghi@x.com', 'ab*******@x.com'],
     ['🙂@x.com', '*@x.com'],
     ['🙂🙂@x.com', '**@x.com'],
     ['@x.com', '@x.com'],
     ['ab', '**'],
+    ['abcdefghijk', 'ab*********'],
+    ['abcdefghijklmnop@x.com', 'ab**************@x.com'],
   ])('matches backend masking for %s and keeps masked responses unchanged', (email, expected) => {
     expect(maskEmail(email)).toBe(expected)
     expect(maskEmail(expected)).toBe(expected)
+  })
+  it('shows no local-part character after the 2nd for a long address', () => {
+    const local = 'christopher.alexander-montgomery.consulting'
+    const [shown, domain] = maskEmail(`${local}@example.com`)!.split('@')
+    expect(domain).toBe('example.com')
+    expect(shown).toBe(`ch${'*'.repeat(local.length - 2)}`)
+    expect(shown.slice(2)).toMatch(/^\*+$/)
   })
   it('keeps missing presentation values absent', () => {
     expect(maskEmail('')).toBeNull()
@@ -158,7 +168,7 @@ describe('CSV export (REQ-OUT-01/09)', () => {
     const lines = resultsToCsv([result({ accountName: '=HYPERLINK("x")' })], 'Run meta').split('\n')
     expect(lines[0]).toBe('Run meta')
     expect(lines[1]).toContain('human review')
-    expect(lines[3]).toContain('Al******er@example.com')
+    expect(lines[3]).toContain('Al********@example.com')
     expect(lines[3]).toContain(`"'=HYPERLINK(""x"")"`)
   })
 })

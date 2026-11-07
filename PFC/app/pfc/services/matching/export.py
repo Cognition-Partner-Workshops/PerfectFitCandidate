@@ -11,6 +11,7 @@ from openpyxl import Workbook  # type: ignore[import-untyped]
 
 from pfc.db.audit import append_audit
 from pfc.security.problems import Problem
+from pfc.services.pii import mask_emails_in
 
 from .common import atomic
 from .results import get_run, list_results
@@ -115,9 +116,9 @@ def export_results(
                 display_percentage(row["score"]) if format == "csv" else row["score"] / 100,
                 row["effective_band"],
                 row["location_assessment"],
-                evidence(row["matching_evidence"]),
-                evidence(row["gaps_checks"]),
-                evidence(row["eligibility_evidence"]),
+                mask_emails_in(evidence(row["matching_evidence"])),
+                mask_emails_in(evidence(row["gaps_checks"])),
+                mask_emails_in(evidence(row["eligibility_evidence"])),
             ]
         )
     rows = [

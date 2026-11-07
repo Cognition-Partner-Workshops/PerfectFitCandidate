@@ -672,7 +672,6 @@ export interface AdminSettings {
   lockoutMinutes: number
   idleTimeoutMinutes: number
   maskKeep: number
-  maskCount: number
   analystsMayUnmask: boolean
   topN: number
   emailsPreselected: number

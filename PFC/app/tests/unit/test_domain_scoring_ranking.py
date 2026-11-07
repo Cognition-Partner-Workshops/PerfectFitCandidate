@@ -80,7 +80,7 @@ def test_fr_mat_10_one_tiebreak_at_a_time(key):
     assert sorted([second, first], key=ranking_key)[0] == first
 
 
-def test_req_in_21_combined_basis_prefers_cv_canonical_and_normalised_evidence():
+def test_req_in_21_combined_basis_prefers_cv_canonical_and_normalised_evidence() -> None:
     config, resource, demand = fixture()
     person = replace(resource, ct_skills="SQL, Unlisted, Python")
     cv = SkillBasis(
@@ -103,7 +103,7 @@ def test_req_in_21_combined_basis_prefers_cv_canonical_and_normalised_evidence()
     ]
 
 
-def test_req_in_21_no_cv_is_exactly_ct_only():
+def test_req_in_21_no_cv_is_exactly_ct_only() -> None:
     config, resource, demand = fixture()
     ct = build_ct_basis(resource, config)
     assert build_combined_basis(resource, [], config) == ct
@@ -114,7 +114,7 @@ def test_req_in_21_no_cv_is_exactly_ct_only():
     assert result.demands[0].rows[0].per_basis == (expected,)
 
 
-def test_req_in_21_empty_latest_cv_still_exists():
+def test_req_in_21_empty_latest_cv_still_exists() -> None:
     config, resource, demand = fixture()
     cv = SkillBasis("CV:1", "CV v1", (), True)
     result = run_match([demand], [resource], {"r": [cv]}, {}, config, AS_OF)
@@ -214,7 +214,7 @@ def test_req_in_24_duplicate_basis_ids_rejected():
         run_match([demand], [resource], {"r": [cv, cv]}, {}, config, AS_OF)
 
 
-def test_req_in_21_combined_basis_uses_only_latest_cv():
+def test_req_in_21_combined_basis_uses_only_latest_cv() -> None:
     config, resource, demand = fixture()
     ct = build_ct_basis(resource, config)
     cv = SkillBasis("CV:2", "CV v2", ct.skills, True)
@@ -224,7 +224,7 @@ def test_req_in_21_combined_basis_uses_only_latest_cv():
     assert len(result.demands[0].rows[0].per_basis) == 1
 
 
-def test_req_in_21_cv_adds_missing_mandatory_skill():
+def test_req_in_21_cv_adds_missing_mandatory_skill() -> None:
     config, resource, demand = fixture()
     person = replace(resource, ct_skills="SQL, AWS")
     demand = replace(
@@ -239,6 +239,27 @@ def test_req_in_21_cv_adds_missing_mandatory_skill():
     after = run_match([demand], [person], {"r": [cv]}, {}, config, AS_OF).demands[0].rows[0].best
     assert before.mandatory_missing == 1 and after.mandatory_missing == 0
     assert after.score > before.score
+
+
+def test_req_in_21_aliases_without_ids_prefer_cv() -> None:
+    config, resource, _ = fixture()
+    resource = replace(resource, ct_skills="BA")
+    cv = SkillBasis(
+        "CV:1",
+        "CV v1",
+        (
+            SkillEvidence(
+                "Business Analysis",
+                "business analysis",
+                config.synonyms.resolve("BA"),
+                "CV evidence",
+            ),
+        ),
+        True,
+    )
+    combined = build_combined_basis(resource, [cv], config)
+    assert len(combined.skills) == 1
+    assert combined.skills[0].evidence == "CV evidence"
 
 
 def test_req_mat_03_uniqueness_keeps_highest_score():

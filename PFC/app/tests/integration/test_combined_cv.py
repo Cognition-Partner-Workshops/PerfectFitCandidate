@@ -16,11 +16,15 @@ from test_matching_service import (
 from test_matching_service import runner as runner
 from test_matching_service import settings as settings
 
+from pfc.api.schemas.candidates import IdentityResolution
 from pfc.config import Settings
 from pfc.db.connection import database
 from pfc.domain.config_loader import load_domain_config
+from pfc.domain.normalise import SynonymRow, SynonymTable
 from pfc.domain.scoring import build_combined_basis
 from pfc.jobs.runner import JobRunner
+from pfc.services.ingestion.cv_sync import _replace_skills
+from pfc.services.ingestion.identity import resolve
 from pfc.services.matching import MatchingPorts, result_detail
 from pfc.services.matching.runs import _cv_id, _inputs
 from pfc.services.matching.semantic import VectorCache, semantic_inputs
@@ -82,3 +86,75 @@ def test_combined_cv_id_mapping(basis: str, expected: int | None) -> None:
 def test_invalid_combined_id_rejected(basis: str) -> None:
     with pytest.raises(ValueError):
         _cv_id(basis)
+
+
+@pytest.mark.parametrize("removed", [False, True])
+def test_link_backfills_existing_latest_cv_rows(settings: Settings, removed: bool) -> None:
+    with database(settings) as db:
+        candidate = seed_candidate(db)
+        resource = seed_resource(db, skills="SQL", email="candidate@example.com")
+        db.execute(
+            "UPDATE resources SET email_key='candidate@example.com' WHERE resource_id=?",
+            (resource,),
+        )
+        version = seed_cv(db, resource, candidate, skills=())
+        db.execute(
+            "UPDATE cv_versions SET facts_json=?,extraction_removed_at=? WHERE cv_version_id=?",
+            (
+                json.dumps(
+                    {
+                        "facts": {
+                            "skills": [
+                                {
+                                    "value": "Python",
+                                    "canonical": "Python",
+                                    "evidence": "Python",
+                                    "span": [4, 10],
+                                    "source": "rule",
+                                }
+                            ]
+                        }
+                    }
+                ),
+                "2026-11-06" if removed else None,
+                version,
+            ),
+        )
+        _replace_skills(db, version)
+        assert db.execute("SELECT count(*) FROM resource_skills").fetchone()[0] == 0
+        resolve(
+            db,
+            candidate,
+            IdentityResolution(action="select_ct_record", resource_id=resource),
+            1,
+            "2026-11-06T00:00:00+00:00",
+        )
+        _, resources, cvs, _, _ = _inputs(db, "full", [], load_domain_config())
+        basis = build_combined_basis(
+            resources[0], cvs.get(resources[0].candidate_id, []), load_domain_config()
+        )
+        assert ("Python" in [s.raw for s in basis.skills]) is not removed
+
+
+@pytest.mark.parametrize("canonical", ["Python", None])
+def test_matching_uses_current_synonyms_not_stored_ids(
+    settings: Settings, canonical: str | None
+) -> None:
+    with database(settings) as db:
+        candidate = seed_candidate(db)
+        resource = seed_resource(db, candidate=candidate)
+        version = seed_cv(db, resource, candidate, skills=("PFC alias",))
+        db.execute(
+            "UPDATE resource_skills SET canonical_skill_id=(SELECT skill_id FROM skills "
+            "WHERE name='SQL') WHERE cv_version_id=?",
+            (version,),
+        )
+        config = load_domain_config().model_copy(
+            update={
+                "synonyms": SynonymTable([SynonymRow(canonical, "PFC alias")] if canonical else [])
+            }
+        )
+        basis = _inputs(db, "full", [], config)[2][f"candidate:{candidate}"][0]
+        assert basis.skills[0].canonical == canonical
+        expected = db.execute("SELECT skill_id FROM skills WHERE name=?", (canonical,)).fetchone()
+        assert basis.skills[0].canonical_skill_id == (expected[0] if expected else None)
