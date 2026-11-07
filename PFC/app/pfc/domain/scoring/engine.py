@@ -26,7 +26,7 @@ from .models import (
 )
 from .selection import RankingInput, input_key, select_scored_rows
 
-ENGINE_VERSION = "1.0.0"
+ENGINE_VERSION = "1.1.0"
 
 
 def normalise_cosine(cos: float, template: ScoringTemplate) -> float:
@@ -45,6 +45,41 @@ def build_ct_basis(resource: Resource, config: DomainConfig) -> SkillBasis:
         "CT",
         tuple(SkillEvidence(t.raw, t.normalised, t.canonical, t.raw) for t in tokens.tokens),
         False,
+    )
+
+
+def build_combined_basis(
+    resource: Resource, cvs: Sequence[SkillBasis], config: DomainConfig
+) -> SkillBasis:
+    ct = build_ct_basis(resource, config)
+    latest = [basis for basis in cvs if basis.is_latest]
+    if not latest:
+        return ct
+    if len(latest) != 1:
+        raise ValueError("Expected one latest CV per resource")
+    cv = latest[0]
+    kind, version = cv.basis_id.split(":")
+    if kind != "CV" or not version.isdecimal():
+        raise ValueError("Invalid CV basis ID")
+    canonical_ids = {
+        normalise_term(skill.canonical): skill.canonical_skill_id
+        for skill in cv.skills
+        if skill.canonical and skill.canonical_skill_id is not None
+    }
+    skills: dict[tuple[str, str | int], SkillEvidence] = {}
+    for skill in (*ct.skills, *cv.skills):
+        canonical = skill.canonical or config.synonyms.resolve(skill.raw)
+        canonical_id = skill.canonical_skill_id
+        if canonical_id is None and canonical:
+            canonical_id = canonical_ids.get(normalise_term(canonical))
+        key: tuple[str, str | int] = (
+            ("id", canonical_id)
+            if canonical_id is not None
+            else ("norm", normalise_term(canonical or skill.normalised))
+        )
+        skills[key] = skill
+    return SkillBasis(
+        f"CTCV:{resource.resource_id}:{version}", f"CT + {cv.label}", tuple(skills.values()), True
     )
 
 
@@ -365,20 +400,14 @@ def run_match(
     pair_exclusions = []
     eligible = []
     for resource in sorted(resources, key=lambda r: r.resource_id):
-        cvs = tuple(
-            sorted(
-                cv_bases.get(resource.candidate_id or resource.resource_id, ()),
-                key=lambda basis: basis.basis_id,
-            )
-        )
-        bases = (build_ct_basis(resource, config), *cvs)
-        if len({b.basis_id for b in bases}) != len(bases):
-            raise ValueError("Basis IDs must be unique per resource")
+        cvs = cv_bases.get(resource.candidate_id or resource.resource_id, ())
+        basis = build_combined_basis(resource, cvs, config)
+        bases = (basis,)
         reasons = eligibility(resource, bases, config)
         if reasons:
             global_exclusions.append(Exclusion(resource.resource_id, None, reasons))
         else:
-            eligible.append((resource, bases, bool(cvs)))
+            eligible.append((resource, bases, basis.is_latest))
     results = []
     pairs_scored = 0
     for demand in sorted(demands, key=lambda d: d.code_requisition):
@@ -415,15 +444,7 @@ def run_match(
                     )
                     for basis in bases
                 )
-                best = min(
-                    scores,
-                    key=lambda b: (
-                        b.band == "Insufficient data",
-                        -b.score,
-                        -b.is_latest,
-                        b.basis_id,
-                    ),
-                )
+                best = scores[0]
                 status = config.bench_statuses.resolve(resource.bench_status or "")
                 priority = (
                     status.priority if status and status.priority else t.unmapped_status_priority

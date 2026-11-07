@@ -21,6 +21,7 @@ from pfc.services.pii import mask_emails_in
 
 from .browse import _mask
 from .cv_facts import public_facts
+from .cv_sync import _replace_skills
 from .masking import mask_phone
 
 
@@ -322,6 +323,16 @@ def resolve(
             "UPDATE resources SET candidate_id=?,updated_at=? WHERE resource_id=?",
             (candidate_id, now, row["resource_id"]),
         )
+        db.execute(
+            "DELETE FROM resource_skills WHERE resource_id=? AND source='CV'",
+            (row["resource_id"],),
+        )
+        for version in db.execute(
+            "SELECT cv_version_id FROM cv_versions WHERE candidate_id=? "
+            "AND extraction_removed_at IS NULL",
+            (candidate_id,),
+        ).fetchall():
+            _replace_skills(db, version[0])
         db.execute(
             "INSERT INTO candidate_emails(candidate_id,email,email_key,source,confirmed) "
             "VALUES (?,?,?,'CT',1) ON CONFLICT(candidate_id,email_key) "

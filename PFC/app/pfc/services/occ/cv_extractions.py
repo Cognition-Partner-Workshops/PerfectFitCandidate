@@ -72,12 +72,22 @@ def _matching_cache(
     ):
         return 0
     ids = []
+    resources = {
+        row[0]
+        for row in db.execute(
+            "SELECT r.resource_id,v.cv_version_id FROM resources r "
+            "JOIN cv_versions v ON v.candidate_id=r.candidate_id"
+        )
+        if row[1] in version_ids
+    }
     for row in db.execute(
         "SELECT chunk_id,metadata_json FROM cv_matching_cache.pfc_vector_records "
         "WHERE namespace='matching'"
     ).fetchall():
         owner = json.loads(json.loads(row["metadata_json"])["cache_key"])
-        if owner["owner_type"] == "cv" and owner["owner_id"] in version_ids:
+        if (owner["owner_type"] == "cv" and owner["owner_id"] in version_ids) or (
+            owner["owner_type"] == "ct_cv_skills" and owner["owner_id"] in resources
+        ):
             ids.append((row["chunk_id"],))
     db.executemany(
         "DELETE FROM cv_matching_cache.pfc_vector_records WHERE chunk_id=?",
@@ -116,6 +126,11 @@ def remove(
             db.execute("DELETE FROM embedding_chunks WHERE chunk_id=?", (chunk_id,))
             counts.chunks_deleted += 1
     counts.matching_vectors_deleted = _matching_cache(db, settings, version_ids)
+    db.execute(
+        "DELETE FROM resource_skills WHERE source='CV' AND cv_version_id IN "
+        "(SELECT cv_version_id FROM cv_versions WHERE (? IS NULL OR candidate_id=?))",
+        (candidate_id, candidate_id),
+    )
     counts.versions_cleared = sum(row["extraction_removed_at"] is None for row in rows)
     summaries_cleared = db.execute(
         "DELETE FROM summaries WHERE owner_kind='candidate' AND source_version_id IN "

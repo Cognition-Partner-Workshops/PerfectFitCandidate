@@ -22,7 +22,7 @@ from pfc.adapters.llm.providers import (
 from pfc.api.schemas.cv import CVFacts
 from pfc.domain.config_loader import DomainConfig, load_domain_config
 from pfc.jobs.runner import JobContext
-from pfc.services.ingestion.cv_facts import KEYS, SCHEMA, LLMBridge, extract_facts
+from pfc.services.ingestion.cv_facts import KEYS, SCHEMA, LLMBridge, extract_facts, rule_facts
 from pfc.services.matching.requirements import Requirements, _canonicalize_skills
 from scripts import validate_llm_extraction as validation
 from scripts.validate_llm_extraction import (
@@ -84,6 +84,16 @@ def test_req_llm_02_fixture_sanity() -> None:
             for expected in fixture["expected"].values():
                 assert all(value.casefold() in text.casefold() for value in expected)
     assert len(ids) == len(set(ids))
+
+
+def test_req_in_21_all_cv_fixtures_score_every_fact_key() -> None:
+    for fixture in json.loads(FIXTURES.read_text())["cvs"]:
+        assert set(fixture["expected"]) == set(KEYS)
+        facts = rule_facts(fixture["text"])
+        result = score_cv(fixture, facts, None)
+        assert set(result["scores"]) == set(KEYS)
+        for key in KEYS:
+            assert result["scores"][key]["recovered"] == len(fixture["expected"][key])
 
 
 def test_req_mat_02_exact_normalized_precision_recall() -> None:

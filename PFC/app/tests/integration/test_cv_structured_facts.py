@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -108,7 +109,25 @@ def test_req_in_21_23_skills_use_one_approved_snapshot(
             assert response.status_code == 200, response.text
             facts = response.json()["cvVersions"][0]["facts"]
             assert facts["warnings"][0]["code"] == "PHONE_NOT_FOUND"
-        assert not db.execute("SELECT 1 FROM resource_skills").fetchone()
+        rows = db.execute(
+            "SELECT rs.*,s.name AS canonical FROM resource_skills rs "
+            "LEFT JOIN skills s ON s.skill_id=rs.canonical_skill_id "
+            "ORDER BY cv_version_id,resource_skill_id"
+        ).fetchall()
+        assert [r["skill_raw"] for r in rows] == [
+            "PFC alias",
+            "Unknown",
+            "Pending",
+            "PFC alias",
+            "Unknown",
+        ]
+        assert [r["canonical"] for r in rows] == [
+            "PFC Canonical",
+            None,
+            None,
+            "PFC Canonical",
+            None,
+        ]
         assert db.execute("SELECT phone FROM candidates").fetchone()[0] is None
 
 
@@ -204,7 +223,25 @@ def test_req_in_21_23_sync_persists_only_grounded_facts(
                 assert version["text_norm"][slice(*fact["span"])] == fact["evidence"]
                 assert fact["value"] in fact["evidence"]
         assert db.execute("SELECT phone FROM candidates").fetchone()[0] is None
-        assert not db.execute("SELECT 1 FROM resource_skills WHERE source='CV'").fetchone()
+        rows = db.execute(
+            "SELECT resource_id,cv_version_id,source,skill_raw,skill_norm,"
+            "canonical_skill_id,evidence,years FROM resource_skills ORDER BY resource_skill_id"
+        ).fetchall()
+        resource = db.execute("SELECT resource_id FROM resources").fetchone()[0]
+        canonical = db.execute("SELECT skill_id FROM skills WHERE name='SQL'").fetchone()[0]
+        assert [tuple(row) for row in rows] == [
+            (resource, version["cv_version_id"], "CV", "SQL", "sql", canonical, "SQL", None),
+            (
+                resource,
+                version["cv_version_id"],
+                "CV",
+                "Unlisted",
+                "unlisted",
+                None,
+                "Unlisted",
+                None,
+            ),
+        ]
         details = db.execute(
             "SELECT details_json FROM audit_log WHERE action='CV_SYNC'"
         ).fetchone()[0]
@@ -263,6 +300,85 @@ def test_req_in_23_backfill_preserves_emails_and_version(
     client.app.state.llm_provider = FakeProvider("invalid JSON")
     repeat = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
     assert repeat["unchanged"] == 1 and repeat["facts_llm_failed"] == 0
+
+
+def test_req_in_21_skill_replacement_is_atomic_and_drops_ungrounded_facts(
+    client: TestClient, tmp_path: Path
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(client, upload(client, "ct", [{}]))
+    resume_docx(root, "Alex.docx", TEXT)
+    wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    settings = client.app.state.settings
+    with database(settings) as db:
+        version = db.execute("SELECT cv_version_id,facts_json FROM cv_versions").fetchone()
+        original = [tuple(row) for row in db.execute("SELECT * FROM resource_skills")]
+        db.execute(
+            "CREATE TRIGGER reject_cv_skill BEFORE INSERT ON resource_skills "
+            "BEGIN SELECT RAISE(ABORT, 'skill write failed'); END"
+        )
+    with pytest.raises(sqlite3.IntegrityError, match="skill write failed"):
+        with database(settings) as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute("UPDATE cv_versions SET extracted_by='should roll back'")
+            cv_sync._replace_skills(db, version[0])
+    with database(settings) as db:
+        assert [tuple(row) for row in db.execute("SELECT * FROM resource_skills")] == original
+        assert db.execute("SELECT extracted_by FROM cv_versions").fetchone()[0] == "rule_based"
+        db.execute("DROP TRIGGER reject_cv_skill")
+        saved = json.loads(version[1])
+        saved["facts"]["skills"][0]["span"] = [0, 1]
+        db.execute("UPDATE cv_versions SET facts_json=?", (json.dumps(saved),))
+        cv_sync._replace_skills(db, version[0])
+        assert [r[0] for r in db.execute("SELECT skill_raw FROM resource_skills")] == ["Unlisted"]
+        saved["facts"]["skills"] = []
+        db.execute("UPDATE cv_versions SET facts_json=?", (json.dumps(saved),))
+        cv_sync._replace_skills(db, version[0])
+        assert not db.execute("SELECT 1 FROM resource_skills").fetchone()
+
+
+def test_req_in_21_current_facts_backfill_without_extraction(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(client, upload(client, "ct", [{}]))
+    resume_docx(root, "Alex.docx", TEXT)
+    wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    settings = client.app.state.settings
+
+    def rows() -> list[tuple[Any, ...]]:
+        with database(settings) as db:
+            return [
+                tuple(row)
+                for row in db.execute(
+                    "SELECT resource_id,cv_version_id,source,skill_raw,skill_norm,"
+                    "canonical_skill_id,evidence,years FROM resource_skills ORDER BY skill_raw"
+                )
+            ]
+
+    expected = rows()
+    assert len(expected) == 2
+    with database(settings) as db:
+        original = tuple(db.execute("SELECT facts_json,extracted_at FROM cv_versions").fetchone())
+        db.execute("DELETE FROM resource_skills WHERE source='CV'")
+
+    def unexpected(*args: Any, **kwargs: Any) -> None:
+        pytest.fail("Current facts must not be re-extracted")
+
+    monkeypatch.setattr(cv_sync, "extract_facts", unexpected)
+    for _ in range(2):
+        result = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+        assert result["unchanged"] == 1 and result["new_versions"] == 0
+        assert rows() == expected
+    with database(settings) as db:
+        assert (
+            tuple(db.execute("SELECT facts_json,extracted_at FROM cv_versions").fetchone())
+            == original
+        )
 
 
 @pytest.mark.parametrize(

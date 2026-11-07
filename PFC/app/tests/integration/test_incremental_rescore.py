@@ -524,7 +524,7 @@ def test_incremental_equals_full(
         assert not any(r["overridden"] for r in left["items"])
 
 
-def test_cv_fact_skill_change_rescores_resource(
+def test_cv_skill_row_change_rescores_resource(
     settings: Settings, runner: JobRunner, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with database(settings) as db:
@@ -532,19 +532,13 @@ def test_cv_fact_skill_change_rescores_resource(
         candidate = seed_candidate(db)
         resource = seed_resource(db, candidate=candidate, skills="Python")
         seed_resource(db, "Unchanged")
-        version = seed_cv(db, resource, candidate, skills=())
-        db.execute(
-            "UPDATE cv_versions SET facts_json=? WHERE cv_version_id=?",
-            (
-                json.dumps({"facts": {"skills": [{"value": "Python", "evidence": "Python"}]}}),
-                version,
-            ),
-        )
+        version = seed_cv(db, resource, candidate, skills=("Python",))
     base = execute(settings, runner)
     with database(settings) as db:
         db.execute(
-            "UPDATE cv_versions SET facts_json=? WHERE cv_version_id=?",
-            (json.dumps({"facts": {"skills": [{"value": "SQL", "evidence": "SQL"}]}}), version),
+            "UPDATE resource_skills SET skill_raw='SQL',skill_norm='sql',evidence='SQL' "
+            "WHERE cv_version_id=? AND source='CV'",
+            (version,),
         )
     original = engine.score_basis
     calls = []

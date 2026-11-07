@@ -17,7 +17,9 @@ from pfc.db.audit import verify_chain
 from pfc.db.connection import database
 from pfc.db.migrate import migrate
 from pfc.domain.config_loader import load_domain_config
+from pfc.domain.scoring import build_combined_basis
 from pfc.jobs.runner import Job, JobCancelled, JobContext, JobRunner
+from pfc.services.ingestion.cv_sync import _replace_skills
 from pfc.services.matching import (
     MatchingPorts,
     add_override,
@@ -231,6 +233,37 @@ def seed_cv(
     return cv_id
 
 
+def test_cv_inputs_only_latest_live_version_and_linked_resources(settings: Settings) -> None:
+    with database(settings) as db:
+        candidate = seed_candidate(db)
+        resource = seed_resource(db, candidate=candidate)
+        linked = seed_resource(db, "Same candidate", candidate=candidate)
+        other = seed_resource(db, "Unrelated")
+        old = seed_cv(db, resource, candidate, skills=("Python",))
+        db.execute("UPDATE cv_versions SET is_latest=0 WHERE cv_version_id=?", (old,))
+        latest = db.execute(
+            "INSERT INTO cv_versions(resume_id,candidate_id,version_no,text_sha256,text_norm,"
+            "extracted_by,is_latest,extracted_at) SELECT resume_id,candidate_id,2,'latest',"
+            "'SQL','test',1,extracted_at FROM cv_versions WHERE cv_version_id=?",
+            (old,),
+        ).lastrowid
+        for owner, term in [(resource, "SQL"), (linked, "SQL"), (other, "Wrong resource")]:
+            db.execute(
+                "INSERT INTO resource_skills(resource_id,cv_version_id,source,"
+                "skill_raw,skill_norm) "
+                "VALUES (?,?,'CV',?,?)",
+                (owner, latest, term, term.casefold()),
+            )
+        config = load_domain_config()
+        bases = _inputs(db, "all", [], config)[2][f"candidate:{candidate}"]
+        assert [b.basis_id for b in bases] == [f"CV:{latest}"]
+        assert [s.raw for s in bases[0].skills] == ["SQL"]
+        db.execute(
+            "UPDATE cv_versions SET extraction_removed_at=? WHERE cv_version_id=?", (STAMP, latest)
+        )
+        assert f"candidate:{candidate}" not in _inputs(db, "all", [], config)[2]
+
+
 def wait_done(runner: JobRunner, job_id: int) -> Job:
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
@@ -261,7 +294,7 @@ def execute(
 
 
 @pytest.mark.parametrize("ct_skills", ["Python", "unrecognised"])
-def test_req_in_21_23_skills_json_counts_in_matching(
+def test_req_in_21_23_synced_skill_rows_count_in_matching(
     settings: Settings, runner: JobRunner, ct_skills: str
 ) -> None:
     with database(settings) as db:
@@ -275,9 +308,9 @@ def test_req_in_21_23_skills_json_counts_in_matching(
                 "skills": [
                     {
                         "value": "SQL",
-                        "canonical": "AWS",
+                        "canonical": "SQL",
                         "evidence": "SQL",
-                        "span": [11, 14],
+                        "span": [0, 3],
                         "source": "llm",
                     }
                 ]
@@ -287,6 +320,7 @@ def test_req_in_21_23_skills_json_counts_in_matching(
             "UPDATE cv_versions SET facts_json=? WHERE cv_version_id=?",
             (json.dumps(facts), version),
         )
+        _replace_skills(db, version)
     first = execute(settings, runner)
     with database(settings) as db:
         facts["facts"].pop("skills")
@@ -294,13 +328,14 @@ def test_req_in_21_23_skills_json_counts_in_matching(
             "UPDATE cv_versions SET facts_json=? WHERE cv_version_id=?",
             (json.dumps(facts), version),
         )
+        _replace_skills(db, version)
     second = execute(settings, runner)
     with database(settings) as db:
         row = db.execute("SELECT * FROM match_results WHERE run_id=?", (first,)).fetchone()
         assert row is not None
         assert row["best_cv_version_id"] == version
         assert "SQL" in row["matching_evidence"]
-        assert "(CV v1)" in row["matching_evidence"]
+        assert "(CT + CV v1)" in row["matching_evidence"]
         points = db.execute(
             "SELECT points FROM score_breakdowns WHERE result_id=? AND component='skills'",
             (row["result_id"],),
@@ -333,14 +368,12 @@ def test_req_in_21_23_skills_json_counts_in_matching(
 
 
 @pytest.mark.parametrize("removed", [False, True])
-def test_cv_fact_basis_deduplication_and_removal(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch, removed: bool
-) -> None:
+def test_cv_row_basis_deduplication_and_removal(settings: Settings, removed: bool) -> None:
     config = load_domain_config()
     with database(settings) as db:
         candidate = seed_candidate(db)
-        resource = seed_resource(db, candidate=candidate)
-        version = seed_cv(db, resource, candidate, skills=("SQL",))
+        resource = seed_resource(db, candidate=candidate, skills="")
+        version = seed_cv(db, resource, candidate, skills=("SQL", "Python", "python"))
         payload = json.dumps(
             {
                 "facts": {
@@ -354,21 +387,16 @@ def test_cv_fact_basis_deduplication_and_removal(
             "UPDATE cv_versions SET facts_json=?,extraction_removed_at=? WHERE cv_version_id=?",
             (payload, STAMP if removed else None, version),
         )
-        original = runs.cv_fact_skills
-        calls = []
-
-        def tracked(value: str | None, current: Any) -> Any:
-            calls.append(value)
-            return original(value, current)
-
-        monkeypatch.setattr(runs, "cv_fact_skills", tracked)
-        bases = _inputs(db, "full", (), config)[2][f"candidate:{candidate}"]
-        assert len(bases) == 1
-        assert [item.raw for item in bases[0].skills] == (["SQL"] if removed else ["SQL", "Python"])
-        assert calls == ([] if removed else [payload])
+        _, resources, cvs, _, _ = _inputs(db, "full", (), config)
+        key = f"candidate:{candidate}"
+        if removed:
+            assert key not in cvs
+        else:
+            basis = build_combined_basis(resources[0], cvs[key], config)
+            assert [item.normalised for item in basis.skills] == ["sql", "python"]
         db.execute("DELETE FROM resource_skills WHERE cv_version_id=?", (version,))
-        basis = _inputs(db, "full", (), config)[2][f"candidate:{candidate}"][0]
-        assert [item.raw for item in basis.skills] == ([] if removed else ["sql", "Python"])
+        cvs = _inputs(db, "full", (), config)[2]
+        assert key not in cvs if removed else cvs[key][0].skills == ()
 
 
 @pytest.mark.parametrize("llm", [FakeLlm(), FakeLlm(fail=True), FakeLlm(invalid=True), None])
@@ -531,7 +559,7 @@ def test_req_mat_03_run_persistence_uniqueness_cv_exclusions(
         run = get_run(db, run_id)
         assert run["status"] == "completed"
         assert run["template_id"] and run["embedding_model_id"]
-        assert run["engine_version"] == "1.0.0"
+        assert run["engine_version"] == "1.1.0"
         assert len(run["config_hash"]) == len(run["synonyms_version"]) == 64
         assert run["llm_model"] == "manual"
         assert run["demands_assessed"] == 2
@@ -544,7 +572,7 @@ def test_req_mat_03_run_persistence_uniqueness_cv_exclusions(
         cv_row = next(r for r in matches if r["resource_id"] == resource)
         assert cv_row["best_cv_version_id"] == cv_id
         detail = result_detail(db, cv_row["result_id"])
-        assert {s["cv_version_id"] for s in detail["cv_scores"]} == {None, cv_id}
+        assert [s["cv_version_id"] for s in detail["cv_scores"]] == [cv_id]
         assert len(detail["breakdown"]) == 6
         assert cv_row["person_email"] == "Al********@capgemini.com"
         assert "AlexBorder@" not in json.dumps(detail)

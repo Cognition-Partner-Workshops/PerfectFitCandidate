@@ -518,10 +518,10 @@ def test_req_mat_05_related_aliases(config, resource, demand):
     assert pair(cfg, resource, d).items[0].credit == 0.6
 
 
-def test_req_in_24_cv_independence_and_evidence(config, resource, demand):
+def test_req_in_21_combined_cv_evidence(config, resource, demand):
     person = replace(resource, ct_skills=None)
     cv = SkillBasis(
-        "cv2",
+        "CV:2",
         "CV v2",
         (
             SkillEvidence("SQL", "sql", "SQL", "Experience – project"),
@@ -531,12 +531,12 @@ def test_req_in_24_cv_independence_and_evidence(config, resource, demand):
     )
     result = run_match([demand], [person], {person.candidate_id: [cv]}, {}, config, AS_OF)
     row = result.demands[0].rows[0]
-    assert row.best.basis_id == "cv2"
-    assert len(row.per_basis) == 2
-    assert row.per_basis[0].recognised_skills == 0
+    assert row.best.basis_id == f"CTCV:{person.resource_id}:2"
+    assert len(row.per_basis) == 1
+    assert row.per_basis[0].recognised_skills == 2
     assert "CV not found" not in row.gaps_checks
     assert "Experience – project" in row.best.matching_evidence
-    assert "(CV v2)" in row.best.matching_evidence
+    assert "(CT + CV v2)" in row.best.matching_evidence
 
 
 def test_req_in_24_empty_run(config):
@@ -564,12 +564,13 @@ def test_req_scr_01_empty_kind_coverage(config, resource, demand):
 def test_req_in_24_canonical_cv_skills_without_seed(config, resource, demand):
     person = replace(resource, ct_skills=None)
     cv = SkillBasis(
-        "cv",
+        "CV:1",
         "CV v1",
         (
             SkillEvidence("ETL", "etl", "ETL", "Work history"),
             SkillEvidence("Data Engineer", "data engineer", "Data Engineer", "Role"),
         ),
+        True,
     )
     d = replace(demand, requirements=(RequirementItem("M1", "ETL", "mandatory"),))
     result = run_match([d], [person], {"r1": [cv]}, {}, config, AS_OF)

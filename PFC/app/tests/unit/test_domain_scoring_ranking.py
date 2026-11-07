@@ -14,6 +14,8 @@ from pfc.domain.scoring import (
     Resource,
     SemanticInput,
     SkillBasis,
+    SkillEvidence,
+    build_combined_basis,
     build_ct_basis,
     ranking_key,
     run_match,
@@ -78,27 +80,47 @@ def test_fr_mat_10_one_tiebreak_at_a_time(key):
     assert sorted([second, first], key=ranking_key)[0] == first
 
 
-@pytest.mark.parametrize(
-    ("latest_a", "latest_b", "score_a", "score_b", "expected"),
-    [
-        (False, True, 0.5, 0.4, "a"),
-        (False, True, 0.5, 0.5, "b"),
-        (True, True, 0.5, 0.5, "a"),
-        (False, False, 0.5, 0.5, "a"),
-    ],
-)
-def test_req_in_24_best_basis_selection(latest_a, latest_b, score_a, score_b, expected):
+def test_req_in_21_combined_basis_prefers_cv_canonical_and_normalised_evidence() -> None:
+    config, resource, demand = fixture()
+    person = replace(resource, ct_skills="SQL, Unlisted, Python")
+    cv = SkillBasis(
+        "CV:12",
+        "CV v2",
+        (
+            SkillEvidence("SQL alias", "sql alias", "SQL", "SQL alias", 1),
+            SkillEvidence("SQL", "sql", "SQL", "SQL evidence", 1),
+            SkillEvidence("Unlisted", "unlisted", None, "CV unlisted evidence"),
+        ),
+        True,
+    )
+    combined = build_combined_basis(person, [cv], config)
+    assert combined.basis_id == "CTCV:r:12" and combined.label == "CT + CV v2"
+    assert [s.raw for s in combined.skills] == ["SQL", "Unlisted", "Python"]
+    assert [s.evidence for s in combined.skills] == [
+        "SQL evidence",
+        "CV unlisted evidence",
+        "Python",
+    ]
+
+
+def test_req_in_21_no_cv_is_exactly_ct_only() -> None:
     config, resource, demand = fixture()
     ct = build_ct_basis(resource, config)
-    bases = [
-        SkillBasis("b", "CV b", ct.skills, latest_b),
-        SkillBasis("a", "CV a", ct.skills, latest_a),
-    ]
-    semantics = {("D", "a"): SemanticInput(score_a), ("D", "b"): SemanticInput(score_b)}
-    result = run_match([demand], [resource], {"r": bases}, semantics, config, AS_OF)
+    assert build_combined_basis(resource, [], config) == ct
+    semantic = SemanticInput(0.5)
+    expected = score_basis(demand, resource, ct, semantic, config, AS_OF)
+    result = run_match([demand], [resource], {}, {("D", ct.basis_id): semantic}, config, AS_OF)
+    assert result.demands[0].rows[0].best == expected
+    assert result.demands[0].rows[0].per_basis == (expected,)
+
+
+def test_req_in_21_empty_latest_cv_still_exists() -> None:
+    config, resource, demand = fixture()
+    cv = SkillBasis("CV:1", "CV v1", (), True)
+    result = run_match([demand], [resource], {"r": [cv]}, {}, config, AS_OF)
     row = result.demands[0].rows[0]
-    assert row.best.basis_id == expected
-    assert len(row.per_basis) == 3
+    assert row.best.basis_id == "CTCV:r:1"
+    assert "CV not found" not in row.gaps_checks
 
 
 def test_req_mat_03_unique_top_five_and_email_four():
@@ -187,29 +209,57 @@ def test_req_mat_04_no_transferable_not_shortlisted():
 def test_req_in_24_duplicate_basis_ids_rejected():
     config, resource, demand = fixture()
     ct = build_ct_basis(resource, config)
-    with pytest.raises(ValueError, match="Basis IDs"):
-        run_match([demand], [resource], {"r": [ct]}, {}, config, AS_OF)
+    cv = SkillBasis("CV:1", "CV v1", ct.skills, True)
+    with pytest.raises(ValueError, match="one latest CV"):
+        run_match([demand], [resource], {"r": [cv, cv]}, {}, config, AS_OF)
 
 
-def test_req_in_24_latest_cv_wins_equal_ct_score():
+def test_req_in_21_combined_basis_uses_only_latest_cv() -> None:
     config, resource, demand = fixture()
     ct = build_ct_basis(resource, config)
-    cv = SkillBasis("cv2", "CV v2", ct.skills, True)
-    result = run_match([demand], [resource], {"r": [cv]}, {}, config, AS_OF)
-    assert result.demands[0].rows[0].best.basis_id == "cv2"
+    cv = SkillBasis("CV:2", "CV v2", ct.skills, True)
+    old = SkillBasis("CV:1", "CV v1", (SkillEvidence("AWS", "aws"),), False)
+    result = run_match([demand], [resource], {"r": [old, cv]}, {}, config, AS_OF)
+    assert result.demands[0].rows[0].best.basis_id == "CTCV:r:2"
+    assert len(result.demands[0].rows[0].per_basis) == 1
 
 
-def test_req_in_24_scorable_cv_beats_higher_insufficient_ct():
+def test_req_in_21_cv_adds_missing_mandatory_skill() -> None:
     config, resource, demand = fixture()
-    person = replace(resource, ct_skills="SQL")
-    cv = SkillBasis("cv", "CV v1", build_ct_basis(resource, config).skills)
-    semantics = {("D", "CT:r"): SemanticInput(1), ("D", "cv"): SemanticInput(0.5)}
-    result = run_match([demand], [person], {"r": [cv]}, semantics, config, AS_OF)
-    row = result.demands[0].shortlist[0]
-    assert row.best.basis_id == "cv"
-    assert row.best.band != "Insufficient data"
-    ct = next(basis for basis in row.per_basis if basis.label == "CT")
-    assert ct.band == "Insufficient data" and ct.score > row.best.score
+    person = replace(resource, ct_skills="SQL, AWS")
+    demand = replace(
+        demand,
+        requirements=(
+            RequirementItem("M1", "SQL", "mandatory"),
+            RequirementItem("M2", "Python", "mandatory"),
+        ),
+    )
+    cv = SkillBasis("CV:1", "CV v1", (SkillEvidence("Python", "python", "Python", "Python"),), True)
+    before = run_match([demand], [person], {}, {}, config, AS_OF).demands[0].rows[0].best
+    after = run_match([demand], [person], {"r": [cv]}, {}, config, AS_OF).demands[0].rows[0].best
+    assert before.mandatory_missing == 1 and after.mandatory_missing == 0
+    assert after.score > before.score
+
+
+def test_req_in_21_aliases_without_ids_prefer_cv() -> None:
+    config, resource, _ = fixture()
+    resource = replace(resource, ct_skills="BA")
+    cv = SkillBasis(
+        "CV:1",
+        "CV v1",
+        (
+            SkillEvidence(
+                "Business Analysis",
+                "business analysis",
+                config.synonyms.resolve("BA"),
+                "CV evidence",
+            ),
+        ),
+        True,
+    )
+    combined = build_combined_basis(resource, [cv], config)
+    assert len(combined.skills) == 1
+    assert combined.skills[0].evidence == "CV evidence"
 
 
 def test_req_mat_03_uniqueness_keeps_highest_score():

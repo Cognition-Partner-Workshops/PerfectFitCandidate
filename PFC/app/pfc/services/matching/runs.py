@@ -1,6 +1,5 @@
 """Queued scoring and durable snapshots (REQ-MAT-03/08, REQ-ELIG-08, REQ-SCR-04)."""
 
-import json
 import sqlite3
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, replace
@@ -20,11 +19,10 @@ from pfc.domain.scoring import (
     Resource,
     SkillBasis,
     SkillEvidence,
-    build_ct_basis,
+    build_combined_basis,
     run_match,
 )
 from pfc.jobs.runner import JobCancelled, JobContext, JobRunner
-from pfc.services.ingestion.masking import PHONE
 from pfc.services.occ.domain import active_template, occ_domain_config
 
 from .common import audit, digest, dumps, timestamp
@@ -37,39 +35,6 @@ from .semantic import VectorCache, model_identity, semantic_inputs
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
-
-
-def cv_fact_skills(facts_json: str | None, config: DomainConfig) -> tuple[SkillEvidence, ...]:
-    if not facts_json:
-        return ()
-    try:
-        payload = json.loads(facts_json)
-    except (ValueError, TypeError):
-        return ()
-    if not isinstance(payload, dict) or not isinstance(payload.get("facts"), dict):
-        return ()
-    skills = payload["facts"].get("skills")
-    if not isinstance(skills, list):
-        return ()
-    if any(
-        not isinstance(item, dict)
-        or not isinstance(item.get("value"), str)
-        or not item["value"].strip()
-        or not isinstance(item.get("evidence"), str)
-        or not item["evidence"].strip()
-        for item in skills
-    ):
-        return ()
-    return tuple(
-        SkillEvidence(
-            item["value"],
-            normalise_term(item["value"]),
-            config.synonyms.resolve(item["value"]),
-            item["evidence"],
-        )
-        for item in skills
-        if "@" not in item["value"] and not PHONE.search(item["value"])
-    )
 
 
 def _embedding_model(db: sqlite3.Connection, identity: dict[str, Any]) -> int:
@@ -171,9 +136,14 @@ def _inputs(
     cv_bases: dict[str, list[SkillBasis]] = {}
     versions = db.execute(
         "SELECT * FROM cv_versions WHERE candidate_id IS NOT NULL "
+        "AND is_latest=1 AND extraction_removed_at IS NULL "
         "ORDER BY candidate_id,version_no,cv_version_id",
     ).fetchall()
     active_candidates = {r.candidate_id for r in resources}
+    canonical_ids = {
+        normalise_term(row["name"]): row["skill_id"]
+        for row in db.execute("SELECT skill_id,name FROM skills WHERE is_active=1")
+    }
     for version in versions:
         candidate = f"candidate:{version['candidate_id']}"
         if candidate not in active_candidates:
@@ -181,24 +151,25 @@ def _inputs(
         skills = db.execute(
             "SELECT rs.*,s.name AS canonical FROM resource_skills rs "
             "LEFT JOIN skills s ON s.skill_id=rs.canonical_skill_id "
-            "WHERE rs.cv_version_id=? AND rs.source='CV' ORDER BY rs.resource_skill_id",
-            (version["cv_version_id"],),
+            "WHERE rs.cv_version_id=? AND rs.source='CV' AND rs.resource_id IN "
+            "(SELECT resource_id FROM resources WHERE candidate_id=? AND lifecycle='active') "
+            "ORDER BY rs.resource_skill_id",
+            (version["cv_version_id"], version["candidate_id"]),
         ).fetchall()
         evidence = tuple(
-            SkillEvidence(
-                item["skill_raw"],
-                normalise_term(item["skill_norm"]),
-                item["canonical"] or config.synonyms.resolve(item["skill_raw"]),
-                item["evidence"] or item["skill_raw"],
+            dict.fromkeys(
+                SkillEvidence(
+                    item["skill_raw"],
+                    normalise_term(item["skill_norm"]),
+                    config.synonyms.resolve(item["skill_raw"]),
+                    item["evidence"] or item["skill_raw"],
+                    canonical_ids.get(
+                        normalise_term(config.synonyms.resolve(item["skill_raw"]) or "")
+                    ),
+                )
+                for item in skills
             )
-            for item in skills
         )
-        if version["extraction_removed_at"] is None:
-            seen = {item.normalised for item in evidence}
-            for item in cv_fact_skills(version["facts_json"], config):
-                if item.normalised not in seen:
-                    evidence += (item,)
-                    seen.add(item.normalised)
         cv_bases.setdefault(candidate, []).append(
             SkillBasis(
                 f"CV:{version['cv_version_id']}",
@@ -211,7 +182,15 @@ def _inputs(
 
 
 def _cv_id(basis_id: str) -> int | None:
-    return int(basis_id.split(":")[1]) if basis_id.startswith("CV:") else None
+    parts = basis_id.split(":")
+    if parts[0] == "CTCV" and len(parts) == 3:
+        int(parts[1])
+        return int(parts[2])
+    if parts[0] == "CV" and len(parts) == 2:
+        return int(parts[1])
+    if parts[0] == "CT" and len(parts) == 2:
+        return None
+    raise ValueError("Invalid matching basis ID")
 
 
 def _persist(
@@ -359,9 +338,7 @@ def _score_dirty(
         if not ds or not rs:
             continue
         context.raise_if_cancelled()
-        candidates = {r.candidate_id for r in rs}
-        bases = [build_ct_basis(r, config) for r in rs]
-        bases += [b for key, values in cvs.items() if key in candidates for b in values]
+        bases = [build_combined_basis(r, cvs.get(r.candidate_id or "", []), config) for r in rs]
         semantics = semantic_inputs(ds, metadata, bases, cache, template, context.report_progress)
         originals = {r.resource_id: r for r in rs}
         expanded = [replace(r, candidate_id=f"row:{r.resource_id}") for r in rs]
@@ -437,6 +414,10 @@ def start_run(
             "resources": [repr(resource) for resource in resources],
             "display_emails": display_emails,
             "cv_bases": {key: [asdict(basis) for basis in value] for key, value in cvs.items()},
+            "combined_bases": [
+                asdict(build_combined_basis(r, cvs.get(r.candidate_id or "", []), config))
+                for r in resources
+            ],
             "experience_evidence": experience,
         }
         llm_models = sorted({m["extracted_by"] for m in metadata.values() if m["extracted_by"]})
@@ -460,7 +441,7 @@ def start_run(
                 "engine_version": ENGINE_VERSION,
             }
         )
-        inputs = fingerprints(demands, resources, cvs, metadata, display_emails)
+        inputs = fingerprints(demands, resources, cvs, metadata, display_emails, config)
         latest = db.execute(
             "SELECT * FROM match_runs WHERE status='completed' ORDER BY run_id DESC LIMIT 1"
         ).fetchone()
@@ -534,8 +515,10 @@ def start_run(
                     )
                     context.raise_if_cancelled()
                 return
-            bases = [build_ct_basis(resource, config) for resource in resources]
-            bases += [basis for candidate_bases in cvs.values() for basis in candidate_bases]
+            bases = [
+                build_combined_basis(resource, cvs.get(resource.candidate_id or "", []), config)
+                for resource in resources
+            ]
             semantics = semantic_inputs(
                 demands, metadata, bases, cache, template, context.report_progress
             )

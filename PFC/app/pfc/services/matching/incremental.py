@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from pfc.domain.config_loader import DomainConfig, ScoringTemplate
-from pfc.domain.scoring import Demand, Resource, SkillBasis
+from pfc.domain.scoring import Demand, Resource, SkillBasis, build_combined_basis
 from pfc.domain.scoring.selection import RankingInput, input_key, select_scored_rows
 
 from .common import digest, dumps
@@ -31,6 +31,7 @@ def fingerprints(
     cvs: dict[str, list[SkillBasis]],
     metadata: dict[str, dict[str, Any]],
     emails: dict[str, str | None],
+    config: DomainConfig,
 ) -> dict[str, Any]:
     return {
         "version": 1,
@@ -49,6 +50,9 @@ def fingerprints(
                     "resource": repr(r),
                     "email": emails[r.resource_id],
                     "cvs": [asdict(b) for b in cvs.get(r.candidate_id or "", [])],
+                    "basis": asdict(
+                        build_combined_basis(r, cvs.get(r.candidate_id or "", []), config)
+                    ),
                 }
             )
             for r in resources
