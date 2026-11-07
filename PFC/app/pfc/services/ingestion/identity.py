@@ -329,7 +329,7 @@ def resolve(
         )
         for version in db.execute(
             "SELECT cv_version_id FROM cv_versions WHERE candidate_id=? "
-            "AND is_latest=1 AND extraction_removed_at IS NULL",
+            "AND extraction_removed_at IS NULL",
             (candidate_id,),
         ).fetchall():
             _replace_skills(db, version[0])

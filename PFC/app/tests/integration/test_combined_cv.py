@@ -136,6 +136,70 @@ def test_link_backfills_existing_latest_cv_rows(settings: Settings, removed: boo
         assert ("Python" in [s.raw for s in basis.skills]) is not removed
 
 
+@pytest.mark.parametrize("older_removed", [False, True])
+def test_confirm_ct_link_preserves_cv_version_rows(settings: Settings, older_removed: bool) -> None:
+    with database(settings) as db:
+        candidate = seed_candidate(db)
+        resource = seed_resource(db, candidate=candidate, email="candidate@example.com")
+        db.execute(
+            "UPDATE resources SET email_key='candidate@example.com' WHERE resource_id=?",
+            (resource,),
+        )
+        older = seed_cv(db, resource, candidate, skills=())
+        latest = db.execute(
+            "INSERT INTO cv_versions(resume_id,candidate_id,version_no,text_sha256,text_norm,"
+            "extracted_by,is_latest,extracted_at) "
+            "SELECT resume_id,candidate_id,2,'cv-text-v2',text_norm,extracted_by,1,extracted_at "
+            "FROM cv_versions WHERE cv_version_id=?",
+            (older,),
+        ).lastrowid
+        for version, skill, span in [(older, "SQL", [0, 3]), (latest, "Python", [4, 10])]:
+            db.execute(
+                "UPDATE cv_versions SET facts_json=?,is_latest=?,extraction_removed_at=? "
+                "WHERE cv_version_id=?",
+                (
+                    json.dumps(
+                        {
+                            "facts": {
+                                "skills": [
+                                    {
+                                        "value": skill,
+                                        "canonical": skill,
+                                        "evidence": skill,
+                                        "span": span,
+                                        "source": "rule",
+                                    }
+                                ]
+                            }
+                        }
+                    ),
+                    version == latest,
+                    "2026-11-06" if version == older and older_removed else None,
+                    version,
+                ),
+            )
+            _replace_skills(db, version)
+        expected = [(latest, "Python")] if older_removed else [(older, "SQL"), (latest, "Python")]
+        for _ in range(2):
+            resolve(
+                db,
+                candidate,
+                IdentityResolution(action="select_ct_record", resource_id=resource),
+                1,
+                "2026-11-06T00:00:00+00:00",
+            )
+            assert [
+                tuple(row)
+                for row in db.execute(
+                    "SELECT cv_version_id,skill_raw FROM resource_skills "
+                    "WHERE resource_id=? AND source='CV' ORDER BY cv_version_id",
+                    (resource,),
+                )
+            ] == expected
+        _, _, cvs, _, _ = _inputs(db, "full", [], load_domain_config())
+        assert [basis.basis_id for basis in cvs[f"candidate:{candidate}"]] == [f"CV:{latest}"]
+
+
 @pytest.mark.parametrize("canonical", ["Python", None])
 def test_matching_uses_current_synonyms_not_stored_ids(
     settings: Settings, canonical: str | None
