@@ -264,7 +264,12 @@ def test_bitlocker_status_is_unknown_off_windows(tmp_path: Path) -> None:
 
 
 def test_health_reports_volume_encryption(tmp_path: Path) -> None:
-    settings = Settings(data_dir=tmp_path, frontend_dir=tmp_path, allowed_hosts=["testserver"])
+    settings = Settings(
+        data_dir=tmp_path,
+        bundled_models_dir=tmp_path / "bundled-models",
+        frontend_dir=tmp_path,
+        allowed_hosts=["testserver"],
+    )
     app = create_app(settings)
     app.state.volume_probe = lambda path: "Encrypted" if path == tmp_path else "Unknown"
     with TestClient(app) as client:

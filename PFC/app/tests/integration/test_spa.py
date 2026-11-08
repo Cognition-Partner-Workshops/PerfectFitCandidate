@@ -14,6 +14,7 @@ def test_spa_and_assets(tmp_path: Path) -> None:
     (frontend / "assets" / "app.js").write_text("console.log('app')")
     settings = Settings(
         data_dir=tmp_path / "data",
+        bundled_models_dir=tmp_path / "bundled-models",
         frontend_dir=frontend,
         allowed_hosts=["testserver"],
         argon_memory_cost=1024,
@@ -39,6 +40,7 @@ def test_spa_and_assets(tmp_path: Path) -> None:
 def test_no_dist(tmp_path: Path) -> None:
     settings = Settings(
         data_dir=tmp_path / "data",
+        bundled_models_dir=tmp_path / "bundled-models",
         frontend_dir=tmp_path / "missing",
         allowed_hosts=["testserver"],
         argon_memory_cost=1024,

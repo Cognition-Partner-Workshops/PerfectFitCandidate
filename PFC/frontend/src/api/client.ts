@@ -121,6 +121,8 @@ export interface ApiClient {
 
   /** GET /demands */
   listDemands(): Promise<Demand[]>
+  /** GET /demands/{id} */
+  getDemand(demandId: number): Promise<Demand>
   /** POST /demands/analyze */
   analyzeDemands(demandIds: number[]): Promise<void>
   /** POST /demands/{id}/analyze — extracts a new requirements draft */

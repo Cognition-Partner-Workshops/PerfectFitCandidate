@@ -39,6 +39,51 @@ def test_combined_cv_gate_scores(tmp_path: Path) -> None:
     assert actual == expected
 
 
+def test_cv_email_and_phone_facts_are_not_matching_skills(
+    settings: Settings, runner: JobRunner
+) -> None:
+    email = "private-candidate@example.test"
+    phone = "+44 7700 900123"
+    text = f"SQL {email} {phone}"
+    skills = [
+        {
+            "value": value,
+            "canonical": value,
+            "evidence": value,
+            "span": [text.index(value), text.index(value) + len(value)],
+            "source": "rule",
+        }
+        for value in ("SQL", email, phone)
+    ]
+    with database(settings) as db:
+        seed_demand(db, mandatory=("SQL",), jd="Required: SQL")
+        candidate = seed_candidate(db)
+        resource = seed_resource(db, candidate=candidate, skills="")
+        version = seed_cv(db, resource, candidate, skills=())
+        db.execute(
+            "UPDATE cv_versions SET text_norm=?,facts_json=? WHERE cv_version_id=?",
+            (text, json.dumps({"facts_schema": 2, "facts": {"skills": skills}}), version),
+        )
+        _replace_skills(db, version)
+        rows = db.execute(
+            "SELECT skill_raw,evidence FROM resource_skills WHERE resource_id=? AND source='CV'",
+            (resource,),
+        ).fetchall()
+        assert [tuple(row) for row in rows] == [("SQL", "SQL")]
+
+    run_id = execute(settings, runner)
+    with database(settings) as db:
+        row = db.execute(
+            "SELECT matching_evidence,gaps_checks,eligibility_evidence "
+            "FROM match_results WHERE run_id=?",
+            (run_id,),
+        ).fetchone()
+        assert row is not None
+        evidence = " ".join(value or "" for value in row)
+        assert email not in evidence
+        assert phone not in evidence
+
+
 def test_combined_shared_cv_is_unique_per_resource(settings: Settings, runner: JobRunner) -> None:
     with database(settings) as db:
         seed_demand(db, mandatory=("SQL", "Python", "AWS"))

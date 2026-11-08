@@ -71,6 +71,7 @@ PASSWORD = "Strong!Random4567"
 def client(tmp_path: Path) -> Iterator[TestClient]:
     settings = Settings(
         data_dir=tmp_path,
+        bundled_models_dir=tmp_path / "bundled-models",
         allowed_hosts=["testserver"],
         argon_memory_cost=1024,
         argon_time_cost=1,

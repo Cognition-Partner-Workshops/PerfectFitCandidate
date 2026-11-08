@@ -30,6 +30,7 @@ from pfc.services.matching import MatchingPorts
 def test_incremental_five_percent_dirty(tmp_path: Path) -> None:
     settings = Settings(
         data_dir=tmp_path,
+        bundled_models_dir=tmp_path / "bundled-models",
         allowed_hosts=["testserver"],
         llm_enabled=False,
         job_workers=1,

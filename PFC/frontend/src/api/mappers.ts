@@ -380,6 +380,15 @@ export interface DemandItem {
   owner: string | null
   jd_status: JdStatus
 }
+export interface DemandDetailRow extends DemandItem {
+  current_version_id: number | null
+  versions: {
+    version_no: number
+    jd_sha256: string
+    created_at: string
+    jd_text_norm: string
+  }[]
+}
 export const toDemand = (r: DemandItem): Demand => ({
   demandId: r.demand_id,
   codeRequisition: r.code_requisition,
@@ -398,6 +407,10 @@ export const toDemand = (r: DemandItem): Demand => ({
   uploadedAt: '',
   mandatorySkills: [],
   preferredSkills: [],
+})
+export const toDemandDetail = (r: DemandDetailRow): Demand => ({
+  ...toDemand(r),
+  jdText: r.versions[0]?.jd_text_norm ?? '',
 })
 
 /**

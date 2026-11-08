@@ -21,6 +21,7 @@ PASSWORD = "Strong!Random4567"
 def client(tmp_path: Path) -> Iterator[TestClient]:
     settings = Settings(
         data_dir=tmp_path,
+        bundled_models_dir=tmp_path / "bundled-models",
         frontend_dir=tmp_path,
         allowed_hosts=["testserver"],
         llm_enabled=False,

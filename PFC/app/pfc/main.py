@@ -41,6 +41,7 @@ from pfc.security.problems import Problem, install_handlers
 from pfc.security.secrets_store import SecretStoreError
 from pfc.security.setup import code_path, generate_setup_code
 from pfc.services.candidates.classification import reclassify_all
+from pfc.services.embeddings.runtime import register_bundled_embedding_model
 from pfc.services.matching import MatchingPorts
 from pfc.services.occ.seed import seed_reference_data
 from pfc.services.packages.inbox import scan_inbox
@@ -71,6 +72,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 generate_setup_code(settings)
             elif count_admins(db):
                 code_path(settings).unlink(missing_ok=True)
+        try:
+            register_bundled_embedding_model(settings)
+        except Exception:
+            logger.error("Bundled embedding model registration failed; startup continues")
         with database(settings) as db:
             db.execute("BEGIN IMMEDIATE")
             reclassify_all(db)

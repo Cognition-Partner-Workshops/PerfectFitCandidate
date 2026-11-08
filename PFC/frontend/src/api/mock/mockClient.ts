@@ -617,6 +617,13 @@ export class MockApiClient implements ApiClient {
     return this.done(this.demandsView())
   }
 
+  async getDemand(demandId: number): Promise<Demand> {
+    this.currentUser()
+    const demand = this.demandsView().find((item) => item.demandId === demandId)
+    if (!demand) fail(404, 'Demand not found', 'NOT_FOUND')
+    return this.done({ ...demand })
+  }
+
   async analyzeDemands(ids: number[]) {
     this.currentUser()
     for (const d of this.state.demands) {

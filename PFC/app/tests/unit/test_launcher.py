@@ -50,7 +50,11 @@ def test_port() -> None:
 
 def test_launch(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     settings = Settings(
-        data_dir=tmp_path, argon_memory_cost=1024, argon_time_cost=1, argon_parallelism=1
+        data_dir=tmp_path,
+        bundled_models_dir=tmp_path / "bundled-models",
+        argon_memory_cost=1024,
+        argon_time_cost=1,
+        argon_parallelism=1,
     )
     opened: list[str] = []
     browser_opened = threading.Event()

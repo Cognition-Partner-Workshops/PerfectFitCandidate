@@ -35,6 +35,7 @@ PASSPHRASE = "test signing passphrase"
 def test_startup_records_corrupt_inbox_without_applying(tmp_path: Path) -> None:
     settings = Settings(
         data_dir=tmp_path,
+        bundled_models_dir=tmp_path / "bundled-models",
         allowed_hosts=["testserver"],
         argon_memory_cost=1024,
         argon_time_cost=1,
@@ -77,6 +78,7 @@ def test_startup_logs_unexpected_scan_error_and_continues(
     monkeypatch.setattr("pfc.main.scan_inbox", fail)
     settings = Settings(
         data_dir=tmp_path,
+        bundled_models_dir=tmp_path / "bundled-models",
         allowed_hosts=["testserver"],
         argon_memory_cost=1024,
         argon_time_cost=1,
@@ -93,6 +95,7 @@ def apps(tmp_path: Path) -> Iterator[tuple[TestClient, TestClient]]:
     for name in ("admin", "analyst"):
         settings = Settings(
             data_dir=tmp_path / name,
+            bundled_models_dir=tmp_path / name / "bundled-models",
             allowed_hosts=["testserver"],
             argon_memory_cost=1024,
             argon_time_cost=1,
