@@ -167,8 +167,9 @@ def test_prepare_moves_only_the_default_location(
 def test_windows_acl_uses_icacls_argv_for_user_and_system(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("USERNAME", "analyst")
-    monkeypatch.setenv("USERDOMAIN", "CORP")
+    monkeypatch.setenv("USERNAME", "another-account")
+    monkeypatch.setenv("USERDOMAIN", "OTHER")
+    monkeypatch.setattr(data_dir, "_process_user_sid", lambda: "S-1-5-21-111-222-333-1001")
     run = Recorder()
     assert restrict_acl(tmp_path, run=run, platform="win32") is True
     (reset, _), (argv, kwargs) = run.calls
@@ -178,11 +179,44 @@ def test_windows_acl_uses_icacls_argv_for_user_and_system(
         str(tmp_path),
         "/inheritance:r",
         "/grant:r",
-        "CORP\\analyst:(OI)(CI)F",
+        "*S-1-5-21-111-222-333-1001:(OI)(CI)F",
         "*S-1-5-18:(OI)(CI)F",
     ]
     assert "shell" not in kwargs and kwargs["check"] is True
     assert restrict_acl(tmp_path, run=run, platform="linux") is True and len(run.calls) == 2
+
+
+@pytest.mark.parametrize("failure", [None, OSError("sentinel identity payload")])
+def test_unknown_token_user_warns_without_changing_acl(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    failure: OSError | None,
+) -> None:
+    def resolve_sid() -> str:
+        if failure is not None:
+            raise failure
+        return ""
+
+    monkeypatch.setenv("USERNAME", "another-account")
+    monkeypatch.setenv("USERDOMAIN", "OTHER")
+    monkeypatch.setattr(data_dir, "_process_user_sid", resolve_sid)
+    run = Recorder()
+    with caplog.at_level(logging.WARNING, logger=data_dir.__name__):
+        assert restrict_acl(tmp_path, run=run, platform="win32") is False
+    assert not run.calls
+    assert "permissions not restricted: current user unknown" in caplog.text
+    assert "sentinel identity payload" not in caplog.text
+    assert str(tmp_path) not in caplog.text
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows process token")
+def test_process_user_sid_from_windows_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("USERNAME", "another-account")
+    monkeypatch.setenv("USERDOMAIN", "OTHER")
+    sid = data_dir._process_user_sid()
+    assert sid.startswith("S-1-")
+    assert all(part.isdecimal() for part in sid.split("-")[1:])
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX mode bits")
@@ -195,7 +229,7 @@ def test_posix_data_dir_is_owner_only(tmp_path: Path) -> None:
 def test_failing_acl_step_warns_and_startup_continues(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    monkeypatch.setenv("USERNAME", "analyst")
+    monkeypatch.setattr(data_dir, "_process_user_sid", lambda: "S-1-5-21-111-222-333-1001")
     run = Recorder(error=subprocess.CalledProcessError(5, "icacls"))
     target = tmp_path / "explicit"
     prepare_data_dir(Settings(data_dir=target), run=run, platform="win32")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ctypes
 import hashlib
 import logging
 import os
@@ -151,6 +152,60 @@ def migrate_legacy_data_dir(legacy: Path, target: Path) -> bool:
     return True
 
 
+def _process_user_sid() -> str:
+    if sys.platform != "win32":
+        raise OSError("Windows process token is required")
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    security = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel.GetCurrentProcess.argtypes = []
+    kernel.GetCurrentProcess.restype = ctypes.c_void_p
+    kernel.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel.CloseHandle.restype = ctypes.c_int
+    kernel.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel.LocalFree.restype = ctypes.c_void_p
+    security.OpenProcessToken.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    security.OpenProcessToken.restype = ctypes.c_int
+    security.GetTokenInformation.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_uint32),
+    ]
+    security.GetTokenInformation.restype = ctypes.c_int
+    security.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_wchar_p)]
+    security.ConvertSidToStringSidW.restype = ctypes.c_int
+    token = ctypes.c_void_p()
+    if not security.OpenProcessToken(kernel.GetCurrentProcess(), 0x0008, ctypes.byref(token)):
+        raise ctypes.WinError()
+    try:
+        size = ctypes.c_uint32()
+        if not security.GetTokenInformation(token, 1, None, 0, ctypes.byref(size)):
+            if ctypes.get_last_error() != 122:
+                raise ctypes.WinError()
+        if not size.value:
+            raise OSError("Process token user information is empty")
+        user = ctypes.create_string_buffer(size.value)
+        if not security.GetTokenInformation(token, 1, user, size.value, ctypes.byref(size)):
+            raise ctypes.WinError()
+        sid = ctypes.cast(user, ctypes.POINTER(ctypes.c_void_p))[0]
+        text = ctypes.c_wchar_p()
+        if not security.ConvertSidToStringSidW(sid, ctypes.byref(text)):
+            raise ctypes.WinError()
+        try:
+            if not text.value:
+                raise OSError("Process token user SID is empty")
+            return text.value
+        finally:
+            kernel.LocalFree(text)
+    finally:
+        kernel.CloseHandle(token)
+
+
 def restrict_acl(path: Path, *, run: Runner = subprocess.run, platform: str = sys.platform) -> bool:
     """Limit the data dir to the current user (and SYSTEM on Windows). Needs no admin rights."""
     if platform != "win32":
@@ -160,11 +215,14 @@ def restrict_acl(path: Path, *, run: Runner = subprocess.run, platform: str = sy
             logger.warning("Data directory permissions not restricted; startup continues")
             return False
         return True
-    user, domain = os.environ.get("USERNAME"), os.environ.get("USERDOMAIN")
-    if not user:
+    try:
+        sid = _process_user_sid()
+    except OSError:
         logger.warning("Data directory permissions not restricted: current user unknown")
         return False
-    account = f"{domain}\\{user}" if domain else user
+    if not sid:
+        logger.warning("Data directory permissions not restricted: current user unknown")
+        return False
     # /reset drops explicit grants to other accounts; /grant:r alone would keep them.
     commands = [
         ["icacls", str(path), "/reset", "/T", "/C", "/Q"],
@@ -173,7 +231,7 @@ def restrict_acl(path: Path, *, run: Runner = subprocess.run, platform: str = sy
             str(path),
             "/inheritance:r",
             "/grant:r",
-            f"{account}:(OI)(CI)F",
+            f"*{sid}:(OI)(CI)F",
             f"{SYSTEM_SID}:(OI)(CI)F",
         ],
     ]
