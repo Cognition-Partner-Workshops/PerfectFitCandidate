@@ -25,6 +25,7 @@ from pfc.domain.scoring import build_combined_basis
 from pfc.jobs.runner import JobRunner
 from pfc.services.ingestion.cv_sync import _replace_skills
 from pfc.services.ingestion.identity import resolve
+from pfc.services.ingestion.masking import phone_matches
 from pfc.services.matching import MatchingPorts, result_detail
 from pfc.services.matching.runs import _cv_id, _inputs
 from pfc.services.matching.semantic import VectorCache, semantic_inputs
@@ -44,7 +45,9 @@ def test_cv_email_and_phone_facts_are_not_matching_skills(
 ) -> None:
     email = "private-candidate@example.test"
     phone = "+44 7700 900123"
-    text = f"SQL {email} {phone}"
+    versioned_skill = "Python 3.10.12"
+    text = f"Skills: SQL, {versioned_skill}; {email}; {phone}"
+    assert [match[0] for match in phone_matches(phone)] == [phone]
     skills = [
         {
             "value": value,
@@ -53,7 +56,7 @@ def test_cv_email_and_phone_facts_are_not_matching_skills(
             "span": [text.index(value), text.index(value) + len(value)],
             "source": "rule",
         }
-        for value in ("SQL", email, phone)
+        for value in ("SQL", versioned_skill, email, phone)
     ]
     with database(settings) as db:
         seed_demand(db, mandatory=("SQL",), jd="Required: SQL")
@@ -69,7 +72,10 @@ def test_cv_email_and_phone_facts_are_not_matching_skills(
             "SELECT skill_raw,evidence FROM resource_skills WHERE resource_id=? AND source='CV'",
             (resource,),
         ).fetchall()
-        assert [tuple(row) for row in rows] == [("SQL", "SQL")]
+        assert [tuple(row) for row in rows] == [
+            ("SQL", "SQL"),
+            (versioned_skill, versioned_skill),
+        ]
 
     run_id = execute(settings, runner)
     with database(settings) as db:

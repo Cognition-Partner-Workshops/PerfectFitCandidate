@@ -36,7 +36,7 @@ from .cv_facts import (
     validate_facts,
 )
 from .limits import positive_setting
-from .masking import PHONE
+from .masking import phone_matches
 
 EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?![\w-])")
 MIMES = {
@@ -187,7 +187,7 @@ def _replace_skills(db: sqlite3.Connection, cv_version_id: int) -> None:
         "SELECT resource_id FROM resources WHERE candidate_id=?", (version["candidate_id"],)
     ).fetchall()
     for skill in facts.skills:
-        if "@" in skill.value or PHONE.search(skill.value):
+        if "@" in skill.value or any(phone_matches(skill.value)):
             continue
         canonical = db.execute(
             "SELECT skill_id FROM skills WHERE name=? COLLATE NOCASE AND is_active=1",
