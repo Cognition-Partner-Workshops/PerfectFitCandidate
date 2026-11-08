@@ -140,6 +140,16 @@ def test_confirm_starts_matching_with_registered_bundled_embedding(
         response = client.post(f"/api/v1/demands/{demand_id}/requirements/confirm", headers=headers)
         assert response.status_code == 202, response.text
         assert isinstance(response.json().get("runId"), int)
+        run_id = finish(client, response)
+        with database(settings) as db:
+            run_status = db.execute(
+                "SELECT status FROM match_runs WHERE run_id=?", (run_id,)
+            ).fetchone()[0]
+            result_count = db.execute(
+                "SELECT COUNT(*) FROM match_results WHERE run_id=?", (run_id,)
+            ).fetchone()[0]
+        assert run_status == "completed"
+        assert result_count > 0
 
 
 def problem(response: Response, status: int, code: str | None = None) -> None:
