@@ -104,7 +104,11 @@ def test_confirm_starts_matching_with_registered_bundled_embedding(
     shutil.copyfile(source_model.parent / "tokenizer.json", model_dir / "tokenizer.json")
     with model_path.open("rb") as stream:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    tokenizer_path = model_dir / "tokenizer.json"
+    with tokenizer_path.open("rb") as stream:
+        tokenizer_digest = hashlib.file_digest(stream, "sha256").hexdigest()
     monkeypatch.setattr(runtime, "BUNDLED_EMBEDDING_SHA256", digest, raising=False)
+    monkeypatch.setattr(runtime, "BUNDLED_TOKENIZER_SHA256", tokenizer_digest, raising=False)
     monkeypatch.setattr(runtime, "BUNDLED_EMBEDDING_DIM", 8, raising=False)
 
     app = create_app(settings)

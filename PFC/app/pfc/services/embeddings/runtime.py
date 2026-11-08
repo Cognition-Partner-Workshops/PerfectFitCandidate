@@ -13,6 +13,7 @@ from pfc.services.embeddings.chunking import pipeline_version
 
 BUNDLED_EMBEDDING_NAME = "nomic-embed-text-v1.5"
 BUNDLED_EMBEDDING_SHA256 = "b4342336debaea79de872370664b0aaeb67dea4605513d00ee236ea871a81f27"
+BUNDLED_TOKENIZER_SHA256 = "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66"
 BUNDLED_EMBEDDING_DIM = 768
 
 logger = logging.getLogger(__name__)
@@ -36,11 +37,16 @@ def register_bundled_embedding_model(settings: Settings) -> int | None:
     try:
         with model_path.open("rb") as stream:
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        with tokenizer_path.open("rb") as stream:
+            tokenizer_digest = hashlib.file_digest(stream, "sha256").hexdigest()
     except FileNotFoundError:
         logger.info("Bundled embedding model files are missing")
         return None
     if digest != BUNDLED_EMBEDDING_SHA256:
         logger.warning("Bundled embedding model SHA-256 does not match the pinned model")
+        return None
+    if tokenizer_digest != BUNDLED_TOKENIZER_SHA256:
+        logger.warning("Bundled embedding tokenizer SHA-256 does not match the pinned tokenizer")
         return None
 
     version = pipeline_version("v1")
