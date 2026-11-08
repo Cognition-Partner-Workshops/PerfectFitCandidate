@@ -25,6 +25,7 @@ from pfc.domain.scoring import build_combined_basis
 from pfc.jobs.runner import JobRunner
 from pfc.services.ingestion.cv_sync import _replace_skills
 from pfc.services.ingestion.identity import resolve
+from pfc.services.ingestion.masking import phone_matches
 from pfc.services.matching import MatchingPorts, result_detail
 from pfc.services.matching.runs import _cv_id, _inputs
 from pfc.services.matching.semantic import VectorCache, semantic_inputs
@@ -37,6 +38,56 @@ def test_combined_cv_gate_scores(tmp_path: Path) -> None:
     ]
     expected = json.loads((FIXTURES / "cv_matching_gate_expected.json").read_text())
     assert actual == expected
+
+
+def test_cv_email_and_phone_facts_are_not_matching_skills(
+    settings: Settings, runner: JobRunner
+) -> None:
+    email = "private-candidate@example.test"
+    phone = "+44 7700 900123"
+    versioned_skill = "Python 3.10.12"
+    text = f"Skills: SQL, {versioned_skill}; {email}; {phone}"
+    assert [match[0] for match in phone_matches(phone)] == [phone]
+    skills = [
+        {
+            "value": value,
+            "canonical": value,
+            "evidence": value,
+            "span": [text.index(value), text.index(value) + len(value)],
+            "source": "rule",
+        }
+        for value in ("SQL", versioned_skill, email, phone)
+    ]
+    with database(settings) as db:
+        seed_demand(db, mandatory=("SQL",), jd="Required: SQL")
+        candidate = seed_candidate(db)
+        resource = seed_resource(db, candidate=candidate, skills="")
+        version = seed_cv(db, resource, candidate, skills=())
+        db.execute(
+            "UPDATE cv_versions SET text_norm=?,facts_json=? WHERE cv_version_id=?",
+            (text, json.dumps({"facts_schema": 2, "facts": {"skills": skills}}), version),
+        )
+        _replace_skills(db, version)
+        rows = db.execute(
+            "SELECT skill_raw,evidence FROM resource_skills WHERE resource_id=? AND source='CV'",
+            (resource,),
+        ).fetchall()
+        assert [tuple(row) for row in rows] == [
+            ("SQL", "SQL"),
+            (versioned_skill, versioned_skill),
+        ]
+
+    run_id = execute(settings, runner)
+    with database(settings) as db:
+        row = db.execute(
+            "SELECT matching_evidence,gaps_checks,eligibility_evidence "
+            "FROM match_results WHERE run_id=?",
+            (run_id,),
+        ).fetchone()
+        assert row is not None
+        evidence = " ".join(value or "" for value in row)
+        assert email not in evidence
+        assert phone not in evidence
 
 
 def test_combined_shared_cv_is_unique_per_resource(settings: Settings, runner: JobRunner) -> None:

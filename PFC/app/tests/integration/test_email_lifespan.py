@@ -23,6 +23,7 @@ def test_email_transport_is_closed_and_recreated_after_lifespan_restart(
 
     settings = Settings(
         data_dir=tmp_path,
+        bundled_models_dir=tmp_path / "bundled-models",
         frontend_dir=tmp_path / "no-dist",
         allowed_hosts=["testserver"],
         argon_memory_cost=1024,

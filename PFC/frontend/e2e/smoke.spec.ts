@@ -106,6 +106,7 @@ test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({
   // Analyze JD runs server-side (local LLM, or the rule-based fallback once the provider is unavailable); allow for slow CI.
   await expect(start).toBeEnabled({ timeout: 30_000 })
   await expect(page.getByText(/DL region:/)).toBeVisible()
+  await expect(page.getByText('SQL, Python', { exact: true })).toBeVisible()
   await page.getByLabel(/Qualifications/).fill('BSc Computing')
   await page.getByLabel('Location (extracted from JD)').fill('Manchester')
   await start.click()

@@ -290,6 +290,7 @@ def submit_and_wait(client: TestClient, body: dict[str, Any], csrf: str) -> tupl
 def test_nfr01_matching_and_analytics(tmp_path: Path) -> None:
     settings = Settings(
         data_dir=tmp_path,
+        bundled_models_dir=tmp_path / "bundled-models",
         frontend_dir=tmp_path / "no-frontend",
         allowed_hosts=["testserver"],
         llm_enabled=False,

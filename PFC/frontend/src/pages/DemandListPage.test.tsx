@@ -55,6 +55,35 @@ describe('JD review extraction method', () => {
   })
 })
 
+describe('JD review source text', () => {
+  beforeEach(async () => {
+    await seed()
+    await signIn('Admin', ADMIN.email, ADMIN.password)
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it('renders the JD text fetched from demand detail', async () => {
+    const jdText = 'JD text from the current demand version'
+    const getDemand = vi.spyOn(mock, 'getDemand').mockResolvedValue({
+      ...(await mock.getDemand(1)),
+      jdText,
+    })
+    renderApp('/demands')
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Review JD' }))[0])
+
+    expect(await screen.findByText(jdText)).toBeTruthy()
+    expect(getDemand).toHaveBeenCalledWith(1)
+  })
+
+  it('shows a muted message when the uploaded DL has no JD text', async () => {
+    vi.spyOn(mock, 'getDemand').mockResolvedValue({ ...(await mock.getDemand(1)), jdText: '' })
+    renderApp('/demands')
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Review JD' }))[0])
+
+    expect(await screen.findByText('No JD text in the uploaded DL')).toBeTruthy()
+  })
+})
+
 /** JD review edits qualifications and the location/onsite flag extracted from the JD, apart from the DL region (REQ-MAT-02). */
 describe('JD review qualifications and location', () => {
   beforeEach(async () => {

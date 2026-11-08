@@ -16,7 +16,11 @@ NOW = "2026-11-06T00:00:00Z"
 
 def initialize(path: Path) -> Settings:
     settings = Settings(
-        data_dir=path, argon_memory_cost=1024, argon_time_cost=1, argon_parallelism=1
+        data_dir=path,
+        bundled_models_dir=path / "bundled-models",
+        argon_memory_cost=1024,
+        argon_time_cost=1,
+        argon_parallelism=1,
     )
     migrate(settings)
     with database(settings) as db:

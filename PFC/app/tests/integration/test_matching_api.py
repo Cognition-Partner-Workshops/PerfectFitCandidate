@@ -1,6 +1,8 @@
 """TDD §12 authenticated contracts against the production app and real SQLite."""
 
+import hashlib
 import json
+import shutil
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
@@ -25,8 +27,10 @@ from pfc.db.audit import verify_chain
 from pfc.db.connection import database
 from pfc.main import create_app
 from pfc.security.setup import code_path
+from pfc.services.embeddings import runtime
 from pfc.services.embeddings.chunking import OwnerType
 from pfc.services.matching import MatchingPorts, confirm_requirements
+from tests.unit.services.embeddings.conftest import tiny_bundle
 
 PASSWORD = "Strong!Random4567"
 SAMPLE_EMAIL = "AlexBorder@capgemini.com"
@@ -38,6 +42,7 @@ def api(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[Api]:
     settings = Settings(
         data_dir=tmp_path,
         frontend_dir=tmp_path / "no-frontend",
+        bundled_models_dir=tmp_path / "bundled-models",
         allowed_hosts=["testserver"],
         argon_memory_cost=1024,
         argon_time_cost=1,
@@ -74,6 +79,77 @@ def api(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[Api]:
         assert login.status_code == 200, login.text
         assert login.json()["user"]["role"] == request.param
         yield client, {"X-CSRF-Token": login.json()["csrf_token"]}
+
+
+def test_confirm_starts_matching_with_registered_bundled_embedding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        config_dir=tmp_path / "config",
+        bundled_models_dir=tmp_path / "models",
+        frontend_dir=tmp_path / "no-frontend",
+        allowed_hosts=["testserver"],
+        argon_memory_cost=1024,
+        argon_time_cost=1,
+        argon_parallelism=1,
+        job_workers=1,
+        llm_enabled=False,
+    )
+    source_model = tiny_bundle(tmp_path / "tiny-bundle")
+    model_dir = settings.bundled_models_dir / "nomic-embed-text-v1.5"
+    model_dir.mkdir(parents=True)
+    model_path = model_dir / "model_int8.onnx"
+    shutil.copyfile(source_model, model_path)
+    shutil.copyfile(source_model.parent / "tokenizer.json", model_dir / "tokenizer.json")
+    with model_path.open("rb") as stream:
+        digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    tokenizer_path = model_dir / "tokenizer.json"
+    with tokenizer_path.open("rb") as stream:
+        tokenizer_digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    monkeypatch.setattr(runtime, "BUNDLED_EMBEDDING_SHA256", digest, raising=False)
+    monkeypatch.setattr(runtime, "BUNDLED_TOKENIZER_SHA256", tokenizer_digest, raising=False)
+    monkeypatch.setattr(runtime, "BUNDLED_EMBEDDING_DIM", 8, raising=False)
+
+    app = create_app(settings)
+    app.state.clock = lambda: NOW
+    with TestClient(app, raise_server_exceptions=False) as client:
+        setup = client.post(
+            "/api/v1/setup/admin",
+            json={
+                "setup_code": code_path(settings).read_text(),
+                "email": SAMPLE_EMAIL,
+                "display_name": "Reviewer",
+                "password": PASSWORD,
+            },
+        )
+        assert setup.status_code == 201, setup.text
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"role": "Admin", "email": SAMPLE_EMAIL, "password": PASSWORD},
+        )
+        assert login.status_code == 200, login.text
+        headers = {"X-CSRF-Token": login.json()["csrf_token"]}
+        with database(settings) as db:
+            demand_id = seed_demand(db, confirmed=False, jd="Required: SQL")
+            candidate_id = seed_candidate(db)
+            seed_resource(db, candidate=candidate_id, skills="SQL")
+
+        analyzed = client.post(f"/api/v1/demands/{demand_id}/analyze", headers=headers)
+        assert analyzed.status_code == 200, analyzed.text
+        response = client.post(f"/api/v1/demands/{demand_id}/requirements/confirm", headers=headers)
+        assert response.status_code == 202, response.text
+        assert isinstance(response.json().get("runId"), int)
+        run_id = finish(client, response)
+        with database(settings) as db:
+            run_status = db.execute(
+                "SELECT status FROM match_runs WHERE run_id=?", (run_id,)
+            ).fetchone()[0]
+            result_count = db.execute(
+                "SELECT COUNT(*) FROM match_results WHERE run_id=?", (run_id,)
+            ).fetchone()[0]
+        assert run_status == "completed"
+        assert result_count > 0
 
 
 def problem(response: Response, status: int, code: str | None = None) -> None:

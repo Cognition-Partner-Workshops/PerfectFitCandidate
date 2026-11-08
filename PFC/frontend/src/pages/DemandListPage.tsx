@@ -104,6 +104,11 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
       return analyzeOnce()
     },
   })
+  const jd = useQuery({
+    queryKey: ['demand', demand.demandId],
+    queryFn: () => api.getDemand(demand.demandId),
+  })
+  const jdText = jd.data?.jdText ?? ''
   const [edit, setEdit] = useState<JdRequirements | null>(null)
   const value = edit ?? req.data
   const metadata = value?.items
@@ -155,9 +160,17 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
         <div className="grid-12">
           <div className="span-6">
             <strong className="small">Job description (normalised, read-only)</strong>
-            <pre className="card small" style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
-              {demand.jdText}
-            </pre>
+            {jd.isError ? (
+              <ErrorState error={jd.error} />
+            ) : jd.isLoading ? (
+              <Spinner />
+            ) : jdText.trim() ? (
+              <pre className="card small" style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
+                {jdText}
+              </pre>
+            ) : (
+              <span className="small muted">No JD text in the uploaded DL</span>
+            )}
           </div>
           <div className="span-6 stack">
             {jdChanged && (

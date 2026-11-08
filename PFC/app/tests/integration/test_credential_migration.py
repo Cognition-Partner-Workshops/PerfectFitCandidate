@@ -21,7 +21,12 @@ def file_bytes(settings: Settings) -> bytes:
 
 
 def seeded(tmp_path: Path) -> Settings:
-    settings = Settings(data_dir=tmp_path, frontend_dir=tmp_path, allowed_hosts=["testserver"])
+    settings = Settings(
+        data_dir=tmp_path,
+        bundled_models_dir=tmp_path / "bundled-models",
+        frontend_dir=tmp_path,
+        allowed_hosts=["testserver"],
+    )
     migrate(settings)
     with database(settings) as db:
         db.execute(

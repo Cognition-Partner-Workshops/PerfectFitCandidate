@@ -39,6 +39,8 @@ import {
   type IngestionRunRow,
   toDemand,
   type DemandItem,
+  toDemandDetail,
+  type DemandDetailRow,
   toAnalyticsSummary,
   toBenchAnalytics,
   toDemandAnalytics,
@@ -193,6 +195,8 @@ export class HttpApiClient implements ApiClient {
 
   listDemands: ApiClient['listDemands'] = async () =>
     (await this.allPages<DemandItem>((page) => this.request('GET', `/demands?page=${page}&page_size=200`))).map(toDemand)
+  getDemand: ApiClient['getDemand'] = async (id) =>
+    toDemandDetail(await this.request<DemandDetailRow>('GET', `/demands/${id}`))
   analyzeDemands: ApiClient['analyzeDemands'] = (ids) => this.request('POST', '/demands/analyze', { demandIds: ids })
   analyzeDemand: ApiClient['analyzeDemand'] = (id) => this.request('POST', `/demands/${id}/analyze`)
   getRequirements: ApiClient['getRequirements'] = (id) => this.request('GET', `/demands/${id}/requirements`)

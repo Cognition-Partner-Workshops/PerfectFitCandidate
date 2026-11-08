@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 import sqlite3
 from pathlib import Path
 
@@ -10,9 +11,75 @@ from pfc.config import Settings
 from pfc.db.connection import database
 from pfc.services.embeddings.chunking import pipeline_version
 
+BUNDLED_EMBEDDING_NAME = "nomic-embed-text-v1.5"
+BUNDLED_EMBEDDING_SHA256 = "b4342336debaea79de872370664b0aaeb67dea4605513d00ee236ea871a81f27"
+BUNDLED_TOKENIZER_SHA256 = "d241a60d5e8f04cc1b2b3e9ef7a4921b27bf526d9f6050ab90f9267a1f9e5c66"
+BUNDLED_EMBEDDING_DIM = 768
+
+logger = logging.getLogger(__name__)
+
 
 class EmbeddingModelUnavailable(RuntimeError):
     pass
+
+
+def register_bundled_embedding_model(settings: Settings) -> int | None:
+    model_dir = settings.bundled_models_dir / BUNDLED_EMBEDDING_NAME
+    model_path = model_dir / "model_int8.onnx"
+    tokenizer_path = model_dir / "tokenizer.json"
+    with database(settings) as db:
+        if db.execute("SELECT 1 FROM embedding_models WHERE is_active=1").fetchone():
+            return None
+
+    if not model_path.is_file() or not tokenizer_path.is_file():
+        logger.info("Bundled embedding model files are missing")
+        return None
+    try:
+        with model_path.open("rb") as stream:
+            digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        with tokenizer_path.open("rb") as stream:
+            tokenizer_digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    except FileNotFoundError:
+        logger.info("Bundled embedding model files are missing")
+        return None
+    if digest != BUNDLED_EMBEDDING_SHA256:
+        logger.warning("Bundled embedding model SHA-256 does not match the pinned model")
+        return None
+    if tokenizer_digest != BUNDLED_TOKENIZER_SHA256:
+        logger.warning("Bundled embedding tokenizer SHA-256 does not match the pinned tokenizer")
+        return None
+
+    version = pipeline_version("v1")
+    with database(settings) as db:
+        db.execute("BEGIN IMMEDIATE")
+        if db.execute("SELECT 1 FROM embedding_models WHERE is_active=1").fetchone():
+            return None
+        db.execute(
+            "INSERT INTO embedding_models(name,runtime,file_sha256,dim,normalised,"
+            "pipeline_version,is_active) VALUES (?,?,?,?,?,?,0) "
+            "ON CONFLICT(name,file_sha256,pipeline_version) DO NOTHING",
+            (
+                BUNDLED_EMBEDDING_NAME,
+                "onnx",
+                digest,
+                BUNDLED_EMBEDDING_DIM,
+                1,
+                version,
+            ),
+        )
+        row = db.execute(
+            "SELECT embedding_model_id FROM embedding_models "
+            "WHERE name=? AND file_sha256=? AND pipeline_version=?",
+            (BUNDLED_EMBEDDING_NAME, digest, version),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("Bundled embedding model registration did not create a row")
+        model_id = int(row["embedding_model_id"])
+        db.execute(
+            "UPDATE embedding_models SET is_active=1 WHERE embedding_model_id=?", (model_id,)
+        )
+    logger.info("Registered bundled embedding model %s", BUNDLED_EMBEDDING_NAME)
+    return model_id
 
 
 def verify_model_file(path: Path, expected_sha256: str) -> None:

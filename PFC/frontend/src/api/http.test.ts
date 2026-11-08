@@ -43,6 +43,31 @@ describe('HttpApiClient — TDD §9.3 session + CSRF', () => {
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['/api/v1/candidates/3/summary', '/api/v1/candidates/3/summary', '/api/v1/demands/4/summary', '/api/v1/demands/4/summary'])
     expect(fetchMock.mock.calls.map(([, options]) => options.method)).toEqual(['GET', 'POST', 'GET', 'POST'])
   })
+  it('maps the newest demand version text from demand detail', async () => {
+    fetchMock.mockResolvedValueOnce(json({
+      demand_id: 4,
+      code_requisition: 'T10004',
+      id_format_ok: true,
+      position_start_date: null,
+      account_name: null,
+      code_local_grade: null,
+      demand_request_name: null,
+      region: null,
+      bu: null,
+      owner: null,
+      jd_status: 'Not analysed',
+      current_version_id: 2,
+      versions: [
+        { version_no: 2, jd_sha256: 'new', created_at: 'now', jd_text_norm: 'Latest JD text' },
+        { version_no: 1, jd_sha256: 'old', created_at: 'before', jd_text_norm: 'Older JD text' },
+      ],
+    }))
+    const client = new HttpApiClient('/api/v1')
+
+    expect((await client.getDemand(4)).jdText).toBe('Latest JD text')
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/v1/demands/4')
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).method).toBe('GET')
+  })
   it('preserves additive JD evidence flags through requirements review and save', async () => {
     const api = new HttpApiClient('/api/v1')
     const row = { demandId: 1, mandatorySkills: ['SQL'], items: [{ kind: 'mandatory_skill', text: 'SQL', jdReqId: 7, evidence: null, evidenceUnverified: true }] }

@@ -99,7 +99,7 @@ try {
     if ($process.ExitCode -ne 0) { throw "Standard-user smoke exited $($process.ExitCode)" }
     if ($violations.Count) { throw "Non-loopback app connections observed: $($violations -join ', ')" }
     $metrics = Get-Content "$root/smoke-metrics.json" -Raw | ConvertFrom-Json
-    if (-not $metrics.shutdown_clean -or $metrics.token_elevated -or $metrics.administrator) { throw 'Smoke evidence failed' }
+    if (-not $metrics.shutdown_clean -or -not $metrics.bundled_embedding_active -or $metrics.token_elevated -or $metrics.administrator) { throw 'Smoke evidence failed' }
     Copy-Item "$root/smoke-metrics.json" $evidence
     @"
 ## Model-complete offline first run — Windows CI/VM, not target laptop
@@ -110,6 +110,7 @@ try {
 - Non-admin: dedicated local Users-group account; actual launcher TokenElevation=false and IsUserAnAdmin=false
 - Egress: outbound firewall blocks non-loopback IPv4/IPv6 for packaged Python and llama-server; dead HTTP(S)/ALL proxies
 - Non-loopback app TCP connections observed: $($violations.Count) (snapshot sampling, not proof of zero attempted packets)
+- Bundled embedding registered before smoke re-embed: $($metrics.bundled_embedding_active)
 - Re-embed: $($metrics.reembed_job_status); generation: $($metrics.generation_chars) characters; clean shutdown: $($metrics.shutdown_clean)
 - CI explicitly exercises the pinned GGUF; production model approval defaults are unchanged.
 "@ | Add-Content $env:GITHUB_STEP_SUMMARY

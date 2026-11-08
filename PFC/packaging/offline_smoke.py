@@ -195,6 +195,14 @@ def main() -> None:
                     )
                     assert result.text.strip(), "llama-server returned no generation"
                     metrics["generation_chars"] = len(result.text)
+                    with database(settings) as db:
+                        active_embedding = db.execute(
+                            "SELECT name,file_sha256 FROM embedding_models WHERE is_active=1"
+                        ).fetchone()
+                    assert active_embedding is not None, "Bundled embedding model is not active"
+                    assert active_embedding["name"] == "nomic-embed-text-v1.5"
+                    assert active_embedding["file_sha256"] == onnx["sha256"]
+                    metrics["bundled_embedding_active"] = True
                     job_id = tiny_reembed(settings, app, onnx["sha256"])
                     while True:
                         job = app.state.job_runner.get(job_id)

@@ -96,7 +96,9 @@ class FakeStore:
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
-    result = Settings(data_dir=tmp_path, job_workers=1)
+    result = Settings(
+        data_dir=tmp_path, bundled_models_dir=tmp_path / "bundled-models", job_workers=1
+    )
     migrate(result)
     with database(result) as db:
         seed_reference_data(db)
