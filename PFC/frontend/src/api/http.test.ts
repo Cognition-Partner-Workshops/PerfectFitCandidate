@@ -31,6 +31,39 @@ afterEach(() => {
   setUnauthorizedHandler(null)
 })
 
+it('maps email transport and handoff timestamps from the backend', async () => {
+  const api = new HttpApiClient('/api/v1')
+  const draft = {
+    message_id: 7,
+    demand_id: 3,
+    resource_id: 4,
+    result_id: 5,
+    rank: 1,
+    selected: true,
+    to_address: 'candidate@example.com',
+    cc: [],
+    subject: 'Subject',
+    body_html: '<p>Body</p>',
+    status: 'Sending',
+    created_at: '2026-01-01T00:00:00Z',
+    sent_at: null,
+    handoff_at: '2026-01-02T03:04:05Z',
+    last_error: null,
+  }
+  fetchMock
+    .mockResolvedValueOnce(json({ drafts: [draft], transport: 'eml_handoff' }))
+    .mockResolvedValueOnce(json({ drafts: [draft], transport: 'other' }))
+
+  const handoff = await api.listEmails()
+  expect(handoff.items[0]?.handoffAt).toBe(draft.handoff_at)
+  expect(handoff.items[0]?.status).toBe('Approved')
+  expect(handoff.transport).toEqual({ transport: 'Outlook draft file', outlookDetected: false })
+  expect((await api.listEmails()).transport).toEqual({
+    transport: 'Outlook COM',
+    outlookDetected: true,
+  })
+})
+
 describe('HttpApiClient — TDD §9.3 session + CSRF', () => {
   it('uses the four summary routes and preserves their camelCase response', async () => {
     const summary = { sentences: [{ text: 'SQL', evidence: 'SQL' }], model: 'local', createdAt: 'now', stale: true, droppedUngrounded: 1, sourceVersionId: 7 }

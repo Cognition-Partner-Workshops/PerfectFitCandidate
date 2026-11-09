@@ -260,13 +260,13 @@ Requirements: NFR-01, REQ-MAT-07 (incremental re-scoring); exit criterion P1-EX-
 
 Notes:
 
-## 6. Outlook COM draft and send to a test mailbox
+## 6. Outlook draft-file handoff and analyst confirmation
 
 Requirements: REQ-EML-01, REQ-EML-04, REQ-EML-05.
 
 **Preconditions**
 
-- Corporate Outlook desktop is installed, signed in and open on the laptop.
+- New Outlook is the default mail app on the laptop.
 - A delivery-team test mailbox on an internal domain is listed in **OCC → Internal
   domains**.
 - A synthetic CT row uses the test mailbox as its Email Address, and that candidate
@@ -276,18 +276,25 @@ Requirements: REQ-EML-01, REQ-EML-04, REQ-EML-05.
 
 1. In **Match Results**, select the synthetic candidate and choose **Send selected to
    Email Approval**.
-2. In **Email Approval**, open the draft. Check the recipient, subject and body.
-   Choose **Approve**, then **Send**.
-3. Check Outlook's Sent Items and the test mailbox's Inbox.
-4. Repeat once with Outlook closed, and record what PFC shows.
+2. In **Email Approval**, check the recipient, subject, formatted body and JD
+   attachment. Choose **Approve**, then **Open in Outlook**.
+3. Check the editable draft in Outlook, click **Send** there, then choose **Mark as
+   sent** in PFC. Check the test mailbox's Inbox and the PFC status.
+4. For a second email, choose **Open in Outlook**, close the draft without sending,
+   then choose **Not sent** in PFC. Verify the status returns to Approved.
+5. Confirm the corresponding `.eml` no longer exists in the PFC `email/outbox`
+   directory after each confirmation.
+6. Optional, if classic Outlook is available: ask an Admin to select **Outlook COM**
+   and verify the existing COM draft/send flow separately.
 
 **Expected result**
 
 - Nothing is sent before **Approve**.
-- After **Send**, the email arrives in the test mailbox with the approved content,
-  and the PFC status shows it as sent.
-- With Outlook closed, PFC shows a clear send failure and **Retry send**; it doesn't
-  report the email as sent.
+- The draft opens with the approved content and attachment; the email reaches the test
+  mailbox only after the analyst clicks **Send** in Outlook.
+- **Mark as sent** records Sent in PFC. **Not sent** returns the email to Approved.
+- PFC removes the draft file after either confirmation and does not automatically send
+  or infer delivery from Outlook Sent Items.
 
 **Evidence**
 
@@ -296,8 +303,10 @@ Requirements: REQ-EML-01, REQ-EML-04, REQ-EML-05.
 | Draft content correct | | | |
 | Send blocked until Approve | | | |
 | Arrived in test mailbox (time) | | | |
-| PFC status after send | | | |
-| Behaviour with Outlook closed | | | |
+| PFC status after Mark as sent | | | |
+| Not-sent path returns to Approved | | | |
+| Outbox file removed after confirmation | | | |
+| Optional COM path (classic Outlook only) | | | |
 
 Notes:
 

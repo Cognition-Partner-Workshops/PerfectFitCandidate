@@ -137,6 +137,7 @@ export interface EmailRow {
   status: EmailDraft['status'] | 'Sending' | 'Discarded'
   created_at: string
   sent_at: string | null
+  handoff_at?: string | null
   last_error: string | null
 }
 /** Requisition/candidate context comes from matching (#10); until then those fields stay empty. */
@@ -159,6 +160,7 @@ export const toEmailDraft = (e: EmailRow): EmailDraft => ({
   preselected: e.selected,
   demandUploadedAt: e.created_at,
   sentAt: e.sent_at ?? undefined,
+  handoffAt: e.handoff_at ?? undefined,
   failureReason: e.last_error ?? undefined,
 })
 
@@ -199,6 +201,7 @@ export const ADMIN_SETTING_KEYS: Record<keyof AdminSettings, string> = {
   staleDataDays: 'data.stale_warning_days',
   emailTurnaroundHours: 'email.turnaround_hours',
   allowExternalProviders: 'llm.allow_external_providers',
+  emailTransport: 'email.transport',
 }
 export function toAdminSettings(row: Record<string, unknown>, defaults: AdminSettings): AdminSettings {
   const out = { ...defaults } as Record<keyof AdminSettings, unknown>

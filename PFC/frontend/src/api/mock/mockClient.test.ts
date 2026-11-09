@@ -146,6 +146,8 @@ describe('mock reading-only summaries', () => {
 describe('mock email approval (REQ-EML-01/06)', () => {
   it('requires approval before send and guards duplicate sends', async () => {
     await api.login({ role: 'Admin', email: ADMIN.email, password: ADMIN.password })
+    const settings = await api.getAdminSettings()
+    await api.saveAdminSettings({ ...settings, emailTransport: 'outlook_com' })
     const { items } = await api.listEmails()
     const draft = items.find((e) => e.status === 'Draft')
     if (!draft) throw new Error('no draft')
@@ -157,6 +159,20 @@ describe('mock email approval (REQ-EML-01/06)', () => {
     expect(again?.previouslySentAt).toBeTruthy()
     expect(await code(api.approveEmail(again?.emailId ?? 0))).toBe('EMAIL_DUPLICATE_PAIR')
     expect((await api.approveEmail(again?.emailId ?? 0, true)).status).toBe('Approved')
+  })
+  it('keeps draft-file sending analyst-confirmed', async () => {
+    await api.login({ role: 'Admin', email: ADMIN.email, password: ADMIN.password })
+    const { items, transport } = await api.listEmails()
+    expect(transport.transport).toBe('Outlook draft file')
+    const draft = items.find((e) => e.status === 'Draft')
+    if (!draft) throw new Error('no draft')
+    await api.approveEmail(draft.emailId)
+    expect((await api.sendEmail(draft.emailId)).status).toBe('Approved')
+
+    const handoff = await api.openEmailInOutlook(draft.emailId)
+    expect(handoff.opened).toBe(false)
+    expect(handoff.draft.handoffAt).toBeTruthy()
+    expect((await api.confirmEmailHandoff(draft.emailId, true)).status).toBe('Sent')
   })
   it('pre-selects exactly the top 4 per requisition', async () => {
     await api.login({ role: 'Admin', email: ADMIN.email, password: ADMIN.password })

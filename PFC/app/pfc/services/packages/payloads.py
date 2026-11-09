@@ -91,7 +91,13 @@ TABLES: dict[str, tuple[str, ...]] = {
     ),
 }
 SYSTEM_KEYS = frozenset(
-    {"dl.approvals", "ct.approvals", "ingestion.dl.approvals", "ingestion.ct.approvals"}
+    {
+        "dl.approvals",
+        "ct.approvals",
+        "ingestion.dl.approvals",
+        "ingestion.ct.approvals",
+        "email.transport",
+    }
 )
 NATURAL_KEYS = {
     "skills": ("name",),

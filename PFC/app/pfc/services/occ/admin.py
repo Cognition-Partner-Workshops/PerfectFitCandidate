@@ -262,6 +262,15 @@ def settings_put(
             r"[a-z][a-z0-9_]*(\.[a-z0-9_]+)+", key
         ):
             raise Problem(422, "VALIDATION_ERROR", "Invalid or reserved settings key")
+    if "email.transport" in values and values["email.transport"] not in (
+        "eml_handoff",
+        "outlook_com",
+    ):
+        raise Problem(
+            422,
+            "VALIDATION_ERROR",
+            "email.transport must be eml_handoff or outlook_com",
+        )
     before = settings_get(db, user_id, settings)
     try:
         encoded = {key: json.dumps(value, allow_nan=False) for key, value in values.items()}

@@ -105,12 +105,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             with suppress(asyncio.CancelledError):
                 await cleanup
             try:
-                email_transport = getattr(app.state, "email_transport", None)
-                close_transport = getattr(email_transport, "close", None)
-                if callable(close_transport):
-                    close_transport()
+                for transport_name in ("email_transport", "email_com_transport"):
+                    email_transport = getattr(app.state, transport_name, None)
+                    close_transport = getattr(email_transport, "close", None)
+                    if callable(close_transport):
+                        close_transport()
             finally:
                 app.state.email_transport = None
+                app.state.email_com_transport = None
                 app.state.job_runner.shutdown()
 
     app = FastAPI(title="PerfectFitCandidate", lifespan=lifespan)

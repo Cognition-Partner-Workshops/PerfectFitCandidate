@@ -1051,7 +1051,49 @@ export class MockApiClient implements ApiClient {
 
   async listEmails(): Promise<EmailList> {
     this.currentUser()
-    return this.done({ items: this.state.emails, transport: { transport: 'Outlook COM', outlookDetected: true } })
+    const transport =
+      this.state.adminSettings.emailTransport === 'eml_handoff'
+        ? 'Outlook draft file'
+        : 'Outlook COM'
+    return this.done({
+      items: this.state.emails,
+      transport: { transport, outlookDetected: transport === 'Outlook COM' },
+    })
+  }
+
+  async openEmailInOutlook(id: number) {
+    this.currentUser()
+    const e = this.email(id)
+    if (e.status !== 'Approved' && e.status !== 'Failed') {
+      fail(409, 'Approve the email before opening an Outlook draft', 'EMAIL_NOT_APPROVED')
+    }
+    e.handoffAt ??= iso()
+    return this.done({ draft: e, opened: false })
+  }
+
+  async downloadEmailDraft(id: number) {
+    this.currentUser()
+    this.email(id)
+    return this.done({
+      blob: new Blob(['PFC Outlook draft'], { type: 'message/rfc822' }),
+      fileName: `PFC-email-${id}.eml`,
+    })
+  }
+
+  async confirmEmailHandoff(id: number, sent: boolean) {
+    this.currentUser()
+    const e = this.email(id)
+    if (!e.handoffAt) fail(409, 'Email does not have an active Outlook draft handoff', 'EMAIL_HANDOFF')
+    if (sent) {
+      e.status = 'Sent'
+      e.sentAt = iso()
+      this.audit(`Email handoff confirmed as sent for ${e.codeRequisition}`)
+    } else {
+      e.status = 'Approved'
+      e.handoffAt = undefined
+      this.audit(`Email handoff cancelled for ${e.codeRequisition}`)
+    }
+    return this.done(e)
   }
 
   private email(id: number): EmailDraft {
@@ -1083,6 +1125,7 @@ export class MockApiClient implements ApiClient {
   async sendEmail(id: number) {
     this.currentUser()
     const e = this.email(id)
+    if (this.state.adminSettings.emailTransport === 'eml_handoff') return this.done(e)
     if (e.status !== 'Approved' && e.status !== 'Failed') fail(409, 'Approve the email before sending', 'EMAIL_NOT_APPROVED')
     e.status = 'Sent'
     e.sentAt = iso()

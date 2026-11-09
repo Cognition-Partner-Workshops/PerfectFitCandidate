@@ -46,6 +46,10 @@ class EmailSendRequest(BaseModel):
         return self
 
 
+class EmailHandoffConfirmRequest(BaseModel):
+    sent: bool
+
+
 class EmailDraftView(BaseModel):
     message_id: int
     demand_id: int
@@ -63,8 +67,14 @@ class EmailDraftView(BaseModel):
     created_at: str
     updated_at: str
     sent_at: str | None
+    handoff_at: str | None
     last_error: str | None
     attachment_name: str | None
+
+
+class EmailHandoffResponse(BaseModel):
+    draft: EmailDraftView
+    opened: bool
 
 
 class EmailDraftIssueView(BaseModel):
@@ -83,6 +93,7 @@ class EmailDraftListResponse(BaseModel):
     drafts: list[EmailDraftView]
     status_counts: dict[str, int]
     sent_count: int
+    transport: Literal["outlook_com", "eml_handoff", "other"]
 
 
 class EmailSendOutcomeView(BaseModel):

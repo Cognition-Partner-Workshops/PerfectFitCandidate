@@ -7,6 +7,7 @@ from starlette.requests import Request
 from pfc.adapters.email.transports import FakeTransport
 from pfc.api.routers import email as email_router
 from pfc.config import Settings
+from pfc.db.connection import database
 from pfc.main import create_app
 
 
@@ -48,11 +49,17 @@ def test_email_transport_is_closed_and_recreated_after_lifespan_restart(
     assert first_transport.closed
     assert app.state.email_transport is None
 
+    with database(settings) as db:
+        db.execute(
+            "INSERT INTO settings(scope,key,value_json,admin_only,updated_at) "
+            "VALUES ('system','email.transport','\"outlook_com\"',1,'2026-01-01T00:00:00Z')"
+        )
     with TestClient(app):
         email_router.get_email_service(Request({"type": "http", "app": app}))
-        second_transport = app.state.email_transport
+        second_transport = app.state.email_com_transport
         assert second_transport is transports_created_by_dependency[0]
         assert second_transport is not first_transport
         assert not second_transport.closed
 
     assert second_transport.closed
+    assert app.state.email_com_transport is None

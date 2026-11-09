@@ -5,8 +5,10 @@ import sqlite3
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from email import message_from_bytes
+from email.policy import default
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from fastapi import FastAPI
@@ -17,6 +19,7 @@ from pfc.adapters.email.transports import (
     DeliveryResult,
     EmailMessage,
     EmailTransportError,
+    EmlHandoffTransport,
     FakeTransport,
 )
 from pfc.adapters.llm.providers import FakeProvider
@@ -221,6 +224,20 @@ def create_drafts(client: TestClient, csrf: str, run_id: int) -> Response:
     )
 
 
+def create_approved_draft(client: TestClient) -> tuple[str, dict[str, Any]]:
+    run_id, _ = seed_matches(client)
+    csrf = login(client)
+    response = create_drafts(client, csrf, run_id)
+    assert response.status_code == 201, response.text
+    draft = response.json()["drafts"][0]
+    approved = client.post(
+        f"/api/v1/emails/{draft['message_id']}/approve",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert approved.status_code == 200, approved.text
+    return csrf, draft
+
+
 def test_create_defaults_to_four_of_top_five_and_lists_counts(client: TestClient) -> None:
     run_id, _ = seed_matches(client)
     csrf = login(client)
@@ -239,6 +256,7 @@ def test_create_defaults_to_four_of_top_five_and_lists_counts(client: TestClient
     assert len(listing.json()["drafts"]) == 5
     assert listing.json()["status_counts"] == {"Draft": 5}
     assert listing.json()["sent_count"] == 0
+    assert listing.json()["transport"] == "other"
 
 
 def test_demand_scope_and_result_filter_select_only_top_five(client: TestClient) -> None:
@@ -680,3 +698,316 @@ def test_rbac_and_csrf_are_enforced(client: TestClient) -> None:
     assert missing_csrf.json()["code"] == "CSRF_INVALID"
     permitted = create_drafts(client, csrf, run_id)
     assert permitted.status_code == 201
+
+
+def test_eml_handoff_requires_approval_and_serves_audited_draft(client: TestClient) -> None:
+    opened: list[Path] = []
+    client.app.state.email_transport = EmlHandoffTransport(opener=opened.append)
+    run_id, _ = seed_matches(client)
+    csrf = login(client)
+    draft = create_drafts(client, csrf, run_id).json()["drafts"][0]
+    message_id = draft["message_id"]
+    download_path = f"/api/v1/emails/{message_id}/handoff.eml"
+
+    rejected = client.post(
+        f"/api/v1/emails/{message_id}/handoff",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert rejected.status_code == 409
+    assert client.get(download_path).status_code == 409
+
+    approved = client.post(
+        f"/api/v1/emails/{message_id}/approve",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert approved.status_code == 200
+    handed_off = client.post(
+        f"/api/v1/emails/{message_id}/handoff",
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert handed_off.status_code == 200, handed_off.text
+    assert handed_off.json()["opened"] is True
+    assert handed_off.json()["draft"]["status"] == "Sending"
+    assert handed_off.json()["draft"]["handoff_at"]
+    outbox_path = client.app.state.settings.data_dir / "email" / "outbox" / f"{message_id}.eml"
+    assert message_from_bytes(outbox_path.read_bytes(), policy=default)["X-Unsent"] == "1"
+
+    opened_again = client.post(
+        f"/api/v1/emails/{message_id}/handoff",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert opened_again.status_code == 200
+    assert opened_again.json()["draft"]["handoff_at"] == handed_off.json()["draft"]["handoff_at"]
+    assert opened == [outbox_path, outbox_path]
+    downloaded = client.get(download_path)
+    assert downloaded.status_code == 200
+    assert downloaded.headers["content-type"] == "message/rfc822"
+    assert downloaded.headers["content-disposition"] == (
+        f'attachment; filename="PFC-email-{message_id}.eml"'
+    )
+    assert message_from_bytes(downloaded.content, policy=default)["X-Unsent"] == "1"
+    with database(client.app.state.settings) as db:
+        audit_rows = db.execute(
+            "SELECT action, details_json FROM audit_log WHERE entity_id=? "
+            "AND action='EMAIL_HANDOFF' ORDER BY audit_id",
+            (str(message_id),),
+        ).fetchall()
+        persisted = db.execute(
+            "SELECT status, attempts, handoff_at FROM email_messages WHERE message_id=?",
+            (message_id,),
+        ).fetchone()
+        assert audit.verify_chain(db)
+    assert [row["action"] for row in audit_rows] == ["EMAIL_HANDOFF", "EMAIL_HANDOFF"]
+    assert [json.loads(row["details_json"])["repeat"] for row in audit_rows] == [False, True]
+    assert tuple(persisted) == ("Sending", 1, handed_off.json()["draft"]["handoff_at"])
+
+
+def test_eml_handoff_rejects_a_non_manual_transport(client: TestClient) -> None:
+    csrf, draft = create_approved_draft(client)
+
+    response = client.post(
+        f"/api/v1/emails/{draft['message_id']}/handoff",
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "EMAIL_TRANSPORT_MISMATCH"
+
+
+def test_eml_handoff_attachment_failure_keeps_handoff_active(client: TestClient) -> None:
+    client.app.state.email_transport = EmlHandoffTransport()
+    csrf, draft = create_approved_draft(client)
+    message_id = draft["message_id"]
+
+    with database(client.app.state.settings) as db:
+        attachment = db.execute(
+            "SELECT jd_attachment_path FROM email_messages WHERE message_id=?",
+            (message_id,),
+        ).fetchone()["jd_attachment_path"]
+    (client.app.state.settings.data_dir / attachment).unlink()
+
+    failed = client.post(
+        f"/api/v1/emails/{message_id}/handoff",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert failed.status_code == 503
+    assert failed.json()["code"] == "EMAIL_HANDOFF_FAILED"
+    unavailable = client.get(f"/api/v1/emails/{message_id}/handoff.eml")
+    assert unavailable.status_code == 503
+    assert unavailable.json()["code"] == "EMAIL_HANDOFF_FAILED"
+    with database(client.app.state.settings) as db:
+        row = db.execute(
+            "SELECT status, handoff_at FROM email_messages WHERE message_id=?",
+            (message_id,),
+        ).fetchone()
+    assert row["status"] == "Sending"
+    assert row["handoff_at"] is not None
+
+    cancelled = client.post(
+        f"/api/v1/emails/{message_id}/handoff/confirm",
+        headers={"X-CSRF-Token": csrf},
+        json={"sent": False},
+    )
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "Approved"
+    assert cancelled.json()["handoff_at"] is None
+
+
+@pytest.mark.parametrize("sent", [True, False])
+def test_eml_handoff_confirmation_cleans_outbox_and_updates_state(
+    client: TestClient, sent: bool
+) -> None:
+    client.app.state.email_transport = EmlHandoffTransport()
+    csrf, draft = create_approved_draft(client)
+    message_id = draft["message_id"]
+    outbox_path = client.app.state.settings.data_dir / "email" / "outbox" / f"{message_id}.eml"
+    inactive_confirm = client.post(
+        f"/api/v1/emails/{message_id}/handoff/confirm",
+        headers={"X-CSRF-Token": csrf},
+        json={"sent": True},
+    )
+    assert inactive_confirm.status_code == 409
+    handed_off = client.post(
+        f"/api/v1/emails/{message_id}/handoff",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert handed_off.status_code == 200
+    confirmed = client.post(
+        f"/api/v1/emails/{message_id}/handoff/confirm",
+        headers={"X-CSRF-Token": csrf},
+        json={"sent": sent},
+    )
+
+    assert confirmed.status_code == 200, confirmed.text
+    assert not outbox_path.exists()
+    expected_status = "Sent" if sent else "Approved"
+    assert confirmed.json()["status"] == expected_status
+    assert confirmed.json()["handoff_at"] == (
+        handed_off.json()["draft"]["handoff_at"] if sent else None
+    )
+    with database(client.app.state.settings) as db:
+        row = db.execute(
+            "SELECT status, sent_at, sent_by, handoff_at FROM email_messages WHERE message_id=?",
+            (message_id,),
+        ).fetchone()
+        event = db.execute(
+            "SELECT action, details_json FROM audit_log WHERE entity_id=? "
+            "AND action IN ('EMAIL_SENT','EMAIL_HANDOFF_CANCELLED') ORDER BY audit_id DESC LIMIT 1",
+            (str(message_id),),
+        ).fetchone()
+        user_id = db.execute(
+            "SELECT user_id FROM users WHERE email='analyst@example.test'"
+        ).fetchone()[0]
+        assert audit.verify_chain(db)
+    assert row["status"] == expected_status
+    assert row["handoff_at"] == (handed_off.json()["draft"]["handoff_at"] if sent else None)
+    if sent:
+        assert row["sent_at"] and row["sent_by"] == user_id
+        assert event["action"] == "EMAIL_SENT"
+        assert json.loads(event["details_json"]) == {
+            "confirmed_by_analyst": True,
+            "status": "Sent",
+            "transport": "eml_handoff",
+        }
+        assert (
+            client.post(
+                f"/api/v1/emails/{message_id}/handoff",
+                headers={"X-CSRF-Token": csrf},
+            ).status_code
+            == 409
+        )
+        resent = client.post(
+            f"/api/v1/emails/{message_id}/resend",
+            headers={"X-CSRF-Token": csrf},
+        )
+        assert resent.status_code == 200, resent.text
+        assert resent.json()["status"] == "Draft"
+    else:
+        assert event["action"] == "EMAIL_HANDOFF_CANCELLED"
+        assert json.loads(event["details_json"]) == {"status": "Approved"}
+        opened_again = client.post(
+            f"/api/v1/emails/{message_id}/handoff",
+            headers={"X-CSRF-Token": csrf},
+        )
+        assert opened_again.status_code == 200
+        assert opened_again.json()["draft"]["status"] == "Sending"
+
+
+def test_send_and_send_approved_skip_manual_handoff_without_state_changes(
+    client: TestClient,
+) -> None:
+    client.app.state.email_transport = EmlHandoffTransport()
+    csrf, draft = create_approved_draft(client)
+    message_id = draft["message_id"]
+    send_url = f"/api/v1/emails/{message_id}/send"
+
+    single = client.post(send_url, headers={"X-CSRF-Token": csrf})
+    assert single.status_code == 200
+    assert single.json()["outcomes"][0]["detail"] == (
+        "Use Open in Outlook for the draft file transport"
+    )
+    batch = client.post(
+        "/api/v1/emails/send-approved",
+        headers={"X-CSRF-Token": csrf},
+        json={"draft_ids": [message_id]},
+    )
+    assert batch.status_code == 200
+    assert batch.json()["outcomes"][0]["detail"] == (
+        "Use Open in Outlook for the draft file transport"
+    )
+    with database(client.app.state.settings) as db:
+        before = db.execute(
+            "SELECT status, attempts, handoff_at FROM email_messages WHERE message_id=?",
+            (message_id,),
+        ).fetchone()
+    assert tuple(before) == ("Approved", 0, None)
+
+    handed_off = client.post(
+        f"/api/v1/emails/{message_id}/handoff",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert handed_off.status_code == 200
+    pending = client.post(
+        "/api/v1/emails/send-approved",
+        headers={"X-CSRF-Token": csrf},
+        json={"draft_ids": [message_id]},
+    )
+    assert pending.status_code == 200
+    assert pending.json()["outcomes"][0]["detail"] == (
+        "Waiting for confirmation that the Outlook draft was sent"
+    )
+    with database(client.app.state.settings) as db:
+        after = db.execute(
+            "SELECT status, attempts, handoff_at FROM email_messages WHERE message_id=?",
+            (message_id,),
+        ).fetchone()
+    assert tuple(after) == ("Sending", 1, handed_off.json()["draft"]["handoff_at"])
+
+
+@pytest.mark.parametrize("operation", ["edit", "approve"])
+def test_edit_and_approve_are_blocked_during_eml_handoff(
+    client: TestClient, operation: str
+) -> None:
+    client.app.state.email_transport = EmlHandoffTransport()
+    csrf, draft = create_approved_draft(client)
+    message_id = draft["message_id"]
+    assert (
+        client.post(
+            f"/api/v1/emails/{message_id}/handoff",
+            headers={"X-CSRF-Token": csrf},
+        ).status_code
+        == 200
+    )
+
+    if operation == "edit":
+        response = client.put(
+            f"/api/v1/emails/{message_id}",
+            headers={"X-CSRF-Token": csrf},
+            json={"subject": "Changed"},
+        )
+    else:
+        response = client.post(
+            f"/api/v1/emails/{message_id}/approve",
+            headers={"X-CSRF-Token": csrf},
+        )
+    assert response.status_code == 409
+
+
+def test_default_email_transport_and_invalid_setting(client: TestClient) -> None:
+    login(client)
+    client.app.state.email_transport = None
+
+    default_response = client.get("/api/v1/emails")
+    assert default_response.status_code == 200
+    assert default_response.json()["transport"] == "eml_handoff"
+    assert isinstance(client.app.state.email_handoff_transport, EmlHandoffTransport)
+
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "INSERT INTO settings(scope,key,value_json,admin_only,updated_at) "
+            "VALUES ('system','email.transport',?,1,?)",
+            (json.dumps("outlook_com"), NOW),
+        )
+    selected = client.get("/api/v1/emails")
+    assert selected.status_code == 200
+    assert selected.json()["transport"] == "outlook_com"
+    assert client.app.state.email_com_transport._outlook is None
+
+    client.cookies.clear()
+    admin_login = client.post(
+        "/api/v1/auth/login",
+        json={
+            "role": "Admin",
+            "email": "admin@example.test",
+            "password": "Strong!Random4567",
+        },
+    )
+    assert admin_login.status_code == 200
+    invalid = client.put(
+        "/api/v1/occ/settings",
+        headers={"X-CSRF-Token": admin_login.json()["csrf_token"]},
+        json={"email.transport": "smtp"},
+    )
+    assert invalid.status_code == 422
+    assert invalid.json()["code"] == "VALIDATION_ERROR"
