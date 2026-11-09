@@ -96,7 +96,6 @@ SYSTEM_KEYS = frozenset(
         "ct.approvals",
         "ingestion.dl.approvals",
         "ingestion.ct.approvals",
-        "email.transport",
     }
 )
 NATURAL_KEYS = {

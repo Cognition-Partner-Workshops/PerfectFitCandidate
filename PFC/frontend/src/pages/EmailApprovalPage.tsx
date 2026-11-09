@@ -156,7 +156,7 @@ export function EmailApprovalPage() {
                         <span style={{ flex: 1 }}>{e.candidateName ?? 'Not recorded'}</span>
                         <span className="num small">{Math.round(e.score)} %</span>
                         <Chip tone={statusTone(e.status)}>
-                          {draftFileTransport && e.status === 'Approved' && e.handoffAt
+                          {e.status === 'Approved' && e.handoffAt
                             ? 'Awaiting confirmation'
                             : e.status}
                         </Chip>
@@ -208,7 +208,7 @@ export function EmailApprovalPage() {
               {unresolved.length > 0 && <Banner tone="warning">Unresolved placeholder(s): {unresolved.join(', ')}</Banner>}
               <span className="small muted">Attachment: JD_{active.codeRequisition}.pdf (generated)</span>
               {active.failureReason && <Banner tone="danger">Send failed: {active.failureReason}</Banner>}
-              {draftFileTransport && active.status === 'Approved' && active.handoffAt && (
+              {active.status === 'Approved' && active.handoffAt && (
                 <Banner tone="info">
                   Opened in Outlook at {new Date(active.handoffAt).toLocaleString()}. Check the draft, click Send in Outlook, then confirm here.
                 </Banner>
@@ -227,31 +227,33 @@ export function EmailApprovalPage() {
                     </button>
                   </>
                 )}
-                {draftFileTransport ? (
-                  active.status === 'Approved' || active.status === 'Failed' ? (
-                    active.handoffAt ? (
-                      <>
-                        <button
-                          className="btn btn-primary"
-                          onClick={() => confirmHandoff.mutate({ id: active.emailId, sent: true })}
-                        >
-                          <Check size={16} /> Mark as sent
-                        </button>
-                        <button
-                          className="btn"
-                          onClick={() => confirmHandoff.mutate({ id: active.emailId, sent: false })}
-                        >
-                          Not sent
-                        </button>
+                {active.handoffAt ? (
+                  active.status === 'Approved' ? (
+                    <>
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => confirmHandoff.mutate({ id: active.emailId, sent: true })}
+                      >
+                        <Check size={16} /> Mark as sent
+                      </button>
+                      <button
+                        className="btn"
+                        onClick={() => confirmHandoff.mutate({ id: active.emailId, sent: false })}
+                      >
+                        Not sent
+                      </button>
+                      {draftFileTransport && (
                         <button className="btn" onClick={() => handoff.mutate(active.emailId)}>
                           Open again
                         </button>
-                      </>
-                    ) : (
-                      <button className="btn btn-primary" onClick={() => handoff.mutate(active.emailId)}>
-                        Open in Outlook
-                      </button>
-                    )
+                      )}
+                    </>
+                  ) : null
+                ) : draftFileTransport ? (
+                  active.status === 'Approved' || active.status === 'Failed' ? (
+                    <button className="btn btn-primary" onClick={() => handoff.mutate(active.emailId)}>
+                      Open in Outlook
+                    </button>
                   ) : null
                 ) : (
                   <button

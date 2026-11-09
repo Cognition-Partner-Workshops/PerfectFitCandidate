@@ -733,6 +733,7 @@ def test_eml_handoff_requires_approval_and_serves_audited_draft(client: TestClie
     outbox_path = client.app.state.settings.data_dir / "email" / "outbox" / f"{message_id}.eml"
     assert message_from_bytes(outbox_path.read_bytes(), policy=default)["X-Unsent"] == "1"
 
+    outbox_path.write_bytes(b"stale draft")
     opened_again = client.post(
         f"/api/v1/emails/{message_id}/handoff",
         headers={"X-CSRF-Token": csrf},
@@ -740,6 +741,7 @@ def test_eml_handoff_requires_approval_and_serves_audited_draft(client: TestClie
     assert opened_again.status_code == 200
     assert opened_again.json()["draft"]["handoff_at"] == handed_off.json()["draft"]["handoff_at"]
     assert opened == [outbox_path, outbox_path]
+    assert message_from_bytes(outbox_path.read_bytes(), policy=default)["X-Unsent"] == "1"
     downloaded = client.get(download_path)
     assert downloaded.status_code == 200
     assert downloaded.headers["content-type"] == "message/rfc822"
@@ -812,6 +814,71 @@ def test_eml_handoff_attachment_failure_keeps_handoff_active(client: TestClient)
     assert cancelled.status_code == 200
     assert cancelled.json()["status"] == "Approved"
     assert cancelled.json()["handoff_at"] is None
+
+
+def test_eml_handoff_confirmation_succeeds_when_outbox_cleanup_fails(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client.app.state.email_transport = EmlHandoffTransport()
+    csrf, draft = create_approved_draft(client)
+    message_id = draft["message_id"]
+    handed_off = client.post(
+        f"/api/v1/emails/{message_id}/handoff",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert handed_off.status_code == 200
+    outbox_path = client.app.state.settings.data_dir / "email" / "outbox" / f"{message_id}.eml"
+    original_unlink = Path.unlink
+
+    def fail_outbox_unlink(path: Path, missing_ok: bool = False) -> None:
+        if path == outbox_path:
+            raise PermissionError("draft file is locked")
+        original_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", fail_outbox_unlink)
+    confirmed = client.post(
+        f"/api/v1/emails/{message_id}/handoff/confirm",
+        headers={"X-CSRF-Token": csrf},
+        json={"sent": True},
+    )
+
+    assert confirmed.status_code == 200
+    assert confirmed.json()["status"] == "Sent"
+    with database(client.app.state.settings) as db:
+        row = db.execute(
+            "SELECT status FROM email_messages WHERE message_id=?",
+            (message_id,),
+        ).fetchone()
+        event = db.execute(
+            "SELECT action, details_json FROM audit_log WHERE entity_id=? AND action='EMAIL_SENT'",
+            (str(message_id),),
+        ).fetchone()
+        assert audit.verify_chain(db)
+    assert row["status"] == "Sent"
+    assert event["action"] == "EMAIL_SENT"
+    assert json.loads(event["details_json"])["confirmed_by_analyst"] is True
+
+
+def test_eml_handoff_confirmation_survives_transport_change(client: TestClient) -> None:
+    client.app.state.email_transport = EmlHandoffTransport()
+    csrf, draft = create_approved_draft(client)
+    message_id = draft["message_id"]
+    handed_off = client.post(
+        f"/api/v1/emails/{message_id}/handoff",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert handed_off.status_code == 200
+
+    client.app.state.email_transport = FakeTransport()
+    confirmed = client.post(
+        f"/api/v1/emails/{message_id}/handoff/confirm",
+        headers={"X-CSRF-Token": csrf},
+        json={"sent": False},
+    )
+
+    assert confirmed.status_code == 200
+    assert confirmed.json()["status"] == "Approved"
+    assert confirmed.json()["handoff_at"] is None
 
 
 @pytest.mark.parametrize("sent", [True, False])
@@ -1011,3 +1078,45 @@ def test_default_email_transport_and_invalid_setting(client: TestClient) -> None
     )
     assert invalid.status_code == 422
     assert invalid.json()["code"] == "VALIDATION_ERROR"
+
+
+def test_switch_to_eml_transport_rejects_in_flight_com_send(client: TestClient) -> None:
+    _, draft = create_approved_draft(client)
+    message_id = draft["message_id"]
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "UPDATE email_messages SET status='Sending', handoff_at=NULL WHERE message_id=?",
+            (message_id,),
+        )
+        db.execute(
+            "INSERT INTO settings(scope,key,value_json,admin_only,updated_at) "
+            "VALUES ('system','email.transport',?,1,?)",
+            (json.dumps("outlook_com"), NOW),
+        )
+
+    client.cookies.clear()
+    admin_login = client.post(
+        "/api/v1/auth/login",
+        json={
+            "role": "Admin",
+            "email": "admin@example.test",
+            "password": "Strong!Random4567",
+        },
+    )
+    assert admin_login.status_code == 200
+    response = client.put(
+        "/api/v1/occ/settings",
+        headers={"X-CSRF-Token": admin_login.json()["csrf_token"]},
+        json={"email.transport": "eml_handoff"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "EMAIL_TRANSPORT_BUSY"
+    assert response.json()["detail"] == (
+        "Finish or retry the in-flight Outlook COM sends before switching to the Outlook draft file"
+    )
+    with database(client.app.state.settings) as db:
+        transport = db.execute(
+            "SELECT value_json FROM settings WHERE scope='system' AND key='email.transport'"
+        ).fetchone()[0]
+    assert json.loads(transport) == "outlook_com"

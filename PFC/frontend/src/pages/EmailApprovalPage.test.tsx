@@ -78,4 +78,18 @@ describe('EmailApprovalPage transport handoff', () => {
       expect(mock.confirmEmailHandoff).toHaveBeenCalledWith(handedOff.emailId, true),
     )
   })
+
+  it('keeps handoff confirmation available after switching to COM', async () => {
+    const user = userEvent.setup()
+    const handedOff = draft('2026-01-02T03:04:05Z')
+    renderPage(handedOff, { transport: 'Outlook COM', outlookDetected: true })
+    await user.click(await screen.findByRole('tab', { name: 'Approved (1)' }))
+
+    expect(screen.getByText('Awaiting confirmation')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Mark as sent' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Not sent' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^Send$/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Open in Outlook' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Open again' })).toBeNull()
+  })
 })

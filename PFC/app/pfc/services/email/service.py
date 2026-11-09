@@ -780,7 +780,12 @@ class EmailService:
             )
             updated = self._get_draft_row(db, message_id)
 
-        self._handoff_path(message_id).unlink(missing_ok=True)
+        try:
+            self._handoff_path(message_id).unlink(missing_ok=True)
+        except OSError:
+            logger.warning(
+                "Unable to remove Outlook draft file for email_message_id=%s", message_id
+            )
         assert updated is not None
         return _draft_from_row(updated)
 
