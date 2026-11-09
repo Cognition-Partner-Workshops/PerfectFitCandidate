@@ -17,7 +17,7 @@ from pfc.db.audit import verify_chain
 from pfc.db.connection import database
 from pfc.domain.normalise.text import normalise_text
 from pfc.services.ingestion import cv_sync
-from pfc.services.ingestion.cv_facts import ExtractedFacts, rule_facts
+from pfc.services.ingestion.cv_facts import FACTS_SCHEMA_VERSION, ExtractedFacts, rule_facts
 
 TEXT = (
     "Name: Alex Border\nPhone: +44 123456789\nalex@example.com\nWork Experience\n"
@@ -99,7 +99,7 @@ def test_req_in_21_23_skills_use_one_approved_snapshot(
     with database(settings) as db:
         for row in db.execute("SELECT text_norm,facts_json,candidate_id FROM cv_versions"):
             data = json.loads(row["facts_json"])
-            assert data["facts_schema"] == 2
+            assert data["facts_schema"] == FACTS_SCHEMA_VERSION
             skills = data["facts"]["skills"]
             assert skills[0]["canonical"] == "PFC Canonical"
             assert all(s["canonical"] is None for s in skills[1:])
@@ -190,7 +190,7 @@ def test_req_in_21_23_sync_persists_only_grounded_facts(
         candidate = version["candidate_id"]
         saved = json.loads(version["facts_json"])
         assert saved["emails"] == ["alex@example.com", "alex@example.com"]
-        assert saved["facts_schema"] == 2
+        assert saved["facts_schema"] == FACTS_SCHEMA_VERSION
         assert version["text_norm"] == normalise_text(TEXT)
         assert saved["facts"]["name"]["value"] == "Alex Border"
         assert saved["facts"]["phone"]["value"] == "+44 123456789"
@@ -294,12 +294,64 @@ def test_req_in_23_backfill_preserves_emails_and_version(
         assert len(rows) == 1 and rows[0][0] == version
         data: dict[str, Any] = json.loads(rows[0][1])
         assert data["emails"] == ["MiXeD@example.com"] and data["legacy"] is True
-        assert data["facts_schema"] == 2 and data["facts"]["name"]["value"] == "Alex Border"
+        assert (
+            data["facts_schema"] == FACTS_SCHEMA_VERSION
+            and data["facts"]["name"]["value"] == "Alex Border"
+        )
         assert [s["value"] for s in data["facts"]["skills"]] == ["SQL", "Unlisted"]
         assert rows[0][2] == "rule_based"
     client.app.state.llm_provider = FakeProvider("invalid JSON")
     repeat = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
     assert repeat["unchanged"] == 1 and repeat["facts_llm_failed"] == 0
+
+
+def test_req_in_23_schema_two_inline_skills_are_reextracted(
+    client: TestClient, tmp_path: Path
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(
+        client,
+        upload(
+            client,
+            "ct",
+            [{"ShortName": "Alex Border", "Email Address": "alex@example.com"}],
+        ),
+    )
+    resume_docx(
+        root,
+        "Alex.docx",
+        "Alex Border\nEmail: alex@example.com\nPhone: 07700 900001\n\nSkills: SQL, Python\n",
+    )
+    result = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert result["new_versions"] == 1
+
+    settings = client.app.state.settings
+    with database(settings) as db:
+        version = db.execute("SELECT cv_version_id,facts_json FROM cv_versions").fetchone()
+        saved = json.loads(version["facts_json"])
+        saved["facts_schema"] = 2
+        saved["facts"]["skills"] = []
+        db.execute("UPDATE cv_versions SET facts_json=?", (json.dumps(saved),))
+        db.execute(
+            "DELETE FROM resource_skills WHERE cv_version_id=? AND source='CV'",
+            (version["cv_version_id"],),
+        )
+
+    result = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert result["new_versions"] == 0 and result["unchanged"] == 1
+    with database(settings) as db:
+        version = db.execute("SELECT cv_version_id,facts_json FROM cv_versions").fetchone()
+        saved = json.loads(version["facts_json"])
+        assert saved["facts_schema"] == FACTS_SCHEMA_VERSION
+        assert [skill["value"] for skill in saved["facts"]["skills"]] == ["SQL", "Python"]
+        rows = db.execute(
+            "SELECT skill_raw FROM resource_skills "
+            "WHERE cv_version_id=? AND source='CV' ORDER BY skill_raw",
+            (version["cv_version_id"],),
+        ).fetchall()
+        assert {row["skill_raw"] for row in rows} == {"SQL", "Python"}
 
 
 def test_req_in_21_skill_replacement_is_atomic_and_drops_ungrounded_facts(
