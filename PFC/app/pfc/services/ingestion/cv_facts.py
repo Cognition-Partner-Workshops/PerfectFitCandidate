@@ -190,7 +190,9 @@ def rule_facts(text: str) -> CVFacts:
             section = HEADINGS[inline_label[1].casefold()]
             content = inline_label[2]
             if section == "skills":
-                add_skill_tokens(content, line.start() + inline_label.start(2))
+                stripped_content = re.sub(r"^\s*(?:[-*]\s+|\d+[.)]\s+)", "", content)
+                offset = line.start() + inline_label.start(2) + len(content) - len(stripped_content)
+                add_skill_tokens(stripped_content, offset)
             elif section:
                 found[section].append(fact(content, line[0], line.start()))
         elif heading in HEADINGS:

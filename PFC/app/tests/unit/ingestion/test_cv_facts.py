@@ -161,6 +161,15 @@ def test_req_in_21_generated_cv_text_skills_match_rule_facts() -> None:
         assert [skill.value for skill in facts.skills] == str(row["Skills"]).split(", ")
 
 
+@pytest.mark.parametrize("text", ["Skills: 1. SQL, Python", "Skills: - SQL, Python"])
+def test_inline_skills_strip_leading_list_markers(text: str) -> None:
+    skills = rule_facts(text).skills
+
+    assert [skill.value for skill in skills] == ["SQL", "Python"]
+    for skill in skills:
+        assert text[slice(*skill.span)] == skill.value
+
+
 @pytest.mark.parametrize("heading", ["Skills", "Technical Skills", "Key Skills", "Core Skills"])
 def test_req_in_21_23_skill_tokens_have_exact_first_spans(heading: str) -> None:
     text = f"{heading}\n  SQL, Python ; C++ | .NET • AWS · sql\n- Docker\nProjects\nAtlas"
