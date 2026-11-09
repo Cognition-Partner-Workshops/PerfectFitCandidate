@@ -147,4 +147,35 @@ describe('EmailApprovalPage transport handoff', () => {
     )
     await waitFor(() => expect(confirm).toHaveBeenCalledWith(failed.emailId))
   })
+
+  it('hides the Sent Items action when the email was re-approved', async () => {
+    const user = userEvent.setup()
+    const detail =
+      'An earlier Outlook COM send attempt failed and may have reached the recipient. Check Outlook Sent Items before opening a new draft.'
+    const approved = draft()
+    vi.spyOn(mock, 'openEmailInOutlook').mockRejectedValue(
+      new ApiError({
+        type: 'about:blank',
+        title: detail,
+        status: 409,
+        detail,
+        code: 'EMAIL_PREVIOUS_SEND_UNCERTAIN',
+      }),
+    )
+    renderPage(approved, { transport: 'Outlook draft file', outlookDetected: false })
+    await user.click(await screen.findByRole('tab', { name: 'Approved (1)' }))
+    await user.click(await screen.findByRole('button', { name: 'Open in Outlook' }))
+
+    expect(await screen.findByText(detail)).toBeTruthy()
+    expect(
+      screen.getByText(
+        "This email was edited or re-approved after the failed Outlook COM attempt, so PFC can't record that earlier message as this one.",
+      ),
+    ).toBeTruthy()
+    expect(
+      screen.queryByRole('button', { name: 'Found in Sent Items — mark as sent' }),
+    ).toBeNull()
+    expect(screen.getByRole('button', { name: 'Not found — open new draft' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy()
+  })
 })

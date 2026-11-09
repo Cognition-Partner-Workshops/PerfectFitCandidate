@@ -836,6 +836,12 @@ def test_eml_handoff_requires_confirmation_after_edit_and_reapproval(client: Tes
             (message_id,),
         ).fetchone()
     assert tuple(row) == ("Draft", "outlook_com")
+    not_unchanged = client.post(
+        f"/api/v1/emails/{message_id}/previous-send/confirm",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert not_unchanged.status_code == 409
+    assert not_unchanged.json()["code"] == "EMAIL_NO_UNCERTAIN_SEND"
     approved = client.post(
         f"/api/v1/emails/{message_id}/approve",
         headers={"X-CSRF-Token": csrf},
@@ -866,6 +872,13 @@ def test_approved_com_row_requires_confirmation_before_handoff(client: TestClien
             "UPDATE email_messages SET transport='outlook_com' WHERE message_id=?",
             (message_id,),
         )
+
+    confirmed_as_sent = client.post(
+        f"/api/v1/emails/{message_id}/previous-send/confirm",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert confirmed_as_sent.status_code == 409
+    assert confirmed_as_sent.json()["code"] == "EMAIL_NO_UNCERTAIN_SEND"
 
     response = client.post(
         f"/api/v1/emails/{message_id}/handoff",

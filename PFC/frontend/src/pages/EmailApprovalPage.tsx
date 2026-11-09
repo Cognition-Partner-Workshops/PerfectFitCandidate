@@ -29,6 +29,7 @@ export function EmailApprovalPage() {
   const [confirmUncertainHandoff, setConfirmUncertainHandoff] = useState<{
     id: number
     detail: string
+    status?: EmailStatus
   } | null>(null)
   const [edits, setEdits] = useState<Record<number, { subject: string; body: string }>>({})
   const [error, setError] = useState<string | null>(null)
@@ -70,7 +71,11 @@ export function EmailApprovalPage() {
     onError: (e, { id }) => {
       if (e instanceof ApiError && e.code === 'EMAIL_PREVIOUS_SEND_UNCERTAIN') {
         setError(null)
-        setConfirmUncertainHandoff({ id, detail: e.message })
+        setConfirmUncertainHandoff({
+          id,
+          detail: e.message,
+          status: items.find((email) => email.emailId === id)?.status,
+        })
         return
       }
       onErr(e)
@@ -356,15 +361,17 @@ export function EmailApprovalPage() {
               >
                 Not found — open new draft
               </button>
-              <button
-                className="btn btn-primary"
-                onClick={() => {
-                  confirmPreviousSend.mutate(confirmUncertainHandoff.id)
-                  setConfirmUncertainHandoff(null)
-                }}
-              >
-                Found in Sent Items — mark as sent
-              </button>
+              {confirmUncertainHandoff.status === 'Failed' && (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => {
+                    confirmPreviousSend.mutate(confirmUncertainHandoff.id)
+                    setConfirmUncertainHandoff(null)
+                  }}
+                >
+                  Found in Sent Items — mark as sent
+                </button>
+              )}
               <button className="btn" onClick={() => setConfirmUncertainHandoff(null)}>
                 Cancel
               </button>
@@ -372,6 +379,12 @@ export function EmailApprovalPage() {
           }
         >
           <p>{confirmUncertainHandoff.detail}</p>
+          {confirmUncertainHandoff.status !== 'Failed' && (
+            <p>
+              This email was edited or re-approved after the failed Outlook COM attempt, so PFC
+              can't record that earlier message as this one.
+            </p>
+          )}
         </Modal>
       )}
     </div>

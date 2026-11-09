@@ -1106,7 +1106,7 @@ export class MockApiClient implements ApiClient {
   async confirmPreviousSend(id: number) {
     this.currentUser()
     const e = this.email(id)
-    if (!e.failureReason || e.status === 'Sent') {
+    if (e.status !== 'Failed' || !e.failureReason) {
       fail(409, 'Email has no unresolved Outlook COM send attempt', 'EMAIL_NO_UNCERTAIN_SEND')
     }
     e.status = 'Sent'

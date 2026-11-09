@@ -810,11 +810,7 @@ class EmailService:
             row = self._get_draft_row(db, message_id)
             if row is None:
                 raise Problem(404, "EMAIL_DRAFT_NOT_FOUND", "Email draft not found")
-            if row["transport"] != "outlook_com" or row["status"] in {
-                "Sent",
-                "Discarded",
-                "Sending",
-            }:
+            if row["status"] != "Failed" or row["transport"] != "outlook_com":
                 raise Problem(
                     409,
                     "EMAIL_NO_UNCERTAIN_SEND",
@@ -823,7 +819,7 @@ class EmailService:
             cursor = db.execute(
                 "UPDATE email_messages SET status='Sent', sent_by=?, sent_at=?, "
                 "last_error=NULL, updated_at=? WHERE message_id=? AND transport='outlook_com' "
-                "AND status NOT IN ('Sent','Discarded','Sending')",
+                "AND status='Failed'",
                 (user_id, now, now, message_id),
             )
             if cursor.rowcount == 0:
