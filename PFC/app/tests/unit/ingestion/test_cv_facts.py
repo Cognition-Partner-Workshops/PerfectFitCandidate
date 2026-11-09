@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import random
 import threading
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -13,6 +14,7 @@ from pfc.adapters.llm.providers import FakeProvider, GenerateResult, Health, Pro
 from pfc.api.schemas.cv import CVFacts
 from pfc.domain.normalise.text import normalise_text
 from pfc.services.ingestion.cv_facts import (
+    FACTS_SCHEMA_VERSION,
     KEYS,
     LLMBridge,
     extract_facts,
@@ -21,6 +23,7 @@ from pfc.services.ingestion.cv_facts import (
     validate_facts,
 )
 from pfc.services.ingestion.masking import mask_evidence, mask_phone, phone_matches
+from scripts.generate_uat_data import SEED, cv_text, resource_rows
 
 TEXT = normalise_text(
     "Name: Alex Border\nPhone: +44 (0)20 7946 0958\nAlEx@example.com\n"
@@ -90,6 +93,83 @@ def test_req_in_23_rule_spans() -> None:
         assert fact["source"] == "rule"
 
 
+def test_req_in_21_23_inline_skills_in_uat_cv() -> None:
+    text = (
+        "Andy Jassy\n"
+        "Email: Andy.Jassy@example.com\n"
+        "Phone: 07700 900001\n"
+        "\n"
+        "Skills: Business Analysis, Scrum, Agile, AWS\n"
+        "\n"
+        "Experience\n"
+        "5 years at Synthetic Consulting Ltd as a Business Analysis consultant.\n"
+        "\n"
+        "Projects\n"
+        "Synthetic project 1: Scrum delivery for Synthetic Account 1.\n"
+        "\n"
+        "Qualifications\n"
+        "BSc Computer Science (synthetic)\n"
+    )
+    facts = rule_facts(text)
+
+    assert facts.name is not None and facts.name.value == "Andy Jassy"
+    assert facts.phone is not None and facts.phone.value == "07700 900001"
+    assert [skill.value for skill in facts.skills] == [
+        "Business Analysis",
+        "Scrum",
+        "Agile",
+        "AWS",
+    ]
+    for skill in facts.skills:
+        assert text[slice(*skill.span)] == skill.evidence == skill.value
+        assert "@" not in skill.value and facts.phone.value not in skill.value
+    assert [fact.value for fact in facts.experience] == [
+        "5 years at Synthetic Consulting Ltd as a Business Analysis consultant."
+    ]
+    assert [fact.value for fact in facts.projects] == [
+        "Synthetic project 1: Scrum delivery for Synthetic Account 1."
+    ]
+    assert [fact.value for fact in facts.qualifications] == ["BSc Computer Science (synthetic)"]
+
+
+def test_req_in_21_23_inline_section_labels_and_skill_continuations() -> None:
+    experience_text = "Experience: 5 years at Acme"
+    experience = rule_facts(experience_text).experience[0]
+    assert experience.value == "5 years at Acme"
+    assert experience.evidence == experience_text
+    assert experience_text[slice(*experience.span)] == experience.evidence
+
+    summary = rule_facts("Summary: likes SQL\nSQL")
+    assert not any(
+        getattr(summary, field)
+        for field in ("name", "phone", "experience", "qualifications", "projects", "skills")
+    )
+
+    skills_text = "Skills: SQL\nPython, Java"
+    skills = rule_facts(skills_text).skills
+    assert [skill.value for skill in skills] == ["SQL", "Python", "Java"]
+    for skill in skills:
+        assert skills_text[slice(*skill.span)] == skill.evidence == skill.value
+
+
+def test_req_in_21_generated_cv_text_skills_match_rule_facts() -> None:
+    rng = random.Random(SEED)
+    rows = resource_rows(2, rng)
+
+    for index, row in enumerate(rows, start=1):
+        facts = rule_facts(cv_text(index, row, rng))
+        assert [skill.value for skill in facts.skills] == str(row["Skills"]).split(", ")
+
+
+@pytest.mark.parametrize("text", ["Skills: 1. SQL, Python", "Skills: - SQL, Python"])
+def test_inline_skills_strip_leading_list_markers(text: str) -> None:
+    skills = rule_facts(text).skills
+
+    assert [skill.value for skill in skills] == ["SQL", "Python"]
+    for skill in skills:
+        assert text[slice(*skill.span)] == skill.value
+
+
 @pytest.mark.parametrize("heading", ["Skills", "Technical Skills", "Key Skills", "Core Skills"])
 def test_req_in_21_23_skill_tokens_have_exact_first_spans(heading: str) -> None:
     text = f"{heading}\n  SQL, Python ; C++ | .NET • AWS · sql\n- Docker\nProjects\nAtlas"
@@ -131,11 +211,18 @@ def test_req_in_23_public_skill_masking_and_phone_warning(phone: str) -> None:
     # Keep phone absence independent of the phone-like skill token.
     if not phone:
         facts.phone = None
-    public = public_facts(json.dumps({"facts_schema": 2, "facts": facts.model_dump()}))
+    public = public_facts(
+        json.dumps({"facts_schema": FACTS_SCHEMA_VERSION, "facts": facts.model_dump()})
+    )
     assert public is not None
     assert "alice@example.com" not in public.model_dump_json()
     assert "020 7946 0123" not in public.model_dump_json()
     assert [w.code for w in public.warnings] == ([] if phone else ["PHONE_NOT_FOUND"])
+
+
+def test_public_facts_accepts_schema_two_after_version_bump() -> None:
+    raw = json.dumps({"facts_schema": 2, "facts": rule_facts(TEXT).model_dump()})
+    assert public_facts(raw) is not None
 
 
 @pytest.mark.parametrize(

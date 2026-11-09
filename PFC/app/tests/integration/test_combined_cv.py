@@ -23,6 +23,7 @@ from pfc.domain.config_loader import load_domain_config
 from pfc.domain.normalise import SynonymRow, SynonymTable
 from pfc.domain.scoring import build_combined_basis
 from pfc.jobs.runner import JobRunner
+from pfc.services.ingestion.cv_facts import FACTS_SCHEMA_VERSION
 from pfc.services.ingestion.cv_sync import _replace_skills
 from pfc.services.ingestion.identity import resolve
 from pfc.services.ingestion.masking import phone_matches
@@ -65,7 +66,11 @@ def test_cv_email_and_phone_facts_are_not_matching_skills(
         version = seed_cv(db, resource, candidate, skills=())
         db.execute(
             "UPDATE cv_versions SET text_norm=?,facts_json=? WHERE cv_version_id=?",
-            (text, json.dumps({"facts_schema": 2, "facts": {"skills": skills}}), version),
+            (
+                text,
+                json.dumps({"facts_schema": FACTS_SCHEMA_VERSION, "facts": {"skills": skills}}),
+                version,
+            ),
         )
         _replace_skills(db, version)
         rows = db.execute(

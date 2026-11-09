@@ -27,6 +27,7 @@ from pfc.db.audit import verify_chain
 from pfc.db.connection import database
 from pfc.services.embeddings.matching_bridge import MatchingVectorStore
 from pfc.services.ingestion import cv_sync
+from pfc.services.ingestion.cv_facts import FACTS_SCHEMA_VERSION
 from pfc.services.matching.ports import ChunkOwner
 
 
@@ -297,7 +298,7 @@ def test_removed_extraction_restores_structured_facts(
             ).fetchone()
         )
     original_facts = json.loads(original["facts_json"])
-    assert original_facts["facts_schema"] == 2
+    assert original_facts["facts_schema"] == FACTS_SCHEMA_VERSION
     assert original_facts["facts"]["name"]["value"] == "Alex Border"
     assert original_facts["facts"]["phone"]["value"] == "+44 123456789"
     assert all(

@@ -19,6 +19,7 @@ from pfc.db.migrate import migrate
 from pfc.domain.config_loader import load_domain_config
 from pfc.domain.scoring import build_combined_basis
 from pfc.jobs.runner import Job, JobCancelled, JobContext, JobRunner
+from pfc.services.ingestion.cv_facts import FACTS_SCHEMA_VERSION
 from pfc.services.ingestion.cv_sync import _replace_skills
 from pfc.services.matching import (
     MatchingPorts,
@@ -305,7 +306,7 @@ def test_req_in_21_23_synced_skill_rows_count_in_matching(
         resource = seed_resource(db, candidate=candidate, skills=ct_skills)
         version = seed_cv(db, resource, candidate, skills=())
         facts = {
-            "facts_schema": 2,
+            "facts_schema": FACTS_SCHEMA_VERSION,
             "facts": {
                 "skills": [
                     {
