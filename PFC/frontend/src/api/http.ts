@@ -309,6 +309,8 @@ export class HttpApiClient implements ApiClient {
     toEmailDraft(
       await this.request('POST', `/emails/${id}/handoff/confirm`, { sent }),
     )
+  confirmPreviousSend: ApiClient['confirmPreviousSend'] = async (id) =>
+    toEmailDraft(await this.request('POST', `/emails/${id}/previous-send/confirm`))
   updateEmail: ApiClient['updateEmail'] = async (id, patch) =>
     toEmailDraft(await this.request('PUT', `/emails/${id}`, { subject: patch.subject, body_html: patch.body }))
   approveEmail: ApiClient['approveEmail'] = async (id, confirmResend) =>

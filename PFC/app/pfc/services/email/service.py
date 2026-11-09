@@ -649,16 +649,7 @@ class EmailService:
                 raise Problem(404, "EMAIL_DRAFT_NOT_FOUND", "Email draft not found")
 
             repeat = row["status"] == "Sending" and row["handoff_at"] is not None
-            previous_com_attempt = (
-                not repeat and row["status"] == "Failed" and row["transport"] == "outlook_com"
-            )
-            if previous_com_attempt and not confirm_uncertain:
-                raise Problem(
-                    409,
-                    "EMAIL_PREVIOUS_SEND_UNCERTAIN",
-                    "An earlier Outlook COM send attempt failed and may have reached "
-                    "the recipient. Check Outlook Sent Items before opening a new draft.",
-                )
+            previous_com_attempt = not repeat and row["transport"] == "outlook_com"
             if not repeat:
                 if row["status"] in {"Sent", "Discarded"}:
                     raise Problem(409, "EMAIL_NOT_SENDABLE", "Email is not sendable")
@@ -676,6 +667,13 @@ class EmailService:
                     )
                 if row["status"] not in {"Approved", "Failed"}:
                     raise Problem(409, "EMAIL_NOT_SENDABLE", "Email is not sendable")
+                if previous_com_attempt and not confirm_uncertain:
+                    raise Problem(
+                        409,
+                        "EMAIL_PREVIOUS_SEND_UNCERTAIN",
+                        "An earlier Outlook COM send attempt failed and may have reached "
+                        "the recipient. Check Outlook Sent Items before opening a new draft.",
+                    )
                 cursor = db.execute(
                     "UPDATE email_messages SET status='Sending', attempts=attempts+1, "
                     "handoff_at=?, last_error=NULL, transport=NULL, transport_ref=NULL, "
@@ -802,6 +800,54 @@ class EmailService:
             logger.warning(
                 "Unable to remove Outlook draft file for email_message_id=%s", message_id
             )
+        assert updated is not None
+        return _draft_from_row(updated)
+
+    def mark_previous_send_sent(self, message_id: int, user_id: int) -> EmailDraft:
+        now = stamp(self.clock())
+        with database(self.settings) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = self._get_draft_row(db, message_id)
+            if row is None:
+                raise Problem(404, "EMAIL_DRAFT_NOT_FOUND", "Email draft not found")
+            if row["transport"] != "outlook_com" or row["status"] in {
+                "Sent",
+                "Discarded",
+                "Sending",
+            }:
+                raise Problem(
+                    409,
+                    "EMAIL_NO_UNCERTAIN_SEND",
+                    "Email has no unresolved Outlook COM send attempt",
+                )
+            cursor = db.execute(
+                "UPDATE email_messages SET status='Sent', sent_by=?, sent_at=?, "
+                "last_error=NULL, updated_at=? WHERE message_id=? AND transport='outlook_com' "
+                "AND status NOT IN ('Sent','Discarded','Sending')",
+                (user_id, now, now, message_id),
+            )
+            if cursor.rowcount == 0:
+                raise Problem(
+                    409,
+                    "EMAIL_NO_UNCERTAIN_SEND",
+                    "Email has no unresolved Outlook COM send attempt",
+                )
+            audit.append_audit(
+                db,
+                ts=now,
+                user_id=user_id,
+                action="EMAIL_SENT",
+                entity_type="email_message",
+                entity_id=str(message_id),
+                details={
+                    "status": "Sent",
+                    "transport": "outlook_com",
+                    "confirmed_by_analyst": True,
+                    "previous_com_attempt": True,
+                },
+            )
+            updated = self._get_draft_row(db, message_id)
+
         assert updated is not None
         return _draft_from_row(updated)
 

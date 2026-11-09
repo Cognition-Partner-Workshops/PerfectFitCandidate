@@ -96,6 +96,35 @@ it('sends uncertainty confirmation only when requested for an Outlook handoff', 
   })
 })
 
+it('confirms a previous Outlook send without a request body', async () => {
+  const api = new HttpApiClient('/api/v1')
+  const draft = {
+    message_id: 7,
+    demand_id: 3,
+    resource_id: 4,
+    result_id: 5,
+    rank: 1,
+    selected: true,
+    to_address: 'candidate@example.com',
+    cc: [],
+    subject: 'Subject',
+    body_html: '<p>Body</p>',
+    status: 'Sent',
+    created_at: '2026-01-01T00:00:00Z',
+    sent_at: '2026-01-02T03:04:05Z',
+    handoff_at: null,
+    last_error: null,
+  }
+  fetchMock.mockResolvedValueOnce(json(draft))
+
+  const confirmed = await api.confirmPreviousSend(7)
+
+  expect(confirmed.status).toBe('Sent')
+  expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/v1/emails/7/previous-send/confirm')
+  expect((fetchMock.mock.calls[0]?.[1] as RequestInit).method).toBe('POST')
+  expect((fetchMock.mock.calls[0]?.[1] as RequestInit).body).toBeUndefined()
+})
+
 describe('HttpApiClient — TDD §9.3 session + CSRF', () => {
   it('uses the four summary routes and preserves their camelCase response', async () => {
     const summary = { sentences: [{ text: 'SQL', evidence: 'SQL' }], model: 'local', createdAt: 'now', stale: true, droppedUngrounded: 1, sourceVersionId: 7 }

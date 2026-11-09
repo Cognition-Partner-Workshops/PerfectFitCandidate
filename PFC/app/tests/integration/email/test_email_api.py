@@ -812,6 +812,76 @@ def test_eml_handoff_requires_confirmation_after_failed_com_attempt(client: Test
     assert handoffs == 0
 
 
+def test_eml_handoff_requires_confirmation_after_edit_and_reapproval(client: TestClient) -> None:
+    client.app.state.email_transport = EmlHandoffTransport()
+    csrf, draft = create_approved_draft(client)
+    message_id = draft["message_id"]
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "UPDATE email_messages SET status='Failed', transport='outlook_com', attempts=1 "
+            "WHERE message_id=?",
+            (message_id,),
+        )
+
+    edited = client.put(
+        f"/api/v1/emails/{message_id}",
+        headers={"X-CSRF-Token": csrf},
+        json={"subject": "Reviewed subject"},
+    )
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["status"] == "Draft"
+    with database(client.app.state.settings) as db:
+        row = db.execute(
+            "SELECT status, transport FROM email_messages WHERE message_id=?",
+            (message_id,),
+        ).fetchone()
+    assert tuple(row) == ("Draft", "outlook_com")
+    approved = client.post(
+        f"/api/v1/emails/{message_id}/approve",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert approved.status_code == 200, approved.text
+
+    response = client.post(
+        f"/api/v1/emails/{message_id}/handoff",
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "EMAIL_PREVIOUS_SEND_UNCERTAIN"
+    with database(client.app.state.settings) as db:
+        row = db.execute(
+            "SELECT status, transport, attempts, handoff_at FROM email_messages WHERE message_id=?",
+            (message_id,),
+        ).fetchone()
+    assert tuple(row) == ("Approved", "outlook_com", 1, None)
+
+
+def test_approved_com_row_requires_confirmation_before_handoff(client: TestClient) -> None:
+    client.app.state.email_transport = EmlHandoffTransport()
+    csrf, draft = create_approved_draft(client)
+    message_id = draft["message_id"]
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "UPDATE email_messages SET transport='outlook_com' WHERE message_id=?",
+            (message_id,),
+        )
+
+    response = client.post(
+        f"/api/v1/emails/{message_id}/handoff",
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "EMAIL_PREVIOUS_SEND_UNCERTAIN"
+    with database(client.app.state.settings) as db:
+        row = db.execute(
+            "SELECT status, transport, attempts, handoff_at FROM email_messages WHERE message_id=?",
+            (message_id,),
+        ).fetchone()
+    assert tuple(row) == ("Approved", "outlook_com", 0, None)
+
+
 def test_eml_handoff_confirms_uncertain_com_attempt_and_audits_it(client: TestClient) -> None:
     client.app.state.email_transport = EmlHandoffTransport()
     csrf, draft = create_approved_draft(client)
@@ -875,6 +945,74 @@ def test_eml_handoff_failed_without_com_transport_needs_no_confirmation(client: 
             (str(message_id),),
         ).fetchone()
     assert "previous_com_attempt" not in json.loads(event["details_json"])
+
+
+def test_previous_com_send_can_be_confirmed_as_sent(client: TestClient) -> None:
+    csrf, draft = create_approved_draft(client)
+    message_id = draft["message_id"]
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "UPDATE email_messages SET status='Failed', transport='outlook_com', attempts=1, "
+            "last_error='Outlook response was ambiguous' WHERE message_id=?",
+            (message_id,),
+        )
+
+    response = client.post(
+        f"/api/v1/emails/{message_id}/previous-send/confirm",
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "Sent"
+    assert response.json()["sent_at"]
+    with database(client.app.state.settings) as db:
+        row = db.execute(
+            "SELECT status, sent_by, sent_at, last_error, transport FROM email_messages "
+            "WHERE message_id=?",
+            (message_id,),
+        ).fetchone()
+        event = db.execute(
+            "SELECT action, details_json FROM audit_log WHERE entity_id=? AND action='EMAIL_SENT'",
+            (str(message_id),),
+        ).fetchone()
+        assert audit.verify_chain(db)
+    assert row["status"] == "Sent"
+    assert row["sent_by"] is not None
+    assert row["sent_at"] == response.json()["sent_at"]
+    assert row["last_error"] is None
+    assert row["transport"] == "outlook_com"
+    assert event["action"] == "EMAIL_SENT"
+    assert json.loads(event["details_json"]) == {
+        "status": "Sent",
+        "transport": "outlook_com",
+        "confirmed_by_analyst": True,
+        "previous_com_attempt": True,
+    }
+
+    second = client.post(
+        f"/api/v1/emails/{message_id}/previous-send/confirm",
+        headers={"X-CSRF-Token": csrf},
+    )
+    assert second.status_code == 409
+    assert second.json()["code"] == "EMAIL_NO_UNCERTAIN_SEND"
+
+
+def test_previous_com_send_confirmation_rejects_null_transport(client: TestClient) -> None:
+    csrf, draft = create_approved_draft(client)
+    message_id = draft["message_id"]
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "UPDATE email_messages SET status='Failed', transport=NULL WHERE message_id=?",
+            (message_id,),
+        )
+
+    response = client.post(
+        f"/api/v1/emails/{message_id}/previous-send/confirm",
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "EMAIL_NO_UNCERTAIN_SEND"
 
 
 def test_eml_handoff_attachment_failure_keeps_handoff_active(client: TestClient) -> None:

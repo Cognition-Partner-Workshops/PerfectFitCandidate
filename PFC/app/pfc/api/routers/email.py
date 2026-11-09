@@ -161,6 +161,13 @@ def confirm_handoff(
     )
 
 
+@router.post("/{message_id}/previous-send/confirm", response_model=EmailDraftView)
+def confirm_previous_send(
+    message_id: int, principal: PrincipalDependency, service: EmailServiceDependency
+) -> EmailDraftView:
+    return _view(service.mark_previous_send_sent(message_id, user_id=principal.user.user_id))
+
+
 @router.put("/{message_id}", response_model=EmailDraftView)
 def edit_draft(
     message_id: int,

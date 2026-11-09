@@ -81,6 +81,11 @@ export function EmailApprovalPage() {
     onSuccess: () => void refresh(),
     onError: onErr,
   })
+  const confirmPreviousSend = useMutation({
+    mutationFn: (id: number) => api.confirmPreviousSend(id),
+    onSuccess: () => void refresh(),
+    onError: onErr,
+  })
   const save = useMutation({
     mutationFn: (e: EmailDraft) => api.updateEmail(e.emailId, edits[e.emailId] ?? { subject: e.subject, body: e.body }),
     onSuccess: () => void refresh(),
@@ -339,11 +344,8 @@ export function EmailApprovalPage() {
           onClose={() => setConfirmUncertainHandoff(null)}
           actions={
             <>
-              <button className="btn" onClick={() => setConfirmUncertainHandoff(null)}>
-                Cancel
-              </button>
               <button
-                className="btn btn-primary"
+                className="btn"
                 onClick={() => {
                   handoff.mutate({
                     id: confirmUncertainHandoff.id,
@@ -352,7 +354,19 @@ export function EmailApprovalPage() {
                   setConfirmUncertainHandoff(null)
                 }}
               >
-                I checked — open new draft
+                Not found — open new draft
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  confirmPreviousSend.mutate(confirmUncertainHandoff.id)
+                  setConfirmUncertainHandoff(null)
+                }}
+              >
+                Found in Sent Items — mark as sent
+              </button>
+              <button className="btn" onClick={() => setConfirmUncertainHandoff(null)}>
+                Cancel
               </button>
             </>
           }

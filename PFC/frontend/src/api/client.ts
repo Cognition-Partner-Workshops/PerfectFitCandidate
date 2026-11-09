@@ -197,6 +197,8 @@ export interface ApiClient {
   downloadEmailDraft(emailId: number): Promise<ExportedFile>
   /** POST /emails/{id}/handoff/confirm */
   confirmEmailHandoff(emailId: number, sent: boolean): Promise<EmailDraft>
+  /** POST /emails/{id}/previous-send/confirm */
+  confirmPreviousSend(emailId: number): Promise<EmailDraft>
   /** PUT /emails/{id} */
   updateEmail(emailId: number, patch: Partial<Pick<EmailDraft, 'subject' | 'body' | 'cc' | 'status'>>): Promise<EmailDraft>
   /** POST /emails/{id}/approve */

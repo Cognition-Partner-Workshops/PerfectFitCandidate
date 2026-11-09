@@ -1103,6 +1103,19 @@ export class MockApiClient implements ApiClient {
     return this.done(e)
   }
 
+  async confirmPreviousSend(id: number) {
+    this.currentUser()
+    const e = this.email(id)
+    if (!e.failureReason || e.status === 'Sent') {
+      fail(409, 'Email has no unresolved Outlook COM send attempt', 'EMAIL_NO_UNCERTAIN_SEND')
+    }
+    e.status = 'Sent'
+    e.sentAt = iso()
+    e.failureReason = undefined
+    this.audit(`Previous Outlook send confirmed as sent for ${e.codeRequisition}`)
+    return this.done(e)
+  }
+
   private email(id: number): EmailDraft {
     const e = this.state.emails.find((x) => x.emailId === id)
     if (!e) fail(404, 'Email not found', 'NOT_FOUND')

@@ -116,7 +116,35 @@ describe('EmailApprovalPage transport handoff', () => {
 
     expect(await screen.findByText(detail)).toBeTruthy()
     open.mockResolvedValue({ draft: failed, opened: true })
-    await user.click(screen.getByRole('button', { name: 'I checked — open new draft' }))
+    await user.click(screen.getByRole('button', { name: 'Not found — open new draft' }))
     await waitFor(() => expect(open).toHaveBeenLastCalledWith(failed.emailId, true))
+  })
+
+  it('marks the previous COM send as sent when found in Sent Items', async () => {
+    const user = userEvent.setup()
+    const detail =
+      'An earlier Outlook COM send attempt failed and may have reached the recipient. Check Outlook Sent Items before opening a new draft.'
+    const failed = { ...draft(), status: 'Failed' as const, failureReason: 'Outlook unavailable' }
+    vi.spyOn(mock, 'openEmailInOutlook').mockRejectedValue(
+      new ApiError({
+        type: 'about:blank',
+        title: detail,
+        status: 409,
+        detail,
+        code: 'EMAIL_PREVIOUS_SEND_UNCERTAIN',
+      }),
+    )
+    const confirm = vi
+      .spyOn(mock, 'confirmPreviousSend')
+      .mockResolvedValue({ ...failed, status: 'Sent' })
+    renderPage(failed, { transport: 'Outlook draft file', outlookDetected: false })
+    await user.click(await screen.findByRole('tab', { name: 'Failed (1)' }))
+    await user.click(await screen.findByRole('button', { name: 'Open in Outlook' }))
+
+    expect(await screen.findByText(detail)).toBeTruthy()
+    await user.click(
+      screen.getByRole('button', { name: 'Found in Sent Items — mark as sent' }),
+    )
+    await waitFor(() => expect(confirm).toHaveBeenCalledWith(failed.emailId))
   })
 })
