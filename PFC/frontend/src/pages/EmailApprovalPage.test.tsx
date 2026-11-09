@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ApiError } from '../api/client'
 import type { EmailDraft, EmailTransportStatus } from '../api/types'
 import { mock } from '../test/utils'
 import { EmailApprovalPage } from './EmailApprovalPage'
@@ -49,7 +50,9 @@ describe('EmailApprovalPage transport handoff', () => {
     expect(screen.queryByRole('button', { name: /^Send$/ })).toBeNull()
     vi.spyOn(mock, 'openEmailInOutlook').mockResolvedValue({ draft: fileDraft, opened: true })
     await user.click(open)
-    await waitFor(() => expect(mock.openEmailInOutlook).toHaveBeenCalledWith(fileDraft.emailId))
+    await waitFor(() =>
+      expect(mock.openEmailInOutlook).toHaveBeenCalledWith(fileDraft.emailId, undefined),
+    )
   })
 
   it('keeps the COM send button unchanged', async () => {
@@ -91,5 +94,29 @@ describe('EmailApprovalPage transport handoff', () => {
     expect(screen.queryByRole('button', { name: /^Send$/ })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Open in Outlook' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Open again' })).toBeNull()
+  })
+
+  it('confirms an uncertain previous COM send before opening a new draft', async () => {
+    const user = userEvent.setup()
+    const detail =
+      'An earlier Outlook COM send attempt failed and may have reached the recipient. Check Outlook Sent Items before opening a new draft.'
+    const failed = { ...draft(), status: 'Failed' as const, failureReason: 'Outlook unavailable' }
+    const open = vi.spyOn(mock, 'openEmailInOutlook').mockRejectedValue(
+      new ApiError({
+        type: 'about:blank',
+        title: detail,
+        status: 409,
+        detail,
+        code: 'EMAIL_PREVIOUS_SEND_UNCERTAIN',
+      }),
+    )
+    renderPage(failed, { transport: 'Outlook draft file', outlookDetected: false })
+    await user.click(await screen.findByRole('tab', { name: 'Failed (1)' }))
+    await user.click(await screen.findByRole('button', { name: 'Open in Outlook' }))
+
+    expect(await screen.findByText(detail)).toBeTruthy()
+    open.mockResolvedValue({ draft: failed, opened: true })
+    await user.click(screen.getByRole('button', { name: 'I checked — open new draft' }))
+    await waitFor(() => expect(open).toHaveBeenLastCalledWith(failed.emailId, true))
   })
 })

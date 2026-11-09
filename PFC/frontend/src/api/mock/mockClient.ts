@@ -1061,11 +1061,18 @@ export class MockApiClient implements ApiClient {
     })
   }
 
-  async openEmailInOutlook(id: number) {
+  async openEmailInOutlook(id: number, confirmUncertain = false) {
     this.currentUser()
     const e = this.email(id)
     if (e.status !== 'Approved' && e.status !== 'Failed') {
       fail(409, 'Approve the email before opening an Outlook draft', 'EMAIL_NOT_APPROVED')
+    }
+    if (e.status === 'Failed' && e.failureReason && !confirmUncertain) {
+      fail(
+        409,
+        'An earlier Outlook COM send attempt failed and may have reached the recipient. Check Outlook Sent Items before opening a new draft.',
+        'EMAIL_PREVIOUS_SEND_UNCERTAIN',
+      )
     }
     e.handoffAt ??= iso()
     return this.done({ draft: e, opened: false })

@@ -285,10 +285,11 @@ export class HttpApiClient implements ApiClient {
       transport: { transport, outlookDetected: transport === 'Outlook COM' },
     }
   }
-  openEmailInOutlook: ApiClient['openEmailInOutlook'] = async (id) => {
+  openEmailInOutlook: ApiClient['openEmailInOutlook'] = async (id, confirmUncertain) => {
     const result = await this.request<{ draft: EmailRow; opened: boolean }>(
       'POST',
       `/emails/${id}/handoff`,
+      confirmUncertain ? { confirm_uncertain: true } : undefined,
     )
     return { draft: toEmailDraft(result.draft), opened: result.opened }
   }

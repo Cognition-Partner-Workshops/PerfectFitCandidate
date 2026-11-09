@@ -50,6 +50,10 @@ class EmailHandoffConfirmRequest(BaseModel):
     sent: bool
 
 
+class EmailHandoffRequest(BaseModel):
+    confirm_uncertain: bool = False
+
+
 class EmailDraftView(BaseModel):
     message_id: int
     demand_id: int

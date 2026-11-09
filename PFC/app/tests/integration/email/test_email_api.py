@@ -777,6 +777,106 @@ def test_eml_handoff_rejects_a_non_manual_transport(client: TestClient) -> None:
     assert response.json()["code"] == "EMAIL_TRANSPORT_MISMATCH"
 
 
+def test_eml_handoff_requires_confirmation_after_failed_com_attempt(client: TestClient) -> None:
+    client.app.state.email_transport = EmlHandoffTransport()
+    csrf, draft = create_approved_draft(client)
+    message_id = draft["message_id"]
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "UPDATE email_messages SET status='Failed', transport='outlook_com', attempts=1 "
+            "WHERE message_id=?",
+            (message_id,),
+        )
+
+    response = client.post(
+        f"/api/v1/emails/{message_id}/handoff",
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "EMAIL_PREVIOUS_SEND_UNCERTAIN"
+    assert response.json()["detail"] == (
+        "An earlier Outlook COM send attempt failed and may have reached the recipient. "
+        "Check Outlook Sent Items before opening a new draft."
+    )
+    with database(client.app.state.settings) as db:
+        row = db.execute(
+            "SELECT status, transport, attempts, handoff_at FROM email_messages WHERE message_id=?",
+            (message_id,),
+        ).fetchone()
+        handoffs = db.execute(
+            "SELECT count(*) FROM audit_log WHERE entity_id=? AND action='EMAIL_HANDOFF'",
+            (str(message_id),),
+        ).fetchone()[0]
+    assert tuple(row) == ("Failed", "outlook_com", 1, None)
+    assert handoffs == 0
+
+
+def test_eml_handoff_confirms_uncertain_com_attempt_and_audits_it(client: TestClient) -> None:
+    client.app.state.email_transport = EmlHandoffTransport()
+    csrf, draft = create_approved_draft(client)
+    message_id = draft["message_id"]
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "UPDATE email_messages SET status='Failed', transport='outlook_com', attempts=1 "
+            "WHERE message_id=?",
+            (message_id,),
+        )
+
+    response = client.post(
+        f"/api/v1/emails/{message_id}/handoff",
+        headers={"X-CSRF-Token": csrf},
+        json={"confirm_uncertain": True},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["draft"]["status"] == "Sending"
+    assert response.json()["draft"]["handoff_at"]
+    with database(client.app.state.settings) as db:
+        row = db.execute(
+            "SELECT status, transport, attempts, handoff_at FROM email_messages WHERE message_id=?",
+            (message_id,),
+        ).fetchone()
+        event = db.execute(
+            "SELECT details_json FROM audit_log WHERE entity_id=? AND action='EMAIL_HANDOFF'",
+            (str(message_id),),
+        ).fetchone()
+    assert tuple(row) == (
+        "Sending",
+        None,
+        2,
+        response.json()["draft"]["handoff_at"],
+    )
+    assert json.loads(event["details_json"])["previous_com_attempt"] is True
+
+
+def test_eml_handoff_failed_without_com_transport_needs_no_confirmation(client: TestClient) -> None:
+    client.app.state.email_transport = EmlHandoffTransport()
+    csrf, draft = create_approved_draft(client)
+    message_id = draft["message_id"]
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "UPDATE email_messages SET status='Failed', transport=NULL, attempts=1 "
+            "WHERE message_id=?",
+            (message_id,),
+        )
+
+    response = client.post(
+        f"/api/v1/emails/{message_id}/handoff",
+        headers={"X-CSRF-Token": csrf},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["draft"]["status"] == "Sending"
+    assert response.json()["draft"]["handoff_at"]
+    with database(client.app.state.settings) as db:
+        event = db.execute(
+            "SELECT details_json FROM audit_log WHERE entity_id=? AND action='EMAIL_HANDOFF'",
+            (str(message_id),),
+        ).fetchone()
+    assert "previous_com_attempt" not in json.loads(event["details_json"])
+
+
 def test_eml_handoff_attachment_failure_keeps_handoff_active(client: TestClient) -> None:
     client.app.state.email_transport = EmlHandoffTransport()
     csrf, draft = create_approved_draft(client)

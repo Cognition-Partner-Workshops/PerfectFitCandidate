@@ -26,6 +26,10 @@ export function EmailApprovalPage() {
   const [checked, setChecked] = useState<Set<number> | null>(null)
   const [confirmBulk, setConfirmBulk] = useState(false)
   const [resendFor, setResendFor] = useState<EmailDraft | null>(null)
+  const [confirmUncertainHandoff, setConfirmUncertainHandoff] = useState<{
+    id: number
+    detail: string
+  } | null>(null)
   const [edits, setEdits] = useState<Record<number, { subject: string; body: string }>>({})
   const [error, setError] = useState<string | null>(null)
 
@@ -54,8 +58,8 @@ export function EmailApprovalPage() {
   })
   const send = useMutation({ mutationFn: (id: number) => api.sendEmail(id), onSuccess: () => void refresh(), onError: onErr })
   const handoff = useMutation({
-    mutationFn: async (id: number) => {
-      const result = await api.openEmailInOutlook(id)
+    mutationFn: async ({ id, confirmUncertain }: { id: number; confirmUncertain?: boolean }) => {
+      const result = await api.openEmailInOutlook(id, confirmUncertain)
       if (!result.opened) {
         const file = await api.downloadEmailDraft(id)
         downloadBlob(file.blob, file.fileName)
@@ -63,7 +67,14 @@ export function EmailApprovalPage() {
       return result.draft
     },
     onSuccess: () => void refresh(),
-    onError: onErr,
+    onError: (e, { id }) => {
+      if (e instanceof ApiError && e.code === 'EMAIL_PREVIOUS_SEND_UNCERTAIN') {
+        setError(null)
+        setConfirmUncertainHandoff({ id, detail: e.message })
+        return
+      }
+      onErr(e)
+    },
   })
   const confirmHandoff = useMutation({
     mutationFn: ({ id, sent }: { id: number; sent: boolean }) => api.confirmEmailHandoff(id, sent),
@@ -243,7 +254,7 @@ export function EmailApprovalPage() {
                         Not sent
                       </button>
                       {draftFileTransport && (
-                        <button className="btn" onClick={() => handoff.mutate(active.emailId)}>
+                        <button className="btn" onClick={() => handoff.mutate({ id: active.emailId })}>
                           Open again
                         </button>
                       )}
@@ -251,7 +262,7 @@ export function EmailApprovalPage() {
                   ) : null
                 ) : draftFileTransport ? (
                   active.status === 'Approved' || active.status === 'Failed' ? (
-                    <button className="btn btn-primary" onClick={() => handoff.mutate(active.emailId)}>
+                    <button className="btn btn-primary" onClick={() => handoff.mutate({ id: active.emailId })}>
                       Open in Outlook
                     </button>
                   ) : null
@@ -320,6 +331,33 @@ export function EmailApprovalPage() {
           <p>
             This candidate–demand email was already sent on {resendFor.previouslySentAt?.slice(0, 10)}. Re-send?
           </p>
+        </Modal>
+      )}
+      {confirmUncertainHandoff && (
+        <Modal
+          title="Check Outlook Sent Items"
+          onClose={() => setConfirmUncertainHandoff(null)}
+          actions={
+            <>
+              <button className="btn" onClick={() => setConfirmUncertainHandoff(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  handoff.mutate({
+                    id: confirmUncertainHandoff.id,
+                    confirmUncertain: true,
+                  })
+                  setConfirmUncertainHandoff(null)
+                }}
+              >
+                I checked — open new draft
+              </button>
+            </>
+          }
+        >
+          <p>{confirmUncertainHandoff.detail}</p>
         </Modal>
       )}
     </div>

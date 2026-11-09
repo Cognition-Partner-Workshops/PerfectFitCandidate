@@ -22,6 +22,7 @@ from pfc.api.schemas.email import (
     EmailDraftListResponse,
     EmailDraftView,
     EmailHandoffConfirmRequest,
+    EmailHandoffRequest,
     EmailHandoffResponse,
     EmailSendOutcomeView,
     EmailSendRequest,
@@ -126,9 +127,16 @@ def get_draft(message_id: int, service: EmailServiceDependency) -> EmailDraftVie
 
 @router.post("/{message_id}/handoff", response_model=EmailHandoffResponse)
 def handoff_draft(
-    message_id: int, principal: PrincipalDependency, service: EmailServiceDependency
+    message_id: int,
+    principal: PrincipalDependency,
+    service: EmailServiceDependency,
+    body: EmailHandoffRequest | None = None,
 ) -> EmailHandoffResponse:
-    draft, opened = service.handoff(message_id, user_id=principal.user.user_id)
+    draft, opened = service.handoff(
+        message_id,
+        user_id=principal.user.user_id,
+        confirm_uncertain=body.confirm_uncertain if body else False,
+    )
     return EmailHandoffResponse(draft=_view(draft), opened=opened)
 
 

@@ -631,7 +631,9 @@ class EmailService:
         assert updated is not None
         return _draft_from_row(updated)
 
-    def handoff(self, message_id: int, user_id: int) -> tuple[EmailDraft, bool]:
+    def handoff(
+        self, message_id: int, user_id: int, *, confirm_uncertain: bool = False
+    ) -> tuple[EmailDraft, bool]:
         if not getattr(self.transport, "manual_send", False):
             raise Problem(
                 409,
@@ -647,6 +649,16 @@ class EmailService:
                 raise Problem(404, "EMAIL_DRAFT_NOT_FOUND", "Email draft not found")
 
             repeat = row["status"] == "Sending" and row["handoff_at"] is not None
+            previous_com_attempt = (
+                not repeat and row["status"] == "Failed" and row["transport"] == "outlook_com"
+            )
+            if previous_com_attempt and not confirm_uncertain:
+                raise Problem(
+                    409,
+                    "EMAIL_PREVIOUS_SEND_UNCERTAIN",
+                    "An earlier Outlook COM send attempt failed and may have reached "
+                    "the recipient. Check Outlook Sent Items before opening a new draft.",
+                )
             if not repeat:
                 if row["status"] in {"Sent", "Discarded"}:
                     raise Problem(409, "EMAIL_NOT_SENDABLE", "Email is not sendable")
@@ -685,7 +697,11 @@ class EmailService:
                 action="EMAIL_HANDOFF",
                 entity_type="email_message",
                 entity_id=str(message_id),
-                details={"transport": "eml_handoff", "repeat": repeat},
+                details={
+                    "transport": "eml_handoff",
+                    "repeat": repeat,
+                    **({"previous_com_attempt": True} if previous_com_attempt else {}),
+                },
             )
             updated = self._get_draft_row(db, message_id)
 

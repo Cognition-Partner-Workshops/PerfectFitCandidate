@@ -189,7 +189,10 @@ export interface ApiClient {
   /** GET /emails */
   listEmails(): Promise<EmailList>
   /** POST /emails/{id}/handoff */
-  openEmailInOutlook(emailId: number): Promise<{ draft: EmailDraft; opened: boolean }>
+  openEmailInOutlook(
+    emailId: number,
+    confirmUncertain?: boolean,
+  ): Promise<{ draft: EmailDraft; opened: boolean }>
   /** GET /emails/{id}/handoff.eml */
   downloadEmailDraft(emailId: number): Promise<ExportedFile>
   /** POST /emails/{id}/handoff/confirm */

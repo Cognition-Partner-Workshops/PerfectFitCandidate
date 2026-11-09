@@ -64,6 +64,38 @@ it('maps email transport and handoff timestamps from the backend', async () => {
   })
 })
 
+it('sends uncertainty confirmation only when requested for an Outlook handoff', async () => {
+  const api = new HttpApiClient('/api/v1')
+  const draft = {
+    message_id: 7,
+    demand_id: 3,
+    resource_id: 4,
+    result_id: 5,
+    rank: 1,
+    selected: true,
+    to_address: 'candidate@example.com',
+    cc: [],
+    subject: 'Subject',
+    body_html: '<p>Body</p>',
+    status: 'Sending',
+    created_at: '2026-01-01T00:00:00Z',
+    sent_at: null,
+    handoff_at: '2026-01-02T03:04:05Z',
+    last_error: null,
+  }
+  fetchMock
+    .mockResolvedValueOnce(json({ draft, opened: false }))
+    .mockResolvedValueOnce(json({ draft, opened: false }))
+
+  await api.openEmailInOutlook(7)
+  await api.openEmailInOutlook(7, true)
+
+  expect((fetchMock.mock.calls[0]?.[1] as RequestInit).body).toBeUndefined()
+  expect(JSON.parse((fetchMock.mock.calls[1]?.[1] as RequestInit).body as string)).toEqual({
+    confirm_uncertain: true,
+  })
+})
+
 describe('HttpApiClient — TDD §9.3 session + CSRF', () => {
   it('uses the four summary routes and preserves their camelCase response', async () => {
     const summary = { sentences: [{ text: 'SQL', evidence: 'SQL' }], model: 'local', createdAt: 'now', stale: true, droppedUngrounded: 1, sourceVersionId: 7 }
