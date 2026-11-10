@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 import importlib
+import logging
+import mimetypes
+import os
 import sys
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from email.message import EmailMessage as MIMEEmailMessage
+from html.parser import HTMLParser
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 from threading import Lock
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, cast
+
+logger = logging.getLogger(__name__)
 
 IDEMPOTENCY_PROPERTY = (
     "http://schemas.microsoft.com/mapi/string/"
@@ -48,6 +57,114 @@ def validate(message: EmailMessage, *, sending: bool = False) -> None:
         raise ValueError("Idempotency key and verbatim To recipient are required")
     if sending and not message.approved:
         raise EmailTransportError("Explicit per-message approval is required (REQ-EML-01)")
+
+
+class _PlainTextHTMLParser(HTMLParser):
+    _block_tags = {"br", "div", "li", "ol", "p", "tr", "ul"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in self._block_tags:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self._block_tags:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+
+
+def _plain_text(html: str) -> str:
+    parser = _PlainTextHTMLParser()
+    parser.feed(html)
+    parser.close()
+    return "\n".join(line.strip() for line in "".join(parser.parts).splitlines() if line.strip())
+
+
+def build_eml(message: EmailMessage) -> bytes:
+    """Build an editable RFC 5322 draft for analyst handoff."""
+    mime_message = MIMEEmailMessage()
+    mime_message["To"] = message.to
+    if message.cc:
+        mime_message["Cc"] = message.cc
+    mime_message["Subject"] = message.subject
+    mime_message["X-Unsent"] = "1"
+    mime_message.set_content(_plain_text(message.html_body))
+    mime_message.add_alternative(message.html_body, subtype="html")
+    for attachment in message.attachments:
+        path = Path(attachment)
+        if not path.is_file():
+            raise EmailTransportError("Email attachment file is unavailable")
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            raise EmailTransportError("Email attachment file is unavailable") from exc
+        mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        maintype, subtype = mime_type.split("/", maxsplit=1)
+        mime_message.add_attachment(
+            data,
+            maintype=maintype,
+            subtype=subtype,
+            filename=path.name,
+        )
+    return bytes(mime_message)
+
+
+class EmlHandoffTransport:
+    """Writes an analyst-reviewed draft file without sending email automatically."""
+
+    manual_send = True
+
+    def __init__(self, *, opener: Callable[[Path], None] | None = None) -> None:
+        default_opener = getattr(os, "startfile", None) if sys.platform == "win32" else None
+        self._opener = (
+            opener if opener is not None else cast(Callable[[Path], None] | None, default_opener)
+        )
+
+    def create_draft(self, message: EmailMessage, *, display: bool = False) -> DeliveryResult:
+        validate(message)
+        return DeliveryResult(message.idempotency_key, "draft")
+
+    def send(self, message: EmailMessage) -> DeliveryResult:
+        raise EmailTransportError(
+            "Automatic sending is not available with the Outlook draft file transport"
+        )
+
+    def reconcile(self, idempotency_key: str) -> DeliveryResult:
+        return DeliveryResult(idempotency_key, "missing")
+
+    def write_draft(self, message: EmailMessage, path: Path) -> None:
+        content = build_eml(message)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path: Path | None = None
+        try:
+            with NamedTemporaryFile(
+                mode="wb",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temporary:
+                temporary_path = Path(temporary.name)
+                temporary.write(content)
+            os.replace(temporary_path, path)
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
+
+    def open_draft(self, path: Path) -> bool:
+        if self._opener is None:
+            return False
+        try:
+            self._opener(path)
+        except Exception:
+            logger.warning("Unable to open Outlook draft file")
+            return False
+        return True
 
 
 class FakeTransport:

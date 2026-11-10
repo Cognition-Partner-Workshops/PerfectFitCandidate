@@ -275,9 +275,42 @@ export class HttpApiClient implements ApiClient {
     return r.drafts.map(toEmailDraft)
   }
   listEmails: ApiClient['listEmails'] = async () => {
-    const r = await this.request<{ drafts: EmailRow[] }>('GET', '/emails?limit=500')
-    return { items: r.drafts.map(toEmailDraft), transport: { transport: 'Outlook COM', outlookDetected: true } }
+    const r = await this.request<{
+      drafts: EmailRow[]
+      transport: 'outlook_com' | 'eml_handoff' | 'other'
+    }>('GET', '/emails?limit=500')
+    const transport = r.transport === 'eml_handoff' ? 'Outlook draft file' : 'Outlook COM'
+    return {
+      items: r.drafts.map(toEmailDraft),
+      transport: { transport, outlookDetected: transport === 'Outlook COM' },
+    }
   }
+  openEmailInOutlook: ApiClient['openEmailInOutlook'] = async (id, confirmUncertain) => {
+    const result = await this.request<{ draft: EmailRow; opened: boolean }>(
+      'POST',
+      `/emails/${id}/handoff`,
+      confirmUncertain ? { confirm_uncertain: true } : undefined,
+    )
+    return { draft: toEmailDraft(result.draft), opened: result.opened }
+  }
+  downloadEmailDraft: ApiClient['downloadEmailDraft'] = async (id) => {
+    const response = await this.request<Response>(
+      'GET',
+      `/emails/${id}/handoff.eml`,
+      undefined,
+      true,
+    )
+    const fileName =
+      /filename="([^"]+)"/.exec(response.headers.get('Content-Disposition') ?? '')?.[1] ??
+      `PFC-email-${id}.eml`
+    return { blob: await response.blob(), fileName }
+  }
+  confirmEmailHandoff: ApiClient['confirmEmailHandoff'] = async (id, sent) =>
+    toEmailDraft(
+      await this.request('POST', `/emails/${id}/handoff/confirm`, { sent }),
+    )
+  confirmPreviousSend: ApiClient['confirmPreviousSend'] = async (id) =>
+    toEmailDraft(await this.request('POST', `/emails/${id}/previous-send/confirm`))
   updateEmail: ApiClient['updateEmail'] = async (id, patch) =>
     toEmailDraft(await this.request('PUT', `/emails/${id}`, { subject: patch.subject, body_html: patch.body }))
   approveEmail: ApiClient['approveEmail'] = async (id, confirmResend) =>

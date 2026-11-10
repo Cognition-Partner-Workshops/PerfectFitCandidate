@@ -11,13 +11,15 @@ from datetime import datetime
 from html import escape
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from urllib.parse import urlsplit
 
 from pfc.adapters.email.transports import (
     EmailMessage,
     EmailTransport,
     EmailTransportError,
+    EmlHandoffTransport,
+    build_eml,
 )
 from pfc.adapters.llm.providers import LLMProvider, PromptRequest
 from pfc.config import Settings
@@ -68,6 +70,7 @@ class EmailDraft:
     created_at: str
     updated_at: str
     sent_at: str | None
+    handoff_at: str | None
     last_error: str | None
     attachment_name: str | None
 
@@ -218,6 +221,7 @@ def _draft_from_row(row: sqlite3.Row) -> EmailDraft:
         created_at=str(row["created_at"]),
         updated_at=str(row["updated_at"]),
         sent_at=row["sent_at"],
+        handoff_at=row["handoff_at"],
         last_error=row["last_error"],
         attachment_name=Path(attachment).name if attachment else None,
     )
@@ -627,6 +631,222 @@ class EmailService:
         assert updated is not None
         return _draft_from_row(updated)
 
+    def handoff(
+        self, message_id: int, user_id: int, *, confirm_uncertain: bool = False
+    ) -> tuple[EmailDraft, bool]:
+        if not getattr(self.transport, "manual_send", False):
+            raise Problem(
+                409,
+                "EMAIL_TRANSPORT_MISMATCH",
+                "The active email transport does not support Outlook draft handoff",
+            )
+
+        now = stamp(self.clock())
+        with database(self.settings) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = self._get_draft_row(db, message_id)
+            if row is None:
+                raise Problem(404, "EMAIL_DRAFT_NOT_FOUND", "Email draft not found")
+
+            repeat = row["status"] == "Sending" and row["handoff_at"] is not None
+            previous_com_attempt = not repeat and row["transport"] == "outlook_com"
+            if not repeat:
+                if row["status"] in {"Sent", "Discarded"}:
+                    raise Problem(409, "EMAIL_NOT_SENDABLE", "Email is not sendable")
+                if row["status"] == "Sending":
+                    raise Problem(
+                        409,
+                        "EMAIL_HANDOFF_NOT_ACTIVE",
+                        "Email is sending through a different transport",
+                    )
+                if row["status"] == "Draft" or row["approved_by"] is None:
+                    raise Problem(
+                        409,
+                        "EMAIL_NOT_APPROVED",
+                        "Approve the email before opening an Outlook draft",
+                    )
+                if row["status"] not in {"Approved", "Failed"}:
+                    raise Problem(409, "EMAIL_NOT_SENDABLE", "Email is not sendable")
+                if previous_com_attempt and not confirm_uncertain:
+                    raise Problem(
+                        409,
+                        "EMAIL_PREVIOUS_SEND_UNCERTAIN",
+                        "An earlier Outlook COM send attempt failed and may have reached "
+                        "the recipient. Check Outlook Sent Items before opening a new draft.",
+                    )
+                cursor = db.execute(
+                    "UPDATE email_messages SET status='Sending', attempts=attempts+1, "
+                    "handoff_at=?, last_error=NULL, transport=NULL, transport_ref=NULL, "
+                    "updated_at=? WHERE message_id=? AND status IN ('Approved','Failed') "
+                    "AND approved_by IS NOT NULL",
+                    (now, now, message_id),
+                )
+                if cursor.rowcount == 0:
+                    raise Problem(
+                        409,
+                        "EMAIL_NOT_SENDABLE",
+                        "Email state changed before the Outlook draft was opened",
+                    )
+
+            audit.append_audit(
+                db,
+                ts=now,
+                user_id=user_id,
+                action="EMAIL_HANDOFF",
+                entity_type="email_message",
+                entity_id=str(message_id),
+                details={
+                    "transport": "eml_handoff",
+                    "repeat": repeat,
+                    **({"previous_com_attempt": True} if previous_com_attempt else {}),
+                },
+            )
+            updated = self._get_draft_row(db, message_id)
+
+        assert updated is not None
+        message = self._transport_message(updated, approved=True)
+        path = self._handoff_path(message_id)
+        transport = cast(EmlHandoffTransport, self.transport)
+        try:
+            transport.write_draft(message, path)
+            opened = transport.open_draft(path)
+        except (EmailTransportError, OSError) as exc:
+            logger.warning(
+                "Unable to create Outlook draft file for email_message_id=%s", message_id
+            )
+            raise Problem(
+                503,
+                "EMAIL_HANDOFF_FAILED",
+                "PFC couldn't create the Outlook draft file. Choose Open again, or "
+                "Not sent to return the email to Approved.",
+            ) from exc
+        return _draft_from_row(updated), opened
+
+    def handoff_eml(self, message_id: int) -> bytes:
+        with database(self.settings) as db:
+            row = self._get_draft_row(db, message_id)
+        if row is None:
+            raise Problem(404, "EMAIL_DRAFT_NOT_FOUND", "Email draft not found")
+        if row["status"] != "Sending" or row["handoff_at"] is None:
+            raise Problem(
+                409,
+                "EMAIL_HANDOFF_NOT_ACTIVE",
+                "Email does not have an active Outlook draft handoff",
+            )
+        try:
+            return build_eml(self._transport_message(row, approved=True))
+        except EmailTransportError as exc:
+            logger.warning(
+                "Unable to rebuild Outlook draft file for email_message_id=%s", message_id
+            )
+            raise Problem(
+                503,
+                "EMAIL_HANDOFF_FAILED",
+                "PFC couldn't create the Outlook draft file. Choose Open again, or "
+                "Not sent to return the email to Approved.",
+            ) from exc
+
+    def confirm_handoff(self, message_id: int, user_id: int, *, sent: bool) -> EmailDraft:
+        now = stamp(self.clock())
+        with database(self.settings) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = self._get_draft_row(db, message_id)
+            if row is None:
+                raise Problem(404, "EMAIL_DRAFT_NOT_FOUND", "Email draft not found")
+            if row["status"] != "Sending" or row["handoff_at"] is None:
+                raise Problem(
+                    409,
+                    "EMAIL_HANDOFF_NOT_ACTIVE",
+                    "Email does not have an active Outlook draft handoff",
+                )
+
+            if sent:
+                db.execute(
+                    "UPDATE email_messages SET status='Sent', sent_by=?, sent_at=?, "
+                    "last_error=NULL, updated_at=? WHERE message_id=? AND status='Sending' "
+                    "AND handoff_at IS NOT NULL",
+                    (user_id, now, now, message_id),
+                )
+                action = "EMAIL_SENT"
+                details = {
+                    "status": "Sent",
+                    "transport": "eml_handoff",
+                    "confirmed_by_analyst": True,
+                }
+            else:
+                db.execute(
+                    "UPDATE email_messages SET status='Approved', handoff_at=NULL, "
+                    "last_error=NULL, updated_at=? WHERE message_id=? AND status='Sending' "
+                    "AND handoff_at IS NOT NULL",
+                    (now, message_id),
+                )
+                action = "EMAIL_HANDOFF_CANCELLED"
+                details = {"status": "Approved"}
+
+            audit.append_audit(
+                db,
+                ts=now,
+                user_id=user_id,
+                action=action,
+                entity_type="email_message",
+                entity_id=str(message_id),
+                details=details,
+            )
+            updated = self._get_draft_row(db, message_id)
+
+        try:
+            self._handoff_path(message_id).unlink(missing_ok=True)
+        except OSError:
+            logger.warning(
+                "Unable to remove Outlook draft file for email_message_id=%s", message_id
+            )
+        assert updated is not None
+        return _draft_from_row(updated)
+
+    def mark_previous_send_sent(self, message_id: int, user_id: int) -> EmailDraft:
+        now = stamp(self.clock())
+        with database(self.settings) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = self._get_draft_row(db, message_id)
+            if row is None:
+                raise Problem(404, "EMAIL_DRAFT_NOT_FOUND", "Email draft not found")
+            if row["status"] != "Failed" or row["transport"] != "outlook_com":
+                raise Problem(
+                    409,
+                    "EMAIL_NO_UNCERTAIN_SEND",
+                    "Email has no unresolved Outlook COM send attempt",
+                )
+            cursor = db.execute(
+                "UPDATE email_messages SET status='Sent', sent_by=?, sent_at=?, "
+                "last_error=NULL, updated_at=? WHERE message_id=? AND transport='outlook_com' "
+                "AND status='Failed'",
+                (user_id, now, now, message_id),
+            )
+            if cursor.rowcount == 0:
+                raise Problem(
+                    409,
+                    "EMAIL_NO_UNCERTAIN_SEND",
+                    "Email has no unresolved Outlook COM send attempt",
+                )
+            audit.append_audit(
+                db,
+                ts=now,
+                user_id=user_id,
+                action="EMAIL_SENT",
+                entity_type="email_message",
+                entity_id=str(message_id),
+                details={
+                    "status": "Sent",
+                    "transport": "outlook_com",
+                    "confirmed_by_analyst": True,
+                    "previous_com_attempt": True,
+                },
+            )
+            updated = self._get_draft_row(db, message_id)
+
+        assert updated is not None
+        return _draft_from_row(updated)
+
     def send_approved(
         self, *, user_id: int, message_ids: Sequence[int] | None = None
     ) -> list[EmailSendOutcome]:
@@ -646,6 +866,24 @@ class EmailService:
                 row = self._get_draft_row(db, message_id)
             if row is None:
                 outcomes.append(EmailSendOutcome(message_id, "skipped", "Draft not found"))
+                continue
+            if row["status"] == "Sending" and row["handoff_at"] is not None:
+                outcomes.append(
+                    EmailSendOutcome(
+                        message_id,
+                        "skipped",
+                        "Waiting for confirmation that the Outlook draft was sent",
+                    )
+                )
+                continue
+            if getattr(self.transport, "manual_send", False):
+                outcomes.append(
+                    EmailSendOutcome(
+                        message_id,
+                        "skipped",
+                        "Use Open in Outlook for the draft file transport",
+                    )
+                )
                 continue
             if row["status"] in {"Sent", "Discarded"}:
                 outcomes.append(EmailSendOutcome(message_id, "skipped", "Email is not sendable"))
@@ -969,6 +1207,9 @@ class EmailService:
             attachments=attachments,
             approved=approved,
         )
+
+    def _handoff_path(self, message_id: int) -> Path:
+        return self.settings.data_dir / "email" / "outbox" / f"{message_id}.eml"
 
     def _mark_sending(self, message_id: int, user_id: int) -> sqlite3.Row | None:
         now = stamp(self.clock())

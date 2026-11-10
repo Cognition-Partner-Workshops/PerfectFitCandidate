@@ -424,12 +424,13 @@ export interface EmailDraft {
   preselected: boolean
   demandUploadedAt: string
   sentAt?: string
+  handoffAt?: string
   failureReason?: string
   previouslySentAt?: string
 }
 
 export interface EmailTransportStatus {
-  transport: 'Outlook COM' | 'SMTP'
+  transport: 'Outlook COM' | 'Outlook draft file' | 'SMTP'
   outlookDetected: boolean
 }
 
@@ -678,6 +679,7 @@ export interface AdminSettings {
   staleDataDays: number
   emailTurnaroundHours: number
   allowExternalProviders: boolean
+  emailTransport: 'eml_handoff' | 'outlook_com'
 }
 
 /** OCC email template version (REQ-EML-03); rows are append-only per `name`. */

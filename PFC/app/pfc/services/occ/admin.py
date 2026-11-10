@@ -262,7 +262,29 @@ def settings_put(
             r"[a-z][a-z0-9_]*(\.[a-z0-9_]+)+", key
         ):
             raise Problem(422, "VALIDATION_ERROR", "Invalid or reserved settings key")
+    if "email.transport" in values and values["email.transport"] not in (
+        "eml_handoff",
+        "outlook_com",
+    ):
+        raise Problem(
+            422,
+            "VALIDATION_ERROR",
+            "email.transport must be eml_handoff or outlook_com",
+        )
     before = settings_get(db, user_id, settings)
+    if (
+        values.get("email.transport") == "eml_handoff"
+        and before.get("email.transport", "eml_handoff") != "eml_handoff"
+        and db.execute(
+            "SELECT 1 FROM email_messages WHERE status='Sending' AND handoff_at IS NULL LIMIT 1"
+        ).fetchone()
+    ):
+        raise Problem(
+            409,
+            "EMAIL_TRANSPORT_BUSY",
+            "Finish or retry the in-flight Outlook COM sends before switching to the "
+            "Outlook draft file",
+        )
     try:
         encoded = {key: json.dumps(value, allow_nan=False) for key, value in values.items()}
     except (ValueError, TypeError) as exc:

@@ -6,6 +6,9 @@ import threading
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from email import message_from_bytes
+from email.policy import default
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -140,6 +143,95 @@ def test_contract(kind: str, message: transports.EmailMessage) -> None:
     finally:
         if isinstance(transport, transports.OutlookComTransport):
             transport.close()
+
+
+def test_build_eml_includes_alternatives_and_attachment(
+    message: transports.EmailMessage, tmp_path: Path
+) -> None:
+    attachment = tmp_path / "job-description.txt"
+    attachment.write_bytes(b"Job description")
+    message = replace(
+        message,
+        to="candidate@example.test",
+        cc="team@example.test",
+        subject="Opportunity",
+        html_body="<p>Hello <strong>candidate</strong>.</p>",
+        attachments=(str(attachment),),
+    )
+
+    parsed = message_from_bytes(transports.build_eml(message), policy=default)
+    alternative = next(
+        part for part in parsed.walk() if part.get_content_type() == "multipart/alternative"
+    )
+    plain = alternative.get_body(preferencelist=("plain",))
+    html = alternative.get_body(preferencelist=("html",))
+    attached = next(part for part in parsed.walk() if part.get_filename())
+
+    assert parsed["X-Unsent"] == "1"
+    assert parsed["To"] == "candidate@example.test"
+    assert parsed["Cc"] == "team@example.test"
+    assert parsed["Subject"] == "Opportunity"
+    assert "From" not in parsed and "Date" not in parsed
+    assert plain is not None and "Hello candidate." in plain.get_content()
+    assert html is not None and "<strong>candidate</strong>" in html.get_content()
+    assert attached.get_filename() == "job-description.txt"
+    assert attached.get_payload(decode=True) == b"Job description"
+
+
+def test_build_eml_omits_empty_cc_and_rejects_missing_attachment(
+    message: transports.EmailMessage, tmp_path: Path
+) -> None:
+    message = replace(message, cc="", attachments=())
+    parsed = message_from_bytes(transports.build_eml(message), policy=default)
+    assert "Cc" not in parsed
+
+    missing = replace(message, attachments=(str(tmp_path / "missing.txt"),))
+    with pytest.raises(transports.EmailTransportError, match="attachment file is unavailable"):
+        transports.build_eml(missing)
+
+
+def test_eml_handoff_transport_never_sends_and_creates_drafts_without_side_effects(
+    message: transports.EmailMessage, tmp_path: Path
+) -> None:
+    transport = transports.EmlHandoffTransport()
+
+    result = transport.create_draft(message)
+
+    assert result == transports.DeliveryResult(message.idempotency_key, "draft")
+    assert not list(tmp_path.iterdir())
+    with pytest.raises(
+        transports.EmailTransportError,
+        match="^Automatic sending is not available with the Outlook draft file transport$",
+    ):
+        transport.send(message)
+
+
+def test_eml_handoff_write_and_open_draft(tmp_path: Path) -> None:
+    message = transports.EmailMessage("key", "to@example.test", "", "subject", "<p>Body</p>")
+    opened: list[Path] = []
+    transport = transports.EmlHandoffTransport(opener=opened.append)
+    path = tmp_path / "nested" / "draft.eml"
+
+    transport.write_draft(message, path)
+
+    assert path.is_file()
+    assert message_from_bytes(path.read_bytes(), policy=default)["X-Unsent"] == "1"
+    assert transport.open_draft(path) is True
+    assert opened == [path]
+    assert transports.EmlHandoffTransport().open_draft(path) is False
+
+
+def test_eml_handoff_open_failure_is_reported_as_false(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    def fail_to_open(path: Path) -> None:
+        raise OSError("open failed")
+
+    transport = transports.EmlHandoffTransport(opener=fail_to_open)
+
+    assert transport.open_draft(tmp_path / "draft.eml") is False
+    assert "Unable to open Outlook draft file" in caplog.text
+    assert "open failed" not in caplog.text
 
 
 def test_reconcile_after_restart_and_manual_send(message: transports.EmailMessage) -> None:

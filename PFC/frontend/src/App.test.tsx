@@ -105,10 +105,10 @@ describe('pages', () => {
     const boxes = within(queue).getAllByRole('checkbox', { name: /\(T1A123\)/ }) as HTMLInputElement[]
     expect(boxes.map((b) => b.checked)).toEqual([true, true, true, true, false])
     const editor = screen.getByRole('region', { name: 'Draft editor' })
-    const send = within(editor).getByRole('button', { name: /Send/ }) as HTMLButtonElement
-    expect(send.disabled).toBe(true)
+    expect(within(editor).queryByRole('button', { name: 'Open in Outlook' })).toBeNull()
     fireEvent.click(within(editor).getByRole('button', { name: /Approve email to/ }))
     await waitFor(() => expect(within(editor).getByText('Status: Approved')).toBeTruthy())
+    expect(within(editor).getByRole('button', { name: 'Open in Outlook' })).toBeTruthy()
   })
 
   it('imports a settings package with preview and rolls back (REQ-OCC-02)', async () => {

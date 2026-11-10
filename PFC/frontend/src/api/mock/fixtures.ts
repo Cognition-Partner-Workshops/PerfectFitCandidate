@@ -122,6 +122,7 @@ export const ADMIN_SETTINGS: AdminSettings = {
   staleDataDays: 7,
   emailTurnaroundHours: 24,
   allowExternalProviders: false,
+  emailTransport: 'eml_handoff',
 }
 
 export const RESOURCE_TEAM: ResourceTeamMember[] = [

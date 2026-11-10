@@ -188,6 +188,17 @@ export interface ApiClient {
   createDrafts(resultIds: number[], runId?: number): Promise<EmailDraft[]>
   /** GET /emails */
   listEmails(): Promise<EmailList>
+  /** POST /emails/{id}/handoff */
+  openEmailInOutlook(
+    emailId: number,
+    confirmUncertain?: boolean,
+  ): Promise<{ draft: EmailDraft; opened: boolean }>
+  /** GET /emails/{id}/handoff.eml */
+  downloadEmailDraft(emailId: number): Promise<ExportedFile>
+  /** POST /emails/{id}/handoff/confirm */
+  confirmEmailHandoff(emailId: number, sent: boolean): Promise<EmailDraft>
+  /** POST /emails/{id}/previous-send/confirm */
+  confirmPreviousSend(emailId: number): Promise<EmailDraft>
   /** PUT /emails/{id} */
   updateEmail(emailId: number, patch: Partial<Pick<EmailDraft, 'subject' | 'body' | 'cc' | 'status'>>): Promise<EmailDraft>
   /** POST /emails/{id}/approve */

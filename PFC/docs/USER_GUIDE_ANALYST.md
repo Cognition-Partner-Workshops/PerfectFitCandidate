@@ -145,11 +145,11 @@ Add a reason and choose **Save override**. Overrides are recorded in the audit l
 
 1. In **Match Results**, select candidates and choose **Send selected to Email Approval (N)**. Drafts are created from the completed run on screen.
 2. In **Email Approval**, open a draft, edit it if needed and **Save**.
-3. Approve each email: **Approve** on the open draft, **Approve selected (N)**, or **Approve all listed**. Each email gets its own Approved state; nothing is sent until you choose **Send**.
-4. **Send** is enabled only for Approved emails. A failed send shows the reason and offers **Retry send**.
-5. If the same candidate and requisition were already emailed, PFC asks you to confirm the re-send.
+3. Approve each email: **Approve** on the open draft, **Approve selected (N)**, or **Approve all listed**. Nothing is handed off until you approve it.
+4. With the default **Outlook draft file** transport, choose **Open in Outlook**, review the editable draft and attachment, then click **Send** in Outlook. Return to PFC and choose **Mark as sent**. If you close it without sending, choose **Not sent**; the email returns to Approved. Use **Open again** to reopen an active handoff. If PFC cannot open the file directly, download and open the `.eml` draft.
+5. An email awaiting confirmation is labelled **Awaiting confirmation**. PFC does not detect delivery from Outlook Sent Items; it records Sent only after your confirmation. The draft file is removed after either confirmation. If the same candidate and requisition were already emailed, PFC asks you to confirm the re-send.
 
-Recipients come from the OCC resource-team list; "No resource-team recipients" means the Admin has not set it up. Status stops at Sent or Failed; replies are not tracked. Approvals and sends are recorded in the audit log.
+Recipients come from the OCC resource-team list; "No resource-team recipients" means the Admin has not set it up. Outlook COM is an Admin-selectable alternative for classic Outlook only. Replies are not tracked. Approvals, handoffs and analyst confirmations are recorded in the audit log.
 
 ## 11. Dashboard
 

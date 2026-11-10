@@ -50,7 +50,7 @@ Architecturally significant requirements:
 | P-2 | **Privacy by default** | CV text, inference and vectors stay local; email/phone masked in the GUI with audited unmasking (REQ-OUT-03); external calls require an enabled Settings flag and PII masking + encryption (REQ-LLM-05, NFR-04). Corporate approval is granted and no candidate privacy notice is required. |
 | P-3 | **Human-in-the-loop** | Output is a ranked shortlist for review, never a selection decision (§1 of the baseline). Analyze JD → review → Confirm & Start (REQ-MAT-02); per-profile Approve before any email (REQ-EML-01); audited overrides (REQ-MAT-09). |
 | P-4 | **Deterministic, explainable scoring** | Weighted score model 70/10/5/5/5/5 computed by pure code from stored inputs; LLM output is an input that humans confirm, never the score (REQ-LLM-02, D-02). |
-| P-5 | **Pluggable providers** | Ingestion sources, vector store, LLM providers and email transports sit behind interfaces, so watch-folder pickup, Qdrant, OpenAI/Devin and SMTP can be added without changing core services (NFR-07). |
+| P-5 | **Pluggable providers** | Ingestion sources, vector store, LLM providers and email transports sit behind interfaces, so watch-folder pickup, Qdrant, OpenAI/Devin, Outlook draft files, Outlook COM and SMTP can be added without changing core services (NFR-07). |
 | P-6 | **Simplicity over scale** | A single-process modular monolith with SQLite is sufficient for ~5 users and ≤ 500 × 500 records; no message brokers, containers or servers. |
 | P-7 | **Copy, never invent** | Source values (requisition IDs, dates, emails) are copied exactly; missing data is reported as "not recorded", never fabricated (REQ-IN-14, REQ-MAT-06). |
 | P-8 | **Audit everything that matters** | Logins, unmasking, OCC changes, approvals/sends, archival, settings and external LLM calls are audited (REQ-AUTH-05). |
@@ -82,7 +82,8 @@ flowchart LR
 | DL / CT workbooks | Manual upload via GUI (default) | P1 |
 | Watch folder (mapped drive / OneDrive-synced) | Auto-pickup of new DL/CT files | P2 (config placeholder in P1) |
 | Resume folder (SharePoint synced locally) | Per-candidate / global CV Sync reads PDF/DOCX | P1 |
-| Outlook desktop | COM automation for mail (P1) and calendar follow-ups (P2) | P1 / P2 |
+| Outlook desktop | Default-app draft opening (P1); optional COM automation for mail (P1) and calendar follow-ups (P2) | P1 / P2 |
+| Outlook draft file (.eml) | Default analyst handoff to the local mail app | P1 |
 | SMTP server | Optional alternative transport | P2 |
 | External LLM providers | When their Settings active flag is enabled, retry compatible API versions, then fall directly to local model; no external-provider chain | P3 |
 | Signed settings package | OCC export and Analyst file-picker or startup-inbox import; channel may be shared folder, Teams or email | P1 |
@@ -142,7 +143,7 @@ flowchart TB
     subgraph PY["python.exe - embedded Python"]
         API["FastAPI + Uvicorn - REST /api/v1 and static files"]
         JOBS["Job runner and scheduler"]
-        COMW["Outlook COM worker thread (STA)"]
+        COMW["Optional Outlook COM worker thread (STA)"]
     end
     subgraph LLMP["llama-server.exe"]
         GEN["Local GGUF model - generation, JSON grammar"]
@@ -202,7 +203,7 @@ flowchart TB
         A1["Source plugins - upload, watch folder, resume folder"]
         A2["Vector store - sqlite-vec, Qdrant local, NumPy"]
         A3["LLM providers - llama.cpp, OpenAI, Devin"]
-        A4["Email transports - Outlook COM, SMTP"]
+        A4["Email transports - Outlook draft file (default), Outlook COM, SMTP"]
         A5["PII guard"]
     end
     R1 --> S1
@@ -440,7 +441,7 @@ sequenceDiagram
 | **Performance** | Full 500 × 500 re-match within a few minutes; dashboard < 2 s (NFR-01) | Embeddings computed once and cached by content hash; LLM used only for extraction/drafting, never per pair; exhaustive vectorised (NumPy) scoring over ~94k grade-compatible pairs; incremental re-scoring of dirty pairs; indexed SQLite queries and pre-aggregated run summaries; background jobs for long work. Budgets in [TDD.md §15](TDD.md#15-performance-budgets). |
 | **Security** | Localhost only, strong auth, audit (REQ-AUTH-*) | `127.0.0.1` binding, Host/Origin checks, CSRF token, `SameSite=Strict` cookies, Argon2id hashing, lockout, no default admin, RBAC on server, hash-chained audit log, DPAPI-protected secrets, SonarQube SAST and dependency audits in CI. |
 | **Privacy** | Local by default; masking; PII protection for external calls (NFR-04, REQ-OUT-03, REQ-LLM-05) | Local trust zone for all personal data; explicit PII boundary with tokenisation, residual scan, TLS and encrypted cache; embeddings never external; masked GUI by default with audited unmask; redacted logs. |
-| **Reliability** | Consistent data, no duplicate emails (REQ-EML-06) | SQLite WAL + transactional upserts; backups before migrations and daily; idempotent ingestion (file hash) and email sending (idempotency key + `Sending` reconciliation); crash-isolated `llama-server` with supervised restart; degraded modes (no LLM → manual requirements; no Outlook → drafts retained; no vector extension → NumPy store). |
+| **Reliability** | Consistent data, no duplicate emails (REQ-EML-06) | SQLite WAL + transactional upserts; backups before migrations and daily; idempotent ingestion (file hash) and email sending (COM idempotency key + `Sending` reconciliation; draft-file `Sending` state + analyst confirmation); crash-isolated `llama-server` with supervised restart; degraded modes (no LLM → manual requirements; no Outlook → drafts retained; no vector extension → NumPy store). |
 | **Reproducibility / explainability** | Every score reproducible and explained (REQ-MAT-08, REQ-SCR-04, NFR-05) | Pure scoring engine; run records engine, template, embedding model, JD/CV versions, synonym-set hash and config hash; per-component breakdown with inputs; append-only versions. |
 | **Portability** | Portable ZIP on Windows 11 without admin (REQ-PKG-01..04) | Embedded signed Python + vendored wheels; prebuilt llama.cpp; static SPA; relative paths; data folder separable; no installers, services or registry writes. |
 | **Resource footprint** | Fits 16 GB with Outlook/Teams; model process ≤ 8 GB (NFR-03) | Q4 model-size and memory figures are estimates pending benchmark; lazy start and idle stop of the model process; one active model (REQ-LLM-01); default nomic-embed-text-v1.5 embedding model (~137M parameters). |
@@ -454,7 +455,8 @@ sequenceDiagram
 | ADR-01 | **SQLite** as the application database | Accepted (D-04) | PostgreSQL (incl. portable), DuckDB | Zero-install single file, transactional, adequate for ~5 users and ≤ 500 × 500 rows; Postgres needs a service/installer and admin rights on locked-down laptops | Single writer (fine for one user per instance); WAL mode; must not live in a OneDrive-synced folder |
 | ADR-02 | **sqlite-vec** as default vector store behind a `VectorStore` interface; Qdrant local mode as alternative; NumPy fallback | Proposed (decided in TDD per baseline §13) | Qdrant local mode, Qdrant server, LanceDB, ChromaDB, FAISS | Same file and transaction as business data, tiny footprint, exact KNN fast at ~20k vectors; Qdrant server adds an EXE and port; others add dependencies without benefit at this scale | Depends on loading a DLL extension (verify in feasibility); pre-1.0 library must be pinned |
 | ADR-03 | **llama.cpp** (`llama-server`) for local inference | Accepted (REQ-LLM-01, REQ-PKG-03) | Ollama, llama-cpp-python in-process, ONNX GenAI | Portable prebuilt binaries, no installer, GGUF quantized models, OpenAI-compatible API with JSON-schema/grammar; Ollama's installer needs admin rights and runs a background service | Extra loopback port and EXE to allow-list; model swaps require process restart |
-| ADR-04 | **Outlook COM** (pywin32) as primary email transport; SMTP optional | Accepted (REQ-EML-04) | SMTP only, Microsoft Graph | Uses the user's existing authenticated Outlook profile and corporate policies, no app registration or credentials; Graph needs tenant app consent; SMTP often blocked or requires credentials | Windows-only; Object Model Guard prompts possible (fallback Display mode); COM calls on a dedicated STA thread |
+| ADR-04 | **Outlook COM** (pywin32) as an email transport; SMTP optional | Accepted, amended by ADR-04a | SMTP only, Microsoft Graph | Uses the user's existing authenticated Outlook profile and corporate policies, no app registration or credentials; Graph needs tenant app consent; SMTP often blocked or requires credentials | Classic Outlook on Windows only; Object Model Guard prompts possible (fallback Display mode); COM calls on a dedicated STA thread |
+| ADR-04a | **Outlook draft file (.eml, `X-Unsent`) handoff as default transport**; Outlook COM remains Admin-selectable | Accepted (REQ-EML-04) | COM only, SMTP, Microsoft Graph | Corporate laptops may block classic Outlook while new Outlook has no COM; a local `.eml` opens as an editable draft without app registration, credentials or network services | No automatic send or Sent detection; the analyst sends in Outlook and confirms Sent in PFC. PFC's Sending/Sent state prevents duplicates; the handoff stays offline. COM still requires classic Outlook. |
 | ADR-05 | **FastAPI + React/TypeScript SPA** served on localhost | Accepted (baseline §13) | Streamlit, Electron, desktop UI (Qt) | Rich professional dashboard, typed API contract (OpenAPI → TS client), runs in the existing browser, no extra runtime like Electron; Streamlit limits complex interactive UIs | Two codebases (Python + TS); frontend built at packaging time |
 | ADR-06 | **Deterministic weighted scoring**; LLM only for extraction and drafting | Accepted (REQ-LLM-02, D-02) | LLM-as-judge scoring, learned ranking model | Reproducible, explainable, fast (no LLM per pair), auditable; weights from the metadata sheet (70/10/5/5/5/5); human-confirmed requirements bridge LLM output into scoring | Accuracy depends on requirement quality, synonyms and embeddings — tuned via the admin template against KPI-01 |
 | ADR-07 | **Modular monolith** in one Python process with an in-process job runner | Proposed | Microservices, Celery + Redis | ~5 users, single laptop, no admin rights; fewer processes and ports; simpler packaging | Long jobs share the process — bounded thread pool and job priorities required |
@@ -467,7 +469,7 @@ sequenceDiagram
 
 | Phase | Architectural additions |
 |---|---|
-| **Phase 1 — MVP** | SPA, FastAPI, SQLite + sqlite-vec + FTS5, ingestion (manual upload), resume extractor with CV Sync, nomic embedding service, scoring engine, local llama.cpp gateway, Outlook COM email agent with approval and status tracking, auth/RBAC, audit log, editable seeded status map, OCC basics, internal-domain allowlist, signed settings-package export/import, CSV/XLSX export, launcher and ZIP packaging with dummy placeholders for inactive settings. |
+| **Phase 1 — MVP** | SPA, FastAPI, SQLite + sqlite-vec + FTS5, ingestion (manual upload), resume extractor with CV Sync, nomic embedding service, scoring engine, local llama.cpp gateway, Outlook draft-file handoff by default and optional Outlook COM with approval and status tracking, auth/RBAC, audit log, editable seeded status map, OCC basics, internal-domain allowlist, signed settings-package export/import, CSV/XLSX export, launcher and ZIP packaging with dummy placeholders for inactive settings. |
 | **Phase 2** | Watch-folder source plugin (auto-pickup), Outlook calendar follow-ups, PDF report generator, chat-with-data (local RAG over FTS5 + vectors), manual archival with preview, internal/external classification, CV version comparison, SMTP transport. |
 | **Phase 3** | External LLM provider adapters with PII guard, encryption, compatible API-version retries and direct local fallback; advanced OCC (role-specific scoring templates, model benchmark lab); scheduled archival/housekeeping; licensing (per-user ZIP + Ed25519-signed device licence); OneDrive metadata sync replaces or augments settings packages. |
 

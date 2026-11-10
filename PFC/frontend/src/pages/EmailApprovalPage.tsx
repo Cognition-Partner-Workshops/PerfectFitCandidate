@@ -4,6 +4,7 @@ import { Check, Send } from 'lucide-react'
 import { api, ApiError } from '../api'
 import type { EmailDraft, EmailStatus } from '../api/types'
 import { BandChip, Banner, Chip, EmptyState, ErrorState, MatchDoughnut, Modal, Spinner } from '../components/ui'
+import { downloadBlob } from '../lib/download'
 import { groupByRequisition, hoursLeft } from '../lib/emailSelection'
 import { EMAIL_PLACEHOLDERS } from '../lib/emailTemplate'
 
@@ -15,7 +16,7 @@ function statusTone(s: EmailStatus) {
 
 /**
  * Email Approval (REQ-EML-01..07, GUI_OCC_DESIGN.md §13): top 4 of 5 pre-selected per requisition,
- * explicit per-profile Approve, Send only for Approved, duplicate-send guard.
+ * explicit per-profile approval before Outlook handoff or COM send, duplicate-send guard.
  */
 export function EmailApprovalPage() {
   const qc = useQueryClient()
@@ -25,6 +26,11 @@ export function EmailApprovalPage() {
   const [checked, setChecked] = useState<Set<number> | null>(null)
   const [confirmBulk, setConfirmBulk] = useState(false)
   const [resendFor, setResendFor] = useState<EmailDraft | null>(null)
+  const [confirmUncertainHandoff, setConfirmUncertainHandoff] = useState<{
+    id: number
+    detail: string
+    status?: EmailStatus
+  } | null>(null)
   const [edits, setEdits] = useState<Record<number, { subject: string; body: string }>>({})
   const [error, setError] = useState<string | null>(null)
 
@@ -52,6 +58,39 @@ export function EmailApprovalPage() {
     },
   })
   const send = useMutation({ mutationFn: (id: number) => api.sendEmail(id), onSuccess: () => void refresh(), onError: onErr })
+  const handoff = useMutation({
+    mutationFn: async ({ id, confirmUncertain }: { id: number; confirmUncertain?: boolean }) => {
+      const result = await api.openEmailInOutlook(id, confirmUncertain)
+      if (!result.opened) {
+        const file = await api.downloadEmailDraft(id)
+        downloadBlob(file.blob, file.fileName)
+      }
+      return result.draft
+    },
+    onSuccess: () => void refresh(),
+    onError: (e, { id }) => {
+      if (e instanceof ApiError && e.code === 'EMAIL_PREVIOUS_SEND_UNCERTAIN') {
+        setError(null)
+        setConfirmUncertainHandoff({
+          id,
+          detail: e.message,
+          status: items.find((email) => email.emailId === id)?.status,
+        })
+        return
+      }
+      onErr(e)
+    },
+  })
+  const confirmHandoff = useMutation({
+    mutationFn: ({ id, sent }: { id: number; sent: boolean }) => api.confirmEmailHandoff(id, sent),
+    onSuccess: () => void refresh(),
+    onError: onErr,
+  })
+  const confirmPreviousSend = useMutation({
+    mutationFn: (id: number) => api.confirmPreviousSend(id),
+    onSuccess: () => void refresh(),
+    onError: onErr,
+  })
   const save = useMutation({
     mutationFn: (e: EmailDraft) => api.updateEmail(e.emailId, edits[e.emailId] ?? { subject: e.subject, body: e.body }),
     onSuccess: () => void refresh(),
@@ -75,6 +114,7 @@ export function EmailApprovalPage() {
   if (list.isLoading) return <div className="page"><Spinner /></div>
   if (list.isError) return <div className="page"><ErrorState error={list.error} onRetry={() => void list.refetch()} /></div>
   const transport = list.data?.transport
+  const draftFileTransport = transport?.transport === 'Outlook draft file'
   const draft = active ? (edits[active.emailId] ?? { subject: active.subject, body: active.body }) : null
   const unresolved = draft ? EMAIL_PLACEHOLDERS.filter((p) => draft.body.includes(p) || draft.subject.includes(p)) : []
   const selectedDrafts = items.filter((e) => selected.has(e.emailId) && e.status === 'Draft')
@@ -84,14 +124,16 @@ export function EmailApprovalPage() {
       <div className="page-header">
         <h1>Email Approval</h1>
         <span className="meta">
-          Transport: {transport?.transport} ({transport?.outlookDetected ? 'detected ●' : 'not detected'})
+          {draftFileTransport
+            ? 'Transport: Outlook draft file'
+            : `Transport: ${transport?.transport} (${transport?.outlookDetected ? 'detected ●' : 'not detected'})`}
         </span>
         <span className="spacer" />
         <span className="meta">
           Draft {counts.Draft} · Approved {counts.Approved} · Sent {counts.Sent} · Failed {counts.Failed}
         </span>
       </div>
-      {!transport?.outlookDetected && <Banner tone="warning">Outlook isn't running or automation is blocked. Start Outlook and retry.</Banner>}
+      {!draftFileTransport && !transport?.outlookDetected && <Banner tone="warning">Outlook isn't running or automation is blocked. Start Outlook and retry.</Banner>}
       {error && <Banner tone="danger">{error}</Banner>}
       {items.length === 0 ? (
         <EmptyState message="No emails awaiting approval. Select candidates in Match Results and choose Send to Email Approval." />
@@ -134,7 +176,11 @@ export function EmailApprovalPage() {
                         <span className="num">#{e.rank}</span>
                         <span style={{ flex: 1 }}>{e.candidateName ?? 'Not recorded'}</span>
                         <span className="num small">{Math.round(e.score)} %</span>
-                        <Chip tone={statusTone(e.status)}>{e.status}</Chip>
+                        <Chip tone={statusTone(e.status)}>
+                          {e.status === 'Approved' && e.handoffAt
+                            ? 'Awaiting confirmation'
+                            : e.status}
+                        </Chip>
                       </li>
                     ))}
                   </ul>
@@ -183,6 +229,11 @@ export function EmailApprovalPage() {
               {unresolved.length > 0 && <Banner tone="warning">Unresolved placeholder(s): {unresolved.join(', ')}</Banner>}
               <span className="small muted">Attachment: JD_{active.codeRequisition}.pdf (generated)</span>
               {active.failureReason && <Banner tone="danger">Send failed: {active.failureReason}</Banner>}
+              {active.status === 'Approved' && active.handoffAt && (
+                <Banner tone="info">
+                  Opened in Outlook at {new Date(active.handoffAt).toLocaleString()}. Check the draft, click Send in Outlook, then confirm here.
+                </Banner>
+              )}
               <div className="modal-actions">
                 {active.status === 'Draft' && (
                   <>
@@ -197,16 +248,46 @@ export function EmailApprovalPage() {
                     </button>
                   </>
                 )}
-                <button
-                  className="btn btn-primary"
-                  disabled={!(active.status === 'Approved' || active.status === 'Failed') || !transport?.outlookDetected}
-                  title={active.status === 'Approved' || active.status === 'Failed' ? undefined : 'Approve this email before sending'}
-                  onClick={() => send.mutate(active.emailId)}
-                >
-                  <Send size={16} /> {active.status === 'Failed' ? 'Retry send' : 'Send'}
-                </button>
+                {active.handoffAt ? (
+                  active.status === 'Approved' ? (
+                    <>
+                      <button
+                        className="btn btn-primary"
+                        onClick={() => confirmHandoff.mutate({ id: active.emailId, sent: true })}
+                      >
+                        <Check size={16} /> Mark as sent
+                      </button>
+                      <button
+                        className="btn"
+                        onClick={() => confirmHandoff.mutate({ id: active.emailId, sent: false })}
+                      >
+                        Not sent
+                      </button>
+                      {draftFileTransport && (
+                        <button className="btn" onClick={() => handoff.mutate({ id: active.emailId })}>
+                          Open again
+                        </button>
+                      )}
+                    </>
+                  ) : null
+                ) : draftFileTransport ? (
+                  active.status === 'Approved' || active.status === 'Failed' ? (
+                    <button className="btn btn-primary" onClick={() => handoff.mutate({ id: active.emailId })}>
+                      Open in Outlook
+                    </button>
+                  ) : null
+                ) : (
+                  <button
+                    className="btn btn-primary"
+                    disabled={!(active.status === 'Approved' || active.status === 'Failed') || !transport?.outlookDetected}
+                    title={active.status === 'Approved' || active.status === 'Failed' ? undefined : 'Approve this email before sending'}
+                    onClick={() => send.mutate(active.emailId)}
+                  >
+                    <Send size={16} /> {active.status === 'Failed' ? 'Retry send' : 'Send'}
+                  </button>
+                )}
               </div>
-              <p className="small muted">Approvals and sends are recorded in the audit log. Status stops at Sent/Failed — replies are not tracked.</p>
+              <p className="small muted">Approvals, handoffs, sends and analyst confirmations are recorded in the audit log. Replies are not tracked.</p>
             </section>
           )}
         </div>
@@ -260,6 +341,50 @@ export function EmailApprovalPage() {
           <p>
             This candidate–demand email was already sent on {resendFor.previouslySentAt?.slice(0, 10)}. Re-send?
           </p>
+        </Modal>
+      )}
+      {confirmUncertainHandoff && (
+        <Modal
+          title="Check Outlook Sent Items"
+          onClose={() => setConfirmUncertainHandoff(null)}
+          actions={
+            <>
+              <button
+                className="btn"
+                onClick={() => {
+                  handoff.mutate({
+                    id: confirmUncertainHandoff.id,
+                    confirmUncertain: true,
+                  })
+                  setConfirmUncertainHandoff(null)
+                }}
+              >
+                Not found — open new draft
+              </button>
+              {confirmUncertainHandoff.status === 'Failed' && (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => {
+                    confirmPreviousSend.mutate(confirmUncertainHandoff.id)
+                    setConfirmUncertainHandoff(null)
+                  }}
+                >
+                  Found in Sent Items — mark as sent
+                </button>
+              )}
+              <button className="btn" onClick={() => setConfirmUncertainHandoff(null)}>
+                Cancel
+              </button>
+            </>
+          }
+        >
+          <p>{confirmUncertainHandoff.detail}</p>
+          {confirmUncertainHandoff.status !== 'Failed' && (
+            <p>
+              This email was edited or re-approved after the failed Outlook COM attempt, so PFC
+              can't record that earlier message as this one.
+            </p>
+          )}
         </Modal>
       )}
     </div>

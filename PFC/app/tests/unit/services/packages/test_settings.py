@@ -35,6 +35,21 @@ def exported(source: Settings) -> ExportResult:
     return export_settings(source, passphrase="test signing passphrase", actor_id=1)
 
 
+def test_email_transport_is_not_in_portable_system_settings(
+    pair: tuple[Settings, Settings],
+) -> None:
+    source, _ = pair
+    with database(source) as db:
+        db.execute(
+            "INSERT INTO settings(scope,key,value_json,admin_only,updated_at) "
+            "VALUES ('system','email.transport',?,0,?)",
+            (json.dumps("outlook_com"), NOW),
+        )
+        portable = {row["key"] for row in snapshot(db)["settings"]}
+
+    assert "email.transport" not in portable
+
+
 def test_domain_import_and_rollback_reclassification(pair: tuple[Settings, Settings]) -> None:
     source, target = pair
     with database(target) as db:

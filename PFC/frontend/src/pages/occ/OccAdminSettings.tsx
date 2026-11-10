@@ -51,6 +51,16 @@ export function OccAdminSettings() {
           Email masking
           <input value={`Keep first ${s.maskKeep}, mask rest of local part`} readOnly disabled />
         </label>
+        <label className="field">
+          Email transport
+          <select
+            value={s.emailTransport}
+            onChange={(e) => setDraft({ ...s, emailTransport: e.target.value as AdminSettings['emailTransport'] })}
+          >
+            <option value="eml_handoff">Outlook draft file (new or classic Outlook)</option>
+            <option value="outlook_com">Outlook COM (classic Outlook only)</option>
+          </select>
+        </label>
       </div>
       <label className="row" style={{ gap: 6 }}>
         <input type="checkbox" checked={s.analystsMayUnmask} onChange={(e) => setDraft({ ...s, analystsMayUnmask: e.target.checked })} />
