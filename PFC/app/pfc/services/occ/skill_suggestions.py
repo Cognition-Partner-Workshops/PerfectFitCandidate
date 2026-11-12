@@ -73,8 +73,10 @@ def _contains_pii(term: str) -> bool:
     return bool(EMAIL.search(term) or next(phone_matches(term), None))
 
 
-def _is_unrecognised(term: str, synonym_table: SynonymTable, canonical: str | None = None) -> bool:
-    return canonical is None and synonym_table.resolve(term) is None
+def _is_unrecognised(
+    normalised: str, synonym_table: SynonymTable, canonical: str | None = None
+) -> bool:
+    return not (canonical or synonym_table.resolve(normalised))
 
 
 def _collect_occurrences(
@@ -99,7 +101,7 @@ def _collect_occurrences(
     resources = load_resources(db)
     for resource in resources:
         for token in tokenise_skills(resource.ct_skills or "", config.synonyms).tokens:
-            if _is_unrecognised(token.raw, config.synonyms, token.canonical):
+            if _is_unrecognised(token.normalised, config.synonyms, token.canonical):
                 add("ct", int(resource.resource_id), token.raw)
 
     active_candidates = {resource.candidate_id for resource in resources if resource.candidate_id}
@@ -112,10 +114,7 @@ def _collect_occurrences(
             if not basis.is_latest:
                 continue
             for skill in basis.skills:
-                canonical = skill.canonical or (
-                    str(skill.canonical_skill_id) if skill.canonical_skill_id is not None else None
-                )
-                if not _is_unrecognised(skill.raw, config.synonyms, canonical):
+                if not _is_unrecognised(skill.normalised, config.synonyms, skill.canonical):
                     continue
                 norm = normalize_term(skill.raw)
                 occurrence = (norm, skill.raw)
@@ -217,7 +216,7 @@ def unrecognised_skills_by_resource(
     for resource in resources:
         resource_id = int(resource.resource_id)
         for token in tokenise_skills(resource.ct_skills or "", config.synonyms).tokens:
-            if _is_unrecognised(token.raw, config.synonyms, token.canonical):
+            if _is_unrecognised(token.normalised, config.synonyms, token.canonical):
                 add(resource_id, token.raw)
 
     cv_bases = load_cv_bases(db, config)
@@ -228,10 +227,7 @@ def unrecognised_skills_by_resource(
             if not basis.is_latest:
                 continue
             for skill in basis.skills:
-                canonical = skill.canonical or (
-                    str(skill.canonical_skill_id) if skill.canonical_skill_id is not None else None
-                )
-                if _is_unrecognised(skill.raw, config.synonyms, canonical):
+                if _is_unrecognised(skill.normalised, config.synonyms, skill.canonical):
                     add(resource_id, skill.raw)
 
     for resource_id, terms in spellings.items():
