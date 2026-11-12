@@ -7,7 +7,7 @@ from collections.abc import Iterable, Sequence
 from typing import Any
 
 from pfc.domain.config_loader import DomainConfig
-from pfc.domain.normalise import SynonymTable, normalise_term, tokenise_skills
+from pfc.domain.normalise import SynonymTable, tokenise_skills
 from pfc.security.problems import Problem
 from pfc.services.ingestion.eligibility import refresh_resource_eligibility
 from pfc.services.ingestion.masking import EMAIL, phone_matches
@@ -77,19 +77,6 @@ def _is_unrecognised(term: str, synonym_table: SynonymTable, canonical: str | No
     return canonical is None and synonym_table.resolve(term) is None
 
 
-def _suggestion_resources(db: sqlite3.Connection, config: DomainConfig) -> list[Any]:
-    return [
-        resource
-        for resource in load_resources(db)
-        if not (
-            (status := config.bench_statuses.resolve(resource.bench_status or ""))
-            and status.is_excluded
-        )
-        and normalise_term(resource.group or "") != "not on bench"
-        and not (resource.bench_end.status == "valid" and resource.bench_end.value is not None)
-    ]
-
-
 def _collect_occurrences(
     db: sqlite3.Connection, config: DomainConfig
 ) -> tuple[dict[str, dict[str, set[int]]], dict[str, Counter[str]], set[str]]:
@@ -109,7 +96,7 @@ def _collect_occurrences(
         people[norm][source].add(entity_id)
         spellings[norm][raw] += 1
 
-    resources = _suggestion_resources(db, config)
+    resources = load_resources(db)
     for resource in resources:
         for token in tokenise_skills(resource.ct_skills or "", config.synonyms).tokens:
             if _is_unrecognised(token.raw, config.synonyms, token.canonical):
@@ -213,9 +200,7 @@ def unrecognised_skills_by_resource(
 
     config = occ_domain_config(db)
     resources = [
-        resource
-        for resource in _suggestion_resources(db, config)
-        if int(resource.resource_id) in selected
+        resource for resource in load_resources(db) if int(resource.resource_id) in selected
     ]
     spellings: dict[int, dict[str, Counter[str]]] = defaultdict(lambda: defaultdict(Counter))
     pii_norms: dict[int, set[str]] = defaultdict(set)

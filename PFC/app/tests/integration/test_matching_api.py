@@ -1163,7 +1163,9 @@ def test_skill_suggestion_maps_to_existing_canonical(api: Api) -> None:
     assert response.json()[0]["credit"] == 0.9
 
 
-def test_suggestions_use_latest_live_cv_and_exclude_pii_and_off_bench(api: Api) -> None:
+def test_suggestions_use_latest_live_cv_and_include_selected_and_exclude_inactive(
+    api: Api,
+) -> None:
     client, headers = api
     with database(client.app.state.settings) as db:
         candidate = seed_candidate(db)
@@ -1206,7 +1208,7 @@ def test_suggestions_use_latest_live_cv_and_exclude_pii_and_off_bench(api: Api) 
     assert suggestions["Kubernetes"]["ct_people"] == 2
     assert suggestions["LatestCVTool"]["cv_people"] == 1
     assert "OldCVTool" not in suggestions
-    assert "OffBenchTool" not in suggestions
+    assert suggestions["OffBenchTool"]["ct_people"] == 1
     assert "LifecycleOffBenchTool" not in suggestions and "ArchivedTool" not in suggestions
     assert "person@example.com" not in suggestions and "07700 900123" not in suggestions
     resources = client.get("/api/v1/resources").json()["items"]
@@ -1232,6 +1234,23 @@ def test_suggestions_use_latest_live_cv_and_exclude_pii_and_off_bench(api: Api) 
     response = client.get("/api/v1/occ/skill-suggestions", headers=headers)
     assert response.status_code == 200, response.text
     assert "Kubernetes" not in {item["term"] for item in response.json()}
+
+
+def test_selected_resource_exposes_unrecognised_skills(api: Api) -> None:
+    client, _ = api
+    with database(client.app.state.settings) as db:
+        selected = seed_resource(
+            db,
+            "Selected with unknown skills",
+            skills="SelectedOnlyUnknownTool",
+            status="Selected",
+            group="Not on Bench",
+        )
+
+    response = client.get("/api/v1/resources")
+    assert response.status_code == 200, response.text
+    item = next(row for row in response.json()["items"] if row["resource_id"] == selected)
+    assert item["unrecognised_skills"] == ["SelectedOnlyUnknownTool"]
 
 
 def test_jd_suggestions_count_demands_and_filter_revision_kind_and_lifecycle(api: Api) -> None:
