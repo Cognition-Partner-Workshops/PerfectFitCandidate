@@ -1259,7 +1259,13 @@ def test_jd_suggestions_count_demands_and_filter_revision_kind_and_lifecycle(api
         current = seed_demand(
             db,
             "T1JD01",
-            mandatory=("AI Governance", "SQL Server", "Experience with: Kafka"),
+            mandatory=(
+                "AI Governance",
+                "SQL Server",
+                "Kubernetes",
+                "Strong Kubernetes experience",
+                "Experience with: Kafka",
+            ),
             preferred=("Stakeholder Management", "AI Governance"),
         )
         seed_demand(db, "T1JD02", mandatory=("AI Governance",))
@@ -1300,7 +1306,9 @@ def test_jd_suggestions_count_demands_and_filter_revision_kind_and_lifecycle(api
     suggestions = {item["term"]: item for item in response.json()}
     assert suggestions["AI Governance"]["jd_demands"] == 2
     assert suggestions["SQL Server"]["jd_demands"] == 1
+    assert suggestions["Kubernetes"]["jd_demands"] == 1
     assert suggestions["Stakeholder Management"]["jd_demands"] == 1
+    assert "Strong Kubernetes experience" not in suggestions
     assert (
         not {
             "Experience with: Kafka",

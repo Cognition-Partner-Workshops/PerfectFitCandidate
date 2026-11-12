@@ -57,6 +57,10 @@ _JD_FILLER = re.compile(
 )
 
 
+def jd_skill_core_term(text: str) -> str:
+    return " ".join(_JD_FILLER.sub(" ", text).split())
+
+
 def is_skill_like_jd_term(text: str, synonym_table: SynonymTable) -> bool:
     term = text.strip()
     if not term or len(term) > 40 or len(term.split()) > 4:
@@ -65,7 +69,7 @@ def is_skill_like_jd_term(text: str, synonym_table: SynonymTable) -> bool:
         return False
     if _JD_YEAR.search(term):
         return False
-    remainder = normalize_term(_JD_FILLER.sub(" ", term))
+    remainder = normalize_term(jd_skill_core_term(term))
     return bool(remainder and synonym_table.resolve(remainder) is None)
 
 
@@ -145,7 +149,8 @@ def _collect_occurrences(
         seen_terms: set[str] = set()
         for item in items:
             raw = item["text"]
-            norm = normalize_term(raw)
+            core = jd_skill_core_term(raw)
+            norm = normalize_term(core)
             if (
                 not norm
                 or norm in seen_terms
@@ -154,7 +159,7 @@ def _collect_occurrences(
             ):
                 continue
             seen_terms.add(norm)
-            add("jd", demand_id, raw)
+            add("jd", demand_id, core)
     return people, spellings, pii_norms
 
 

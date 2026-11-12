@@ -2,7 +2,7 @@ import pytest
 
 from pfc.domain.config_loader import DomainConfig, load_domain_config
 from pfc.domain.normalise import SynonymRow, SynonymTable
-from pfc.services.occ.skill_suggestions import is_skill_like_jd_term
+from pfc.services.occ.skill_suggestions import is_skill_like_jd_term, jd_skill_core_term
 
 
 @pytest.fixture
@@ -42,3 +42,16 @@ def test_short_skill_like_jd_terms_are_retained(config: DomainConfig, term: str)
 )
 def test_non_skill_like_jd_terms_are_rejected(config: DomainConfig, term: str) -> None:
     assert not is_skill_like_jd_term(term, config.synonyms)
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("Strong Kubernetes experience", "Kubernetes"),
+        ("Good Azure Data Factory", "Azure Data Factory"),
+        ("  Strong   Kubernetes\tExperience ", "Kubernetes"),
+        ("Azure Data Factory", "Azure Data Factory"),
+    ],
+)
+def test_jd_skill_core_term_removes_fillers_and_preserves_casing(text: str, expected: str) -> None:
+    assert jd_skill_core_term(text) == expected
