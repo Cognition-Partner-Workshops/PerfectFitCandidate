@@ -47,18 +47,26 @@ JD_FILLER_WORDS = frozenset(
     }
 )
 _JD_YEAR = re.compile(r"\b(\d+\+?|years?|yrs?)\b", re.IGNORECASE)
-_JD_FILLER = re.compile(
-    r"\b(?:"
+_JD_FILLER_PATTERN = (
+    r"(?:"
     + "|".join(
         re.escape(word) for word in sorted(JD_FILLER_WORDS, key=lambda word: (-len(word), word))
     )
-    + r")\b",
-    re.IGNORECASE,
+    + r")"
 )
+_JD_FILLER_AT_START = re.compile(r"^\s*\b" + _JD_FILLER_PATTERN + r"\b(?:\s+|$)", re.IGNORECASE)
+_JD_FILLER_AT_END = re.compile(r"(?:^|\s+)\b" + _JD_FILLER_PATTERN + r"\b\s*$", re.IGNORECASE)
 
 
 def jd_skill_core_term(text: str) -> str:
-    return " ".join(_JD_FILLER.sub(" ", text).split())
+    term = text.strip()
+    while term:
+        core = _JD_FILLER_AT_START.sub("", term, count=1).strip()
+        core = _JD_FILLER_AT_END.sub("", core, count=1).strip()
+        if core == term:
+            break
+        term = core
+    return " ".join(term.split())
 
 
 def is_skill_like_jd_term(text: str, synonym_table: SynonymTable) -> bool:

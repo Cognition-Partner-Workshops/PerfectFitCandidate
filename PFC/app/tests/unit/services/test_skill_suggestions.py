@@ -48,9 +48,12 @@ def test_non_skill_like_jd_terms_are_rejected(config: DomainConfig, term: str) -
     "text,expected",
     [
         ("Strong Kubernetes experience", "Kubernetes"),
+        ("Hands-on Kubernetes experience", "Kubernetes"),
         ("Good Azure Data Factory", "Azure Data Factory"),
         ("  Strong   Kubernetes\tExperience ", "Kubernetes"),
         ("Azure Data Factory", "Azure Data Factory"),
+        ("Learning and Development", "Learning and Development"),
+        ("Proof of Concept", "Proof of Concept"),
     ],
 )
 def test_jd_skill_core_term_removes_fillers_and_preserves_casing(text: str, expected: str) -> None:

@@ -1288,6 +1288,8 @@ def test_jd_suggestions_count_demands_and_filter_revision_kind_and_lifecycle(api
                 "SQL Server",
                 "Kubernetes",
                 "Strong Kubernetes experience",
+                "Learning and Development",
+                "Proof of Concept",
                 "Experience with: Kafka",
             ),
             preferred=("Stakeholder Management", "AI Governance"),
@@ -1331,6 +1333,8 @@ def test_jd_suggestions_count_demands_and_filter_revision_kind_and_lifecycle(api
     assert suggestions["AI Governance"]["jd_demands"] == 2
     assert suggestions["SQL Server"]["jd_demands"] == 1
     assert suggestions["Kubernetes"]["jd_demands"] == 1
+    assert suggestions["Learning and Development"]["jd_demands"] == 1
+    assert suggestions["Proof of Concept"]["jd_demands"] == 1
     assert suggestions["Stakeholder Management"]["jd_demands"] == 1
     assert "Strong Kubernetes experience" not in suggestions
     assert (
