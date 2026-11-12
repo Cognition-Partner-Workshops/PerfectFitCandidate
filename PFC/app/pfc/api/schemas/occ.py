@@ -95,6 +95,45 @@ class ApproveSynonym(Input):
     canonical: str | None = Field(default=None, min_length=1)
 
 
+class SkillSuggestion(Input):
+    term: str
+    term_norm: str
+    ct_people: int
+    cv_people: int
+    jd_demands: int
+    closest: str | None
+
+
+class SkillSuggestionAcceptItem(Input):
+    term: str = Field(min_length=1)
+    canonical: str | None = None
+    relation: Literal["equivalent", "abbreviation", "misspelling", "related"] = "equivalent"
+    credit: float = Field(default=1, ge=0, le=1)
+
+
+class SkillSuggestionAccept(Input):
+    items: list[SkillSuggestionAcceptItem] = Field(min_length=1)
+
+
+class SkillSuggestionReject(Input):
+    terms: list[str] = Field(min_length=1)
+
+
+class SkillSuggestionRestore(Input):
+    term_norms: list[str] = Field(min_length=1)
+
+
+class RejectedSkillTerm(Input):
+    term_norm: str
+    term: str
+    rejected_by: int | None
+    rejected_at: str
+
+
+class SkillSuggestionMutation(Input):
+    updated: int
+
+
 class TemplateCreate(Input):
     clone_from_id: int | None = None
     name: str | None = Field(default=None, min_length=1)

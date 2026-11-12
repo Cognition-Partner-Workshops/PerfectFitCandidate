@@ -490,7 +490,6 @@ def test_removal_preserves_old_run_and_ct_skills(client: TestClient) -> None:
         )
     execute(settings, client.app.state.job_runner)
     tables = (
-        "resources",
         "candidate_emails",
         "resumes",
         "match_runs",
@@ -499,6 +498,7 @@ def test_removal_preserves_old_run_and_ct_skills(client: TestClient) -> None:
         "score_breakdowns",
     )
     before = snapshot(client, tables)
+    resource_before = snapshot(client, ("resources",))["resources"][0]
     result_id = next(
         row["result_id"] for row in before["match_results"] if row["resource_id"] == resource
     )
@@ -507,6 +507,19 @@ def test_removal_preserves_old_run_and_ct_skills(client: TestClient) -> None:
     response = client.delete(f"/api/v1/occ/candidates/{candidate}/cv-extractions")
     assert response.status_code == 200
     assert snapshot(client, tables) == before
+    resource_after = snapshot(client, ("resources",))["resources"][0]
+    assert resource_before["eligibility"] == "excluded"
+    assert resource_after["eligibility"] == "eligible"
+    assert resource_after["exclusion_reason"] is None
+    assert {
+        key: value
+        for key, value in resource_after.items()
+        if key not in {"eligibility", "exclusion_reason"}
+    } == {
+        key: value
+        for key, value in resource_before.items()
+        if key not in {"eligibility", "exclusion_reason"}
+    }
     with database(settings) as db:
         assert [
             tuple(row)

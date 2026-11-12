@@ -485,6 +485,13 @@ CREATE TABLE skill_synonyms (                      -- synonym/abbreviation track
 );
 CREATE INDEX ix_synonyms_skill ON skill_synonyms(skill_id);
 
+CREATE TABLE skill_term_rejections (
+  term_norm   TEXT PRIMARY KEY,
+  term        TEXT NOT NULL,
+  rejected_by INTEGER REFERENCES users(user_id),
+  rejected_at TEXT NOT NULL
+);
+
 CREATE TABLE resource_skills (                     -- skills per resource from CT and/or CV
   resource_skill_id  INTEGER PRIMARY KEY,
   resource_id        INTEGER NOT NULL REFERENCES resources(resource_id) ON DELETE CASCADE,
@@ -1009,7 +1016,9 @@ Applied to JD text, CV text and CT skill strings (pipeline version recorded in `
 3. Strip code fences (```` ``` ````), markdown emphasis (`**`, `__`), heading markers (`#`) while keeping the heading text as a section boundary hint.
 4. Collapse whitespace; normalise line endings; keep line breaks that separate bullets.
 5. For the **keyword index and skill matching only**: casefold, strip punctuation except `+ # . /` inside tokens (keeps `C++`, `C#`, `.NET`, `CI/CD`), split CT skills on `,` `;` `/` and ` and ` where both sides are known skills.
-6. Skill canonicalisation: look up `skill_synonyms.term_norm` (approved only) → `skill_id`; unknown terms kept as free text and surfaced in OCC as **suggested** synonyms when similar to an existing skill (cosine ≥ 0.85 or edit distance ≤ 2, e.g. `Bussiness Analysis`).
+6. Skill canonicalisation: look up `skill_synonyms.term_norm` (approved only) → `skill_id`; unknown CT/CV terms and short skill-like mandatory/preferred items from current JD analysis are surfaced on demand in OCC Suggestions. They remain free text and never affect matching until an Admin explicitly approves them. Rejected terms are stored locally, outside signed settings packages.
+
+JD suggestions are limited to 40 characters and four words; sentence-like text, years-of-experience patterns, filler-only phrases and phrases whose filler-stripped remainder resolves to an approved skill are excluded. Technical dots inside a token (for example, `Node.js`, `.NET` and `ASP.NET`) remain allowed.
 
 ### 6.3 Chunking strategy
 
@@ -1536,6 +1545,7 @@ Base path `/api/v1`; JSON; cookie session + `X-CSRF-Token` on writes; errors as 
 | CRUD | `/occ/users` (+ `/unlock`, `/reset-password`) | User management | Adm | P1 | REQ-ROLE-03 |
 | CRUD | `/occ/scoring-templates` (+ `/activate`) | Versioned templates | Adm | P1 (single) / P3 (role-specific) | REQ-SCR-01 |
 | CRUD | `/occ/synonyms` (+ approve/reject suggestions) | Synonym tracker | Adm | P1 | REQ-MAT-05 |
+| GET / POST | `/occ/skill-suggestions` · `/accept` · `/reject` · `/rejected` · `/restore` | On-demand CT/CV/JD suggestions and local rejection management | Adm | P1 | REQ-MAT-05 |
 | CRUD | `/occ/bench-statuses` · `/occ/status-map` · `/occ/grades` · `/occ/location-aliases` | Reference data and editable source-status map | Adm | P1 | REQ-ELIG-03, REQ-ELIG-07 |
 | CRUD | `/occ/email-templates` · `/occ/resource-team` | Templates and CC list | Adm | P1 | REQ-EML-03/05 |
 | CRUD | `/occ/internal-domains` | Internal email domains; seeded default allowlist | Adm | P1 | REQ-CLS-01 |

@@ -81,6 +81,7 @@ export function toResource(
     benchStatusPriority: e.priority,
     unmappedStatus: e.unmapped,
     skills: r.skills,
+    unrecognisedSkills: [],
     availableCapacity: r.availableCapacity,
     benchStartDate: r.benchStartDate,
     benchEndDate: r.benchEndDate,

@@ -14,6 +14,7 @@ from pfc.security.problems import Problem
 from pfc.services.candidates.classification import reclassify_all
 
 from .approvals import record_changes, snapshot
+from .eligibility import refresh_resource_eligibility
 from .models import ParsedRow, Preview
 from .repository import domain_config
 from .workbooks import CT, DL
@@ -228,3 +229,4 @@ def apply_preview(db: sqlite3.Connection, preview: Preview, run_id: int, now: st
     record_changes(db, entity, before, run_id, now)
     if preview.kind == "CT":
         reclassify_all(db)
+        refresh_resource_eligibility(db)

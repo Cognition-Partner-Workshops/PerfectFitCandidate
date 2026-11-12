@@ -6,8 +6,21 @@ export const REASON_LABELS: Record<string, string> = {
   NOT_ON_BENCH: 'Not on bench',
   BENCH_END_SET: 'Bench end date set',
   NO_GRADE: 'Grade unknown',
-  NO_SKILLS: 'No recognised skills',
+  NO_SKILLS: 'No skills in dictionary',
   GRADE_GAP_GT1: 'Grade outside ±1',
+}
+
+export function eligibilityReasonLabel(code: string, unrecognisedSkills: string[] = []): string {
+  if (code === 'NO_SKILLS')
+    return `No skills in dictionary (${unrecognisedSkills.length} unrecognised)`
+  return REASON_LABELS[code] ?? code
+}
+
+export function eligibilityReasonTitle(code: string, unrecognisedSkills: string[] = []): string | undefined {
+  if (code !== 'NO_SKILLS') return undefined
+  return unrecognisedSkills.length
+    ? `Unrecognised skills: ${unrecognisedSkills.join(', ')}`
+    : 'No unrecognised skill terms recorded'
 }
 
 export interface ExcludedPerson {
@@ -49,7 +62,11 @@ export function groupExcluded(entries: ExcludedEntry[], resources: Resource[]): 
       rows.set(key, row)
     }
     if (!row.reasons.some((x) => x.code === e.reasonCode && x.detail === e.detail))
-      row.reasons.push({ code: e.reasonCode, label: REASON_LABELS[e.reasonCode] ?? e.detail ?? e.reasonCode, detail: e.detail })
+      row.reasons.push({
+        code: e.reasonCode,
+        label: eligibilityReasonLabel(e.reasonCode, byId.get(e.resourceId)?.unrecognisedSkills ?? []) || e.detail || e.reasonCode,
+        detail: e.detail,
+      })
   }
   return [...rows.values()]
 }

@@ -207,6 +207,12 @@ def test_req_mat_05_ambiguous_rows():
         ("CI/CD", ["CI/CD"], 0),
         ("SQL/unknown", ["SQL/unknown"], 0),
         ("SQL and unknown", ["SQL and unknown"], 0),
+        (
+            "Python, MLOps\nSoftware Architecture\r\nDocker",
+            ["Python", "MLOps", "Software Architecture", "Docker"],
+            0,
+        ),
+        ("Python\n\nDocker", ["Python", "Docker"], 1),
         ("", [], 1),
         (" ,;", [], 3),
         ("SQL,sql", ["SQL"], 0),

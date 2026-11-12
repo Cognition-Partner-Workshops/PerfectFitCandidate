@@ -10,12 +10,10 @@ from pydantic.alias_generators import to_camel
 
 from pfc.api.schemas.occ_approvals import ApprovalDecision, ApprovalEntry, ApprovalField
 from pfc.db.audit import append_audit
-from pfc.domain.normalise import ParsedDate
-from pfc.domain.scoring.engine import build_ct_basis, eligibility
-from pfc.domain.scoring.models import Resource
 from pfc.security.problems import Problem
 
 from .browse import _mask
+from .eligibility import refresh_resource_eligibility
 from .repository import domain_config
 
 EDITABLE = {
@@ -209,32 +207,10 @@ def latest(
     return row
 
 
-def _eligibility(db: sqlite3.Connection, values: dict[str, Any]) -> None:
+def _status_code(db: sqlite3.Connection, values: dict[str, Any]) -> None:
     config = domain_config(db)
     status = config.bench_statuses.resolve(values["bench_status"] or "")
     values["bench_status_code"] = status.code if status else None
-    resource = Resource(
-        resource_id=str(values["resource_id"]),
-        short_name=values["short_name"],
-        grade=values["grade"],
-        location=values["location"],
-        bench_status=values["bench_status"],
-        group=values["group_name"],
-        bench_start=_parsed(values["bench_start_date"]),
-        bench_end=_parsed(values["bench_end_date"], values["bench_end_date_parse_status"]),
-        ct_skills=values["skills_raw"],
-    )
-    reasons = eligibility(resource, [build_ct_basis(resource, config)], config)
-    values["eligibility"] = "excluded" if reasons else "eligible"
-    values["exclusion_reason"] = ",".join(r.code for r in reasons) or None
-
-
-def _parsed(value: str | None, status: str | None = None) -> ParsedDate:
-    if status == "unparseable":
-        return ParsedDate(None, "unparseable", value)
-    return ParsedDate(
-        date.fromisoformat(value) if value else None, "valid" if value else "blank", value
-    )
 
 
 def _redact(value: Any) -> Any:
@@ -287,7 +263,7 @@ def decide(
                 values["bench_end_date_parse_status"] = (
                     "valid" if values["bench_end_date"] else "blank"
                 )
-            _eligibility(db, values)
+            _status_code(db, values)
         state = "Modified"
     elif decision.action == "revert":
         before = json.loads(row["before_json"]) if row["before_json"] else None
@@ -340,6 +316,8 @@ def decide(
         entity_id=str(entity_id),
         details={"fields": _redact(details), "comment": _redact(decision.comment)},
     )
+    if entity == "resource":
+        refresh_resource_eligibility(db, [entity_id])
     return entry(
         db,
         db.execute("SELECT * FROM occ_approvals WHERE entry_id=?", (row["entry_id"],)).fetchone(),

@@ -38,6 +38,9 @@ import type {
   EmailTemplateVersion,
   SettingsPackageInfo,
   Synonym,
+  SkillSuggestion,
+  SkillSuggestionAcceptItem,
+  RejectedSkillTerm,
   UserStatus,
   BenchStatus,
   StatusMapEntry,
@@ -64,6 +67,7 @@ import {
   RESOURCE_TEAM,
   STATUS_MAP,
   SYNONYMS,
+  SKILL_SUGGESTIONS,
   type DemandSeed,
   type RawResource,
 } from './fixtures'
@@ -77,7 +81,7 @@ import { formatPct } from '../../lib/format'
 import { maskEmail, maskPhone } from '../../lib/mask'
 
 // Bump when persisted mock shapes or IDs change so stale state is discarded.
-const STORAGE_KEY = 'pfc.mock.v7'
+const STORAGE_KEY = 'pfc.mock.v8'
 
 interface MockCandidate {
   displayName: string | null
@@ -119,6 +123,8 @@ interface MockState {
   statuses: BenchStatus[]
   statusMap: StatusMapEntry[]
   synonyms: Synonym[]
+  skillSuggestions: SkillSuggestion[]
+  rejectedSkillTerms: RejectedSkillTerm[]
   templates: ScoringTemplate[]
   emailTemplates: EmailTemplateVersion[]
   resourceTeam: ResourceTeamMember[]
@@ -196,6 +202,8 @@ function initialState(): MockState {
     statuses: structuredClone(BENCH_STATUSES),
     statusMap: structuredClone(STATUS_MAP),
     synonyms: structuredClone(SYNONYMS),
+    skillSuggestions: structuredClone(SKILL_SUGGESTIONS),
+    rejectedSkillTerms: [],
     templates: [
       { ...DEFAULT_TEMPLATE, templateId: 0, version: 2, status: 'retired', weights: { ...DEFAULT_TEMPLATE.weights, skills: 65, grade: 15 }, changeNote: 'Pilot weights', createdAt: '2026-10-20T10:00:00Z' },
       DEFAULT_TEMPLATE,
@@ -1506,6 +1514,80 @@ export class MockApiClient implements ApiClient {
     Object.assign(s, patch)
     this.audit(`Synonym updated: ${s.canonical}`)
     return this.done(s)
+  }
+
+  async listSkillSuggestions() {
+    this.requireAdmin()
+    return this.done(structuredClone(this.state.skillSuggestions))
+  }
+
+  async acceptSkillSuggestions(items: SkillSuggestionAcceptItem[]) {
+    const admin = this.requireAdmin()
+    for (const item of items) {
+      const suggestion = this.state.skillSuggestions.find((s) => s.term.toLowerCase() === item.term.toLowerCase())
+      if (!suggestion) fail(404, 'Skill suggestion not found', 'NOT_FOUND')
+      const canonical = item.canonical?.trim() || item.term.trim()
+      if (item.canonical && !this.state.synonyms.some((s) => s.canonical.toLowerCase() === canonical.toLowerCase()))
+        fail(404, 'Canonical skill not found', 'NOT_FOUND')
+      const relation = item.relation === 'abbreviation' ? 'Abbreviation' : item.relation === 'misspelling' ? 'Spelling variant' : item.relation === 'related' ? 'Related' : 'Exact synonym'
+      this.state.synonyms.push({
+        synonymId: this.nextId(),
+        canonical,
+        variants: canonical.toLowerCase() === item.term.toLowerCase() ? [] : [item.term],
+        relation,
+        usageCount: 0,
+        source: 'admin',
+        status: 'Active',
+      })
+      this.state.skillSuggestions = this.state.skillSuggestions.filter((s) => s.termNorm !== suggestion.termNorm)
+    }
+    this.audit(`Skill suggestions accepted by ${admin.fullName}`)
+    this.noteDataChange('Skill dictionary updated')
+    this.save()
+    return this.done(undefined)
+  }
+
+  async rejectSkillSuggestions(terms: string[]) {
+    const admin = this.requireAdmin()
+    for (const term of terms) {
+      const suggestion = this.state.skillSuggestions.find((s) => s.term.toLowerCase() === term.toLowerCase())
+      if (!suggestion) continue
+      this.state.skillSuggestions = this.state.skillSuggestions.filter((s) => s.termNorm !== suggestion.termNorm)
+      this.state.rejectedSkillTerms.push({
+        termNorm: suggestion.termNorm,
+        term: suggestion.term,
+        rejectedBy: admin.userId,
+        rejectedAt: iso(),
+      })
+    }
+    this.audit(`Skill suggestions rejected by ${admin.fullName}`)
+    this.save()
+    return this.done(undefined)
+  }
+
+  async listRejectedSkillTerms() {
+    this.requireAdmin()
+    return this.done(structuredClone(this.state.rejectedSkillTerms))
+  }
+
+  async restoreRejectedSkillTerms(termNorms: string[]) {
+    this.requireAdmin()
+    for (const termNorm of termNorms) {
+      const rejected = this.state.rejectedSkillTerms.find((s) => s.termNorm === termNorm)
+      if (!rejected) continue
+      this.state.rejectedSkillTerms = this.state.rejectedSkillTerms.filter((s) => s.termNorm !== termNorm)
+      this.state.skillSuggestions.push({
+        term: rejected.term,
+        termNorm: rejected.termNorm,
+        ctPeople: 0,
+        cvPeople: 0,
+        jdDemands: 0,
+        closest: null,
+      })
+    }
+    this.audit('Skill suggestion restored')
+    this.save()
+    return this.done(undefined)
   }
 
   async listTemplates() {

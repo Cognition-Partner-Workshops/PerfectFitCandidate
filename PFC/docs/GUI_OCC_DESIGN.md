@@ -1172,9 +1172,9 @@ flowchart LR
 
 ### 16.5 Skill-synonym tracker
 
-Table of canonical skills with their synonyms/abbreviations/spelling variants and related terms (REQ-MAT-05), seeded with the baseline examples (BA ↔ Business Analyst ↔ Business Analysis; PM ↔ Project Manager ↔ Project Management; Data Analysis ↔ Data Analyst ↔ BI; Databricks ↔ DataBricks; GenAI ↔ Generative AI ↔ AI; Data migration ↔ data mapping ↔ reconciliation ↔ profiling ↔ data quality; Delivery Lead ↔ Program Manager ↔ Project Manager where responsibilities are relevant).
+The tracker shows canonical skills and approved synonyms. **Suggestions** are discovered on demand from unrecognised CT skills, latest non-removed CV skill bases, and current JD analysis. JD suggestions include only unrecognised mandatory/preferred skill items that look like short skill terms (at most 40 characters and four words; sentence-like, years-of-experience, filler-only and already-recognised phrases are excluded). Experience, qualification and domain items are never suggested. PII-like terms are dropped.
 
-Columns: canonical term, variants (chips), relation type (Exact synonym / Abbreviation / Spelling variant / Related — context-dependent), usage count (DL/CT/CV occurrences), source (seed / system-suggested / admin), status (Active / Suggested / Rejected), version. **Suggestions** tab lists system-detected variants (e.g. `Bussiness Analysis` found in 7 CT rows) with Accept / Map to existing / Reject. Test box: type a term → shows normalised canonical term. Saving publishes a new synonym-set version and offers rescoring. Import/export CSV.
+The Suggestions view supports search, filtered **Select all**, per-term **Add as new skill**, **Map to existing** with relation, and **Reject**, plus bulk add/reject. The Found in column reports distinct CT people, CV people and JD demands, omitting zero counts. Rejected terms have a separate local **Rejected** view with Restore; rejections are not included in signed settings packages. Legacy `suggested` synonym rows remain available in a separate section. Suggestions do not affect scoring until an Admin approves them. Approval refreshes persisted Bench List eligibility using CT plus the latest non-removed CV basis; older match runs remain unchanged.
 
 ### 16.6 Scoring template & weights (versioned)
 

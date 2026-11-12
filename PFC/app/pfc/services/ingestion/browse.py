@@ -97,11 +97,12 @@ def _mask(email: str | None) -> str | None:
     return mask_email(email)
 
 
-def _resource(row: sqlite3.Row) -> ResourceItem:
+def _resource(row: sqlite3.Row, unrecognised_skills: list[str]) -> ResourceItem:
     fields: dict[str, Any] = {
         name: row[name] for name in ResourceItem.model_fields if name in row.keys()
     }
     fields.update(
+        unrecognised_skills=unrecognised_skills,
         email_address=_mask(row["email_address"]),
         exclusion_reasons=[
             s.strip() for s in (row["exclusion_reason"] or "").split(",") if s.strip()
@@ -130,8 +131,14 @@ def resources(
             "bench_start_date DESC, resource_id LIMIT ? OFFSET ?",
             [*params, page_size, (page - 1) * page_size],
         ).fetchall()
+        from pfc.services.occ.skill_suggestions import unrecognised_skills_by_resource
+
+        unrecognised = unrecognised_skills_by_resource(db, [row["resource_id"] for row in rows])
         return ResourcePage(
-            items=[_resource(r) for r in rows], page=page, page_size=page_size, total=total
+            items=[_resource(r, unrecognised.get(r["resource_id"], [])) for r in rows],
+            page=page,
+            page_size=page_size,
+            total=total,
         )
 
 
@@ -140,6 +147,9 @@ def resource_detail(settings: Settings, resource_id: int) -> ResourceDetail:
         row = db.execute(f"{RESOURCE_SELECT} WHERE resource_id=?", (resource_id,)).fetchone()
         if row is None:
             raise Problem(404, "RESOURCE_NOT_FOUND", "Resource not found")
+        from pfc.services.occ.skill_suggestions import unrecognised_skills_by_resource
+
+        unrecognised = unrecognised_skills_by_resource(db, [resource_id])
         latest = db.execute(
             "SELECT cv_version_id, version_no, extracted_at FROM cv_versions "
             "WHERE candidate_id=? ORDER BY is_latest DESC, version_no DESC, "
@@ -147,6 +157,6 @@ def resource_detail(settings: Settings, resource_id: int) -> ResourceDetail:
             (row["candidate_id"],),
         ).fetchone()
         return ResourceDetail(
-            **_resource(row).model_dump(),
+            **_resource(row, unrecognised.get(resource_id, [])).model_dump(),
             latest_cv=CVSummary(**dict(latest)) if latest else None,
         )

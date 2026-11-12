@@ -25,6 +25,7 @@ from pfc.security.sessions import stamp
 from pfc.services.embeddings.chunking import OwnerType
 from pfc.services.embeddings.reembed import ReembedCounts, embed_owners
 from pfc.services.embeddings.runtime import EmbeddingModelUnavailable, create_embedder
+from pfc.services.ingestion.eligibility import refresh_resource_eligibility
 from pfc.services.occ.synonyms import valid_synonym_table
 
 from .cv_facts import (
@@ -526,6 +527,17 @@ def sync(
                         "WHERE candidate_id=? AND is_latest=1",
                         (candidate_id,),
                     )
+                )
+                refresh_resource_eligibility(
+                    db,
+                    [
+                        row[0]
+                        for row in db.execute(
+                            "SELECT resource_id FROM resources WHERE candidate_id=? "
+                            "AND lifecycle='active' ORDER BY resource_id",
+                            (candidate_id,),
+                        )
+                    ],
                 )
             context.raise_if_cancelled()
         if affected:

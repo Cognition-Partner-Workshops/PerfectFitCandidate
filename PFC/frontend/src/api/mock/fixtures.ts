@@ -91,6 +91,13 @@ export const SYNONYMS: Synonym[] = [
   { synonymId: 8, canonical: 'Snowflake', variants: ['SnowFlake', 'snow flake'], relation: 'Spelling variant', usageCount: 7, source: 'system-suggested', status: 'Suggested' },
 ]
 
+export const SKILL_SUGGESTIONS = [
+  { term: 'Kubernetes', termNorm: 'kubernetes', ctPeople: 3, cvPeople: 1, jdDemands: 2, closest: null },
+  { term: 'Product Management', termNorm: 'product management', ctPeople: 2, cvPeople: 0, jdDemands: 1, closest: null },
+  { term: 'Projct Management', termNorm: 'projct management', ctPeople: 0, cvPeople: 1, jdDemands: 1, closest: 'Project Management' },
+  { term: 'SQL Server', termNorm: 'sql server', ctPeople: 0, cvPeople: 0, jdDemands: 1, closest: null },
+]
+
 export const MODELS: LlmModel[] = [
   { id: 'qwen3-4b', name: 'Qwen3-4B-Instruct-2507 (Q4_K_M)', purpose: 'generation', ramGb: 3.6, diskGb: 2.5, licence: 'Apache-2.0', approved: true, isDefault: true },
   { id: 'phi4-mini', name: 'Phi-4-mini-instruct (Q4_K_M)', purpose: 'generation', ramGb: 3.4, diskGb: 2.4, licence: 'MIT', approved: true, isDefault: false },

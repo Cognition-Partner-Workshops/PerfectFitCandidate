@@ -2,6 +2,7 @@ import { useEffect, useId, useState, type ReactNode } from 'react'
 import { CircleAlert, Eye, EyeOff, Info, OctagonX, TriangleAlert, X, CircleCheck, CircleHelp } from 'lucide-react'
 import type { Band, Eligibility, ScoreComponent } from '../api/types'
 import { bandColorVar, bandLabel, bandTone } from '../lib/bands'
+import { eligibilityReasonLabel, eligibilityReasonTitle } from '../lib/excluded'
 import { formatPct } from '../lib/format'
 import { api } from '../api'
 
@@ -90,8 +91,20 @@ export function ScoreBreakdown({ breakdown }: { breakdown: ScoreComponent[] }) {
   )
 }
 
-export function EligibilityBadge({ eligibility, reasons }: { eligibility: Eligibility; reasons: string[] }) {
-  const title = reasons.join('; ') || undefined
+export function EligibilityBadge({
+  eligibility,
+  reasons,
+  unrecognisedSkills = [],
+}: {
+  eligibility: Eligibility
+  reasons: string[]
+  unrecognisedSkills?: string[]
+}) {
+  const title = reasons.map((reason) => {
+    const label = eligibilityReasonLabel(reason, unrecognisedSkills)
+    const detail = eligibilityReasonTitle(reason, unrecognisedSkills)
+    return detail ? `${label} — ${detail}` : label
+  }).join('; ') || undefined
   switch (eligibility) {
     case 'eligible':
       return <Chip tone="success">✓ Eligible</Chip>

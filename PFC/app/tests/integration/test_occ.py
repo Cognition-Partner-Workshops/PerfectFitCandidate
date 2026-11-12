@@ -318,6 +318,8 @@ def test_reference_data(client: TestClient) -> None:
     "path",
     [
         "/synonyms",
+        "/skill-suggestions",
+        "/skill-suggestions/rejected",
         "/scoring-templates",
         "/email-templates",
         "/resource-team",
@@ -335,6 +337,21 @@ def test_new_endpoint_rbac(client: TestClient, path: str) -> None:
 
 
 @pytest.mark.parametrize(
+    "path,body",
+    [
+        ("/skill-suggestions/accept", {"items": [{"term": "Kubernetes"}]}),
+        ("/skill-suggestions/reject", {"terms": ["Kubernetes"]}),
+        ("/skill-suggestions/restore", {"term_norms": ["kubernetes"]}),
+    ],
+)
+def test_skill_suggestion_writes_are_admin_only(
+    client: TestClient, path: str, body: dict[str, object]
+) -> None:
+    login(client, "worker@example.com", "Analyst")
+    assert client.post("/api/v1/occ" + path, json=body).status_code == 403
+
+
+@pytest.mark.parametrize(
     "method,path",
     [
         ("POST", "/synonyms"),
@@ -342,6 +359,9 @@ def test_new_endpoint_rbac(client: TestClient, path: str) -> None:
         ("DELETE", "/synonyms/1"),
         ("POST", "/synonyms/1/approve"),
         ("POST", "/synonyms/1/reject"),
+        ("POST", "/skill-suggestions/accept"),
+        ("POST", "/skill-suggestions/reject"),
+        ("POST", "/skill-suggestions/restore"),
         ("POST", "/scoring-templates"),
         ("PUT", "/scoring-templates/1"),
         ("DELETE", "/scoring-templates/1"),

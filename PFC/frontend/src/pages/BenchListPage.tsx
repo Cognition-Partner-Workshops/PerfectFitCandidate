@@ -6,6 +6,7 @@ import { api } from '../api'
 import type { Resource } from '../api/types'
 import { Chip, EligibilityBadge, EmptyState, ErrorState, MaskedValue, Modal, Spinner } from '../components/ui'
 import { UploadDialog } from '../components/UploadDialog'
+import { eligibilityReasonLabel, eligibilityReasonTitle } from '../lib/excluded'
 import { formatDate, orNotRecorded } from '../lib/format'
 
 type View = 'eligible' | 'excluded' | 'all'
@@ -121,8 +122,15 @@ export function BenchListPage() {
                     {r.benchStatus} {r.unmappedStatus && <Chip tone="warning">Unmapped status</Chip>}
                   </td>
                   <td>
-                    <EligibilityBadge eligibility={r.eligibility} reasons={r.exclusionReasons} />
-                    {r.exclusionReasons.length > 0 && <div className="small muted">{r.exclusionReasons.join('; ')}</div>}
+                    <EligibilityBadge eligibility={r.eligibility} reasons={r.exclusionReasons} unrecognisedSkills={r.unrecognisedSkills} />
+                    {r.exclusionReasons.length > 0 && (
+                      <div
+                        className="small muted"
+                        title={r.exclusionReasons.map((reason) => eligibilityReasonTitle(reason, r.unrecognisedSkills)).filter(Boolean).join('; ') || undefined}
+                      >
+                        {r.exclusionReasons.map((reason) => eligibilityReasonLabel(reason, r.unrecognisedSkills)).join('; ')}
+                      </div>
+                    )}
                   </td>
                   <td>{r.availableCapacity ?? '—'}</td>
                   <td>{formatDate(r.benchStartDate)}</td>

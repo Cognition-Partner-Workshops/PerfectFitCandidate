@@ -76,6 +76,13 @@ def _resource(db: sqlite3.Connection, candidate: sqlite3.Row, cv_count: int) -> 
     ).fetchone()
     values = dict(row) if row else {}
     capacity = values.get("available_capacity")
+    unrecognised_skills = []
+    if values.get("resource_id"):
+        from pfc.services.occ.skill_suggestions import unrecognised_skills_by_resource
+
+        unrecognised_skills = unrecognised_skills_by_resource(db, [values["resource_id"]]).get(
+            values["resource_id"], []
+        )
     return CandidateResource(
         resource_id=values.get("resource_id", 0),
         candidate_id=candidate["candidate_id"],
@@ -93,6 +100,7 @@ def _resource(db: sqlite3.Connection, candidate: sqlite3.Row, cv_count: int) -> 
         skills=[
             s.strip() for s in re.split(r"[,;\n]", values.get("skills_raw") or "") if s.strip()
         ],
+        unrecognised_skills=unrecognised_skills,
         available_capacity=capacity if capacity in {"Y", "N"} else None,
         bench_start_date=values.get("bench_start_date"),
         bench_end_date=values.get("bench_end_date"),
@@ -333,6 +341,9 @@ def resolve(
             (candidate_id,),
         ).fetchall():
             _replace_skills(db, version[0])
+        from pfc.services.ingestion.eligibility import refresh_resource_eligibility
+
+        refresh_resource_eligibility(db, [row["resource_id"]])
         db.execute(
             "INSERT INTO candidate_emails(candidate_id,email,email_key,source,confirmed) "
             "VALUES (?,?,?,'CT',1) ON CONFLICT(candidate_id,email_key) "

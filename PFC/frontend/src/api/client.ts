@@ -54,6 +54,9 @@ import type {
   SetupStatus,
   StatusMapEntry,
   Synonym,
+  SkillSuggestion,
+  SkillSuggestionAcceptItem,
+  RejectedSkillTerm,
   UploadPreview,
   UserStatus,
   SystemHealth,
@@ -249,6 +252,16 @@ export interface ApiClient {
   createSynonym(s: Omit<Synonym, 'synonymId' | 'usageCount' | 'source' | 'status'>): Promise<Synonym>
   /** PUT /occ/synonyms/{id} */
   updateSynonym(synonymId: number, patch: Partial<Synonym>): Promise<Synonym>
+  /** GET /occ/skill-suggestions */
+  listSkillSuggestions(): Promise<SkillSuggestion[]>
+  /** POST /occ/skill-suggestions/accept */
+  acceptSkillSuggestions(items: SkillSuggestionAcceptItem[]): Promise<void>
+  /** POST /occ/skill-suggestions/reject */
+  rejectSkillSuggestions(terms: string[]): Promise<void>
+  /** GET /occ/skill-suggestions/rejected */
+  listRejectedSkillTerms(): Promise<RejectedSkillTerm[]>
+  /** POST /occ/skill-suggestions/restore */
+  restoreRejectedSkillTerms(termNorms: string[]): Promise<void>
 
   /** GET /occ/scoring-templates */
   listTemplates(): Promise<ScoringTemplate[]>

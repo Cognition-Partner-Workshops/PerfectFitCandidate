@@ -78,6 +78,10 @@ export function DashboardPage() {
     refetchOnWindowFocus: true,
   })
   const all = useQuery({ queryKey: ['analytics', 'options'], queryFn: () => Promise.all([api.listDemands(), api.listResources()]) })
+  const resourcesById = useMemo(
+    () => new Map((all.data?.[1] ?? []).map((resource) => [resource.resourceId, resource])),
+    [all.data],
+  )
 
   const options = useMemo(() => {
     const [ds = [], rs = []] = all.data ?? []
@@ -364,7 +368,11 @@ export function DashboardPage() {
                       <td>{r.location}</td>
                       <td>{r.benchStatus}</td>
                       <td>
-                        <EligibilityBadge eligibility={r.eligibility} reasons={r.exclusionReasons} />
+                        <EligibilityBadge
+                          eligibility={r.eligibility}
+                          reasons={r.exclusionReasons}
+                          unrecognisedSkills={resourcesById.get(r.resourceId)?.unrecognisedSkills ?? []}
+                        />
                       </td>
                       <td>{formatDate(r.benchStartDate)}</td>
                       <td>{r.availableCapacity ?? '—'}</td>

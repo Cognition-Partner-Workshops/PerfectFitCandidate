@@ -131,6 +131,67 @@ def test_req_in_21_23_skills_use_one_approved_snapshot(
         assert db.execute("SELECT phone FROM candidates").fetchone()[0] is None
 
 
+def test_deleted_synonym_restores_unrecognised_cv_skill_after_sync(
+    client: TestClient, tmp_path: Path
+) -> None:
+    root = tmp_path / "resumes"
+    root.mkdir()
+    configure_resume_root(client, root)
+    commit(
+        client,
+        upload(
+            client,
+            "ct",
+            [{"ShortName": "Alex Border", "Email Address": "alex@example.com", "Skills": ""}],
+        ),
+    )
+    alias = "PFC CV alias"
+    created = client.post(
+        "/api/v1/occ/synonyms",
+        json={"canonical": "SQL", "term": alias, "relation": "equivalent", "credit": 1.0},
+    )
+    assert created.status_code == 201, created.text
+    resume_docx(
+        root,
+        "Alex.docx",
+        f"Alex Border\nEmail: alex@example.com\nTechnical Skills\n{alias}",
+    )
+    synced = wait_cv_job(client, client.post("/api/v1/resources/cv-sync"))
+    assert synced["new_versions"] == 1
+
+    with database(client.app.state.settings) as db:
+        resource = db.execute("SELECT resource_id FROM resources").fetchone()[0]
+        skill = db.execute(
+            "SELECT canonical_skill_id FROM resource_skills WHERE source='CV'"
+        ).fetchone()
+        assert skill["canonical_skill_id"] is not None
+        row = db.execute(
+            "SELECT eligibility,exclusion_reason FROM resources WHERE resource_id=?",
+            (resource,),
+        ).fetchone()
+        assert tuple(row) == ("eligible", None)
+
+    suggestions = client.get("/api/v1/occ/skill-suggestions")
+    assert alias not in {item["term"] for item in suggestions.json()}
+    deleted = client.delete(f"/api/v1/occ/synonyms/{created.json()['synonym_id']}")
+    assert deleted.status_code == 204
+
+    suggestions = client.get("/api/v1/occ/skill-suggestions")
+    assert suggestions.status_code == 200, suggestions.text
+    item = next(item for item in suggestions.json() if item["term"] == alias)
+    assert item["cv_people"] == 1
+    resources = client.get("/api/v1/resources")
+    assert resources.status_code == 200, resources.text
+    resource_item = next(row for row in resources.json()["items"] if row["resource_id"] == resource)
+    assert resource_item["unrecognised_skills"] == [alias]
+    with database(client.app.state.settings) as db:
+        row = db.execute(
+            "SELECT eligibility,exclusion_reason FROM resources WHERE resource_id=?",
+            (resource,),
+        ).fetchone()
+        assert tuple(row) == ("excluded", "NO_SKILLS")
+
+
 def payload() -> str:
     return json.dumps(
         {
