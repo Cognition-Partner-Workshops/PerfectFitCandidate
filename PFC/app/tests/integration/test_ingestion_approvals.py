@@ -466,6 +466,52 @@ def test_req_in_23_select_ct_record_confirms_verbatim_email(client):
         assert verify_chain(db)
 
 
+def test_identity_resolution_refreshes_eligibility_from_latest_cv(client):
+    ingest(client, "ct", [{"Email Address": None}, {"Skills": "UnrecognisedIdentitySkill"}])
+    with database(client.app.state.settings) as db:
+        target = db.execute(
+            "SELECT resource_id,eligibility,exclusion_reason FROM resources "
+            "WHERE resource_id=2"
+        ).fetchone()
+        assert tuple(target[1:]) == ("excluded", "NO_SKILLS")
+        resume_id = db.execute(
+            "INSERT INTO resumes(candidate_id,source_path,file_name,file_sha256,mime_type,"
+            "discovered_at) VALUES (1,'identity-cv.pdf','identity-cv.pdf','identity-cv',"
+            "'application/pdf','2026-01-01')"
+        ).lastrowid
+        facts = {
+            "facts": {
+                "skills": [
+                    {
+                        "value": "SQL",
+                        "canonical": "SQL",
+                        "evidence": "SQL",
+                        "span": [0, 3],
+                        "source": "rule",
+                    }
+                ]
+            }
+        }
+        db.execute(
+            "INSERT INTO cv_versions(resume_id,candidate_id,version_no,text_sha256,text_norm,"
+            "extracted_by,is_latest,extracted_at,facts_json) "
+            "VALUES (?,1,1,'identity-cv','SQL','test',1,'2026-01-01',?)",
+            (resume_id, json.dumps(facts)),
+        )
+
+    login(client, "Analyst")
+    response = client.put(
+        "/api/v1/candidates/1/identity",
+        json={"action": "select_ct_record", "resourceId": 2},
+    )
+    assert response.status_code == 200, response.text
+    with database(client.app.state.settings) as db:
+        target = db.execute(
+            "SELECT eligibility,exclusion_reason FROM resources WHERE resource_id=2"
+        ).fetchone()
+        assert tuple(target) == ("eligible", None)
+
+
 @pytest.mark.parametrize("with_ct_email", [False, True])
 def test_req_in_23_manual_identity_success_and_private_audit(client, with_ct_email):
     ingest(client, "ct", [{}] if with_ct_email else [{"Email Address": None}])

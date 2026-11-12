@@ -341,6 +341,9 @@ def resolve(
             (candidate_id,),
         ).fetchall():
             _replace_skills(db, version[0])
+        from pfc.services.ingestion.eligibility import refresh_resource_eligibility
+
+        refresh_resource_eligibility(db, [row["resource_id"]])
         db.execute(
             "INSERT INTO candidate_emails(candidate_id,email,email_key,source,confirmed) "
             "VALUES (?,?,?,'CT',1) ON CONFLICT(candidate_id,email_key) "
