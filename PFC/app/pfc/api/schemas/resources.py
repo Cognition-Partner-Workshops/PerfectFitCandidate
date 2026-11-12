@@ -26,6 +26,7 @@ class ResourceItem(BaseModel):
     bench_status: str | None
     bench_status_code: str | None
     skills_raw: str | None
+    unrecognised_skills: list[str]
     available_capacity: str | None
     bench_start_date: str | None
     bench_end_date: str | None

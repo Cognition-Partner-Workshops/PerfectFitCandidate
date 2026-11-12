@@ -19,6 +19,8 @@ import type {
   StatusMapEntry,
   Role,
   Synonym,
+  SkillSuggestion,
+  RejectedSkillTerm,
   UploadPreview,
   Demand,
   AnalyticsSummary,
@@ -213,6 +215,34 @@ export const fromAdminSettings = (s: AdminSettings): Record<string, unknown> =>
   Object.fromEntries((Object.entries(ADMIN_SETTING_KEYS) as [keyof AdminSettings, string][]).map(([k, key]) => [key, s[k]]))
 
 export interface SynonymRow { synonym_id: number; canonical: string; term: string; relation: string; status: string; created_by: number | null }
+export interface SkillSuggestionRow {
+  term: string
+  term_norm: string
+  ct_people: number
+  cv_people: number
+  jd_demands: number
+  closest: string | null
+}
+export interface RejectedSkillTermRow {
+  term_norm: string
+  term: string
+  rejected_by: number | null
+  rejected_at: string
+}
+export const toSkillSuggestion = (row: SkillSuggestionRow): SkillSuggestion => ({
+  term: row.term,
+  termNorm: row.term_norm,
+  ctPeople: row.ct_people,
+  cvPeople: row.cv_people,
+  jdDemands: row.jd_demands,
+  closest: row.closest,
+})
+export const toRejectedSkillTerm = (row: RejectedSkillTermRow): RejectedSkillTerm => ({
+  termNorm: row.term_norm,
+  term: row.term,
+  rejectedBy: row.rejected_by,
+  rejectedAt: row.rejected_at,
+})
 const REL: Record<string, Synonym['relation']> = { equivalent: 'Exact synonym', abbreviation: 'Abbreviation', misspelling: 'Spelling variant', related: 'Related' }
 const ST: Record<string, Synonym['status']> = { approved: 'Active', suggested: 'Suggested', rejected: 'Rejected' }
 export const toSynonym = (r: SynonymRow): Synonym => ({
@@ -300,6 +330,7 @@ export interface ResourceItem {
   bench_status: string | null
   bench_status_code: string | null
   skills_raw: string | null
+  unrecognised_skills: string[]
   available_capacity: string | null
   bench_start_date: string | null
   bench_end_date: string | null
@@ -325,6 +356,7 @@ export const toResource = (r: ResourceItem): Resource => ({
   benchStatusPriority: null,
   unmappedStatus: r.unmapped_status,
   skills: (r.skills_raw ?? '').split(/[,;\n]/).map((x) => x.trim()).filter(Boolean),
+  unrecognisedSkills: r.unrecognised_skills,
   availableCapacity: r.available_capacity === 'Y' || r.available_capacity === 'N' ? r.available_capacity : null,
   benchStartDate: r.bench_start_date,
   benchEndDate: r.bench_end_date,

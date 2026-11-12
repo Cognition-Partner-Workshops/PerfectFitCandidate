@@ -10,6 +10,12 @@ from pfc.services.occ.seed import normalize_term
 logger = logging.getLogger(__name__)
 
 
+def _refresh_eligibility(db: sqlite3.Connection) -> None:
+    from pfc.services.ingestion.eligibility import refresh_resource_eligibility
+
+    refresh_resource_eligibility(db)
+
+
 def valid_synonym_table(db: sqlite3.Connection, exclude: int | None = None) -> SynonymTable:
     rows = [
         dict(row)
@@ -104,7 +110,12 @@ def skill_id(
 
 
 def save(
-    db: sqlite3.Connection, user_id: int, data: dict[str, Any], target: int | None = None
+    db: sqlite3.Connection,
+    user_id: int,
+    data: dict[str, Any],
+    target: int | None = None,
+    *,
+    refresh_eligibility: bool = True,
 ) -> dict[str, Any]:
     before = get_row(db, "skill_synonyms", "synonym_id", target) if target is not None else None
     _validate(db, data, target)
@@ -145,11 +156,19 @@ def save(
         )
     after = get_row(db, "skill_synonyms", "synonym_id", target)
     audit_write(db, user_id, "OCC_EDIT", "skill_synonyms", target, before, after)
+    if refresh_eligibility:
+        _refresh_eligibility(db)
     return {**after, "canonical": data["canonical"].strip()}
 
 
 def transition(
-    db: sqlite3.Connection, user_id: int, target: int, status: str, canonical: str | None = None
+    db: sqlite3.Connection,
+    user_id: int,
+    target: int,
+    status: str,
+    canonical: str | None = None,
+    *,
+    refresh_eligibility: bool = True,
 ) -> dict[str, Any]:
     before = get_row(db, "skill_synonyms", "synonym_id", target)
     if before["status"] != "suggested":
@@ -165,10 +184,16 @@ def transition(
     )
     after = get_row(db, "skill_synonyms", "synonym_id", target)
     audit_write(db, user_id, "OCC_EDIT", "skill_synonyms", target, before, after)
+    if refresh_eligibility:
+        _refresh_eligibility(db)
     return after
 
 
-def delete(db: sqlite3.Connection, user_id: int, target: int) -> None:
+def delete(
+    db: sqlite3.Connection, user_id: int, target: int, *, refresh_eligibility: bool = True
+) -> None:
     before = get_row(db, "skill_synonyms", "synonym_id", target)
     db.execute("DELETE FROM skill_synonyms WHERE synonym_id=?", (target,))
     audit_write(db, user_id, "OCC_EDIT", "skill_synonyms", target, before, None)
+    if refresh_eligibility:
+        _refresh_eligibility(db)

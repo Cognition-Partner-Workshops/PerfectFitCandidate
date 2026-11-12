@@ -67,6 +67,7 @@ class CandidateResource(CamelModel):
     bench_status_priority: int | None
     unmapped_status: bool
     skills: list[str]
+    unrecognised_skills: list[str]
     available_capacity: Literal["Y", "N"] | None
     bench_start_date: str | None
     bench_end_date: str | None

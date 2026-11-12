@@ -5,6 +5,7 @@ import { api, ApiError } from '../api'
 import type { CandidateDetail, CvFact, CvFacts, CvVersion, IdentityResolution, SkillFact } from '../api/types'
 import { BandChip, Banner, Chip, EligibilityBadge, ErrorState, MaskedValue, MatchDoughnut, Modal, Spinner } from '../components/ui'
 import { SummaryCard } from '../components/SummaryCard'
+import { eligibilityReasonLabel, eligibilityReasonTitle } from '../lib/excluded'
 import { formatDate, formatDateTime, initials, orNotRecorded } from '../lib/format'
 import { CandidateClassificationCard } from './CandidateClassificationCard'
 
@@ -156,7 +157,7 @@ function Picker() {
               <span style={{ flex: 1 }}>
                 {orNotRecorded(r.name)} · <span className="mono">{r.shortName}</span> · {r.grade ?? '—'}
               </span>
-              <EligibilityBadge eligibility={r.eligibility} reasons={r.exclusionReasons} />
+              <EligibilityBadge eligibility={r.eligibility} reasons={r.exclusionReasons} unrecognisedSkills={r.unrecognisedSkills} />
             </li>
           ))}
         </ul>
@@ -197,7 +198,7 @@ export function CandidateProfilePage() {
             <MaskedValue masked={d.phoneMasked} entity="resource" id={r.resourceId} field="phone" /> · {orNotRecorded(r.grade)} · {r.location}
           </div>
           <div className="row small">
-            <EligibilityBadge eligibility={r.eligibility} reasons={r.exclusionReasons} /> · {r.benchStatus} · {r.groupName} (Owner: {r.groupOwner}) ·{' '}
+            <EligibilityBadge eligibility={r.eligibility} reasons={r.exclusionReasons} unrecognisedSkills={r.unrecognisedSkills} /> · {r.benchStatus} · {r.groupName} (Owner: {r.groupOwner}) ·{' '}
             <span className="mono">{d.internalRef}</span>
             {incomplete && (
               <button className="btn btn-sm" onClick={() => setPrompt(true)}>
@@ -211,7 +212,7 @@ export function CandidateProfilePage() {
         </Link>
       </div>
       <SummaryCard kind="candidate" id={id} />
-      {r.eligibility === 'excluded' && <Banner tone="danger">Excluded — {r.exclusionReasons.join('; ')}. Not compared with JDs.</Banner>}
+      {r.eligibility === 'excluded' && <Banner tone="danger">Excluded — {r.exclusionReasons.map((reason) => eligibilityReasonLabel(reason, r.unrecognisedSkills)).join('; ')}. Not compared with JDs.</Banner>}
       <div className="tabs" role="tablist">
         {(
           [
@@ -266,7 +267,7 @@ export function CandidateProfilePage() {
                 <li>✓ Grade recorded</li>
               </ul>
             ) : (
-              <ul className="small">{r.exclusionReasons.map((x) => <li key={x}>✕ {x}</li>)}</ul>
+              <ul className="small">{r.exclusionReasons.map((reason) => <li key={reason} title={eligibilityReasonTitle(reason, r.unrecognisedSkills)}>✕ {eligibilityReasonLabel(reason, r.unrecognisedSkills)}</li>)}</ul>
             )}
             <span className="small muted">ⓘ Blank Bench End Date is not confirmation to submit (REQ-ELIG-05).</span>
           </section>

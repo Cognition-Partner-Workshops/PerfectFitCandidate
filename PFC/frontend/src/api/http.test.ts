@@ -125,6 +125,58 @@ it('confirms a previous Outlook send without a request body', async () => {
   expect((fetchMock.mock.calls[0]?.[1] as RequestInit).body).toBeUndefined()
 })
 
+it('maps suggestion and rejection routes and sends their request bodies', async () => {
+  const api = new HttpApiClient('/api/v1')
+  fetchMock
+    .mockResolvedValueOnce(json([{
+      term: 'Kubernetes',
+      term_norm: 'kubernetes',
+      ct_people: 2,
+      cv_people: 1,
+      jd_demands: 3,
+      closest: 'Kubernetes',
+    }]))
+    .mockResolvedValueOnce(json({}))
+    .mockResolvedValueOnce(json([]))
+    .mockResolvedValueOnce(json([{
+      term_norm: 'kubernetes',
+      term: 'Kubernetes',
+      rejected_by: 1,
+      rejected_at: '2026-01-01T00:00:00Z',
+    }]))
+    .mockResolvedValueOnce(json({ updated: 1 }))
+
+  expect(await api.listSkillSuggestions()).toEqual([{
+    term: 'Kubernetes',
+    termNorm: 'kubernetes',
+    ctPeople: 2,
+    cvPeople: 1,
+    jdDemands: 3,
+    closest: 'Kubernetes',
+  }])
+  await api.acceptSkillSuggestions([{ term: 'Kubernetes' }])
+  await api.rejectSkillSuggestions(['Kubernetes'])
+  expect((await api.listRejectedSkillTerms())[0]?.termNorm).toBe('kubernetes')
+  await api.restoreRejectedSkillTerms(['kubernetes'])
+
+  expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+    '/api/v1/occ/skill-suggestions',
+    '/api/v1/occ/skill-suggestions/accept',
+    '/api/v1/occ/skill-suggestions/reject',
+    '/api/v1/occ/skill-suggestions/rejected',
+    '/api/v1/occ/skill-suggestions/restore',
+  ])
+  expect(JSON.parse((fetchMock.mock.calls[1]?.[1] as RequestInit).body as string)).toEqual({
+    items: [{ term: 'Kubernetes' }],
+  })
+  expect(JSON.parse((fetchMock.mock.calls[2]?.[1] as RequestInit).body as string)).toEqual({
+    terms: ['Kubernetes'],
+  })
+  expect(JSON.parse((fetchMock.mock.calls[4]?.[1] as RequestInit).body as string)).toEqual({
+    term_norms: ['kubernetes'],
+  })
+})
+
 describe('HttpApiClient — TDD §9.3 session + CSRF', () => {
   it('uses the four summary routes and preserves their camelCase response', async () => {
     const summary = { sentences: [{ text: 'SQL', evidence: 'SQL' }], model: 'local', createdAt: 'now', stale: true, droppedUngrounded: 1, sourceVersionId: 7 }
@@ -433,7 +485,7 @@ describe('HttpApiClient — OCC per-item CRUD', () => {
 describe('HttpApiClient — resources and match runs (ingestion #12, matching #10)', () => {
   const item = (id: number, eligibility: string) => ({
     resource_id: id, short_name: `R${id}`, email_address: 'jane.doe@example.com', grade: 'C1', location: 'Pune',
-    bench_status: 'Available', bench_status_code: 'AVAILABLE', skills_raw: 'Java, Spring; SQL', available_capacity: 'Y',
+    bench_status: 'Available', bench_status_code: 'AVAILABLE', skills_raw: 'Java, Spring; SQL', unrecognised_skills: ['Spring'], available_capacity: 'Y',
     bench_start_date: '2026-10-01', bench_end_date: null, group_name: 'G1', lifecycle: 'active', eligibility,
     exclusion_reasons: eligibility === 'excluded' ? ['Status excluded'] : [], pending_review: false, unmapped_status: false, occ_pending_review: false,
   })
@@ -615,11 +667,11 @@ describe('HttpApiClient — analytics and export wiring (REQ-OUT-04..09)', () =>
 describe('toResource — candidate link and CV status (REQ-IN-22)', () => {
   const item: ResourceItem = {
     resource_id: 5, candidate_id: 9, cv_versions_count: 2, short_name: 'Alex', email_address: 'alex@example.com', grade: 'B2', location: 'Pune',
-    bench_status: 'Bench', bench_status_code: 'BENCH', skills_raw: 'Java, SQL', available_capacity: 'Y', bench_start_date: null, bench_end_date: null,
+    bench_status: 'Bench', bench_status_code: 'BENCH', skills_raw: 'Java, SQL', unrecognised_skills: ['Java'], available_capacity: 'Y', bench_start_date: null, bench_end_date: null,
     group_name: null, lifecycle: 'active', eligibility: 'eligible', exclusion_reasons: [], pending_review: false, unmapped_status: false, occ_pending_review: false,
   }
   it('maps candidate_id and cv_versions_count', () => {
-    expect(toResource(item)).toMatchObject({ candidateId: 9, cvCount: 2, cvStatus: 'Synced' })
+    expect(toResource(item)).toMatchObject({ candidateId: 9, cvCount: 2, cvStatus: 'Synced', unrecognisedSkills: ['Java'] })
   })
   it('leaves unlinked rows at candidateId 0 and Not synced', () => {
     expect(toResource({ ...item, candidate_id: null, cv_versions_count: 0 })).toMatchObject({ candidateId: 0, cvCount: 0, cvStatus: 'Not synced' })

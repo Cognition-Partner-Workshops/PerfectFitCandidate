@@ -26,6 +26,8 @@ flowchart TD
     S5 --> S6[6. Outlook COM draft and send]
     S6 --> S7[7. KPI-01 blind labelling]
     S7 --> S8[8. KPI-02 and KPI-05 baselines]
+    S8 --> S9[9. Reading-only candidate and demand summaries]
+    S9 --> S10[10. Skill suggestions and Bench List eligibility]
 ```
 
 ## Test record
@@ -441,6 +443,41 @@ Requirements: REQ-LLM-02. Run on the target laptop; Linux VM figures are not acc
 | Candidate stale banner after CV change; clears after regenerate | | | |
 | Demand stale banner after JD change; clears after regenerate | | | |
 | Model stopped: 503 and plain message on both cards | | | |
+
+Notes:
+
+## 10. Skill suggestions and Bench List eligibility
+
+Requirements: REQ-MAT-05 and REQ-ELIG-01.
+
+**Preconditions**
+
+- Sign in as an OCC Admin with a synthetic CT workbook and a latest CV containing skills.
+- At least one skill in the workbook or CV is not in the approved dictionary.
+
+**Actions**
+
+1. Upload and commit a CT row with an unknown skill (for example, `Kubernetes`) and note the Bench List eligibility. Do not upload CT again during this test.
+2. Open **OCC → Skill synonyms → Suggestions**. Confirm the term appears and the source counts show distinct CT people, CV people and/or JD demands as applicable. JD suggestions should be short skill-like mandatory/preferred terms, not experience, qualification, domain, sentence-like or years-of-experience items.
+3. Search for the term, use **Select all** on the visible filtered row(s), and choose **Add selected as new skills**.
+4. Return to the Bench List and refresh. Confirm `NO_SKILLS` clears without another CT upload; if the CV already had a recognised skill, confirm eligibility was reflected after Sync.
+5. Reject another suggestion and confirm it disappears from Suggestions. Open **Rejected**, choose **Restore**, and confirm it appears in Suggestions again.
+
+**Expected result**
+
+- Suggestions alone do not add active dictionary rows or affect matching. Approval refreshes eligibility.
+- The Bench List label for `NO_SKILLS` reads **No skills in dictionary (N unrecognised)** and its tooltip lists only safe terms.
+- Rejection and restore are local to this installation and absent from signed settings packages.
+
+**Evidence**
+
+| Check | Value | Screenshot | Pass/Fail |
+| --- | --- | --- | --- |
+| Unknown term and source counts | | | |
+| Select all follows current search | | | |
+| Eligibility clears without CT re-upload | | | |
+| Reject removes suggestion | | | |
+| Restore returns suggestion | | | |
 
 Notes:
 

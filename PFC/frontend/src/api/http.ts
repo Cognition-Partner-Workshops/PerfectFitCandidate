@@ -18,6 +18,8 @@ import {
   toPersonal,
   toPreview,
   toSynonym,
+  toSkillSuggestion,
+  toRejectedSkillTerm,
   type AuditRow,
   type AuthView,
   type EmailRow,
@@ -26,6 +28,8 @@ import {
   type PersonalRow,
   type RecipientRow,
   type SynonymRow,
+  type SkillSuggestionRow,
+  type RejectedSkillTermRow,
   type UserRow,
   fromBenchStatus,
   fromStatusMapEntry,
@@ -443,6 +447,17 @@ export class HttpApiClient implements ApiClient {
       }),
     )
   }
+
+  listSkillSuggestions: ApiClient['listSkillSuggestions'] = async () =>
+    (await this.request<SkillSuggestionRow[]>('GET', '/occ/skill-suggestions')).map(toSkillSuggestion)
+  acceptSkillSuggestions: ApiClient['acceptSkillSuggestions'] = (items) =>
+    this.request('POST', '/occ/skill-suggestions/accept', { items })
+  rejectSkillSuggestions: ApiClient['rejectSkillSuggestions'] = (terms) =>
+    this.request('POST', '/occ/skill-suggestions/reject', { terms })
+  listRejectedSkillTerms: ApiClient['listRejectedSkillTerms'] = async () =>
+    (await this.request<RejectedSkillTermRow[]>('GET', '/occ/skill-suggestions/rejected')).map(toRejectedSkillTerm)
+  restoreRejectedSkillTerms: ApiClient['restoreRejectedSkillTerms'] = (termNorms) =>
+    this.request('POST', '/occ/skill-suggestions/restore', { term_norms: termNorms })
 
   listTemplates: ApiClient['listTemplates'] = () => this.request('GET', '/occ/scoring-templates')
   publishTemplate: ApiClient['publishTemplate'] = async (draft) => {

@@ -88,7 +88,9 @@ Order grades with ↑ / ↓, **Retire** or **Restore** a grade, then **Save grad
 
 **OCC → Skill synonyms** (skill-synonym tracker)
 
-**Add canonical term**, then add variants with a relation (exact synonym, abbreviation, spelling variant or related). Rows show source and usage. Saving publishes a new synonym-set version and offers rescoring.
+The **Suggestions** tab discovers unrecognised skills from active CT resources, the latest non-removed CVs, and current JD analysis. JD suggestions are limited to short skill-like mandatory/preferred items; experience, qualification, domain, sentence-like, years-of-experience, filler-only and already-recognised phrases are excluded. The **Found in** counts show distinct CT people, CV people and JD demands.
+
+Search the list, use **Select all** for the visible filtered rows, then add selected terms as new canonical skills or reject them. A row can also be mapped to an existing canonical skill with a relation. Approval is the only action that adds a skill or synonym to the active dictionary and refreshes Bench List eligibility. Rejections are stored locally and are not included in signed settings packages; the **Rejected** view can restore a term. Legacy suggested synonym rows remain in their own section. Earlier match runs are not changed.
 
 ## 8. Scoring template
 

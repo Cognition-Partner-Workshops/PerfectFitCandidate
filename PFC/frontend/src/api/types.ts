@@ -129,6 +129,7 @@ export interface Resource {
   benchStatusPriority: number | null
   unmappedStatus: boolean
   skills: string[]
+  unrecognisedSkills: string[]
   /** Display only — never used for availability (REQ-ELIG-06). */
   availableCapacity: 'Y' | 'N' | null
   benchStartDate: string | null
@@ -502,6 +503,31 @@ export interface Synonym {
   usageCount: number
   source: 'seed' | 'system-suggested' | 'admin'
   status: 'Active' | 'Suggested' | 'Rejected'
+}
+
+export interface SkillSuggestion {
+  term: string
+  termNorm: string
+  ctPeople: number
+  cvPeople: number
+  jdDemands: number
+  closest: string | null
+}
+
+export type SkillSuggestionRelation = 'equivalent' | 'abbreviation' | 'misspelling' | 'related'
+
+export interface SkillSuggestionAcceptItem {
+  term: string
+  canonical?: string | null
+  relation?: SkillSuggestionRelation
+  credit?: number
+}
+
+export interface RejectedSkillTerm {
+  termNorm: string
+  term: string
+  rejectedBy: number | null
+  rejectedAt: string
 }
 
 export interface ScoringWeights {

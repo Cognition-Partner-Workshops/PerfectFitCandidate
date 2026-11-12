@@ -267,6 +267,31 @@ def test_cv_inputs_only_latest_live_version_and_linked_resources(settings: Setti
         assert f"candidate:{candidate}" not in _inputs(db, "all", [], config)[2]
 
 
+def test_resource_eligibility_uses_latest_cv_basis(settings: Settings) -> None:
+    from pfc.domain.scoring import eligibility
+    from pfc.services.ingestion.eligibility import refresh_resource_eligibility
+    from pfc.services.ingestion.repository import domain_config
+    from pfc.services.matching.cv_bases import load_cv_bases, load_resources
+
+    with database(settings) as db:
+        candidate = seed_candidate(db)
+        resource_id = seed_resource(db, skills=None, candidate=candidate)
+        seed_cv(db, resource_id, candidate, skills=("SQL",))
+
+        assert refresh_resource_eligibility(db, [resource_id]) == 1
+        row = db.execute(
+            "SELECT eligibility,exclusion_reason FROM resources WHERE resource_id=?",
+            (resource_id,),
+        ).fetchone()
+        assert tuple(row) == ("eligible", None)
+
+        config = domain_config(db)
+        resource = next(item for item in load_resources(db) if item.resource_id == str(resource_id))
+        bases = load_cv_bases(db, config).get(resource.candidate_id or "", [])
+        combined = build_combined_basis(resource, bases, config)
+        assert eligibility(resource, [combined], config) == ()
+
+
 def wait_done(runner: JobRunner, job_id: int) -> Job:
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:

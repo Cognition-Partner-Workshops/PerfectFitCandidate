@@ -8,6 +8,7 @@ from pfc.api.schemas.occ_approvals import CamelModel
 from pfc.config import Settings
 from pfc.db.audit import append_audit
 from pfc.security.problems import Problem
+from pfc.services.ingestion.eligibility import refresh_resource_eligibility
 from pfc.services.ingestion.masking import EMAIL
 from pfc.services.pii import mask_email
 
@@ -158,4 +159,17 @@ def remove(
             "summaries_cleared": summaries_cleared,
         },
     )
+    resource_ids = (
+        [
+            row[0]
+            for row in db.execute(
+                "SELECT resource_id FROM resources WHERE candidate_id=? "
+                "AND lifecycle='active' ORDER BY resource_id",
+                (candidate_id,),
+            )
+        ]
+        if candidate_id is not None
+        else None
+    )
+    refresh_resource_eligibility(db, resource_ids)
     return counts

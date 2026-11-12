@@ -50,6 +50,25 @@ def test_email_transport_is_not_in_portable_system_settings(
     assert "email.transport" not in portable
 
 
+def test_local_skill_rejections_are_not_in_settings_packages(
+    pair: tuple[Settings, Settings],
+) -> None:
+    source, _ = pair
+    with database(source) as db:
+        db.execute(
+            "INSERT INTO skill_term_rejections(term_norm,term,rejected_at) "
+            "VALUES ('localonly','LocalOnlySkill',?)",
+            (NOW,),
+        )
+        portable = snapshot(db)
+
+    assert "skill_term_rejections" not in portable
+    package = exported(source)
+    with zipfile.ZipFile(package.path) as archive:
+        payload = b"".join(archive.read(name) for name in archive.namelist())
+    assert b"LocalOnlySkill" not in payload
+
+
 def test_domain_import_and_rollback_reclassification(pair: tuple[Settings, Settings]) -> None:
     source, target = pair
     with database(target) as db:

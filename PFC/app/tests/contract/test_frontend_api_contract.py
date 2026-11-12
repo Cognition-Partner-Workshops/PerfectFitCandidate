@@ -132,6 +132,25 @@ def test_occ_cv_extraction_routes_openapi(tmp_path: Path) -> None:
     assert "delete" in paths["/api/v1/occ/cv-extractions"]
 
 
+def test_skill_suggestion_routes_and_unrecognised_resource_contract(tmp_path: Path) -> None:
+    app = create_app(Settings(data_dir=tmp_path / "data", frontend_dir=tmp_path / "frontend"))
+    document = app.openapi()
+    paths = document["paths"]
+    for path, method in [
+        ("/api/v1/occ/skill-suggestions", "get"),
+        ("/api/v1/occ/skill-suggestions/accept", "post"),
+        ("/api/v1/occ/skill-suggestions/reject", "post"),
+        ("/api/v1/occ/skill-suggestions/rejected", "get"),
+        ("/api/v1/occ/skill-suggestions/restore", "post"),
+    ]:
+        assert method in paths[path]
+    schemas = document["components"]["schemas"]
+    assert "unrecognised_skills" in schemas["ResourceItem"]["properties"]
+    assert "unrecognisedSkills" in schemas["CandidateResource"]["properties"]
+    types = (FRONTEND_ROOT / "src" / "api" / "types.ts").read_text(encoding="utf-8")
+    assert "unrecognisedSkills: string[]" in types
+
+
 def test_candidate_classification_override_openapi(tmp_path: Path) -> None:
     app = create_app(Settings(data_dir=tmp_path / "data", frontend_dir=tmp_path / "frontend"))
     assert "put" in app.openapi()["paths"]["/api/v1/candidates/{candidate_id}/classification"]

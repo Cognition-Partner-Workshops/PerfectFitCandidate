@@ -15,6 +15,7 @@ from test_matching_service import (
     FakeEmbedder,
     FakeLlm,
     seed_candidate,
+    seed_cv,
     seed_demand,
     seed_resource,
     wait_done,
@@ -1029,3 +1030,400 @@ def test_req_out_03_runs_saved_under_the_old_mask_read_with_the_new_one(api: Api
             )
         checks = {c["id"]: c for c in client.get("/api/v1/analytics/match").json()["validation"]}
         assert not checks["email-copy"]["passed"], (unmasked, checks)
+
+
+def test_skill_suggestion_admin_routes_and_refresh(api: Api) -> None:
+    client, headers = api
+    with database(client.app.state.settings) as db:
+        candidate = seed_candidate(db)
+        resource = seed_resource(db, candidate=candidate, skills="Kubernetes")
+        db.execute(
+            "UPDATE resources SET eligibility='excluded',exclusion_reason='NO_SKILLS' "
+            "WHERE resource_id=?",
+            (resource,),
+        )
+
+    suggestions = client.get("/api/v1/occ/skill-suggestions", headers=headers)
+    if suggestions.status_code == 403:
+        assert suggestions.headers["content-type"].startswith("application/problem+json")
+        return
+    assert suggestions.status_code == 200, suggestions.text
+    item = next(s for s in suggestions.json() if s["term"] == "Kubernetes")
+    assert item["ct_people"] == 1 and item["cv_people"] == 0 and item["jd_demands"] == 0
+    resource_row = next(
+        r for r in client.get("/api/v1/resources").json()["items"] if r["resource_id"] == resource
+    )
+    assert resource_row["unrecognised_skills"] == ["Kubernetes"]
+    profile = client.get(f"/api/v1/candidates/{candidate}")
+    assert profile.status_code == 200, profile.text
+    assert profile.json()["resource"]["unrecognisedSkills"] == ["Kubernetes"]
+    with database(client.app.state.settings) as db:
+        unchanged = db.execute(
+            "SELECT eligibility,exclusion_reason FROM resources WHERE resource_id=?",
+            (resource,),
+        ).fetchone()
+        assert tuple(unchanged) == ("excluded", "NO_SKILLS")
+        assert db.execute("SELECT 1 FROM skills WHERE name='Kubernetes'").fetchone() is None
+
+    accepted = client.post(
+        "/api/v1/occ/skill-suggestions/accept",
+        headers=headers,
+        json={"items": [{"term": "Kubernetes"}]},
+    )
+    assert accepted.status_code == 200, accepted.text
+    with database(client.app.state.settings) as db:
+        row = db.execute(
+            "SELECT eligibility,exclusion_reason FROM resources WHERE resource_id=?",
+            (resource,),
+        ).fetchone()
+        assert tuple(row) == ("eligible", None)
+        assert db.execute(
+            "SELECT 1 FROM audit_log WHERE action='OCC_EDIT' "
+            "AND entity_type='skill_synonyms' LIMIT 1"
+        ).fetchone()
+
+
+def test_skill_suggestion_accept_batch_rolls_back_on_invalid_item(api: Api) -> None:
+    client, headers = api
+    response = client.post(
+        "/api/v1/occ/skill-suggestions/accept",
+        headers=headers,
+        json={"items": [{"term": "Kubernetes"}, {"term": "Kubernetes"}]},
+    )
+    if response.status_code == 403:
+        return
+    assert response.status_code == 422, response.text
+    assert "Kubernetes" in response.json()["detail"]
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT 1 FROM skills WHERE name='Kubernetes'").fetchone() is None
+        assert (
+            db.execute("SELECT 1 FROM skill_synonyms WHERE term_norm='kubernetes'").fetchone()
+            is None
+        )
+
+
+def test_skill_suggestion_unknown_canonical_is_404_and_rolls_back(api: Api) -> None:
+    client, headers = api
+    response = client.post(
+        "/api/v1/occ/skill-suggestions/accept",
+        headers=headers,
+        json={
+            "items": [
+                {"term": "Kubernetes"},
+                {"term": "K8s Platform", "canonical": "Missing canonical"},
+            ]
+        },
+    )
+    if response.status_code == 403:
+        return
+    assert response.status_code == 404, response.text
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT 1 FROM skills WHERE name='Kubernetes'").fetchone() is None
+
+
+def test_skill_suggestion_maps_to_existing_canonical(api: Api) -> None:
+    client, headers = api
+    response = client.post(
+        "/api/v1/occ/skill-suggestions/accept",
+        headers=headers,
+        json={
+            "items": [
+                {
+                    "term": "K8s Platform",
+                    "canonical": "Kubernetes",
+                    "relation": "related",
+                    "credit": 0.9,
+                }
+            ]
+        },
+    )
+    if response.status_code == 403:
+        return
+    assert response.status_code == 404, response.text
+
+    with database(client.app.state.settings) as db:
+        db.execute("INSERT INTO skills(name,created_by) VALUES ('Kubernetes','admin')")
+    response = client.post(
+        "/api/v1/occ/skill-suggestions/accept",
+        headers=headers,
+        json={
+            "items": [
+                {
+                    "term": "K8s Platform",
+                    "canonical": "Kubernetes",
+                    "relation": "related",
+                    "credit": 0.9,
+                }
+            ]
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()[0]["canonical"] == "Kubernetes"
+    assert response.json()[0]["relation"] == "related"
+    assert response.json()[0]["credit"] == 0.9
+
+
+def test_suggestions_use_latest_live_cv_and_exclude_pii_and_off_bench(api: Api) -> None:
+    client, headers = api
+    with database(client.app.state.settings) as db:
+        candidate = seed_candidate(db)
+        first = seed_resource(
+            db,
+            candidate=candidate,
+            skills="Kubernetes, person@example.com, 07700 900123",
+        )
+        second = seed_resource(db, "Linked resource", candidate=candidate, skills="Kubernetes")
+        seed_resource(
+            db,
+            "Off bench",
+            skills="OffBenchTool",
+            status="Selected",
+            group="Not on Bench",
+        )
+        off_bench = seed_resource(db, "Off-bench lifecycle", skills="LifecycleOffBenchTool")
+        db.execute("UPDATE resources SET lifecycle='off_bench' WHERE resource_id=?", (off_bench,))
+        archived = seed_resource(db, "Archived", skills="ArchivedTool")
+        db.execute("UPDATE resources SET lifecycle='archived' WHERE resource_id=?", (archived,))
+        old = seed_cv(db, first, candidate, skills=("OldCVTool",))
+        db.execute("UPDATE cv_versions SET is_latest=0 WHERE cv_version_id=?", (old,))
+        latest = db.execute(
+            "INSERT INTO cv_versions(resume_id,candidate_id,version_no,text_sha256,text_norm,"
+            "extracted_by,is_latest,extracted_at) SELECT resume_id,candidate_id,2,'cv-latest',"
+            "'LatestCVTool','test',1,extracted_at FROM cv_versions WHERE cv_version_id=?",
+            (old,),
+        ).lastrowid
+        db.execute(
+            "INSERT INTO resource_skills(resource_id,cv_version_id,source,skill_raw,skill_norm,"
+            "evidence) VALUES (?,?,'CV','LatestCVTool','latestcvtool','LatestCVTool')",
+            (first, latest),
+        )
+
+    response = client.get("/api/v1/occ/skill-suggestions", headers=headers)
+    if response.status_code == 403:
+        return
+    assert response.status_code == 200, response.text
+    suggestions = {item["term"]: item for item in response.json()}
+    assert suggestions["Kubernetes"]["ct_people"] == 2
+    assert suggestions["LatestCVTool"]["cv_people"] == 1
+    assert "OldCVTool" not in suggestions
+    assert "OffBenchTool" not in suggestions
+    assert "LifecycleOffBenchTool" not in suggestions and "ArchivedTool" not in suggestions
+    assert "person@example.com" not in suggestions and "07700 900123" not in suggestions
+    resources = client.get("/api/v1/resources").json()["items"]
+    person = next(item for item in resources if item["resource_id"] == first)
+    assert set(person["unrecognised_skills"]) == {"Kubernetes", "LatestCVTool"}
+    assert "person@example.com" not in person["unrecognised_skills"]
+    assert "07700 900123" not in person["unrecognised_skills"]
+
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "UPDATE cv_versions SET extraction_removed_at=? WHERE cv_version_id=?",
+            (NOW, latest),
+        )
+    response = client.get("/api/v1/occ/skill-suggestions", headers=headers)
+    assert response.status_code == 200, response.text
+    assert "LatestCVTool" not in {item["term"] for item in response.json()}
+
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "UPDATE resources SET lifecycle='archived' WHERE resource_id IN (?,?)",
+            (first, second),
+        )
+    response = client.get("/api/v1/occ/skill-suggestions", headers=headers)
+    assert response.status_code == 200, response.text
+    assert "Kubernetes" not in {item["term"] for item in response.json()}
+
+
+def test_jd_suggestions_count_demands_and_filter_revision_kind_and_lifecycle(api: Api) -> None:
+    client, headers = api
+    with database(client.app.state.settings) as db:
+        current = seed_demand(
+            db,
+            "T1JD01",
+            mandatory=("AI Governance", "SQL Server", "Experience with: Kafka"),
+            preferred=("Stakeholder Management", "AI Governance"),
+        )
+        seed_demand(db, "T1JD02", mandatory=("AI Governance",))
+        closed = seed_demand(db, "T1CLOSED", mandatory=("ClosedOnlySkill",))
+        db.execute("UPDATE demands SET lifecycle='closed' WHERE demand_id=?", (closed,))
+        version_id = db.execute(
+            "SELECT current_version_id FROM demands WHERE demand_id=?", (current,)
+        ).fetchone()[0]
+        current_revision = db.execute(
+            "SELECT jd_req_id FROM jd_requirements WHERE demand_version_id=? "
+            "AND status='confirmed'",
+            (version_id,),
+        ).fetchone()[0]
+        superseded = db.execute(
+            "INSERT INTO jd_requirements(demand_version_id,revision,status,created_at) "
+            "VALUES (?,2,'superseded',?)",
+            (version_id, NOW),
+        ).lastrowid
+        db.execute(
+            "INSERT INTO jd_requirement_items(jd_req_id,kind,text,position) "
+            "VALUES (?, 'mandatory_skill','SupersededSkill',0)",
+            (superseded,),
+        )
+        for position, kind, text in [
+            (10, "experience", "Five years experience"),
+            (11, "qualification", "Degree in Computer Science"),
+            (12, "domain", "Insurance"),
+        ]:
+            db.execute(
+                "INSERT INTO jd_requirement_items(jd_req_id,kind,text,position) VALUES (?,?,?,?)",
+                (current_revision, kind, text, position),
+            )
+
+    response = client.get("/api/v1/occ/skill-suggestions", headers=headers)
+    if response.status_code == 403:
+        return
+    assert response.status_code == 200, response.text
+    suggestions = {item["term"]: item for item in response.json()}
+    assert suggestions["AI Governance"]["jd_demands"] == 2
+    assert suggestions["SQL Server"]["jd_demands"] == 1
+    assert suggestions["Stakeholder Management"]["jd_demands"] == 1
+    assert (
+        not {
+            "Experience with: Kafka",
+            "ClosedOnlySkill",
+            "SupersededSkill",
+            "Five years experience",
+            "Degree in Computer Science",
+            "Insurance",
+        }
+        & suggestions.keys()
+    )
+
+
+def test_skill_suggestion_reject_restore_is_local_and_audited(api: Api) -> None:
+    client, headers = api
+    with database(client.app.state.settings) as db:
+        seed_resource(db, skills="Kubernetes")
+    before = client.get("/api/v1/occ/skill-suggestions", headers=headers)
+    if before.status_code == 403:
+        return
+    assert before.status_code == 200, before.text
+    rejected = client.post(
+        "/api/v1/occ/skill-suggestions/reject",
+        headers=headers,
+        json={"terms": ["Kubernetes"]},
+    )
+    assert rejected.status_code == 200, rejected.text
+    assert client.get("/api/v1/occ/skill-suggestions", headers=headers).json() == []
+    assert rejected.json()[0]["term_norm"] == "kubernetes"
+    restored = client.post(
+        "/api/v1/occ/skill-suggestions/restore",
+        headers=headers,
+        json={"term_norms": ["kubernetes"]},
+    )
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["updated"] == 1
+    assert "Kubernetes" in {
+        item["term"] for item in client.get("/api/v1/occ/skill-suggestions", headers=headers).json()
+    }
+    with database(client.app.state.settings) as db:
+        assert (
+            db.execute(
+                "SELECT count(*) FROM audit_log WHERE action='OCC_EDIT' "
+                "AND entity_type='skill_term_rejections'"
+            ).fetchone()[0]
+            == 2
+        )
+
+
+def test_suggestions_group_raw_spellings_closest_and_any_existing_synonym(api: Api) -> None:
+    client, headers = api
+    with database(client.app.state.settings) as db:
+        seed_resource(db, "Typo A", skills="Projct Management")
+        seed_resource(db, "Typo B", skills="projct management")
+        canonical_id = db.execute(
+            "SELECT skill_id FROM skills WHERE name='SQL' COLLATE NOCASE"
+        ).fetchone()[0]
+        db.execute(
+            "INSERT INTO skill_synonyms(skill_id,term,term_norm,relation,credit,status,"
+            "created_by,updated_at) VALUES (?,?,?,'equivalent',1,'rejected',1,?)",
+            (canonical_id, "KnownAlias", "knownalias", NOW),
+        )
+        seed_resource(db, "Existing synonym", skills="KnownAlias")
+
+    response = client.get("/api/v1/occ/skill-suggestions", headers=headers)
+    if response.status_code == 403:
+        return
+    assert response.status_code == 200, response.text
+    suggestions = {item["term_norm"]: item for item in response.json()}
+    typo = suggestions["projct management"]
+    assert typo["term"] == "Projct Management"
+    assert typo["ct_people"] == 2
+    assert typo["closest"] == "Project Management"
+    assert "knownalias" not in suggestions
+
+
+def test_ct_suggestions_include_only_unrecognised_tokens(api: Api) -> None:
+    client, headers = api
+    with database(client.app.state.settings) as db:
+        seed_resource(
+            db,
+            skills="Kubernetes, Product Management, Generative AI",
+        )
+    response = client.get("/api/v1/occ/skill-suggestions", headers=headers)
+    if response.status_code == 403:
+        return
+    assert response.status_code == 200, response.text
+    terms = {item["term"] for item in response.json()}
+    assert "Kubernetes" in terms
+    assert "Product Management" in terms
+    assert "Generative AI" not in terms
+
+
+def test_accept_does_not_rewrite_prior_match_run_results_or_exclusions(api: Api) -> None:
+    client, headers = api
+    if client.get("/api/v1/occ/skill-suggestions", headers=headers).status_code == 403:
+        return
+    with database(client.app.state.settings) as db:
+        seed_demand(db, "T1SUGGEST", mandatory=("SQL",))
+        unknown = seed_resource(db, "Unknown skill", skills="Kubernetes")
+        seed_resource(db, "Recognised skill", skills="SQL")
+
+    run_id = finish(
+        client, client.post("/api/v1/match-runs", headers=headers, json={"scope": "full"})
+    )
+    with database(client.app.state.settings) as db:
+        results_before = [
+            tuple(row)
+            for row in db.execute(
+                "SELECT * FROM match_results WHERE run_id=? ORDER BY result_id", (run_id,)
+            )
+        ]
+        exclusions_before = [
+            tuple(row)
+            for row in db.execute(
+                "SELECT * FROM eligibility_exclusions WHERE run_id=? ORDER BY resource_id,"
+                "demand_id,reason_code",
+                (run_id,),
+            )
+        ]
+        assert any(row[1] == unknown and row[3] == "NO_SKILLS" for row in exclusions_before)
+
+    accepted = client.post(
+        "/api/v1/occ/skill-suggestions/accept",
+        headers=headers,
+        json={"items": [{"term": "Kubernetes"}]},
+    )
+    assert accepted.status_code == 200, accepted.text
+    with database(client.app.state.settings) as db:
+        results_after = [
+            tuple(row)
+            for row in db.execute(
+                "SELECT * FROM match_results WHERE run_id=? ORDER BY result_id", (run_id,)
+            )
+        ]
+        exclusions_after = [
+            tuple(row)
+            for row in db.execute(
+                "SELECT * FROM eligibility_exclusions WHERE run_id=? ORDER BY resource_id,"
+                "demand_id,reason_code",
+                (run_id,),
+            )
+        ]
+    assert results_after == results_before
+    assert exclusions_after == exclusions_before

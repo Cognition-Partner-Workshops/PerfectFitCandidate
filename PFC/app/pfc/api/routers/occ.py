@@ -17,6 +17,12 @@ from pfc.api.schemas.occ import (
     Locations,
     Recipient,
     RecipientUpdate,
+    RejectedSkillTerm,
+    SkillSuggestion,
+    SkillSuggestionAccept,
+    SkillSuggestionMutation,
+    SkillSuggestionReject,
+    SkillSuggestionRestore,
     StatusMap,
     Synonym,
     TemplateCreate,
@@ -29,7 +35,7 @@ from pfc.security.dependencies import Principal, require_role
 from pfc.security.problems import Problem
 from pfc.security.sessions import stamp
 from pfc.services.occ import admin as administration
-from pfc.services.occ import llm, reference, synonyms, templates, users
+from pfc.services.occ import llm, reference, skill_suggestions, synonyms, templates, users
 from pfc.services.occ.common import get_row
 from pfc.services.occ.cv_extractions import ExtractionItem, RemovalCounts, list_extractions, remove
 
@@ -200,6 +206,41 @@ def synonym_approve(
 @router.post("/synonyms/{target}/reject")
 def synonym_reject(target: int, db: DB, admin: Admin) -> dict[str, Any]:
     return synonyms.transition(db, admin.user.user_id, target, "rejected")
+
+
+@router.get("/skill-suggestions", response_model=list[SkillSuggestion])
+def skill_suggestions_list(db: DB, admin: Admin) -> list[dict[str, Any]]:
+    return skill_suggestions.list_suggestions(db)
+
+
+@router.post("/skill-suggestions/accept")
+def skill_suggestions_accept(
+    body: SkillSuggestionAccept, db: DB, admin: Admin
+) -> list[dict[str, Any]]:
+    return skill_suggestions.accept(
+        db, admin.user.user_id, [item.model_dump() for item in body.items]
+    )
+
+
+@router.post("/skill-suggestions/reject", response_model=list[RejectedSkillTerm])
+def skill_suggestions_reject(
+    body: SkillSuggestionReject, db: DB, admin: Admin
+) -> list[dict[str, Any]]:
+    return skill_suggestions.reject(db, admin.user.user_id, body.terms)
+
+
+@router.get("/skill-suggestions/rejected", response_model=list[RejectedSkillTerm])
+def skill_suggestions_rejected(db: DB, admin: Admin) -> list[dict[str, Any]]:
+    return skill_suggestions.list_rejected(db)
+
+
+@router.post("/skill-suggestions/restore", response_model=SkillSuggestionMutation)
+def skill_suggestions_restore(
+    body: SkillSuggestionRestore, db: DB, admin: Admin
+) -> SkillSuggestionMutation:
+    return SkillSuggestionMutation(
+        updated=skill_suggestions.restore(db, admin.user.user_id, body.term_norms)
+    )
 
 
 @router.get("/scoring-templates")
