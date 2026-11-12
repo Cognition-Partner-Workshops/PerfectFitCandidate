@@ -470,8 +470,7 @@ def test_identity_resolution_refreshes_eligibility_from_latest_cv(client):
     ingest(client, "ct", [{"Email Address": None}, {"Skills": "UnrecognisedIdentitySkill"}])
     with database(client.app.state.settings) as db:
         target = db.execute(
-            "SELECT resource_id,eligibility,exclusion_reason FROM resources "
-            "WHERE resource_id=2"
+            "SELECT resource_id,eligibility,exclusion_reason FROM resources WHERE resource_id=2"
         ).fetchone()
         assert tuple(target[1:]) == ("excluded", "NO_SKILLS")
         resume_id = db.execute(
