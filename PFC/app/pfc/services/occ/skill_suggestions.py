@@ -203,9 +203,7 @@ def unrecognised_skills_by_resource(
         return result
 
     config = occ_domain_config(db)
-    resources = [
-        resource for resource in load_resources(db) if int(resource.resource_id) in selected
-    ]
+    resources = load_resources(db, selected)
     spellings: dict[int, dict[str, Counter[str]]] = defaultdict(lambda: defaultdict(Counter))
     pii_norms: dict[int, set[str]] = defaultdict(set)
 
@@ -224,7 +222,7 @@ def unrecognised_skills_by_resource(
             if _is_unrecognised(token.normalised, config.synonyms, token.canonical):
                 add(resource_id, token.raw)
 
-    cv_bases = load_cv_bases(db, config)
+    cv_bases = load_cv_bases(db, config, selected)
     for resource in resources:
         resource_id = int(resource.resource_id)
         candidate_key = resource.candidate_id or ""

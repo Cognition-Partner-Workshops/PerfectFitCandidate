@@ -1253,6 +1253,30 @@ def test_selected_resource_exposes_unrecognised_skills(api: Api) -> None:
     assert item["unrecognised_skills"] == ["SelectedOnlyUnknownTool"]
 
 
+def test_off_bench_resource_detail_exposes_unrecognised_ct_and_cv_skills(api: Api) -> None:
+    client, _ = api
+    with database(client.app.state.settings) as db:
+        candidate = seed_candidate(db)
+        off_bench = seed_resource(
+            db,
+            "Off-bench with unknown skills",
+            candidate=candidate,
+            skills="OffBenchCTTool",
+        )
+        seed_cv(db, off_bench, candidate, skills=("OffBenchCVTool",))
+        db.execute(
+            "UPDATE resources SET lifecycle='off_bench' WHERE resource_id=?",
+            (off_bench,),
+        )
+
+    response = client.get(f"/api/v1/resources/{off_bench}")
+    assert response.status_code == 200, response.text
+    assert set(response.json()["unrecognised_skills"]) == {
+        "OffBenchCTTool",
+        "OffBenchCVTool",
+    }
+
+
 def test_jd_suggestions_count_demands_and_filter_revision_kind_and_lifecycle(api: Api) -> None:
     client, headers = api
     with database(client.app.state.settings) as db:
