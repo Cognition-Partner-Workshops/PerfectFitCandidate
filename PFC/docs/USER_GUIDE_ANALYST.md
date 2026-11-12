@@ -74,6 +74,8 @@ The preview shows the file, the package version against the installed version, s
 2. Review the preview: file, detected sheet, **Rows read / New / Updated / Unchanged / Rejected**, and any row warnings (row number, column and message).
 3. Choose **Commit N rows**, or **Cancel** to discard. A file identical to the last import shows "This file was already imported — nothing to do."
 
+In CT Skills cells, separate skills with commas, semicolons, or line breaks (including Excel Alt+Enter).
+
 Committed changes apply to matching immediately and are queued for OCC review. Emails are copied from the CT exactly as written.
 
 On the **Demand List**, a Code Requisition that is not in `T1XXXX`/`T2XXXX` format is flagged as a warning.

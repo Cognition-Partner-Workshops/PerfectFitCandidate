@@ -1382,7 +1382,10 @@ def test_ct_suggestions_include_only_unrecognised_tokens(api: Api) -> None:
     with database(client.app.state.settings) as db:
         seed_resource(
             db,
-            skills="Kubernetes, Product Management, Generative AI",
+            skills=(
+                "Kubernetes, Product Management, Generative AI, "
+                "LineBreakSkillOne\nLineBreak Skill Two\r\nLineBreakSkillThree"
+            ),
         )
     response = client.get("/api/v1/occ/skill-suggestions", headers=headers)
     if response.status_code == 403:
@@ -1392,6 +1395,7 @@ def test_ct_suggestions_include_only_unrecognised_tokens(api: Api) -> None:
     assert "Kubernetes" in terms
     assert "Product Management" in terms
     assert "Generative AI" not in terms
+    assert {"LineBreakSkillOne", "LineBreak Skill Two", "LineBreakSkillThree"} <= terms
 
 
 def test_accept_does_not_rewrite_prior_match_run_results_or_exclusions(api: Api) -> None:

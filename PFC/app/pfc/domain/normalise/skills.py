@@ -36,7 +36,7 @@ def tokenise_skills(csv_text: str, synonyms: SynonymTable) -> TokenisedSkills:
                 return [left, *parts]
         return [text]
 
-    for chunk in re.split(r"[,;]", csv_text):
+    for chunk in re.split(r"[,;]|\r\n|\r|\n", csv_text):
         if not chunk.strip():
             empty_count += 1
             continue
