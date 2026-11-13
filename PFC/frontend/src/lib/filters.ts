@@ -1,4 +1,5 @@
 import type { MatchResult, ResultFilters } from '../api/types'
+import { effectiveResultBand } from './currentResults'
 
 function eq(a: string | null | undefined, values: string[] | undefined): boolean {
   return !values?.length || values.some((v) => (a ?? '').toLowerCase() === v.toLowerCase())
@@ -19,7 +20,7 @@ export function applyResultFilters(rows: MatchResult[], f: ResultFilters): Match
       eq(r.personGrade, f.personGrade) &&
       eq(r.personLocation, f.location) &&
       eq(r.region, f.region) &&
-      eq(r.band, f.band) &&
+      eq(effectiveResultBand(r), f.band) &&
       eq(r.benchStatus, f.status) &&
       eq(r.candidateType, f.candidateType) &&
       eq(r.incompleteIdentity ? 'yes' : 'no', f.incompleteIdentity) &&

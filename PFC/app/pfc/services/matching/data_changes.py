@@ -13,6 +13,8 @@ REASONS = (
     "CV synced",
 )
 
+GLOBAL_REASONS = frozenset(REASONS) - {"JD confirmed"}
+
 SOURCES = (
     "SELECT 'DL/CT committed',committed_at FROM ingestion_runs WHERE status='committed' "
     "AND kind IN ('DL','CT') AND julianday(committed_at)>=julianday(?)",
@@ -59,3 +61,51 @@ def annotate_data_changes(db: sqlite3.Connection, runs: list[dict[str, Any]]) ->
     for run, at in finished:
         reasons = [reason for reason in REASONS if reason in latest and latest[reason] > at]
         run.update(data_changed_since_run=bool(reasons), data_changed_reasons=reasons)
+
+
+def stale_demand_ids_for_pairs(
+    db: sqlite3.Connection,
+    pairs: dict[int, int],
+    runs: dict[int, dict[str, Any]],
+) -> list[int]:
+    stale: set[int] = set()
+    finished_by_demand: dict[int, datetime] = {}
+    for demand_id, run_id in pairs.items():
+        run = runs.get(run_id)
+        if run is None:
+            continue
+        reasons = set(run.get("data_changed_reasons") or [])
+        if reasons & GLOBAL_REASONS:
+            stale.add(demand_id)
+        elif run.get("finished_at"):
+            finished_by_demand[demand_id] = _time(str(run["finished_at"]))
+    if not finished_by_demand:
+        return sorted(stale)
+
+    cutoff = min(finished_by_demand.values()).replace(microsecond=0).isoformat()
+    events_by_demand: dict[int, list[datetime]] = {}
+    events = db.execute(
+        "SELECT v.demand_id AS demand_id,q.confirmed_at AS event_at "
+        "FROM jd_requirements q JOIN demand_versions v USING(demand_version_id) "
+        "WHERE q.confirmed_at IS NOT NULL AND julianday(q.confirmed_at)>=julianday(?) "
+        "UNION ALL "
+        "SELECT CAST(json_extract(details_json,'$.demand_id') AS INTEGER),ts "
+        "FROM audit_log WHERE action='jd.edit' "
+        "AND entity_type='jd_requirements' "
+        "AND json_extract(details_json,'$.demand_id') IS NOT NULL "
+        "AND julianday(ts)>=julianday(?)",
+        (cutoff, cutoff),
+    )
+    for row in events:
+        if row["demand_id"] is None or row["event_at"] is None:
+            continue
+        try:
+            demand_id = int(row["demand_id"])
+        except (TypeError, ValueError):
+            continue
+        events_by_demand.setdefault(demand_id, []).append(_event_boundary(str(row["event_at"])))
+
+    for demand_id, finished_at in finished_by_demand.items():
+        if any(event_at > finished_at for event_at in events_by_demand.get(demand_id, [])):
+            stale.add(demand_id)
+    return sorted(stale)

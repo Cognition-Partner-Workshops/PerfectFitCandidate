@@ -146,6 +146,21 @@ describe('result filters (REQ-OUT-08, REQ-MAT-10)', () => {
     expect(applyResultFilters(rows, { codeRequisition: ['t2b'] })).toEqual([])
     expect(activeFilterCount({ band: [] })).toBe(0)
   })
+  it('filters by the effective band rather than the stored band', () => {
+    const adjusted = result({
+      band: 'Potential',
+      override: {
+        action: 'adjust_band',
+        newBand: 'Strong',
+        reason: 'Reviewed',
+        createdBy: 'Admin',
+        createdAt: '',
+      },
+    })
+
+    expect(applyResultFilters([adjusted], { band: ['Strong'] })).toEqual([adjusted])
+    expect(applyResultFilters([adjusted], { band: ['Potential'] })).toEqual([])
+  })
   it('counts active filters', () => {
     expect(activeFilterCount({ bu: 'INS', band: '' })).toBe(1)
   })

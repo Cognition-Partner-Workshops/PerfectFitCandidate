@@ -1,10 +1,13 @@
 import csv
 import io
+from datetime import timedelta
 
 from test_matching_api import Api, finish
-from test_matching_service import seed_demand, seed_resource
+from test_matching_service import NOW, seed_demand, seed_resource
 
+from pfc.db.audit import append_audit
 from pfc.db.connection import database
+from pfc.services.matching import confirm_requirements
 
 pytest_plugins = ("test_matching_api",)
 
@@ -18,6 +21,7 @@ def test_current_results_summary_excluded_export_filters_and_analytics(api: Api)
         resources = [
             seed_resource(db, f"CurrentPerson{index}", skills="SQL, Python") for index in range(3)
         ]
+        db.execute("UPDATE jd_requirements SET confirmed_at='2026-11-05T23:59:00+00:00'")
 
     runs = [
         finish(
@@ -120,6 +124,7 @@ def test_current_results_summary_excluded_export_filters_and_analytics(api: Api)
     assert summary.json()["dataChangedSinceRun"]
     assert "JD confirmed" in summary.json()["dataChangedReasons"]
     assert demands[2] in summary.json()["staleDemandIds"]
+    assert summary.json()["staleDemandIds"] == [demands[2]]
 
     excluded = client.get("/api/v1/match-results/current/excluded")
     assert excluded.status_code == 200, excluded.text
@@ -237,3 +242,86 @@ def test_result_rows_expose_effective_exclusion_with_later_include(api: Api) -> 
     for path in (run_path, "/api/v1/match-results/current"):
         rows = client.get(path).json()
         assert not next(row for row in rows if row["resultId"] == result_id)["effectiveExcluded"]
+
+
+def test_current_stale_demands_scope_jd_events_but_global_uploads_remain_global(
+    api: Api,
+) -> None:
+    client, headers = api
+    with database(client.app.state.settings) as db:
+        demand_a = seed_demand(db, "T20001", confirmed=False)
+        demand_b = seed_demand(db, "T20002", confirmed=False)
+        confirm_requirements(
+            db,
+            demand_a,
+            {"mandatory_skills": [{"text": "SQL"}], "preferred_skills": []},
+            1,
+            NOW - timedelta(seconds=20),
+        )
+        seed_resource(db, "ScopedStaleCandidate", skills="SQL, Python")
+
+    run_a = finish(
+        client,
+        client.post(
+            "/api/v1/match-runs",
+            headers=headers,
+            json={"scope": "demands", "demandIds": [demand_a]},
+        ),
+    )
+    with database(client.app.state.settings) as db:
+        before_confirmation = (NOW - timedelta(seconds=10)).isoformat()
+        db.execute(
+            "UPDATE match_runs SET started_at=?,finished_at=? WHERE run_id=?",
+            (before_confirmation, before_confirmation, run_a),
+        )
+
+    analyzed = client.post(f"/api/v1/demands/{demand_b}/analyze", headers=headers)
+    assert analyzed.status_code == 200, analyzed.text
+    confirmed = client.post(f"/api/v1/demands/{demand_b}/requirements/confirm", headers=headers)
+    assert confirmed.status_code == 202, confirmed.text
+    run_b = finish(client, confirmed)
+    with database(client.app.state.settings) as db:
+        after_confirmation = (NOW + timedelta(seconds=10)).isoformat()
+        db.execute(
+            "UPDATE match_runs SET finished_at=? WHERE run_id=?",
+            (after_confirmation, run_b),
+        )
+
+    summary = client.get("/api/v1/match-results/current/summary")
+    assert summary.status_code == 200, summary.text
+    assert summary.json()["dataChangedSinceRun"]
+    assert summary.json()["staleDemandIds"] == []
+
+    with database(client.app.state.settings) as db:
+        requirement_id = db.execute(
+            "SELECT q.jd_req_id FROM jd_requirements q "
+            "JOIN demand_versions v USING(demand_version_id) WHERE v.demand_id=?",
+            (demand_a,),
+        ).fetchone()[0]
+        edited_at = (NOW + timedelta(seconds=20)).isoformat()
+        append_audit(
+            db,
+            ts=edited_at,
+            action="jd.edit",
+            user_id=1,
+            entity_type="jd_requirements",
+            entity_id=str(requirement_id),
+            details={"demand_id": demand_a},
+        )
+
+    edited_summary = client.get("/api/v1/match-results/current/summary")
+    assert edited_summary.status_code == 200, edited_summary.text
+    assert edited_summary.json()["staleDemandIds"] == [demand_a]
+
+    with database(client.app.state.settings) as db:
+        uploaded_at = (NOW + timedelta(seconds=30)).isoformat()
+        db.execute(
+            "INSERT INTO ingestion_runs(kind,source,file_name,file_sha256,file_size,"
+            "status,started_at,committed_at) "
+            "VALUES ('DL','manual_upload','later.xlsx','later',1,'committed',?,?)",
+            (uploaded_at, uploaded_at),
+        )
+
+    uploaded_summary = client.get("/api/v1/match-results/current/summary")
+    assert uploaded_summary.status_code == 200, uploaded_summary.text
+    assert uploaded_summary.json()["staleDemandIds"] == sorted([demand_a, demand_b])

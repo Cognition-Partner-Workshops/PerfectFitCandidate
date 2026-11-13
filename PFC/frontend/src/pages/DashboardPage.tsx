@@ -94,7 +94,7 @@ export function DashboardPage() {
     [all.data],
   )
   const filteredCurrentResults = useMemo(
-    () => applyResultFilters(currentResults.data ?? [], filters),
+    () => applyResultFilters(currentResults.data ?? [], { ...filters, personGrade: undefined }),
     [currentResults.data, filters],
   )
   const currentMatches = useMemo(
