@@ -182,6 +182,7 @@ export interface MatchResult {
   benchStatus: string | null
   score: number
   band: Band
+  effectiveBand?: Band
   gradeRelation: GradeRelation
   locationAssessment: LocationAssessment
   matchingEvidence: string[]

@@ -1,7 +1,8 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { JdRequirements } from '../api/types'
 import { ADMIN, mock, renderApp, seed, signIn } from '../test/utils'
+import { BAND_ORDER, bandLabel } from '../lib/bands'
 
 /** JD review shows how requirements were extracted (REQ-MAT-02); Confirm & Start stays a manual step. */
 describe('JD review extraction method', () => {
@@ -118,5 +119,44 @@ describe('JD review qualifications and location', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
     expect(save.mock.calls[0]?.[0]).toMatchObject({ qualifications: 'BSc; PRINCE2', location: 'Glasgow', mandatoryOnsite: true })
+  })
+})
+
+describe('Demand List current match summaries', () => {
+  beforeEach(async () => {
+    await seed()
+    await signIn('Admin', ADMIN.email, ADMIN.password)
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  it('shows current match count, best band, and View matches for a demand', async () => {
+    const results = await mock.getCurrentResults()
+    expect(results.length).toBeGreaterThan(0)
+    const target = results[0]!
+    const matches = results.filter((result) => result.demandId === target.demandId)
+    const bands = matches.map((result) =>
+      result.effectiveBand ??
+      (result.override?.action === 'adjust_band' && result.override.newBand
+        ? result.override.newBand
+        : result.band),
+    )
+    const bestBand = BAND_ORDER.find((band) => bands.includes(band))
+    const demand = (await mock.listDemands()).find((item) => item.demandId === target.demandId)
+    expect(demand).toBeDefined()
+    expect(bestBand).toBeDefined()
+
+    vi.spyOn(mock, 'getCurrentResults').mockResolvedValue(results)
+    renderApp('/demands')
+
+    const table = await screen.findByRole('table', { name: 'Demands' })
+    const row = within(table)
+      .getAllByRole('row')
+      .find((candidate) => candidate.textContent?.includes(target.codeRequisition))
+    expect(row).toBeDefined()
+    expect(within(row!).getByText(String(matches.length))).toBeTruthy()
+    expect(within(row!).getByText(bandLabel(bestBand!))).toBeTruthy()
+    expect(within(row!).getByRole('link', { name: 'View matches' }).getAttribute('href')).toBe(
+      `/matches?req=${encodeURIComponent(target.codeRequisition)}`,
+    )
   })
 })

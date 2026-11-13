@@ -396,6 +396,38 @@ describe('mappers', () => {
     const d = toEmailDraft({ message_id: 1, demand_id: 1, resource_id: 1, result_id: 1, rank: 1, selected: true, to_address: 'jane.doe@example.com', cc: [], subject: 's', body_html: 'b', status: 'Draft', created_at: 'x', sent_at: null, last_error: null })
     expect(d.toMasked).not.toContain('jane.doe')
   })
+  it('maps requisition and match context from email drafts', () => {
+    const d = toEmailDraft({
+      message_id: 2,
+      demand_id: 3,
+      code_requisition: 'T10002',
+      account_name: 'Acme',
+      demand_request_name: 'Data Engineer',
+      resource_id: 4,
+      result_id: 5,
+      rank: 2,
+      candidate_name: 'Jane Doe',
+      score: 87.5,
+      band: 'Potential',
+      selected: true,
+      to_address: 'jane.doe@example.com',
+      cc: [],
+      subject: 's',
+      body_html: 'b',
+      status: 'Draft',
+      created_at: 'x',
+      sent_at: null,
+      last_error: null,
+    })
+    expect(d).toMatchObject({
+      codeRequisition: 'T10002',
+      accountName: 'Acme',
+      demandRequestName: 'Data Engineer',
+      candidateName: 'Jane Doe',
+      score: 87.5,
+      band: 'Potential',
+    })
+  })
   it('flattens AuthView using the role chosen at login', () => {
     expect(toCurrentUser({ ...AUTH, role_at_login: 'Analyst' }).role).toBe('Analyst')
   })

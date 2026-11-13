@@ -128,9 +128,15 @@ export function fromPersonal(s: PersonalSettings) {
 export interface EmailRow {
   message_id: number
   demand_id: number
+  code_requisition?: string | null
+  account_name?: string | null
+  demand_request_name?: string | null
   resource_id: number
   result_id: number | null
   rank: number | null
+  candidate_name?: string | null
+  score?: number | null
+  band?: EmailDraft['band'] | null
   selected: boolean
   to_address: string
   cc: string[]
@@ -142,18 +148,17 @@ export interface EmailRow {
   handoff_at?: string | null
   last_error: string | null
 }
-/** Requisition/candidate context comes from matching (#10); until then those fields stay empty. */
 export const toEmailDraft = (e: EmailRow): EmailDraft => ({
   emailId: e.message_id,
   resultId: e.result_id ?? 0,
   demandId: e.demand_id,
-  codeRequisition: '',
-  accountName: null,
-  demandRequestName: null,
-  candidateName: null,
+  codeRequisition: e.code_requisition ?? '',
+  accountName: e.account_name ?? null,
+  demandRequestName: e.demand_request_name ?? null,
+  candidateName: e.candidate_name ?? null,
   rank: e.rank ?? 0,
-  score: 0,
-  band: 'Insufficient data',
+  score: e.score ?? 0,
+  band: e.band ?? 'Insufficient data',
   toMasked: maskEmail(e.to_address),
   cc: e.cc,
   subject: e.subject,

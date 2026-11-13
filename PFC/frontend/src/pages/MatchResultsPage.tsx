@@ -9,6 +9,7 @@ import type { Band, MatchResult, MatchRun } from '../api/types'
 import { FilterBar } from '../components/FilterBar'
 import { BandChip, Banner, Chip, EmptyState, ErrorState, MaskedValue, MatchDoughnut, Modal, ScoreBreakdown, Spinner } from '../components/ui'
 import { applyResultFilters, distinct } from '../lib/filters'
+import { effectiveResultBand } from '../lib/currentResults'
 import { groupByRequisition, preselectForEmail } from '../lib/emailSelection'
 import { DISCLAIMER, RESULT_COLUMNS } from '../lib/csv'
 import { formatDate, formatDateTime, roleLocation } from '../lib/format'
@@ -79,7 +80,7 @@ function OverrideDialog({ row, onClose }: { row: MatchResult; onClose: () => voi
 
 function ResultRow({ r, selected, onToggle, onOverride, canOverride }: { r: MatchResult; selected: boolean; onToggle: () => void; onOverride: () => void; canOverride: boolean }) {
   const [open, setOpen] = useState(false)
-  const band = r.override?.action === 'adjust_band' && r.override.newBand ? r.override.newBand : r.band
+  const band = effectiveResultBand(r)
   return (
     <>
       <tr className={selected ? 'selected' : undefined}>

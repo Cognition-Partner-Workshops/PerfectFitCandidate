@@ -7,6 +7,7 @@ import type { Demand, JdRequirementItem, JdRequirements, JdStatus } from '../api
 import { BandChip, Banner, Chip, EmptyState, ErrorState, Modal, Spinner } from '../components/ui'
 import { UploadDialog } from '../components/UploadDialog'
 import { SummaryCard } from '../components/SummaryCard'
+import { summarizeCurrentResults } from '../lib/currentResults'
 import { formatDate, roleLocation } from '../lib/format'
 
 const STATUS_TONE: Record<JdStatus, 'neutral' | 'info' | 'success' | 'warning'> = {
@@ -232,16 +233,30 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
 export function DemandListPage() {
   const qc = useQueryClient()
   const demands = useQuery({ queryKey: ['demands'], queryFn: () => api.listDemands() })
+  const currentResults = useQuery({
+    queryKey: ['current-results', 'rows'],
+    queryFn: () => api.getCurrentResults(),
+  })
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState<Demand | null>(null)
   const [upload, setUpload] = useState(false)
   const analyze = useMutation({ mutationFn: (ids: number[]) => api.analyzeDemands(ids), onSuccess: () => void qc.invalidateQueries({ queryKey: ['demands'] }) })
+  const currentMatches = useMemo(
+    () => summarizeCurrentResults(currentResults.data ?? []),
+    [currentResults.data],
+  )
   const rows = useMemo(
     () =>
-      (demands.data ?? []).filter((d) =>
-        [d.codeRequisition, d.accountName, d.demandRequestName, d.bu, d.region].some((v) => (v ?? '').toLowerCase().includes(search.toLowerCase())),
-      ),
-    [demands.data, search],
+      (demands.data ?? [])
+        .map((d) => ({
+          ...d,
+          matches: currentMatches.get(d.demandId)?.matches ?? 0,
+          bestBand: currentMatches.get(d.demandId)?.bestBand ?? null,
+        }))
+        .filter((d) =>
+          [d.codeRequisition, d.accountName, d.demandRequestName, d.bu, d.region].some((v) => (v ?? '').toLowerCase().includes(search.toLowerCase())),
+        ),
+    [currentMatches, demands.data, search],
   )
   const newOnes = (demands.data ?? []).filter((d) => needsAnalysis(d.jdStatus))
   if (demands.isLoading) return <div className="page"><Spinner /></div>

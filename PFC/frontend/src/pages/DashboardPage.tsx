@@ -16,6 +16,7 @@ import { formatDate, formatDateTime, roleLocation } from '../lib/format'
 import { distinct } from '../lib/filters'
 import { bandColorVar, bandLabel } from '../lib/bands'
 import type { Band } from '../api/types'
+import { summarizeCurrentResults } from '../lib/currentResults'
 
 const BAND_HEX: Record<Band, string> = {
   Strong: '#067647',
@@ -66,6 +67,10 @@ export function DashboardPage() {
   const df: DashboardFilters = useMemo(() => toDashboardQuery(filters), [filters])
   const summary = useQuery({ queryKey: ['analytics', 'summary', df], queryFn: () => api.analyticsSummary(df) })
   const demand = useQuery({ queryKey: ['analytics', 'demand', df], queryFn: () => api.analyticsDemand(df) })
+  const currentResults = useQuery({
+    queryKey: ['current-results', 'rows'],
+    queryFn: () => api.getCurrentResults(),
+  })
   const bench = useQuery({ queryKey: ['analytics', 'bench', df], queryFn: () => api.analyticsBench(df) })
   const match = useQuery({ queryKey: ['analytics', 'match', df], queryFn: () => api.analyticsMatch(df) })
   // The run list is capped at the newest 50 runs, so look up the summary's run by id. Refetch on mount and focus so a
@@ -82,6 +87,10 @@ export function DashboardPage() {
   const resourcesById = useMemo(
     () => new Map((all.data?.[1] ?? []).map((resource) => [resource.resourceId, resource])),
     [all.data],
+  )
+  const currentMatches = useMemo(
+    () => summarizeCurrentResults(currentResults.data ?? []),
+    [currentResults.data],
   )
 
   const options = useMemo(() => {
@@ -224,19 +233,22 @@ export function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {demand.data.rows.map((d) => (
-                    <tr key={d.demandId}>
-                      <td className="mono">{d.codeRequisition}</td>
-                      <td>{formatDate(d.positionStartDate)}</td>
-                      <td>{d.accountName}</td>
-                      <td>{d.codeLocalGrade}</td>
-                      <td>{d.demandRequestName}</td>
-                      <td>{roleLocation(d.region)}</td>
-                      <td>{d.bu}</td>
-                      <td>{d.jdStatus}</td>
-                      <td>{d.bestBand ? <BandChip band={d.bestBand} /> : '—'}</td>
-                    </tr>
-                  ))}
+                  {demand.data.rows.map((d) => {
+                    const matchSummary = currentMatches.get(d.demandId)
+                    return (
+                      <tr key={d.demandId}>
+                        <td className="mono">{d.codeRequisition}</td>
+                        <td>{formatDate(d.positionStartDate)}</td>
+                        <td>{d.accountName}</td>
+                        <td>{d.codeLocalGrade}</td>
+                        <td>{d.demandRequestName}</td>
+                        <td>{roleLocation(d.region)}</td>
+                        <td>{d.bu}</td>
+                        <td>{d.jdStatus}</td>
+                        <td>{matchSummary?.bestBand ? <BandChip band={matchSummary.bestBand} /> : '—'}</td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
