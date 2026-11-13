@@ -160,6 +160,8 @@ export interface MatchOverride {
 
 /** One requisition–person row (REQ-MAT-03, REQ-OUT-01). */
 export interface MatchResult {
+  dataChangedSinceRun?: boolean
+  dataChangedReasons?: string[]
   resultId: number
   runId: number
   demandId: number
@@ -227,6 +229,14 @@ export interface MatchRun {
   modeReason: string | null
 }
 
+export interface CurrentResults {
+  demands: { demandId: number; codeRequisition: string; runId: number; finishedAt: string }[]
+  runs: MatchRun[]
+  dataChangedSinceRun: boolean
+  dataChangedReasons: string[]
+  staleDemandIds: number[]
+}
+
 export interface MatchRunRequest {
   incremental: boolean
   scope: 'full' | 'demands'
@@ -241,18 +251,18 @@ export interface ValidationCheck {
 }
 
 export interface ResultFilters {
-  codeRequisition?: string
-  accountName?: string
-  bu?: string
-  demandGrade?: string
-  personGrade?: string
-  location?: string
-  region?: string
-  band?: Band | ''
-  status?: string
-  candidateType?: CandidateType | ''
-  incompleteIdentity?: 'yes' | 'no' | ''
-  mandatorySkills?: 'met' | 'gap' | ''
+  codeRequisition?: string[]
+  accountName?: string[]
+  bu?: string[]
+  demandGrade?: string[]
+  personGrade?: string[]
+  location?: string[]
+  region?: string[]
+  band?: string[]
+  status?: string[]
+  candidateType?: string[]
+  incompleteIdentity?: string[]
+  mandatorySkills?: string[]
   scoreMin?: number
   scoreMax?: number
 }
@@ -263,6 +273,7 @@ export interface CountItem {
 }
 
 export interface AnalyticsSummary {
+  runsIncluded: number
   run: MatchRun | null
   requisitionsAssessed: number
   openRequisitions: number
@@ -306,17 +317,18 @@ export interface MatchAnalytics {
 }
 
 export interface DashboardFilters {
-  codeRequisition?: string
-  accountName?: string
-  bu?: string
-  grade?: string
-  location?: string
-  region?: string
-  band?: Band | ''
-  status?: string
-  candidateType?: CandidateType | ''
-  incompleteIdentity?: 'yes' | 'no' | ''
-  mandatorySkills?: 'met' | 'gap' | ''
+  runId?: number
+  codeRequisition?: string[]
+  accountName?: string[]
+  bu?: string[]
+  grade?: string[]
+  location?: string[]
+  region?: string[]
+  band?: string[]
+  status?: string[]
+  candidateType?: string[]
+  incompleteIdentity?: string[]
+  mandatorySkills?: string[]
   scoreMin?: number
   scoreMax?: number
 }

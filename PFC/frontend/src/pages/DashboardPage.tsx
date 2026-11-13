@@ -164,7 +164,7 @@ export function DashboardPage() {
               return (
                 <EChart
                   ariaLabel="Open demands by BU and region"
-                  onSelect={(bu) => setFilters((f) => ({ ...f, bu }))}
+                  onSelect={(bu) => setFilters((f) => ({ ...f, bu: [bu] }))}
                   option={vbar(
                     bus,
                     regions.map((rg) => ({
@@ -191,12 +191,12 @@ export function DashboardPage() {
           >
             <EChart
               ariaLabel="Grade to JD count"
-              onSelect={(g) => setFilters((f) => ({ ...f, demandGrade: g }))}
+              onSelect={(g) => setFilters((f) => ({ ...f, demandGrade: [g] }))}
               option={vbar(demand.data.gradeToJdCount.map((x) => x.label), [{ name: 'JDs', data: demand.data.gradeToJdCount.map((x) => x.count) }])}
             />
           </ChartCard>
           <ChartCard title="Top 3 accounts by JD count" table={{ columns: ['Account', 'JDs'], rows: demand.data.topAccounts.map((x) => [x.label, x.count]) }}>
-            <EChart ariaLabel="Top 3 accounts" onSelect={(a) => setFilters((f) => ({ ...f, accountName: a }))} option={hbar(demand.data.topAccounts.map((x) => x.label), demand.data.topAccounts.map((x) => x.count), 'JDs')} />
+            <EChart ariaLabel="Top 3 accounts" onSelect={(a) => setFilters((f) => ({ ...f, accountName: [a] }))} option={hbar(demand.data.topAccounts.map((x) => x.label), demand.data.topAccounts.map((x) => x.count), 'JDs')} />
           </ChartCard>
           <ChartCard title="Demand start-date pipeline" subtitle="By month" table={{ columns: ['Month', 'Demands'], rows: demand.data.startPipeline.map((x) => [x.label, x.count]) }} span={8}>
             <EChart ariaLabel="Demand start-date pipeline" option={vbar(demand.data.startPipeline.map((x) => x.label), [{ name: 'Demands', data: demand.data.startPipeline.map((x) => x.count) }])} />
@@ -319,7 +319,7 @@ export function DashboardPage() {
           >
             <EChart
               ariaLabel="Bench status distribution"
-              onSelect={(st) => setFilters((f) => ({ ...f, status: st }))}
+              onSelect={(st) => setFilters((f) => ({ ...f, status: [st] }))}
               option={{
                 tooltip: { trigger: 'axis' },
                 grid,
@@ -412,7 +412,7 @@ export function DashboardPage() {
           <ChartCard title="Band distribution" table={{ columns: ['Band', 'Rows'], rows: match.data.bandDistribution.map((x) => [bandLabel(x.label as Band), x.count]) }}>
             <EChart
               ariaLabel="Band distribution doughnut"
-              onSelect={(b) => setFilters((f) => ({ ...f, band: b as Band }))}
+              onSelect={(b) => setFilters((f) => ({ ...f, band: [b as Band] }))}
               option={{
                 tooltip: { trigger: 'item' },
                 legend: { bottom: 0, textStyle: axisLabel },

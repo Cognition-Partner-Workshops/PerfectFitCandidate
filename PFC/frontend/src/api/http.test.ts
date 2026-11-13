@@ -521,16 +521,15 @@ describe('HttpApiClient — resources and match runs (ingestion #12, matching #1
     expect((await api.listResources()).map((r) => r.identityStatus)).toEqual(['complete', 'incomplete'])
   })
 
-  it('drafts emails from the given run, else the newest completed one rather than a running run', async () => {
+  it('drafts emails from result IDs alone or an explicitly given run', async () => {
     const api = new HttpApiClient('/api/v1')
     fetchMock
-      .mockResolvedValueOnce(json([{ runId: 3, status: 'running' }, { runId: 2, status: 'completed' }]))
       .mockResolvedValueOnce(json({ drafts: [], issues: [] }))
       .mockResolvedValueOnce(json({ drafts: [], issues: [] }))
     await api.createDrafts([7])
     await api.createDrafts([8], 1)
     const bodies = fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST').map(([, init]) => JSON.parse(String(init?.body)))
-    expect(bodies).toEqual([{ run_id: 2, result_ids: [7] }, { run_id: 1, result_ids: [8] }])
+    expect(bodies).toEqual([{ result_ids: [7] }, { run_id: 1, result_ids: [8] }])
   })
 })
 
@@ -588,16 +587,25 @@ describe('HttpApiClient — health (REQ-AUTH-06)', () => {
 })
 
 describe('HttpApiClient — analytics and export wiring (REQ-OUT-04..09)', () => {
+  it('serialises analytics arrays as repeated keys and skips empty lists', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(json({}))
+    await api.analyticsSummary({ codeRequisition: ['T1', 'T2'], band: ['Strong', 'Avg'], bu: [] })
+    const url = new URL(String(fetchMock.mock.calls[0]?.[0]), 'http://localhost')
+    expect(url.searchParams.getAll('codeRequisition')).toEqual(['T1', 'T2'])
+    expect(url.searchParams.getAll('band')).toEqual(['Strong', 'Avg'])
+    expect(url.searchParams.has('bu')).toBe(false)
+  })
   it('sends only backend DashboardFilters keys, with the demand grade as grade', () => {
     expect(
-      toDashboardQuery({ codeRequisition: 'T1', demandGrade: 'B1', personGrade: 'C1', bu: '', scoreMin: 50 }),
-    ).toEqual({ codeRequisition: 'T1', grade: 'B1', scoreMin: 50 })
+      toDashboardQuery({ codeRequisition: ['T1'], demandGrade: ['B1'], personGrade: ['C1'], bu: [], scoreMin: 50 }),
+    ).toEqual({ codeRequisition: ['T1'], grade: ['B1'], scoreMin: 50 })
   })
 
   it('maps result filters onto the export query and leaves emails masked by default', () => {
     const q = new URLSearchParams(
       toExportQuery(
-        { codeRequisition: ' T1 ', accountName: 'Acme', location: 'Pune', band: 'Strong', bu: 'X', region: '', candidateType: 'Internal', incompleteIdentity: 'no', mandatorySkills: 'gap', scoreMax: 90 },
+        { codeRequisition: [' T1 '], accountName: ['Acme'], location: ['Pune'], band: ['Strong'], bu: ['X'], region: [], candidateType: ['Internal'], incompleteIdentity: ['no'], mandatorySkills: ['gap'], scoreMax: 90 },
         'xlsx',
         false,
       ),
@@ -622,7 +630,7 @@ describe('HttpApiClient — analytics and export wiring (REQ-OUT-04..09)', () =>
     fetchMock.mockResolvedValueOnce(
       new Response('a,b\n', { headers: { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="PFC-results-run3.csv"' } }),
     )
-    const f = await api.exportResults(3, { accountName: 'Acme' }, 'csv', false)
+    const f = await api.exportResults(3, { accountName: ['Acme'] }, 'csv', false)
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe('/api/v1/match-runs/3/export?format=csv&account=Acme')
     expect(f.fileName).toBe('PFC-results-run3.csv')
     expect(await f.blob.text()).toBe('a,b\n')
@@ -656,7 +664,7 @@ describe('HttpApiClient — analytics and export wiring (REQ-OUT-04..09)', () =>
           emailsWithin24hPct: 0,
         }),
       )
-    const m = await api.analyticsMatch({ bu: 'X' })
+    const m = await api.analyticsMatch({ bu: ['X'] })
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe('/api/v1/analytics/match?bu=X')
     expect(m.validation[0]).toEqual({ id: 'v1', label: 'Check', passed: true, detail: '' })
     const s = await api.analyticsSummary({})

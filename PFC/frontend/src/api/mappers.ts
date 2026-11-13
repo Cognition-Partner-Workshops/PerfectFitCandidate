@@ -469,7 +469,7 @@ const DASHBOARD_KEYS = [
 
 export const toDashboardQuery = (f: ResultFilters): DashboardFilters => {
   const out: Record<string, unknown> = {}
-  for (const k of DASHBOARD_KEYS) if (f[k] !== undefined && f[k] !== '') out[k] = f[k]
+  for (const k of DASHBOARD_KEYS) if (f[k] !== undefined && (!Array.isArray(f[k]) || f[k].length > 0)) out[k] = f[k]
   if (f.demandGrade) out.grade = f.demandGrade
   return out as DashboardFilters
 }
@@ -478,6 +478,7 @@ export const toDashboardQuery = (f: ResultFilters): DashboardFilters => {
 export const toAnalyticsSummary = (r: AnalyticsSummary): AnalyticsSummary => ({
   ...r,
   run: r.run ?? null,
+  runsIncluded: r.runsIncluded ?? (r.run ? 1 : 0),
   dataQualityIssues: { total: r.dataQualityIssues?.total ?? 0, dl: r.dataQualityIssues?.dl ?? 0, ct: r.dataQualityIssues?.ct ?? 0 },
 })
 
@@ -510,10 +511,11 @@ export const toMatchAnalytics = (r: MatchAnalytics): MatchAnalytics => ({
 /** Match Results filters → `ExportQuery` (`pfc.api.schemas.analytics`), REQ-OUT-09. */
 export const toExportQuery = (f: ResultFilters, format: 'csv' | 'xlsx', includeEmails: boolean): string => {
   const p = new URLSearchParams({ format })
-  const set = (k: string, v: string | number | undefined) => {
-    if (v !== undefined && v !== '') p.set(k, String(v))
+  const set = (k: string, v: string[] | number | undefined) => {
+    if (Array.isArray(v)) v.filter(Boolean).forEach((value) => p.append(k, value))
+    else if (v !== undefined) p.set(k, String(v))
   }
-  set('requisition', f.codeRequisition?.trim())
+  set('requisition', f.codeRequisition?.map((v) => v.trim()))
   set('account', f.accountName)
   set('demandGrade', f.demandGrade)
   set('personGrade', f.personGrade)

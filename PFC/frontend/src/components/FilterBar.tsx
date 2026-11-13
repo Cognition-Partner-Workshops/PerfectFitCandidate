@@ -1,4 +1,4 @@
-import type { Band, CandidateType, ResultFilters } from '../api/types'
+import type { Band, ResultFilters } from '../api/types'
 import { BAND_ORDER, bandLabel } from '../lib/bands'
 import { activeFilterCount } from '../lib/filters'
 
@@ -27,7 +27,7 @@ function Select({
   render = (o) => o,
 }: {
   label: string
-  value: string | undefined
+  value: string[] | undefined
   options: string[]
   onChange: (v: string) => void
   render?: (o: string) => string
@@ -35,7 +35,7 @@ function Select({
   return (
     <label>
       {label}
-      <select value={value ?? ''} onChange={(e) => onChange(e.target.value)} aria-label={label}>
+      <select value={value?.[0] ?? ''} onChange={(e) => onChange(e.target.value)} aria-label={label}>
         <option value="">All</option>
         {options.map((o) => (
           <option key={o} value={o}>
@@ -59,52 +59,52 @@ export function FilterBar({ value, onChange, options, splitGrade = false }: Prop
       <label>
         Code Requisition
         <input
-          value={value.codeRequisition ?? ''}
-          onChange={(e) => set('codeRequisition', e.target.value || undefined)}
+          value={value.codeRequisition?.[0] ?? ''}
+          onChange={(e) => set('codeRequisition', e.target.value ? [e.target.value] : undefined)}
           placeholder="T1…"
           size={9}
           aria-label="Code Requisition"
         />
       </label>
-      <Select label="Account Name" value={value.accountName} options={options.accounts} onChange={(v) => set('accountName', v || undefined)} />
-      <Select label="BU" value={value.bu} options={options.bus} onChange={(v) => set('bu', v || undefined)} />
+      <Select label="Account Name" value={value.accountName} options={options.accounts} onChange={(v) => set('accountName', v ? [v] : undefined)} />
+      <Select label="BU" value={value.bu} options={options.bus} onChange={(v) => set('bu', v ? [v] : undefined)} />
       {splitGrade ? (
         <>
-          <Select label="Demand Grade" value={value.demandGrade} options={options.grades} onChange={(v) => set('demandGrade', v || undefined)} />
-          <Select label="Person Grade" value={value.personGrade} options={options.grades} onChange={(v) => set('personGrade', v || undefined)} />
+          <Select label="Demand Grade" value={value.demandGrade} options={options.grades} onChange={(v) => set('demandGrade', v ? [v] : undefined)} />
+          <Select label="Person Grade" value={value.personGrade} options={options.grades} onChange={(v) => set('personGrade', v ? [v] : undefined)} />
         </>
       ) : (
-        <Select label="Grade" value={value.demandGrade} options={options.grades} onChange={(v) => set('demandGrade', v || undefined)} />
+        <Select label="Grade" value={value.demandGrade} options={options.grades} onChange={(v) => set('demandGrade', v ? [v] : undefined)} />
       )}
-      <Select label="Location" value={value.location} options={options.locations} onChange={(v) => set('location', v || undefined)} />
-      <Select label="Region" value={value.region} options={options.regions} onChange={(v) => set('region', v || undefined)} />
+      <Select label="Location" value={value.location} options={options.locations} onChange={(v) => set('location', v ? [v] : undefined)} />
+      <Select label="Region" value={value.region} options={options.regions} onChange={(v) => set('region', v ? [v] : undefined)} />
       <Select
         label="Band"
         value={value.band}
         options={BAND_ORDER}
         render={(b) => bandLabel(b as Band)}
-        onChange={(v) => set('band', (v || undefined) as Band | undefined)}
+        onChange={(v) => set('band', v ? [v] : undefined)}
       />
-      <Select label="Status" value={value.status} options={options.statuses} onChange={(v) => set('status', v || undefined)} />
+      <Select label="Status" value={value.status} options={options.statuses} onChange={(v) => set('status', v ? [v] : undefined)} />
       <Select
         label="Candidate type"
         value={value.candidateType}
         options={['Internal', 'External', 'Unknown']}
-        onChange={(v) => set('candidateType', (v || undefined) as CandidateType | undefined)}
+        onChange={(v) => set('candidateType', v ? [v] : undefined)}
       />
       <Select
         label="Incomplete identity"
         value={value.incompleteIdentity}
         options={['yes', 'no']}
         render={(o) => (o === 'yes' ? 'Incomplete only' : 'Complete only')}
-        onChange={(v) => set('incompleteIdentity', (v || undefined) as 'yes' | 'no' | undefined)}
+        onChange={(v) => set('incompleteIdentity', v ? [v] : undefined)}
       />
       <Select
         label="Mandatory skills"
         value={value.mandatorySkills}
         options={['met', 'gap']}
         render={(o) => (o === 'met' ? 'All met' : 'Has mandatory gap')}
-        onChange={(v) => set('mandatorySkills', (v || undefined) as 'met' | 'gap' | undefined)}
+        onChange={(v) => set('mandatorySkills', v ? [v] : undefined)}
       />
       <label>
         Score min

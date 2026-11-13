@@ -232,7 +232,7 @@ export function MatchResultsPage() {
   const { user } = useAuth()
   const [params] = useSearchParams()
   const navigate = useNavigate()
-  const [filters, setFilters] = useState<ResultFilters>(() => (params.get('req') ? { codeRequisition: params.get('req') ?? undefined } : {}))
+  const [filters, setFilters] = useState<ResultFilters>(() => (params.get('req') ? { codeRequisition: [params.get('req')!] } : {}))
   const [grouped, setGrouped] = useState(true)
   const [overrideRow, setOverrideRow] = useState<MatchResult | null>(null)
   const qc = useQueryClient()
