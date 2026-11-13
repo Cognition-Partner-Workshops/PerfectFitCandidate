@@ -49,11 +49,12 @@ import {
   toBenchAnalytics,
   toDemandAnalytics,
   toMatchAnalytics,
+  toMatchResult,
   toExportQuery,
   toEmailTemplate,
   type EmailTemplateRow,
 } from './mappers'
-import type { BenchStatus, CurrentUser, InternalDomain, PersonalSettings, ProblemDetails, ResourceTeamMember, StatusMapEntry,
+import type { BenchStatus, CurrentUser, InternalDomain, MatchResult, PersonalSettings, ProblemDetails, ResourceTeamMember, StatusMapEntry,
   VolumeEncryption,
 } from './types'
 
@@ -246,7 +247,17 @@ export class HttpApiClient implements ApiClient {
 
   listMatchRuns: ApiClient['listMatchRuns'] = () => this.request('GET', '/match-runs')
   getMatchRun: ApiClient['getMatchRun'] = (runId) => this.request('GET', `/match-runs/${runId}`)
-  getResults: ApiClient['getResults'] = (runId) => this.request('GET', `/match-runs/${runId}/results`)
+  getCurrentResults: ApiClient['getCurrentResults'] = async () =>
+    (await this.request<MatchResult[]>('GET', '/match-results/current')).map(toMatchResult)
+  getCurrentResultsSummary: ApiClient['getCurrentResultsSummary'] = () => this.request('GET', '/match-results/current/summary')
+  getCurrentExcluded: ApiClient['getCurrentExcluded'] = () => this.request('GET', '/match-results/current/excluded')
+  exportCurrentResults: ApiClient['exportCurrentResults'] = async (f, format, includeEmails) => {
+    const res = await this.request<Response>('GET', `/match-results/current/export?${toExportQuery(f, format, includeEmails)}`, undefined, true)
+    const named = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1]
+    return { blob: await res.blob(), fileName: named ?? `PFC-results-current.${format}` }
+  }
+  getResults: ApiClient['getResults'] = async (runId) =>
+    (await this.request<MatchResult[]>('GET', `/match-runs/${runId}/results`)).map(toMatchResult)
   getRunExcluded: ApiClient['getRunExcluded'] = (runId) => this.request('GET', `/match-runs/${runId}/excluded`)
   startMatchRun: ApiClient['startMatchRun'] = (req) => this.request('POST', '/match-runs', req)
   addOverride: ApiClient['addOverride'] = (id, o) => this.request('POST', `/match-results/${id}/overrides`, o)
@@ -256,7 +267,8 @@ export class HttpApiClient implements ApiClient {
   private qs(filters: object): string {
     const p = new URLSearchParams()
     Object.entries(filters).forEach(([k, v]) => {
-      if (v !== undefined && v !== '') p.set(k, String(v))
+      if (Array.isArray(v)) v.forEach((value) => p.append(k, String(value)))
+      else if (v !== undefined && v !== '') p.set(k, String(v))
     })
     const s = p.toString()
     return s ? `?${s}` : ''
@@ -271,11 +283,9 @@ export class HttpApiClient implements ApiClient {
     return { blob: await res.blob(), fileName: named ?? `PFC-results-run${runId}.${format}` }
   }
 
-  /** POST /emails/drafts needs run_id|demand_id; the latest run is used until matching (#10) exposes it per result. */
-  /** Drafts come from the run on screen; by default the newest completed one, since a queued/running run is rejected. */
   createDrafts: ApiClient['createDrafts'] = async (ids, runId) => {
-    const run_id = runId ?? (await this.listMatchRuns()).find((r) => r.status === 'completed')?.runId
-    const r = await this.request<{ drafts: EmailRow[] }>('POST', '/emails/drafts', { run_id, result_ids: ids })
+    const body = runId === undefined ? { result_ids: ids } : { run_id: runId, result_ids: ids }
+    const r = await this.request<{ drafts: EmailRow[] }>('POST', '/emails/drafts', body)
     return r.drafts.map(toEmailDraft)
   }
   listEmails: ApiClient['listEmails'] = async () => {

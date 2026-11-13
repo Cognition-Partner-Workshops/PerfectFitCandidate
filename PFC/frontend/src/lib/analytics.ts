@@ -59,6 +59,7 @@ export function summarise(
   )
   return {
     run,
+    runsIncluded: new Set(results.map((r) => r.runId)).size,
     requisitionsAssessed: scoredReqs.length,
     openRequisitions: demands.length,
     roleToPersonCombinations: results.length,

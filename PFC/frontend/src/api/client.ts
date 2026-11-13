@@ -8,6 +8,7 @@ import type {
   AuditQuery,
   Grade,
   AnalyticsSummary,
+  CurrentResults,
   BenchAnalytics,
   BenchStatus,
   CandidateDetail,
@@ -166,6 +167,10 @@ export interface ApiClient {
   /** GET /match-runs/{id} — polled while a run is queued or running */
   getMatchRun(runId: number): Promise<MatchRun>
   /** GET /match-runs/{id}/results */
+  getCurrentResults(): Promise<MatchResult[]>
+  getCurrentResultsSummary(): Promise<CurrentResults>
+  getCurrentExcluded(): Promise<ExcludedEntry[]>
+  exportCurrentResults(filters: ResultFilters, format: ExportFormat, includeEmails: boolean): Promise<ExportedFile>
   getResults(runId: number): Promise<MatchResult[]>
   /** GET /match-runs/{id}/excluded — people the run did not score, with reason codes (REQ-ELIG-08). */
   getRunExcluded(runId: number): Promise<ExcludedEntry[]>

@@ -16,12 +16,14 @@ import { EmailApprovalPage } from './pages/EmailApprovalPage'
 import { SettingsPage } from './pages/settings/SettingsPage'
 import { OccPage } from './pages/occ/OccPage'
 import { Spinner } from './components/ui'
+import { FilterProvider } from './lib/FilterProvider'
 
 // ECharts lives in its own chunk, loaded with the Dashboard.
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((m) => ({ default: m.DashboardPage })))
 
 export function AppRoutes() {
   return (
+    <FilterProvider>
     <AuthProvider>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
@@ -68,6 +70,7 @@ export function AppRoutes() {
         </Route>
       </Routes>
     </AuthProvider>
+    </FilterProvider>
   )
 }
 

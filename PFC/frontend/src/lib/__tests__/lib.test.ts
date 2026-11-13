@@ -122,22 +122,44 @@ describe('result filters (REQ-OUT-08, REQ-MAT-10)', () => {
     result({ resultId: 2, codeRequisition: 'T2B456', accountName: 'Contoso', bu: 'INS', score: 65, band: 'Avg', mandatoryMissing: 1, candidateType: 'External', incompleteIdentity: true, personGrade: 'C2', personLocation: 'Glasgow', region: 'Glasgow', benchStatus: 'Selected', demandGrade: 'C2' }),
   ]
   it.each([
-    [{ codeRequisition: 't2b' }, [2]],
-    [{ accountName: 'Acme Bank' }, [1]],
-    [{ bu: 'INS' }, [2]],
-    [{ demandGrade: 'D1' }, [1]],
-    [{ personGrade: 'C2' }, [2]],
-    [{ location: 'Glasgow' }, [2]],
-    [{ region: 'London' }, [1]],
-    [{ band: 'Avg' as const }, [2]],
-    [{ status: 'Selected' }, [2]],
-    [{ candidateType: 'External' as const }, [2]],
-    [{ incompleteIdentity: 'yes' as const }, [2]],
-    [{ mandatorySkills: 'met' as const }, [1]],
+    [{ codeRequisition: ['t2b456'] }, [2]],
+    [{ accountName: ['Acme Bank'] }, [1]],
+    [{ bu: ['INS'] }, [2]],
+    [{ demandGrade: ['D1'] }, [1]],
+    [{ personGrade: ['C2'] }, [2]],
+    [{ location: ['Glasgow'] }, [2]],
+    [{ region: ['London'] }, [1]],
+    [{ band: ['Avg' as const] }, [2]],
+    [{ status: ['Selected'] }, [2]],
+    [{ candidateType: ['External' as const] }, [2]],
+    [{ incompleteIdentity: ['yes' as const] }, [2]],
+    [{ mandatorySkills: ['met' as const] }, [1]],
     [{ scoreMin: 70 }, [1]],
     [{ scoreMax: 70 }, [2]],
   ])('filters %o', (f, ids) => {
     expect(applyResultFilters(rows, f).map((r) => r.resultId)).toEqual(ids)
+  })
+  it('combines values with OR and fields with AND, treating empty lists as All', () => {
+    expect(applyResultFilters(rows, { codeRequisition: ['T1A123', 't2b456'], band: ['Strong', 'Avg'] })).toEqual(rows)
+    expect(applyResultFilters(rows, { band: ['Strong', 'Avg'], bu: ['INS'] })).toEqual([rows[1]])
+    expect(applyResultFilters(rows, { band: [], codeRequisition: [] })).toEqual(rows)
+    expect(applyResultFilters(rows, { codeRequisition: ['t2b'] })).toEqual([])
+    expect(activeFilterCount({ band: [] })).toBe(0)
+  })
+  it('filters by the effective band rather than the stored band', () => {
+    const adjusted = result({
+      band: 'Potential',
+      override: {
+        action: 'adjust_band',
+        newBand: 'Strong',
+        reason: 'Reviewed',
+        createdBy: 'Admin',
+        createdAt: '',
+      },
+    })
+
+    expect(applyResultFilters([adjusted], { band: ['Strong'] })).toEqual([adjusted])
+    expect(applyResultFilters([adjusted], { band: ['Potential'] })).toEqual([])
   })
   it('counts active filters', () => {
     expect(activeFilterCount({ bu: 'INS', band: '' })).toBe(1)

@@ -37,6 +37,7 @@ from pfc.services.matching import (
     runs,
     start_run,
 )
+from pfc.services.matching.current import current_runs
 from pfc.services.matching.ports import ChunkOwner
 from pfc.services.matching.runs import _inputs
 from pfc.services.occ.seed import seed_reference_data
@@ -1092,3 +1093,62 @@ def test_req_mat_08_job_freezes_inputs_before_dispatch(
             assert get_run(db, run_id)["pairs_scored"] == 1
     finally:
         release.set()
+
+
+def test_current_runs_selects_latest_completed_assessment_per_open_demand(
+    settings: Settings,
+) -> None:
+    with database(settings) as db:
+        demands = [seed_demand(db, f"T1CUR{index}") for index in range(4)]
+        template_id = db.execute(
+            "INSERT INTO scoring_templates(name,version,weights_json,rules_json,status,created_at) "
+            "VALUES ('current-runs-test',1,'{}','{}','active',?)",
+            (STAMP,),
+        ).lastrowid
+        model_id = db.execute(
+            "INSERT INTO embedding_models"
+            "(name,runtime,file_sha256,dim,normalised,pipeline_version,is_active) "
+            "VALUES ('current-runs-test','onnx','current-runs',2,1,'test',0)"
+        ).lastrowid
+
+        def add_run(assessed: list[int], status: str = "completed") -> int:
+            summary = json.dumps({"demands": {str(demand_id): {} for demand_id in assessed}})
+            cursor = db.execute(
+                "INSERT INTO match_runs(scope,template_id,embedding_model_id,llm_model,"
+                "engine_version,synonyms_version,config_hash,status,started_at,finished_at,"
+                "demands_assessed,pairs_scored,roles_without_candidate,dq_summary_json) "
+                "VALUES ('demands',?,?,'test','test','test','test',?,?,?,?,?,?,?)",
+                (
+                    template_id,
+                    model_id,
+                    status,
+                    STAMP,
+                    STAMP if status == "completed" else None,
+                    len(assessed),
+                    0,
+                    0,
+                    summary,
+                ),
+            )
+            return int(cursor.lastrowid)
+
+        initial = [add_run([demand_id]) for demand_id in demands[:3]]
+        assert current_runs(db) == dict(zip(demands[:3], initial, strict=True))
+
+        full = add_run(demands[:3])
+        assert current_runs(db) == dict.fromkeys(demands[:3], full)
+
+        demand_one = add_run([demands[0]])
+        add_run([demands[1]], status="failed")
+        add_run([demands[2]], status="queued")
+        assert current_runs(db) == {demands[0]: demand_one, demands[1]: full, demands[2]: full}
+        assert (
+            db.execute(
+                "SELECT COUNT(*) FROM match_results WHERE run_id=? AND demand_id=?",
+                (full, demands[1]),
+            ).fetchone()[0]
+            == 0
+        )
+
+        db.execute("UPDATE demands SET lifecycle='closed' WHERE demand_id=?", (demands[2],))
+        assert current_runs(db) == {demands[0]: demand_one, demands[1]: full}

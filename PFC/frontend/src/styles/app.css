@@ -179,3 +179,9 @@ table.data tr.selected td { background: var(--color-primary-subtle); }
 .diff-before { color: var(--color-danger); text-decoration: line-through; }
 .diff-after { color: var(--color-success); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+.multi-select { position: relative; display: flex; flex-direction: column; gap: 2px; }
+.multi-select-label { font-size: var(--font-size-xs); color: var(--color-text-secondary); }
+.multi-select-popover { position: absolute; top: 100%; left: 0; z-index: 20; min-width: 180px; max-height: 280px; overflow: auto; padding: 8px; background: var(--color-surface, white); border: 1px solid var(--color-border); border-radius: 6px; box-shadow: 0 4px 12px #0002; }
+.filter-bar .multi-select-popover label { flex-direction: row; align-items: center; gap: 8px; white-space: nowrap; }
+.filter-bar .multi-select-popover input { min-height: auto; }

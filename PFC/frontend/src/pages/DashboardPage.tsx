@@ -2,19 +2,21 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { DataChangedBanner } from '../components/DataChangedBanner'
+import { useResultFilters } from '../lib/FilterProvider'
 import { runMode } from '../lib/runMode'
 import type { EChartsCoreOption } from 'echarts/core'
 import { api } from '../api'
 import { toDashboardQuery } from '../api/mappers'
-import type { DashboardFilters, ResultFilters } from '../api/types'
+import type { DashboardFilters } from '../api/types'
 import { EChart } from '../components/EChart'
 import { CHART_PALETTE } from '../lib/chartPalette'
 import { FilterBar } from '../components/FilterBar'
 import { Banner, BandChip, ChartCard, EligibilityBadge, ErrorState, KpiTile, Spinner } from '../components/ui'
 import { formatDate, formatDateTime, roleLocation } from '../lib/format'
-import { distinct } from '../lib/filters'
+import { applyResultFilters, distinct } from '../lib/filters'
 import { bandColorVar, bandLabel } from '../lib/bands'
 import type { Band } from '../api/types'
+import { summarizeCurrentResults } from '../lib/currentResults'
 
 const BAND_HEX: Record<Band, string> = {
   Strong: '#067647',
@@ -60,11 +62,20 @@ const SECTIONS: { id: Section; label: string }[] = [
 
 /** Dashboard landing (REQ-OUT-04..08, GUI_OCC_DESIGN.md §8). Charts use Apache ECharts (DASHBOARD_RESEARCH.md §7). */
 export function DashboardPage() {
-  const [filters, setFilters] = useState<ResultFilters>({})
+  const { filters, setFilters } = useResultFilters()
   const [section, setSection] = useState<Section>('overview')
   const df: DashboardFilters = useMemo(() => toDashboardQuery(filters), [filters])
   const summary = useQuery({ queryKey: ['analytics', 'summary', df], queryFn: () => api.analyticsSummary(df) })
   const demand = useQuery({ queryKey: ['analytics', 'demand', df], queryFn: () => api.analyticsDemand(df) })
+  const currentResults = useQuery({
+    queryKey: ['current-results', 'rows'],
+    queryFn: () => api.getCurrentResults(),
+  })
+  const currentResultsSummary = useQuery({
+    queryKey: ['current-results', 'summary'],
+    queryFn: () => api.getCurrentResultsSummary(),
+    enabled: df.runId === undefined,
+  })
   const bench = useQuery({ queryKey: ['analytics', 'bench', df], queryFn: () => api.analyticsBench(df) })
   const match = useQuery({ queryKey: ['analytics', 'match', df], queryFn: () => api.analyticsMatch(df) })
   // The run list is capped at the newest 50 runs, so look up the summary's run by id. Refetch on mount and focus so a
@@ -82,10 +93,19 @@ export function DashboardPage() {
     () => new Map((all.data?.[1] ?? []).map((resource) => [resource.resourceId, resource])),
     [all.data],
   )
+  const filteredCurrentResults = useMemo(
+    () => applyResultFilters(currentResults.data ?? [], { ...filters, personGrade: undefined }),
+    [currentResults.data, filters],
+  )
+  const currentMatches = useMemo(
+    () => summarizeCurrentResults(filteredCurrentResults),
+    [filteredCurrentResults],
+  )
 
   const options = useMemo(() => {
     const [ds = [], rs = []] = all.data ?? []
     return {
+      requisitions: distinct(ds, (d) => d.codeRequisition),
       accounts: distinct(ds, (d) => d.accountName),
       bus: distinct(ds, (d) => d.bu),
       grades: ['A3', 'A4', 'B1', 'B2', 'C1', 'C2', 'D1', 'D2', 'E1'],
@@ -101,7 +121,12 @@ export function DashboardPage() {
 
   return (
     <div className="page">
-      {shownRun.data && <DataChangedBanner run={shownRun.data} />}
+      {shownRun.data && (
+        <DataChangedBanner
+          run={shownRun.data}
+          summary={df.runId === undefined ? currentResultsSummary.data : undefined}
+        />
+      )}
       <div className="page-header">
         <h1>Dashboard</h1>
         <span className="spacer" />
@@ -164,7 +189,7 @@ export function DashboardPage() {
               return (
                 <EChart
                   ariaLabel="Open demands by BU and region"
-                  onSelect={(bu) => setFilters((f) => ({ ...f, bu }))}
+                  onSelect={(bu) => setFilters((f) => ({ ...f, bu: [bu] }))}
                   option={vbar(
                     bus,
                     regions.map((rg) => ({
@@ -191,12 +216,12 @@ export function DashboardPage() {
           >
             <EChart
               ariaLabel="Grade to JD count"
-              onSelect={(g) => setFilters((f) => ({ ...f, demandGrade: g }))}
+              onSelect={(g) => setFilters((f) => ({ ...f, demandGrade: [g] }))}
               option={vbar(demand.data.gradeToJdCount.map((x) => x.label), [{ name: 'JDs', data: demand.data.gradeToJdCount.map((x) => x.count) }])}
             />
           </ChartCard>
           <ChartCard title="Top 3 accounts by JD count" table={{ columns: ['Account', 'JDs'], rows: demand.data.topAccounts.map((x) => [x.label, x.count]) }}>
-            <EChart ariaLabel="Top 3 accounts" onSelect={(a) => setFilters((f) => ({ ...f, accountName: a }))} option={hbar(demand.data.topAccounts.map((x) => x.label), demand.data.topAccounts.map((x) => x.count), 'JDs')} />
+            <EChart ariaLabel="Top 3 accounts" onSelect={(a) => setFilters((f) => ({ ...f, accountName: [a] }))} option={hbar(demand.data.topAccounts.map((x) => x.label), demand.data.topAccounts.map((x) => x.count), 'JDs')} />
           </ChartCard>
           <ChartCard title="Demand start-date pipeline" subtitle="By month" table={{ columns: ['Month', 'Demands'], rows: demand.data.startPipeline.map((x) => [x.label, x.count]) }} span={8}>
             <EChart ariaLabel="Demand start-date pipeline" option={vbar(demand.data.startPipeline.map((x) => x.label), [{ name: 'Demands', data: demand.data.startPipeline.map((x) => x.count) }])} />
@@ -222,19 +247,22 @@ export function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {demand.data.rows.map((d) => (
-                    <tr key={d.demandId}>
-                      <td className="mono">{d.codeRequisition}</td>
-                      <td>{formatDate(d.positionStartDate)}</td>
-                      <td>{d.accountName}</td>
-                      <td>{d.codeLocalGrade}</td>
-                      <td>{d.demandRequestName}</td>
-                      <td>{roleLocation(d.region)}</td>
-                      <td>{d.bu}</td>
-                      <td>{d.jdStatus}</td>
-                      <td>{d.bestBand ? <BandChip band={d.bestBand} /> : '—'}</td>
-                    </tr>
-                  ))}
+                  {demand.data.rows.map((d) => {
+                    const matchSummary = currentMatches.get(d.demandId)
+                    return (
+                      <tr key={d.demandId}>
+                        <td className="mono">{d.codeRequisition}</td>
+                        <td>{formatDate(d.positionStartDate)}</td>
+                        <td>{d.accountName}</td>
+                        <td>{d.codeLocalGrade}</td>
+                        <td>{d.demandRequestName}</td>
+                        <td>{roleLocation(d.region)}</td>
+                        <td>{d.bu}</td>
+                        <td>{d.jdStatus}</td>
+                        <td>{matchSummary?.bestBand ? <BandChip band={matchSummary.bestBand} /> : '—'}</td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -319,7 +347,7 @@ export function DashboardPage() {
           >
             <EChart
               ariaLabel="Bench status distribution"
-              onSelect={(st) => setFilters((f) => ({ ...f, status: st }))}
+              onSelect={(st) => setFilters((f) => ({ ...f, status: [st] }))}
               option={{
                 tooltip: { trigger: 'axis' },
                 grid,
@@ -412,7 +440,7 @@ export function DashboardPage() {
           <ChartCard title="Band distribution" table={{ columns: ['Band', 'Rows'], rows: match.data.bandDistribution.map((x) => [bandLabel(x.label as Band), x.count]) }}>
             <EChart
               ariaLabel="Band distribution doughnut"
-              onSelect={(b) => setFilters((f) => ({ ...f, band: b as Band }))}
+              onSelect={(b) => setFilters((f) => ({ ...f, band: [b as Band] }))}
               option={{
                 tooltip: { trigger: 'item' },
                 legend: { bottom: 0, textStyle: axisLabel },

@@ -50,16 +50,39 @@ SHORTLIST_POSITION_SQL = (
     "AND earlier.shortlisted=1 AND (earlier.rank<mr.rank OR "
     "(earlier.rank=mr.rank AND earlier.result_id<mr.result_id))) END"
 )
+DRAFT_SELECT_SQL = (
+    "SELECT em.*, mr.run_id AS result_run_id, mr.rank AS result_rank, "
+    f"{SHORTLIST_POSITION_SQL} AS shortlist_position, "
+    "d.code_requisition AS code_requisition, d.account_name AS account_name, "
+    "d.demand_request_name AS demand_request_name, "
+    "COALESCE(NULLIF(c.display_name,''),r.short_name) AS candidate_name, "
+    "mr.score AS result_score, "
+    "COALESCE((SELECT o.new_band FROM overrides o WHERE o.result_id=em.result_id "
+    "AND o.action='adjust_band' AND o.revoked_at IS NULL ORDER BY o.override_id DESC LIMIT 1), "
+    "mr.band) AS effective_band "
+)
+DRAFT_FROM_SQL = (
+    "FROM email_messages em LEFT JOIN match_results mr ON mr.result_id=em.result_id "
+    "LEFT JOIN demands d ON d.demand_id=em.demand_id "
+    "LEFT JOIN resources r ON r.resource_id=em.resource_id "
+    "LEFT JOIN candidates c ON c.candidate_id=COALESCE(mr.candidate_id,r.candidate_id) "
+)
 
 
 @dataclass(frozen=True)
 class EmailDraft:
     message_id: int
     demand_id: int
+    code_requisition: str | None
+    account_name: str | None
+    demand_request_name: str | None
     resource_id: int
     result_id: int | None
     run_id: int | None
     rank: int | None
+    candidate_name: str | None
+    score: float | None
+    band: str | None
     selected: bool
     to_address: str
     cc: tuple[str, ...]
@@ -207,10 +230,16 @@ def _draft_from_row(row: sqlite3.Row) -> EmailDraft:
     return EmailDraft(
         message_id=int(row["message_id"]),
         demand_id=int(row["demand_id"]),
+        code_requisition=row["code_requisition"],
+        account_name=row["account_name"],
+        demand_request_name=row["demand_request_name"],
         resource_id=int(row["resource_id"]),
         result_id=int(row["result_id"]) if row["result_id"] is not None else None,
         run_id=int(run_value) if run_value is not None else None,
         rank=int(rank_value) if rank_value is not None else None,
+        candidate_name=row["candidate_name"],
+        score=float(row["result_score"]) if row["result_score"] is not None else None,
+        band=row["effective_band"],
         selected=bool(shortlist_position is not None and shortlist_position <= 4),
         to_address=str(row["to_address"]),
         cc=cc,
@@ -255,10 +284,9 @@ class EmailService:
         demand_where = "WHERE demand_id=?" if demand_id is not None else ""
         with database(self.settings) as db:
             rows = db.execute(
-                f"SELECT em.*, mr.run_id AS result_run_id, mr.rank AS result_rank, "
-                f"{SHORTLIST_POSITION_SQL} AS shortlist_position "
-                f"FROM email_messages em LEFT JOIN match_results mr ON mr.result_id=em.result_id "
-                f"{where} ORDER BY em.created_at DESC, em.message_id DESC LIMIT ?",
+                DRAFT_SELECT_SQL
+                + DRAFT_FROM_SQL
+                + f"{where} ORDER BY em.created_at DESC, em.message_id DESC LIMIT ?",
                 (*parameters, limit),
             ).fetchall()
             count_parameters: tuple[object, ...] = (demand_id,) if demand_id is not None else ()
@@ -295,10 +323,13 @@ class EmailService:
         with database(self.settings) as db:
             template = self._ensure_default_template(db, now)
             cc_addresses = self._resource_team(db)
-            results = self._top_results(db, run_id=run_id, demand_id=demand_id)
+            if run_id is None and demand_id is None and result_ids is not None:
+                results = self._top_results_for_ids(db, result_ids)
+            else:
+                results = self._top_results(db, run_id=run_id, demand_id=demand_id)
         if not results:
             raise Problem(404, "MATCH_RESULTS_NOT_FOUND", "No match results found")
-        if result_ids is not None:
+        if result_ids is not None and (run_id is not None or demand_id is not None):
             requested = set(result_ids)
             available = {int(row["result_id"]) for row in results}
             if requested - available:
@@ -982,6 +1013,43 @@ class EmailService:
         ).fetchall()
         return list(rows)
 
+    def _top_results_for_ids(
+        self, db: sqlite3.Connection, result_ids: Sequence[int]
+    ) -> list[sqlite3.Row]:
+        requested = list(result_ids)
+        placeholders = ",".join("?" for _ in requested)
+        sources = {
+            int(row["result_id"]): (int(row["run_id"]), int(row["demand_id"]))
+            for row in db.execute(
+                "SELECT result_id,run_id,demand_id FROM match_results "
+                f"WHERE result_id IN ({placeholders})",
+                tuple(requested),
+            )
+        }
+        if set(sources) != set(requested):
+            raise Problem(
+                422,
+                "EMAIL_RESULT_NOT_TOP_FIVE",
+                "Selected results must be in the top five for their demand",
+            )
+        grouped: dict[tuple[int, int], list[int]] = {}
+        for result_id in requested:
+            grouped.setdefault(sources[result_id], []).append(result_id)
+
+        top_results: dict[int, sqlite3.Row] = {}
+        for run_id, demand_id in grouped:
+            rows = self._top_results(db, run_id=run_id, demand_id=demand_id)
+            available = {int(row["result_id"]): row for row in rows}
+            selected = grouped[(run_id, demand_id)]
+            if set(selected) - set(available):
+                raise Problem(
+                    422,
+                    "EMAIL_RESULT_NOT_TOP_FIVE",
+                    "Selected results must be in the top five for their demand",
+                )
+            top_results.update(available)
+        return [top_results[result_id] for result_id in requested]
+
     def _ensure_default_template(self, db: sqlite3.Connection, now: str) -> sqlite3.Row:
         row = db.execute(
             "SELECT * FROM email_templates WHERE is_default=1 "
@@ -1150,20 +1218,16 @@ class EmailService:
     def _existing_pair(self, demand_id: int, resource_id: int) -> EmailDraft | None:
         with database(self.settings) as db:
             row = db.execute(
-                f"SELECT em.*, mr.run_id AS result_run_id, mr.rank AS result_rank, "
-                f"{SHORTLIST_POSITION_SQL} AS shortlist_position "
-                "FROM email_messages em LEFT JOIN match_results mr ON mr.result_id=em.result_id "
-                "WHERE em.demand_id=? AND em.resource_id=? AND em.send_seq=1",
+                DRAFT_SELECT_SQL
+                + DRAFT_FROM_SQL
+                + "WHERE em.demand_id=? AND em.resource_id=? AND em.send_seq=1",
                 (demand_id, resource_id),
             ).fetchone()
         return _draft_from_row(row) if row else None
 
     def _get_draft_row(self, db: sqlite3.Connection, message_id: int) -> sqlite3.Row | None:
         return db.execute(
-            f"SELECT em.*, mr.run_id AS result_run_id, mr.rank AS result_rank, "
-            f"{SHORTLIST_POSITION_SQL} AS shortlist_position "
-            "FROM email_messages em LEFT JOIN match_results mr ON mr.result_id=em.result_id "
-            "WHERE em.message_id=?",
+            DRAFT_SELECT_SQL + DRAFT_FROM_SQL + "WHERE em.message_id=?",
             (message_id,),
         ).fetchone()
 

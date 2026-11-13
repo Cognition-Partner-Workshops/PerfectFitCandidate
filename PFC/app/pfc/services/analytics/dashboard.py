@@ -1,6 +1,5 @@
 """Phase-1 dashboard aggregations; dates use the application's clock."""
 
-import json
 import math
 import re
 from collections import Counter
@@ -54,15 +53,7 @@ def within_day(row: dict[str, Any]) -> bool:
 
 def summary(p: Population) -> dict[str, Any]:
     run = p.run
-    dq = json.loads((run or {}).get("dq_summary_json") or "{}")
-    assessed = {int(key) for key in dq.get("demands", {})}
-    if run is not None:
-        assessed.update(
-            row[0]
-            for row in p.db.execute(
-                "SELECT DISTINCT demand_id FROM match_results WHERE run_id=?", (run["run_id"],)
-            )
-        )
+    assessed = p.assessed_demand_ids
     if (
         p.filters.code_requisition
         or p.filters.account_name
@@ -110,14 +101,25 @@ def summary(p: Population) -> dict[str, Any]:
     )
     if run_view is not None:
         run_view["llm_model"] = run_view["llm_model"] or ""
+    if p.has_match_filters:
+        role_to_person_combinations = sum(p.result_counts.values())
+    elif p.filters.run_id is not None:
+        role_to_person_combinations = (run or {}).get("pairs_scored") or 0
+    else:
+        role_to_person_combinations = p.pairs_scored
     return {
         "run": run_view,
-        "requisitions_assessed": (run or {}).get("demands_assessed") or 0,
+        "runs_included": len(p.runs),
+        "requisitions_assessed": (
+            (run or {}).get("demands_assessed") or 0
+            if p.filters.run_id is not None
+            else len(assessed)
+        ),
         "open_requisitions": len(p.demands),
-        "role_to_person_combinations": (run or {}).get("pairs_scored") or 0,
+        "role_to_person_combinations": role_to_person_combinations,
         "roles_with_no_suitable_candidate": len(assessed - suitable),
         "weak_only_requisitions": sum(
-            bool(dq.get("demands", {}).get(str(key), {}).get("weak_only")) for key in assessed
+            demand_id in p.weak_only_demand_ids for demand_id in assessed
         ),
         "data_quality_issues": {**issues, "total": sum(issues.values())},
         "eligible_bench": sum(row["eligibility"] == "eligible" for row in p.resources),

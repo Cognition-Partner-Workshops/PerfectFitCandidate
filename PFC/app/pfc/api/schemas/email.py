@@ -12,8 +12,10 @@ class EmailDraftCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_scope(self) -> "EmailDraftCreate":
-        if (self.run_id is None) == (self.demand_id is None):
-            raise ValueError("Provide exactly one of run_id or demand_id")
+        if self.run_id is not None and self.demand_id is not None:
+            raise ValueError("run_id and demand_id are mutually exclusive")
+        if self.run_id is None and self.demand_id is None and self.result_ids is None:
+            raise ValueError("Provide run_id, demand_id or result_ids")
         if self.result_ids is not None and (
             any(result_id < 1 for result_id in self.result_ids)
             or len(set(self.result_ids)) != len(self.result_ids)
@@ -57,10 +59,16 @@ class EmailHandoffRequest(BaseModel):
 class EmailDraftView(BaseModel):
     message_id: int
     demand_id: int
+    code_requisition: str | None
+    account_name: str | None
+    demand_request_name: str | None
     resource_id: int
     result_id: int | None
     run_id: int | None
     rank: int | None
+    candidate_name: str | None
+    score: float | None
+    band: str | None
     selected: bool
     to_address: str
     cc: list[str]

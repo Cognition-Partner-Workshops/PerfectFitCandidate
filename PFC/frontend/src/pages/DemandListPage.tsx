@@ -7,6 +7,7 @@ import type { Demand, JdRequirementItem, JdRequirements, JdStatus } from '../api
 import { BandChip, Banner, Chip, EmptyState, ErrorState, Modal, Spinner } from '../components/ui'
 import { UploadDialog } from '../components/UploadDialog'
 import { SummaryCard } from '../components/SummaryCard'
+import { summarizeCurrentResults } from '../lib/currentResults'
 import { formatDate, roleLocation } from '../lib/format'
 
 const STATUS_TONE: Record<JdStatus, 'neutral' | 'info' | 'success' | 'warning'> = {
@@ -232,17 +233,32 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
 export function DemandListPage() {
   const qc = useQueryClient()
   const demands = useQuery({ queryKey: ['demands'], queryFn: () => api.listDemands() })
+  const currentResults = useQuery({
+    queryKey: ['current-results', 'rows'],
+    queryFn: () => api.getCurrentResults(),
+  })
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState<Demand | null>(null)
   const [upload, setUpload] = useState(false)
   const analyze = useMutation({ mutationFn: (ids: number[]) => api.analyzeDemands(ids), onSuccess: () => void qc.invalidateQueries({ queryKey: ['demands'] }) })
+  const currentMatches = useMemo(
+    () => summarizeCurrentResults(currentResults.data ?? []),
+    [currentResults.data],
+  )
   const rows = useMemo(
     () =>
-      (demands.data ?? []).filter((d) =>
-        [d.codeRequisition, d.accountName, d.demandRequestName, d.bu, d.region].some((v) => (v ?? '').toLowerCase().includes(search.toLowerCase())),
-      ),
-    [demands.data, search],
+      (demands.data ?? [])
+        .map((d) => ({
+          ...d,
+          matches: currentMatches.get(d.demandId)?.matches ?? 0,
+          bestBand: currentMatches.get(d.demandId)?.bestBand ?? null,
+        }))
+        .filter((d) =>
+          [d.codeRequisition, d.accountName, d.demandRequestName, d.bu, d.region].some((v) => (v ?? '').toLowerCase().includes(search.toLowerCase())),
+        ),
+    [currentMatches, demands.data, search],
   )
+  const currentResultsUnavailable = currentResults.isLoading || currentResults.isError
   const newOnes = (demands.data ?? []).filter((d) => needsAnalysis(d.jdStatus))
   if (demands.isLoading) return <div className="page"><Spinner /></div>
   if (demands.isError) return <div className="page"><ErrorState error={demands.error} onRetry={() => void demands.refetch()} /></div>
@@ -263,6 +279,14 @@ export function DemandListPage() {
       <div className="card">
         <input aria-label="Search demands" placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} />
       </div>
+      {currentResults.isError && (
+        <Banner tone="warning">
+          Couldn't load match summaries.{' '}
+          <button className="btn btn-sm" onClick={() => void currentResults.refetch()}>
+            Retry
+          </button>
+        </Banner>
+      )}
       {rows.length === 0 ? (
         <EmptyState message="No demands yet. Upload the Demand List (.xlsx)." />
       ) : (
@@ -300,13 +324,23 @@ export function DemandListPage() {
                   <td>
                     <Chip tone={STATUS_TONE[d.jdStatus]}>{d.jdStatus}</Chip>
                   </td>
-                  <td className="num">{d.matches || '—'}</td>
-                  <td>{d.bestBand ? <BandChip band={d.bestBand} /> : '—'}</td>
+                  <td className="num">
+                    {currentResultsUnavailable ? <span className="muted">…</span> : d.matches || '—'}
+                  </td>
+                  <td>
+                    {currentResultsUnavailable ? (
+                      <span className="muted">…</span>
+                    ) : d.bestBand ? (
+                      <BandChip band={d.bestBand} />
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td className="row" style={{ flexWrap: 'nowrap' }}>
                     <button className="btn btn-sm" onClick={() => setOpen(d)}>
                       {needsAnalysis(d.jdStatus) ? 'Analyze JD' : 'Review JD'}
                     </button>
-                    {d.matches > 0 && (
+                    {!currentResultsUnavailable && d.matches > 0 && (
                       <Link className="btn btn-sm btn-tertiary" to={`/matches?req=${encodeURIComponent(d.codeRequisition)}`}>
                         View matches
                       </Link>

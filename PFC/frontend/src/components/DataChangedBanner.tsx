@@ -2,17 +2,17 @@ import { Link } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
-import type { MatchRun } from '../api/types'
+import type { CurrentResults, MatchRun } from '../api/types'
 import { formatDateTime } from '../lib/format'
 import { Banner, ErrorState } from './ui'
 
 const active = (status: MatchRun['status']) => status === 'queued' || status === 'running'
 
 /** Stale-run notice: inputs changed after the run finished, so its scores are a point-in-time snapshot. */
-export function DataChangedBanner({ run }: { run: MatchRun }) {
+export function DataChangedBanner({ run, summary }: { run: MatchRun; summary?: CurrentResults }) {
   const qc = useQueryClient()
   const rerun = useMutation({
-    mutationFn: () => api.startMatchRun({ incremental: true, scope: run.scope === 'demands' ? 'demands' : 'full', demandIds: run.scope === 'demands' ? run.demandIds : [] }),
+    mutationFn: () => api.startMatchRun({ incremental: true, scope: summary || run.scope === 'demands' ? 'demands' : 'full', demandIds: summary ? summary.staleDemandIds : run.scope === 'demands' ? run.demandIds : [] }),
   })
   // Follow the new run until it finishes, then refresh every view of "the latest run" (Match Results, Dashboard summary).
   const startedId = rerun.data?.runId
@@ -29,15 +29,22 @@ export function DataChangedBanner({ run }: { run: MatchRun }) {
     if (!finished) return
     void qc.invalidateQueries({ queryKey: ['run'] })
     void qc.invalidateQueries({ queryKey: ['analytics'] })
+    void qc.invalidateQueries({ queryKey: ['current-results'] })
   }, [qc, startedId, finished])
-  if (!run.dataChangedSinceRun) return null
-  const reasons = run.dataChangedReasons.length ? run.dataChangedReasons.join(', ') : 'source data was updated'
+  if (!(summary ?? run).dataChangedSinceRun) return null
+  const showChangedOnly = !summary || summary.staleDemandIds.length > 0
+  const changedReasons = (summary ?? run).dataChangedReasons
+  const reasons = changedReasons.length ? changedReasons.join(', ') : 'source data was updated'
   return (
     <Banner tone="info">
       <strong>Data changed since this run</strong> ({reasons}). These scores are a point-in-time snapshot from {formatDateTime(run.finishedAt)}.{' '}
-      <button className="btn btn-sm" disabled={rerun.isPending || rerun.isSuccess} onClick={() => rerun.mutate()}>
-        Re-run changed only
-      </button>{' '}
+      {showChangedOnly && (
+        <>
+          <button className="btn btn-sm" disabled={rerun.isPending || rerun.isSuccess} onClick={() => rerun.mutate()}>
+            Re-run changed only
+          </button>{' '}
+        </>
+      )}
       <Link className="btn btn-sm btn-tertiary" to="/demands">
         Full re-run
       </Link>

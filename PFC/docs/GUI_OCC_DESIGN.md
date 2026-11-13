@@ -469,7 +469,7 @@ flowchart TD
 
 ## 8. Dashboard (landing)
 
-**Purpose.** Landing page after login for all users: an at-a-glance summary of the latest matching run (REQ-OUT-04), demand analytics for Analyst B (REQ-OUT-05), bench analytics for Analyst C (REQ-OUT-06), match/communication analytics (REQ-OUT-07) and the data-quality/validation panel (REQ-OUT-10). "Advanced + professional dashboard" is a Phase 1 deliverable; PDF download is Phase 2 (REQ-OUT-09).
+**Purpose.** Landing page after login for all users: an at-a-glance summary of the current results set—the latest completed run per open demand (REQ-OUT-04)—plus demand analytics for Analyst B (REQ-OUT-05), bench analytics for Analyst C (REQ-OUT-06), match/communication analytics (REQ-OUT-07) and the data-quality/validation panel (REQ-OUT-10). "Advanced + professional dashboard" is a Phase 1 deliverable; PDF download is Phase 2 (REQ-OUT-09).
 
 **Layout.** Page title row with global filter bar and **PDF report** button → KPI summary header (4 primary tiles + secondary tiles) → section tabs/anchors: *Overview*, *Demand analytics*, *Bench analytics*, *Match & communication*, *Data quality* → responsive 12-column grid of chart cards (2–3 per row at 1366 px).
 
@@ -542,7 +542,7 @@ Chart-card behaviour: hover tooltip with exact values; click a bar/segment → c
 
 ### 8.3 Global filters
 
-Filter bar per REQ-OUT-08 / REQ-MAT-10: Code Requisition, Account Name, BU, Grade, Location, region, band, status, candidate type, incomplete identity, mandatory-skill status and score range. Active filters appear as removable chips; "Clear all"; "Save view" stores named filter presets per user (useful for personas B and C). Filters persist when navigating to Match Results via a "Carry filters" link.
+Filter bar per REQ-OUT-08 / REQ-MAT-10: Code Requisition, Account Name, BU, Grade, Location, region, band, status, candidate type, incomplete identity and mandatory-skill status are multi-selects with an **All** option; score remains a range. Values are ORed within one field and ANDed across fields. Requisition matches exactly, case-insensitively. The same selections apply to Match Results. Active filters appear as removable chips; "Clear all"; "Save view" stores named filter presets per user (useful for personas B and C). Filters persist when navigating to Match Results via a "Carry filters" link. Without an explicit `runId`, dashboard analytics use the current per-demand run set and identify contributing runs; explicit `runId` remains a single-run view.
 
 ### 8.4 PDF report download (Phase 2)
 
@@ -744,7 +744,9 @@ Email displayed masked by default: first 2 characters of the local part, then on
 
 **Purpose.** Review the ranked shortlist per requisition (normally top 5, one row per requisition–person combination; a person may appear under several requisitions) with explainable scores, and act on it: override, export, send to Email Approval (REQ-MAT-03, REQ-OUT-01, REQ-MAT-09).
 
-**Layout.** Header (run info: timestamp, model, scoring-template version; **Export** menu; **Send to Email Approval**) → filter bar (shares dashboard filters) → grouping toggle **Group by requisition | Flat list** → results table with expandable rows → validation panel (collapsible, REQ-OUT-10) → disclaimer footer.
+The current view combines each open demand's latest completed run that assessed it; a later full run can replace all demands while a later demand-scoped run replaces only its demand. Grouped mode is collapsible by requisition. Flat mode is globally sorted by Match % descending, with requisition and rank as tie-breakers. The filter bar is shared with Dashboard; email drafting may select results across contributing runs.
+
+**Layout.** Header (current-results summary and contributing run info; **Export** menu; **Send to Email Approval**) → shared multi-select filter bar → grouping toggle **Group by requisition | Flat list** (with collapse/expand all) → results table with expandable rows → validation panel (collapsible, REQ-OUT-10) → disclaimer footer.
 
 ### 11.1 Column order (exact, REQ-OUT-01)
 
@@ -773,7 +775,7 @@ Users may hide columns for their view; they may not reorder the 16 data columns 
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────────────────┐
-│ Match Results   Run 04 Nov 2026 14:32 · Model <local> · Template v3 · 128 reqs · 583 rows │
+│ Match Results   Current set · 128 reqs · 583 rows · 3 contributing runs                │
 │ Filters: [Req ▾][Account ▾][Demand Grade ▾][Person Grade ▾][Person Location ▾][Band ▾]     │
 │          [Location Assessment ▾][Mandatory skills ▾][Score ⇔][Status ▾]  Group: (●Req)(○Flat) │
 │                                        [Export ▾ CSV / Excel]  [✉ Send selected to Email Approval] │

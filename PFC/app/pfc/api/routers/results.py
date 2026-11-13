@@ -7,8 +7,11 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Body, Depends, Query, Request, Response
 
 from pfc.api.schemas.analytics import ExportQuery
+from pfc.api.schemas.match import run_view
 from pfc.api.schemas.results import (
     BreakdownView,
+    CurrentDemand,
+    CurrentResults,
     CvScoreView,
     ExcludedRow,
     OverrideReason,
@@ -23,6 +26,8 @@ from pfc.db.connection import database
 from pfc.security.dependencies import Principal, require_role
 from pfc.security.problems import Problem
 from pfc.services import matching
+from pfc.services.matching.current import current_runs
+from pfc.services.matching.data_changes import stale_demand_ids_for_pairs
 from pfc.services.matching.export import evidence_parts, export_results
 from pfc.services.pii import mask_emails_in, require_unmask_permission
 
@@ -92,6 +97,7 @@ def result_view(db: sqlite3.Connection, row: dict[str, Any], *, detail: bool = F
             "candidate_type",
             "incomplete_identity",
             "effective_shortlisted",
+            "effective_excluded",
             "shortlisted",
         )
     }
@@ -207,6 +213,127 @@ def export(
         media_type=media,
         headers={
             "Content-Disposition": f'attachment; filename="PFC-results-run{run_id}.{query.format}"'
+        },
+    )
+
+
+@router.get("/match-results/current", response_model=list[ResultRow])
+def current_results(
+    request: Request, response: Response, query: Annotated[ResultsQuery, Query()]
+) -> list[ResultRow]:
+    filters = query.model_dump(exclude={"sort", "descending", "limit", "offset"})
+    with database(request.app.state.settings) as db:
+        pairs = current_runs(db)
+        page = matching.list_results(
+            db,
+            filters=filters,
+            sort=query.sort,
+            descending=query.descending,
+            limit=query.limit,
+            offset=query.offset,
+            run_pairs=pairs,
+        )
+        response.headers["X-Total-Count"] = str(page["total"])
+        runs = {
+            run_id: matching.get_run(db, run_id)
+            for run_id in set(row["run_id"] for row in page["items"])
+        }
+        for row in page["items"]:
+            run = runs[row["run_id"]]
+            if run is not None:
+                row.update(
+                    data_changed_since_run=run["data_changed_since_run"],
+                    data_changed_reasons=run["data_changed_reasons"],
+                )
+        return [result_view(db, row) for row in page["items"]]
+
+
+@router.get("/match-results/current/summary", response_model=CurrentResults)
+def current_results_summary(request: Request) -> CurrentResults:
+    with database(request.app.state.settings) as db:
+        pairs = current_runs(db)
+        run_ids = sorted(set(pairs.values()), reverse=True)
+        run_records = {
+            run_id: run for run_id in run_ids if (run := matching.get_run(db, run_id)) is not None
+        }
+        demand_rows = {
+            int(row["demand_id"]): dict(row)
+            for row in db.execute(
+                "SELECT demand_id,code_requisition FROM demands WHERE lifecycle='open'"
+            )
+        }
+        demands = [
+            CurrentDemand(
+                demand_id=demand_id,
+                code_requisition=str(demand_rows[demand_id]["code_requisition"]),
+                run_id=run_id,
+                finished_at=str(run_records[run_id]["finished_at"] or ""),
+            )
+            for demand_id, run_id in pairs.items()
+            if demand_id in demand_rows and run_id in run_records
+        ]
+        demands.sort(key=lambda item: (item.code_requisition.casefold(), item.demand_id))
+        stale_demand_ids, reasons = stale_demand_ids_for_pairs(db, pairs, run_records)
+        return CurrentResults(
+            demands=demands,
+            runs=[run_view(run_records[run_id]) for run_id in run_ids if run_id in run_records],
+            data_changed_since_run=bool(stale_demand_ids),
+            data_changed_reasons=reasons,
+            stale_demand_ids=stale_demand_ids,
+        )
+
+
+@router.get("/match-results/current/excluded", response_model=list[ExcludedRow])
+def current_excluded(
+    request: Request,
+    requisition: Annotated[list[str] | None, Query()] = None,
+) -> list[ExcludedRow]:
+    with database(request.app.state.settings) as db:
+        rows = matching.excluded_current_view(db, current_runs(db), requisition)
+        return [
+            ExcludedRow(
+                run_id=row["run_id"],
+                resource_id=row["resource_id"],
+                short_name=row["short_name"],
+                demand_id=row["demand_id"],
+                code_requisition=row["requisition"],
+                reason_code=row["reason_code"],
+                detail=row["detail"],
+                scope="global" if row["demand_id"] is None else "pair",
+            )
+            for row in rows
+        ]
+
+
+@router.get("/match-results/current/export")
+def export_current(
+    request: Request, principal: Analyst, query: Annotated[ExportQuery, Query()]
+) -> Response:
+    filters = query.model_dump(
+        exclude={"format", "include_emails", "sort", "descending", "limit", "offset"}
+    )
+    with database(request.app.state.settings) as db:
+        if query.include_emails:
+            require_unmask_permission(db, principal.session.role_at_login)
+        content, media = export_results(
+            db,
+            None,
+            query.format,
+            filters,
+            user_id=principal.user.user_id,
+            now=request.app.state.clock(),
+            include_emails=query.include_emails,
+            sort=query.sort,
+            descending=query.descending,
+            limit=query.limit,
+            offset=query.offset,
+            run_pairs=current_runs(db),
+        )
+    return Response(
+        content,
+        media_type=media,
+        headers={
+            "Content-Disposition": f'attachment; filename="PFC-results-current.{query.format}"'
         },
     )
 

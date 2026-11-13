@@ -112,6 +112,7 @@ def seed_matches(
     emails: list[str | None] | None = None,
     shortlisted: list[bool] | None = None,
     ranks: list[int] | None = None,
+    name_prefix: str = "",
 ) -> tuple[int, list[int]]:
     app = cast(FastAPI, client.app)
     values = emails or [f"candidate-{index}@example.test" for index in range(1, 6)]
@@ -123,15 +124,16 @@ def seed_matches(
             db.execute(
                 "INSERT INTO scoring_templates "
                 "(name,version,weights_json,rules_json,status,created_at) "
-                "VALUES ('test',1,'{}','{}','active',?)",
-                (NOW,),
+                "VALUES (?,1,'{}','{}','active',?)",
+                (f"{name_prefix or 'test'}", NOW),
             ).lastrowid
         )
         embedding_model_id = int(
             db.execute(
                 "INSERT INTO embedding_models "
                 "(name,runtime,file_sha256,dim,normalised,pipeline_version,is_active) "
-                "VALUES ('test','onnx','hash',768,1,'v1',0)"
+                "VALUES (?,'onnx',?,768,1,'v1',0)",
+                (name_prefix or "test", f"{name_prefix or 'test'}-hash"),
             ).lastrowid
         )
         run_id = int(
@@ -174,11 +176,11 @@ def seed_matches(
                     "(short_name,email_address,short_name_key,email_key,eligibility,row_hash,"
                     "created_at,updated_at) VALUES (?,?,?,?, 'eligible',?,?,?)",
                     (
-                        f"Candidate {index}",
+                        f"{name_prefix}Candidate {index}",
                         email,
-                        f"candidate-{index}",
+                        f"{name_prefix.casefold()}candidate-{index}",
                         email.strip().lower() if email else "",
-                        f"resource-{index}",
+                        f"{name_prefix.casefold()}resource-{index}",
                         NOW,
                         NOW,
                     ),
@@ -209,11 +211,88 @@ def seed_matches(
                 )
             )
         db.execute(
-            "INSERT INTO resource_team_recipients(email,display_name,is_active,added_at) "
+            "INSERT OR IGNORE INTO resource_team_recipients(email,display_name,is_active,added_at) "
             "VALUES ('team@example.test','Resource Team',1,?)",
             (NOW,),
         )
     return run_id, result_ids
+
+
+def test_result_ids_only_drafts_can_span_runs_and_enforce_top_five(client: TestClient) -> None:
+    first_run, first_ids = seed_matches(client)
+    with database(client.app.state.settings) as db:
+        db.execute("UPDATE demands SET code_requisition='T10002' WHERE demand_id=1")
+    second_run, second_ids = seed_matches(
+        client,
+        emails=[f"second-{index}@example.test" for index in range(1, 6)],
+        name_prefix="Second ",
+    )
+    assert second_run != first_run
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "UPDATE match_results SET rank=6,shortlisted=0 WHERE result_id=?", (first_ids[-1],)
+        )
+        result = db.execute(
+            "SELECT demand_id,resource_id FROM match_results WHERE result_id=?",
+            (second_ids[0],),
+        ).fetchone()
+        analyst_id = db.execute(
+            "SELECT user_id FROM users WHERE email='analyst@example.test'"
+        ).fetchone()[0]
+        db.execute(
+            "INSERT INTO overrides(demand_id,resource_id,result_id,action,new_band,reason,"
+            "created_by,created_at) VALUES (?,?,?,'adjust_band','Potential','Email context',?,?)",
+            (
+                result["demand_id"],
+                result["resource_id"],
+                second_ids[0],
+                analyst_id,
+                NOW,
+            ),
+        )
+    csrf = login(client)
+    created = client.post(
+        "/api/v1/emails/drafts",
+        headers={"X-CSRF-Token": csrf},
+        json={"result_ids": [first_ids[0], second_ids[0]]},
+    )
+    assert created.status_code == 201, created.text
+    assert {draft["result_id"] for draft in created.json()["drafts"]} == {
+        first_ids[0],
+        second_ids[0],
+    }
+    listed = client.get("/api/v1/emails", params={"limit": 10})
+    assert listed.status_code == 200, listed.text
+    listed_by_result = {draft["result_id"]: draft for draft in listed.json()["drafts"]}
+    assert {
+        result_id: {
+            "code_requisition": listed_by_result[result_id]["code_requisition"],
+            "candidate_name": listed_by_result[result_id]["candidate_name"],
+            "score": listed_by_result[result_id]["score"],
+            "band": listed_by_result[result_id]["band"],
+        }
+        for result_id in (first_ids[0], second_ids[0])
+    } == {
+        first_ids[0]: {
+            "code_requisition": "T10002",
+            "candidate_name": "Candidate 1",
+            "score": 94.0,
+            "band": "Strong",
+        },
+        second_ids[0]: {
+            "code_requisition": "T10001",
+            "candidate_name": "Second Candidate 1",
+            "score": 94.0,
+            "band": "Potential",
+        },
+    }
+    rejected = client.post(
+        "/api/v1/emails/drafts",
+        headers={"X-CSRF-Token": csrf},
+        json={"result_ids": [first_ids[-1]]},
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["code"] == "EMAIL_RESULT_NOT_TOP_FIVE"
 
 
 def create_drafts(client: TestClient, csrf: str, run_id: int) -> Response:

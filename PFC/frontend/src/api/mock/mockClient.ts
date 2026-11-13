@@ -446,7 +446,9 @@ export class MockApiClient implements ApiClient {
     const results = scoreAll(demands, this.state.raws, this.resources(), this.activeTemplate(), 1, this.policy().emailsPreselected)
     return results.map((r) => {
       const o = this.state.overrides[r.resultId]
-      return o ? { ...r, override: o } : r
+      const row = { ...r, runId: r.codeRequisition === 'T1A123' ? 2 : 1,
+        dataChangedSinceRun: (this.state.dataChanges ?? []).length > 0, dataChangedReasons: [...(this.state.dataChanges ?? [])] }
+      return { ...row, effectiveExcluded: o?.action === 'exclude', ...(o ? { override: o } : {}) }
     })
   }
 
@@ -465,7 +467,7 @@ export class MockApiClient implements ApiClient {
     const scored = this.state.demands.filter((d) => d.jdStatus === 'Confirmed')
     const without = scored.filter((d) => !results.some((r) => r.demandId === d.demandId && r.band !== 'Weak')).length
     return {
-      runId: 1,
+      runId: 2,
       status: 'completed',
       finishedAt: '2026-11-04T14:32:00Z',
       llmModel: this.state.models.find((m) => m.id === this.state.settings.activeModel)?.name ?? 'local model',
@@ -487,7 +489,7 @@ export class MockApiClient implements ApiClient {
     // Mirrors the backend: only a full-scope run can be incremental.
     this.lastRun = req.incremental && req.scope === 'full' ? { mode: 'incremental', reason: 'inputs_compared' } : { mode: 'full', reason: req.incremental ? 'scope_not_full' : 'requested_full' }
     this.state.dataChanges = []
-    return this.done({ runId: 1, jobId: 1 })
+    return this.done({ runId: 2, jobId: 2 })
   }
 
   private noteDataChange(reason: string): void {
@@ -893,24 +895,64 @@ export class MockApiClient implements ApiClient {
   // ---- Matching -------------------------------------------------------------------------
   async listMatchRuns() {
     this.currentUser()
-    return this.done([this.run()])
+    return this.done([this.currentRun(2), this.currentRun(1)])
   }
 
   async getMatchRun(runId: number) {
     this.currentUser()
-    if (runId !== 1) fail(404, 'Run not found', 'NOT_FOUND')
-    return this.done(this.run())
+    if (![1, 2].includes(runId)) fail(404, 'Run not found', 'NOT_FOUND')
+    return this.done(this.currentRun(runId))
+  }
+
+  private currentRun(runId: number): MatchRun {
+    const rows = this.computeResults().filter((r) => r.runId === runId)
+    return { ...this.run(), runId, scope: 'demands', demandIds: [...new Set(rows.map((r) => r.demandId))],
+      finishedAt: runId === 1 ? '2026-11-03T14:32:00Z' : '2026-11-04T14:32:00Z' }
+  }
+
+  async getCurrentResults() {
+    this.currentUser()
+    const open = new Set(this.state.demands.map((d) => d.demandId))
+    return this.done(this.computeResults().filter((r) => open.has(r.demandId)))
+  }
+
+  async getCurrentResultsSummary() {
+    this.currentUser()
+    const demands = this.state.demands.filter((d) => d.jdStatus === 'Confirmed').map((d) => {
+      const runId = d.codeRequisition === 'T1A123' ? 2 : 1
+      return { demandId: d.demandId, codeRequisition: d.codeRequisition, runId, finishedAt: this.currentRun(runId).finishedAt! }
+    }).sort((a, b) => a.codeRequisition.localeCompare(b.codeRequisition))
+    const runs = [2, 1].filter((id) => demands.some((d) => d.runId === id)).map((id) => this.currentRun(id))
+    return this.done({ demands, runs, dataChangedSinceRun: runs.some((r) => r.dataChangedSinceRun),
+      dataChangedReasons: [...new Set(runs.flatMap((r) => r.dataChangedReasons))],
+      staleDemandIds: demands.filter((d) => runs.find((r) => r.runId === d.runId)?.dataChangedSinceRun).map((d) => d.demandId) })
+  }
+
+  async getCurrentExcluded() {
+    const summary = await this.getCurrentResultsSummary()
+    return summary.runs.length ? this.getRunExcluded(summary.runs[0].runId) : []
+  }
+
+  async exportCurrentResults(f: ResultFilters, format: 'csv' | 'xlsx', includeEmails: boolean) {
+    this.currentUser()
+    if (includeEmails && this.currentUser().role === 'Analyst' && !this.policy().analystsMayUnmask) fail(403, 'Unmasking is disabled for Analysts', 'UNMASK_DISABLED')
+    if (format === 'xlsx') fail(501, 'XLSX export needs the backend', 'NOT_IMPLEMENTED')
+    const rows = applyResultFilters(await this.getCurrentResults(), f)
+    const raw = new Map(this.state.raws.map((r) => [r.resourceId, r.email]))
+    const exported = rows.map((r) => includeEmails ? { ...r, personEmailMasked: raw.get(r.resourceId) ?? r.personEmailMasked } : r)
+    return { blob: new Blob([resultsToCsv(exported, `Current results · Runs ${[...new Set(rows.map((r) => r.runId))].join(', ')}`)],
+      { type: 'text/csv;charset=utf-8' }), fileName: 'PFC-results-current.csv' }
   }
 
   async getResults(runId: number) {
     this.currentUser()
-    if (runId !== 1) fail(404, 'Run not found', 'NOT_FOUND')
-    return this.done(this.computeResults())
+    if (![1, 2].includes(runId)) fail(404, 'Run not found', 'NOT_FOUND')
+    return this.done(this.computeResults().filter((r) => r.runId === runId))
   }
 
   async getRunExcluded(runId: number) {
     this.currentUser()
-    if (runId !== 1) fail(404, 'Run not found', 'NOT_FOUND')
+    if (![1, 2].includes(runId)) fail(404, 'Run not found', 'NOT_FOUND')
     return this.done(
       this.resources()
         .filter((r) => r.eligibility === 'excluded' || r.eligibility === 'insufficient')
@@ -960,10 +1002,10 @@ export class MockApiClient implements ApiClient {
 
   // ---- Analytics ------------------------------------------------------------------------
   private filtered(f: DashboardFilters) {
-    const has = (a: string | null | undefined, b?: string) => !b || (a ?? '').toLowerCase() === b.toLowerCase()
+    const has = (a: string | null | undefined, b?: string[]) => !b?.length || b.some((v) => (a ?? '').toLowerCase() === v.toLowerCase())
     const demands = this.demandsView().filter(
       (d) =>
-        (!f.codeRequisition || d.codeRequisition.toLowerCase().includes(f.codeRequisition.toLowerCase())) &&
+        has(d.codeRequisition, f.codeRequisition) &&
         has(d.accountName, f.accountName) &&
         has(d.bu, f.bu) &&
         has(d.codeLocalGrade, f.grade) &&
@@ -974,13 +1016,13 @@ export class MockApiClient implements ApiClient {
         has(r.grade, f.grade) &&
         has(r.location, f.location) &&
         has(r.benchStatus, f.status) &&
-        (!f.candidateType || r.candidateType === f.candidateType) &&
-        (!f.incompleteIdentity || (r.identityStatus !== 'complete') === (f.incompleteIdentity === 'yes')),
+        has(r.candidateType, f.candidateType) &&
+        has(r.identityStatus !== 'complete' ? 'yes' : 'no', f.incompleteIdentity),
     )
-    const rf: ResultFilters = { ...f, demandGrade: undefined, personGrade: undefined }
+    const rf: ResultFilters = { ...f, demandGrade: f.grade, personGrade: undefined }
     const ids = new Set(demands.map((d) => d.demandId))
     const results = applyResultFilters(this.computeResults(), rf).filter(
-      (r) => ids.has(r.demandId) && (!f.grade || r.demandGrade === f.grade || r.personGrade === f.grade),
+      (r) => ids.has(r.demandId) && (f.runId === undefined || r.runId === f.runId),
     )
     return { demands, resources, results }
   }
@@ -1043,9 +1085,9 @@ export class MockApiClient implements ApiClient {
   }
 
   // ---- Email ----------------------------------------------------------------------------
-  async createDrafts(resultIds: number[]) {
+  async createDrafts(resultIds: number[], runId?: number) {
     this.currentUser()
-    const results = this.computeResults().filter((r) => resultIds.includes(r.resultId))
+    const results = this.computeResults().filter((r) => resultIds.includes(r.resultId) && (runId === undefined || r.runId === runId))
     const created: EmailDraft[] = []
     for (const r of results) {
       if (this.state.emails.some((e) => e.resultId === r.resultId && e.status !== 'Sent')) continue

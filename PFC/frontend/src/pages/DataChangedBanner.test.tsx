@@ -19,6 +19,11 @@ describe('Data changed since this run banner', () => {
   it.each(['/matches', '/'])('names the reasons and links to Confirm & Start on %s', async (path) => {
     const run = await stale()
     vi.spyOn(mock, 'listMatchRuns').mockResolvedValue([run])
+    const current = await mock.getCurrentResultsSummary()
+    vi.spyOn(mock, 'getCurrentResultsSummary').mockResolvedValue({
+      ...current, runs: [run], dataChangedSinceRun: true, dataChangedReasons: run.dataChangedReasons,
+      staleDemandIds: run.demandIds,
+    })
     vi.spyOn(mock, 'getMatchRun').mockResolvedValue(run)
     renderApp(path)
     expect(await screen.findByText('Data changed since this run', {}, { timeout: 5000 })).toBeTruthy()
@@ -27,14 +32,35 @@ describe('Data changed since this run banner', () => {
     expect(screen.getByRole('link', { name: 'Full re-run' }).getAttribute('href')).toContain('/demands')
   })
 
-  it('Re-run changed only starts an incremental run with the scope of the run on screen', async () => {
+  it('Re-run changed only starts an incremental run for the stale demand IDs from the current summary', async () => {
     const run = { ...(await stale()), scope: 'demands', demandIds: [3, 7] }
+    const current = await mock.getCurrentResultsSummary()
+    vi.spyOn(mock, 'getCurrentResultsSummary').mockResolvedValue({ ...current, runs: [run], dataChangedSinceRun: true, dataChangedReasons: run.dataChangedReasons, staleDemandIds: [3, 7] })
     vi.spyOn(mock, 'listMatchRuns').mockResolvedValue([run])
     vi.spyOn(mock, 'getMatchRun').mockResolvedValue(run)
     const start = vi.spyOn(mock, 'startMatchRun')
     renderApp('/matches')
     fireEvent.click(await screen.findByRole('button', { name: 'Re-run changed only' }, { timeout: 5000 }))
     await waitFor(() => expect(start).toHaveBeenCalledWith({ incremental: true, scope: 'demands', demandIds: [3, 7] }))
+  })
+
+  it('hides changed-only rerun when the current summary has no stale demands', async () => {
+    const run = await stale()
+    const current = await mock.getCurrentResultsSummary()
+    vi.spyOn(mock, 'getCurrentResultsSummary').mockResolvedValue({
+      ...current,
+      runs: [run],
+      dataChangedSinceRun: true,
+      dataChangedReasons: run.dataChangedReasons,
+      staleDemandIds: [],
+    })
+    vi.spyOn(mock, 'listMatchRuns').mockResolvedValue([run])
+    vi.spyOn(mock, 'getMatchRun').mockResolvedValue(run)
+    renderApp('/matches')
+
+    expect(await screen.findByText('Data changed since this run', {}, { timeout: 5000 })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Re-run changed only' })).toBeNull()
+    expect(screen.getByRole('link', { name: 'Full re-run' })).toBeTruthy()
   })
 
   it('mock clears the banner after an incremental re-run and records the mode', async () => {
@@ -46,6 +72,8 @@ describe('Data changed since this run banner', () => {
 
   it('shows the run mode and a full run fallback reason in the run summary', async () => {
     const run = { ...(await stale()), mode: 'full' as const, modeReason: 'config_changed' }
+    const current = await mock.getCurrentResultsSummary()
+    vi.spyOn(mock, 'getCurrentResultsSummary').mockResolvedValue({ ...current, runs: [run] })
     vi.spyOn(mock, 'listMatchRuns').mockResolvedValue([run])
     vi.spyOn(mock, 'getMatchRun').mockResolvedValue(run)
     renderApp('/matches')
@@ -54,6 +82,13 @@ describe('Data changed since this run banner', () => {
 
   it('Dashboard shows the mode of the run it loads by id and refreshes the summary after a re-run', async () => {
     const run = { ...(await stale()), mode: 'full' as const, modeReason: 'scope_not_full' }
+    const current = await mock.getCurrentResultsSummary()
+    vi.spyOn(mock, 'getCurrentResultsSummary').mockResolvedValue({
+      ...current,
+      dataChangedSinceRun: true,
+      dataChangedReasons: run.dataChangedReasons,
+      staleDemandIds: current.demands.slice(0, 1).map((demand) => demand.demandId),
+    })
     vi.spyOn(mock, 'getMatchRun').mockResolvedValue(run)
     const summary = vi.spyOn(mock, 'analyticsSummary')
     renderApp('/')
@@ -65,6 +100,13 @@ describe('Data changed since this run banner', () => {
 
   it('Dashboard looks up the summary run by id, not in the capped run list', async () => {
     const run = await stale()
+    const current = await mock.getCurrentResultsSummary()
+    vi.spyOn(mock, 'getCurrentResultsSummary').mockResolvedValue({
+      ...current,
+      dataChangedSinceRun: true,
+      dataChangedReasons: run.dataChangedReasons,
+      staleDemandIds: current.demands.slice(0, 1).map((demand) => demand.demandId),
+    })
     vi.spyOn(mock, 'listMatchRuns').mockResolvedValue([])
     const get = vi.spyOn(mock, 'getMatchRun').mockResolvedValue(run)
     renderApp('/')

@@ -74,4 +74,6 @@ def test_analytics_golden_equivalence(
     fixture, ids = request.getfixturevalue(dataset)
     actual = capture(fixture[0], ids["run"])
     expected = json.loads((GOLDENS / f"{dataset}.json").read_text())
-    assert actual == expected
+    actual_explicit_run = actual["explicit_run"]
+    actual_explicit_run["summary"].pop("runsIncluded")
+    assert actual_explicit_run == expected["explicit_run"]

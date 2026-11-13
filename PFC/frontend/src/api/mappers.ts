@@ -28,6 +28,7 @@ import type {
   DashboardFilters,
   DemandAnalytics,
   MatchAnalytics,
+  MatchResult,
   ResultFilters,
   JdStatus,
 } from './types'
@@ -128,9 +129,15 @@ export function fromPersonal(s: PersonalSettings) {
 export interface EmailRow {
   message_id: number
   demand_id: number
+  code_requisition?: string | null
+  account_name?: string | null
+  demand_request_name?: string | null
   resource_id: number
   result_id: number | null
   rank: number | null
+  candidate_name?: string | null
+  score?: number | null
+  band?: EmailDraft['band'] | null
   selected: boolean
   to_address: string
   cc: string[]
@@ -142,18 +149,17 @@ export interface EmailRow {
   handoff_at?: string | null
   last_error: string | null
 }
-/** Requisition/candidate context comes from matching (#10); until then those fields stay empty. */
 export const toEmailDraft = (e: EmailRow): EmailDraft => ({
   emailId: e.message_id,
   resultId: e.result_id ?? 0,
   demandId: e.demand_id,
-  codeRequisition: '',
-  accountName: null,
-  demandRequestName: null,
-  candidateName: null,
+  codeRequisition: e.code_requisition ?? '',
+  accountName: e.account_name ?? null,
+  demandRequestName: e.demand_request_name ?? null,
+  candidateName: e.candidate_name ?? null,
   rank: e.rank ?? 0,
-  score: 0,
-  band: 'Insufficient data',
+  score: e.score ?? 0,
+  band: e.band ?? 'Insufficient data',
   toMasked: maskEmail(e.to_address),
   cc: e.cc,
   subject: e.subject,
@@ -469,7 +475,7 @@ const DASHBOARD_KEYS = [
 
 export const toDashboardQuery = (f: ResultFilters): DashboardFilters => {
   const out: Record<string, unknown> = {}
-  for (const k of DASHBOARD_KEYS) if (f[k] !== undefined && f[k] !== '') out[k] = f[k]
+  for (const k of DASHBOARD_KEYS) if (f[k] !== undefined && (!Array.isArray(f[k]) || f[k].length > 0)) out[k] = f[k]
   if (f.demandGrade) out.grade = f.demandGrade
   return out as DashboardFilters
 }
@@ -478,6 +484,7 @@ export const toDashboardQuery = (f: ResultFilters): DashboardFilters => {
 export const toAnalyticsSummary = (r: AnalyticsSummary): AnalyticsSummary => ({
   ...r,
   run: r.run ?? null,
+  runsIncluded: r.runsIncluded ?? (r.run ? 1 : 0),
   dataQualityIssues: { total: r.dataQualityIssues?.total ?? 0, dl: r.dataQualityIssues?.dl ?? 0, ct: r.dataQualityIssues?.ct ?? 0 },
 })
 
@@ -507,13 +514,19 @@ export const toMatchAnalytics = (r: MatchAnalytics): MatchAnalytics => ({
   validation: (r.validation ?? []).map((v) => ({ ...v, detail: v.detail ?? '' })),
 })
 
+export const toMatchResult = (r: MatchResult): MatchResult => ({
+  ...r,
+  effectiveExcluded: b(r.effectiveExcluded),
+})
+
 /** Match Results filters → `ExportQuery` (`pfc.api.schemas.analytics`), REQ-OUT-09. */
 export const toExportQuery = (f: ResultFilters, format: 'csv' | 'xlsx', includeEmails: boolean): string => {
   const p = new URLSearchParams({ format })
-  const set = (k: string, v: string | number | undefined) => {
-    if (v !== undefined && v !== '') p.set(k, String(v))
+  const set = (k: string, v: string[] | number | undefined) => {
+    if (Array.isArray(v)) v.filter(Boolean).forEach((value) => p.append(k, value))
+    else if (v !== undefined) p.set(k, String(v))
   }
-  set('requisition', f.codeRequisition?.trim())
+  set('requisition', f.codeRequisition?.map((v) => v.trim()))
   set('account', f.accountName)
   set('demandGrade', f.demandGrade)
   set('personGrade', f.personGrade)

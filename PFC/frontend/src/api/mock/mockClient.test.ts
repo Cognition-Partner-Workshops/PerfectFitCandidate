@@ -19,6 +19,20 @@ beforeEach(async () => {
   await api.setupAdmin({ setupCode: api.setupCode, ...ADMIN })
 })
 
+describe('current results', () => {
+  it('combines at least three requisitions from two completed runs', async () => {
+    await api.login({ role: 'Admin', email: ADMIN.email, password: ADMIN.password })
+    const rows = await api.getCurrentResults()
+    expect(new Set(rows.map((r) => r.runId)).size).toBe(2)
+    expect(new Set(rows.map((r) => r.codeRequisition)).size).toBeGreaterThanOrEqual(3)
+    const summary = await api.getCurrentResultsSummary()
+    expect(summary.runs.map((r) => r.runId)).toEqual([2, 1])
+    for (const demand of summary.demands) {
+      expect(rows.filter((r) => r.demandId === demand.demandId).every((r) => r.runId === demand.runId)).toBe(true)
+    }
+  })
+})
+
 describe('mock auth (REQ-AUTH-01..04)', () => {
   it('rejects a wrong setup code and a second admin setup', async () => {
     const fresh = new MockApiClient({ persist: false })

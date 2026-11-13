@@ -1744,3 +1744,9 @@ Bulk LLM extraction of 500 new JDs/CVs is the one long-running operation (hours 
 | Q-14 | JD attachment format in candidate emails | Resolved: generate a PDF from confirmed JD text. | REQ-EML-02 |
 | Q-15 | Business-day calendar for follow-ups (UK bank holidays?) | Resolved: follow up after one business day; skip weekends and the OCC-configurable holiday list. | REQ-EML-08 |
 | Q-16 | Grade list incl. `E1`? | Resolved: the configurable `grades` table ships with A3–E1 (nine grades). | O-01 |
+
+## Current results API
+
+`GET /match-results/current`, `/current/summary`, `/current/excluded`, and `/current/export` expose the latest completed run per open demand. The list and export reuse the per-run filters, overrides, and masking; repeated filter parameters are ORed within a field and ANDed across fields. Current export filenames are `PFC-results-current.<csv|xlsx>` and include contributing-run metadata. Existing `/match-runs/{id}/...` routes remain single-run compatible.
+
+Unscoped `/analytics/summary`, `/demand`, `/bench`, and `/match` use the same current run set; supplying `runId` preserves single-run behavior. `AnalyticsSummary.runsIncluded` reports contributing run count. Email draft creation accepts `{ "result_ids": [...] }` across runs and checks each ID against its own completed run's top-five shortlist; legacy run- or demand-scoped requests remain supported.

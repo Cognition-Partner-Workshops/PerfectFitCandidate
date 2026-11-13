@@ -11,31 +11,40 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pfc.services.pii import mask_email, mask_emails_in_json
 
 from .common import atomic, audit, timestamp
+from .current import run_pair_predicate
 from .data_changes import annotate_data_changes
 from .lifecycle import reconcile_runs
 
 BANDS = {"Strong", "Potential", "Avg", "Weak", "Insufficient data"}
 ACTIONS = {"pin", "unpin", "exclude", "include", "adjust_band"}
+FilterValue = str | list[str] | None
+
+
+def filter_values(value: Any) -> list[str]:
+    if value is None:
+        return []
+    values = [value] if isinstance(value, str) else list(value)
+    return [item for item in values if item != ""]
 
 
 class ResultFilters(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
-    requisition: str | None = None
-    account: str | None = None
-    demand_grade: str | None = None
-    person_grade: str | None = None
-    person_location: str | None = None
-    band: str | None = None
+    requisition: FilterValue = None
+    account: FilterValue = None
+    demand_grade: FilterValue = None
+    person_grade: FilterValue = None
+    person_location: FilterValue = None
+    band: FilterValue = None
     location_assessment: str | None = None
     mandatory_skill: str | None = None
     score_min: float | None = Field(default=None, ge=0, le=100)
     score_max: float | None = Field(default=None, ge=0, le=100)
-    status: str | None = None
-    bu: str | None = None
-    region: str | None = None
-    candidate_type: str | None = None
-    incomplete_identity: Literal["yes", "no", ""] | None = None
-    mandatory_skills: Literal["met", "gap", ""] | None = None
+    status: FilterValue = None
+    bu: FilterValue = None
+    region: FilterValue = None
+    candidate_type: FilterValue = None
+    incomplete_identity: Literal["yes", "no", ""] | list[Literal["yes", "no", ""]] | None = None
+    mandatory_skills: Literal["met", "gap", ""] | list[Literal["met", "gap", ""]] | None = None
     shortlisted_only: bool = False
 
     @model_validator(mode="after")
@@ -46,7 +55,7 @@ class ResultFilters(BaseModel):
             and self.score_min > self.score_max
         ):
             raise ValueError("score_min exceeds score_max")
-        if self.band is not None and self.band not in BANDS | {"Weak Match"}:
+        if any(value not in BANDS | {"Weak Match"} for value in filter_values(self.band)):
             raise ValueError("Unknown match band")
         return self
 
@@ -100,6 +109,20 @@ def active_overrides(db: sqlite3.Connection, run_id: int) -> dict[int, list[dict
     return grouped
 
 
+def active_overrides_for_pairs(
+    db: sqlite3.Connection, run_pairs: dict[int, int]
+) -> dict[int, list[dict[str, Any]]]:
+    grouped: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    predicate, parameters = run_pair_predicate(run_pairs)
+    for row in db.execute(
+        "SELECT o.* FROM overrides o JOIN match_results m USING(result_id) "
+        f"WHERE o.revoked_at IS NULL AND {predicate} ORDER BY o.override_id",
+        parameters,
+    ):
+        grouped[row["result_id"]].append(dict(row))
+    return grouped
+
+
 def apply_overrides(row: dict[str, Any], overrides: list[dict[str, Any]]) -> None:
     row.update(
         overridden=bool(overrides),
@@ -125,8 +148,23 @@ def apply_overrides(row: dict[str, Any], overrides: list[dict[str, Any]]) -> Non
     row["display_band"] = "Weak Match" if row["effective_band"] == "Weak" else row["effective_band"]
 
 
-def _rows(db: sqlite3.Connection, run_id: int) -> list[dict[str, Any]]:
-    overrides_by_result = active_overrides(db, run_id)
+def _rows(
+    db: sqlite3.Connection,
+    run_id: int | None = None,
+    *,
+    run_pairs: dict[int, int] | None = None,
+) -> list[dict[str, Any]]:
+    parameters: tuple[int, ...]
+    if run_pairs is None:
+        if run_id is None:
+            return []
+        predicate, parameters = "m.run_id=?", (run_id,)
+        overrides_by_result = active_overrides(db, run_id)
+    else:
+        if not run_pairs:
+            return []
+        predicate, parameters = run_pair_predicate(run_pairs)
+        overrides_by_result = active_overrides_for_pairs(db, run_pairs)
     rows = db.execute(
         "SELECT m.*,d.code_requisition AS requisition,d.position_start_date AS start_date,"
         "d.account_name AS account,d.demand_request_name AS role,d.bu,"
@@ -139,8 +177,8 @@ def _rows(db: sqlite3.Connection, run_id: int) -> list[dict[str, Any]]:
         "FROM match_results m JOIN demands d USING(demand_id) JOIN resources r USING(resource_id) "
         "LEFT JOIN candidates c ON c.candidate_id=m.candidate_id "
         "LEFT JOIN score_breakdowns b ON b.result_id=m.result_id AND b.component='skills' "
-        "WHERE m.run_id=? ORDER BY m.demand_id,m.rank,m.result_id",
-        (run_id,),
+        f"WHERE {predicate} ORDER BY m.demand_id,m.rank,m.result_id",
+        parameters,
     ).fetchall()
     result = []
     for source in rows:
@@ -162,6 +200,7 @@ def list_results(
     descending: bool = False,
     limit: int | None = 50,
     offset: int = 0,
+    run_pairs: dict[int, int] | None = None,
 ) -> dict[str, Any]:
     """REQ-OUT-01/03: sixteen display fields, masked before leaving the service."""
     _paging(limit, offset)
@@ -185,31 +224,39 @@ def list_results(
         if isinstance(filters, ResultFilters)
         else ResultFilters.model_validate(filters or {})
     )
-    if run_id is None:
+    if run_pairs is not None and run_id is not None:
+        raise ValueError("run_id and run_pairs are mutually exclusive")
+    if run_pairs is None and run_id is None:
         reconcile_runs(db)
         latest = db.execute(
             "SELECT run_id FROM match_runs WHERE status='completed' ORDER BY run_id DESC LIMIT 1"
         ).fetchone()
         run_id = latest[0] if latest else None
-    if run_id is None:
+    if run_pairs is None and run_id is None:
         return {"run_id": None, "items": [], "total": 0, "limit": limit, "offset": offset}
-    output = []
-    for row in _rows(db, run_id):
+    output: list[dict[str, Any]] = []
+    for row in _rows(db, run_id, run_pairs=run_pairs):
         if f.shortlisted_only and not row["effective_shortlisted"]:
             continue
+        requisitions = filter_values(f.requisition)
+        if requisitions and str(row["requisition"] or "").casefold() not in {
+            value.casefold() for value in requisitions
+        }:
+            continue
+        if any(
+            filter_values(getattr(f, key)) and row[key] not in filter_values(getattr(f, key))
+            for key in ("demand_grade", "person_grade")
+        ):
+            continue
         if (
-            f.requisition
-            and f.requisition.casefold() not in str(row["requisition"] or "").casefold()
+            f.location_assessment is not None
+            and row["location_assessment"] != f.location_assessment
         ):
             continue
         if any(
-            row[key] != getattr(f, key)
-            for key in ("demand_grade", "person_grade", "location_assessment")
-            if getattr(f, key) is not None
-        ):
-            continue
-        if any(
-            str(row.get(column) or "").casefold() != str(getattr(f, key)).casefold()
+            filter_values(getattr(f, key))
+            and str(row.get(column) or "").casefold()
+            not in {value.casefold() for value in filter_values(getattr(f, key))}
             for key, column in (
                 ("account", "account"),
                 ("person_location", "person_location"),
@@ -218,16 +265,19 @@ def list_results(
                 ("region", "role_location"),
                 ("candidate_type", "candidate_type"),
             )
-            if getattr(f, key)
         ):
             continue
-        if f.incomplete_identity and bool(row["incomplete_identity"]) != (
-            f.incomplete_identity == "yes"
+        incomplete = filter_values(f.incomplete_identity)
+        if incomplete and ("yes" if row["incomplete_identity"] else "no") not in incomplete:
+            continue
+        mandatory_skills = filter_values(f.mandatory_skills)
+        if (
+            mandatory_skills
+            and ("met" if row["mandatory_missing"] == 0 else "gap") not in mandatory_skills
         ):
             continue
-        if f.mandatory_skills and (row["mandatory_missing"] == 0) != (f.mandatory_skills == "met"):
-            continue
-        if f.band is not None and f.band not in {row["effective_band"], row["display_band"]}:
+        bands = filter_values(f.band)
+        if bands and not set(bands) & {row["effective_band"], row["display_band"]}:
             continue
         if f.score_min is not None and row["score"] < f.score_min:
             continue
@@ -253,7 +303,18 @@ def list_results(
         value = row["effective_band"] if sort == "band" else row[sort]
         return value is None, value.casefold() if isinstance(value, str) else value
 
-    output.sort(key=key, reverse=descending)
+    if sort == "score":
+        if run_pairs is not None:
+            output.sort(
+                key=lambda row: (
+                    str(row["requisition"] or "").casefold(),
+                    row["rank"],
+                    row["result_id"],
+                )
+            )
+        output.sort(key=key, reverse=descending)
+    elif not (run_pairs is not None and sort == "rank" and not descending):
+        output.sort(key=key, reverse=descending)
     return {
         "run_id": run_id,
         "items": output[offset : offset + limit if limit is not None else None],
@@ -331,6 +392,38 @@ def excluded_view(db: sqlite3.Connection, run_id: int) -> list[dict[str, Any]]:
             (run_id,),
         )
     ]
+
+
+def excluded_current_view(
+    db: sqlite3.Connection,
+    run_pairs: dict[int, int],
+    requisitions: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    if not run_pairs:
+        return []
+    demands = {
+        int(row["demand_id"]): str(row["code_requisition"] or "")
+        for row in db.execute(
+            "SELECT demand_id,code_requisition FROM demands WHERE lifecycle='open'"
+        )
+    }
+    requested = {value.casefold() for value in filter_values(requisitions)}
+    grouped: dict[int, set[int]] = defaultdict(set)
+    for demand_id, run_id in run_pairs.items():
+        if requested and demands.get(demand_id, "").casefold() not in requested:
+            continue
+        grouped[run_id].add(demand_id)
+
+    newest_run_id = max(run_pairs.values())
+    rows = []
+    for run_id in sorted(set(run_pairs.values()), reverse=True):
+        for row in excluded_view(db, run_id):
+            if row["demand_id"] is None:
+                if run_id == newest_run_id:
+                    rows.append(row)
+            elif row["demand_id"] in grouped.get(run_id, set()):
+                rows.append(row)
+    return rows
 
 
 def _reason(reason: str) -> str:
