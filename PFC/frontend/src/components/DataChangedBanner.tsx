@@ -32,14 +32,19 @@ export function DataChangedBanner({ run, summary }: { run: MatchRun; summary?: C
     void qc.invalidateQueries({ queryKey: ['current-results'] })
   }, [qc, startedId, finished])
   if (!(summary ?? run).dataChangedSinceRun) return null
+  const showChangedOnly = !summary || summary.staleDemandIds.length > 0
   const changedReasons = (summary ?? run).dataChangedReasons
   const reasons = changedReasons.length ? changedReasons.join(', ') : 'source data was updated'
   return (
     <Banner tone="info">
       <strong>Data changed since this run</strong> ({reasons}). These scores are a point-in-time snapshot from {formatDateTime(run.finishedAt)}.{' '}
-      <button className="btn btn-sm" disabled={rerun.isPending || rerun.isSuccess} onClick={() => rerun.mutate()}>
-        Re-run changed only
-      </button>{' '}
+      {showChangedOnly && (
+        <>
+          <button className="btn btn-sm" disabled={rerun.isPending || rerun.isSuccess} onClick={() => rerun.mutate()}>
+            Re-run changed only
+          </button>{' '}
+        </>
+      )}
       <Link className="btn btn-sm btn-tertiary" to="/demands">
         Full re-run
       </Link>

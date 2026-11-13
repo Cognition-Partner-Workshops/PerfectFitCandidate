@@ -44,6 +44,25 @@ describe('Data changed since this run banner', () => {
     await waitFor(() => expect(start).toHaveBeenCalledWith({ incremental: true, scope: 'demands', demandIds: [3, 7] }))
   })
 
+  it('hides changed-only rerun when the current summary has no stale demands', async () => {
+    const run = await stale()
+    const current = await mock.getCurrentResultsSummary()
+    vi.spyOn(mock, 'getCurrentResultsSummary').mockResolvedValue({
+      ...current,
+      runs: [run],
+      dataChangedSinceRun: true,
+      dataChangedReasons: run.dataChangedReasons,
+      staleDemandIds: [],
+    })
+    vi.spyOn(mock, 'listMatchRuns').mockResolvedValue([run])
+    vi.spyOn(mock, 'getMatchRun').mockResolvedValue(run)
+    renderApp('/matches')
+
+    expect(await screen.findByText('Data changed since this run', {}, { timeout: 5000 })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Re-run changed only' })).toBeNull()
+    expect(screen.getByRole('link', { name: 'Full re-run' })).toBeTruthy()
+  })
+
   it('mock clears the banner after an incremental re-run and records the mode', async () => {
     await mock.startMatchRun({ incremental: true, scope: 'full', demandIds: [] })
     expect((await mock.listMatchRuns())[0]).toMatchObject({ dataChangedSinceRun: false, mode: 'incremental', modeReason: 'inputs_compared' })

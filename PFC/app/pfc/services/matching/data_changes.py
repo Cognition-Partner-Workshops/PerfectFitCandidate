@@ -67,34 +67,30 @@ def stale_demand_ids_for_pairs(
     db: sqlite3.Connection,
     pairs: dict[int, int],
     runs: dict[int, dict[str, Any]],
-) -> list[int]:
+) -> tuple[list[int], list[str]]:
     stale: set[int] = set()
+    stale_reasons: set[str] = set()
     finished_by_demand: dict[int, datetime] = {}
     for demand_id, run_id in pairs.items():
         run = runs.get(run_id)
         if run is None:
             continue
         reasons = set(run.get("data_changed_reasons") or [])
-        if reasons & GLOBAL_REASONS:
+        global_reasons = reasons & GLOBAL_REASONS
+        if global_reasons:
             stale.add(demand_id)
-        elif run.get("finished_at"):
+            stale_reasons.update(global_reasons)
+        if run.get("finished_at"):
             finished_by_demand[demand_id] = _time(str(run["finished_at"]))
     if not finished_by_demand:
-        return sorted(stale)
+        return sorted(stale), [reason for reason in REASONS if reason in stale_reasons]
 
     cutoff = min(finished_by_demand.values()).replace(microsecond=0).isoformat()
-    events_by_demand: dict[int, list[datetime]] = {}
     events = db.execute(
         "SELECT v.demand_id AS demand_id,q.confirmed_at AS event_at "
         "FROM jd_requirements q JOIN demand_versions v USING(demand_version_id) "
-        "WHERE q.confirmed_at IS NOT NULL AND julianday(q.confirmed_at)>=julianday(?) "
-        "UNION ALL "
-        "SELECT CAST(json_extract(details_json,'$.demand_id') AS INTEGER),ts "
-        "FROM audit_log WHERE action='jd.edit' "
-        "AND entity_type='jd_requirements' "
-        "AND json_extract(details_json,'$.demand_id') IS NOT NULL "
-        "AND julianday(ts)>=julianday(?)",
-        (cutoff, cutoff),
+        "WHERE q.confirmed_at IS NOT NULL AND julianday(q.confirmed_at)>=julianday(?)",
+        (cutoff,),
     )
     for row in events:
         if row["demand_id"] is None or row["event_at"] is None:
@@ -103,9 +99,8 @@ def stale_demand_ids_for_pairs(
             demand_id = int(row["demand_id"])
         except (TypeError, ValueError):
             continue
-        events_by_demand.setdefault(demand_id, []).append(_event_boundary(str(row["event_at"])))
-
-    for demand_id, finished_at in finished_by_demand.items():
-        if any(event_at > finished_at for event_at in events_by_demand.get(demand_id, [])):
+        finished_at = finished_by_demand.get(demand_id)
+        if finished_at and _event_boundary(str(row["event_at"])) > finished_at:
             stale.add(demand_id)
-    return sorted(stale)
+            stale_reasons.add("JD confirmed")
+    return sorted(stale), [reason for reason in REASONS if reason in stale_reasons]

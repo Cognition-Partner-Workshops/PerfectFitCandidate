@@ -27,7 +27,7 @@ from pfc.security.dependencies import Principal, require_role
 from pfc.security.problems import Problem
 from pfc.services import matching
 from pfc.services.matching.current import current_runs
-from pfc.services.matching.data_changes import REASONS, stale_demand_ids_for_pairs
+from pfc.services.matching.data_changes import stale_demand_ids_for_pairs
 from pfc.services.matching.export import evidence_parts, export_results
 from pfc.services.pii import mask_emails_in, require_unmask_permission
 
@@ -273,18 +273,11 @@ def current_results_summary(request: Request) -> CurrentResults:
             if demand_id in demand_rows and run_id in run_records
         ]
         demands.sort(key=lambda item: (item.code_requisition.casefold(), item.demand_id))
-        stale_demand_ids = stale_demand_ids_for_pairs(db, pairs, run_records)
-        reasons = [
-            reason
-            for reason in REASONS
-            if any(reason in run["data_changed_reasons"] for run in run_records.values())
-        ]
+        stale_demand_ids, reasons = stale_demand_ids_for_pairs(db, pairs, run_records)
         return CurrentResults(
             demands=demands,
             runs=[run_view(run_records[run_id]) for run_id in run_ids if run_id in run_records],
-            data_changed_since_run=any(
-                run["data_changed_since_run"] for run in run_records.values()
-            ),
+            data_changed_since_run=bool(stale_demand_ids),
             data_changed_reasons=reasons,
             stale_demand_ids=stale_demand_ids,
         )

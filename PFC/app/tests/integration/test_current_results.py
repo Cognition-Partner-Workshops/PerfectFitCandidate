@@ -5,9 +5,8 @@ from datetime import timedelta
 from test_matching_api import Api, finish
 from test_matching_service import NOW, seed_demand, seed_resource
 
-from pfc.db.audit import append_audit
 from pfc.db.connection import database
-from pfc.services.matching import confirm_requirements
+from pfc.services.matching import confirm_requirements, save_draft
 
 pytest_plugins = ("test_matching_api",)
 
@@ -289,29 +288,35 @@ def test_current_stale_demands_scope_jd_events_but_global_uploads_remain_global(
 
     summary = client.get("/api/v1/match-results/current/summary")
     assert summary.status_code == 200, summary.text
-    assert summary.json()["dataChangedSinceRun"]
+    assert not summary.json()["dataChangedSinceRun"]
+    assert summary.json()["dataChangedReasons"] == []
     assert summary.json()["staleDemandIds"] == []
+    run_summaries = {run["runId"]: run for run in summary.json()["runs"]}
+    assert run_summaries[run_a]["dataChangedSinceRun"]
+    assert not run_summaries[run_b]["dataChangedSinceRun"]
 
     with database(client.app.state.settings) as db:
-        requirement_id = db.execute(
-            "SELECT q.jd_req_id FROM jd_requirements q "
-            "JOIN demand_versions v USING(demand_version_id) WHERE v.demand_id=?",
-            (demand_a,),
-        ).fetchone()[0]
-        edited_at = (NOW + timedelta(seconds=20)).isoformat()
-        append_audit(
+        save_draft(
             db,
-            ts=edited_at,
-            action="jd.edit",
-            user_id=1,
-            entity_type="jd_requirements",
-            entity_id=str(requirement_id),
-            details={"demand_id": demand_a},
+            demand_a,
+            {"mandatory_skills": [{"text": "SQL"}], "preferred_skills": []},
+            1,
+            NOW + timedelta(seconds=15),
         )
 
-    edited_summary = client.get("/api/v1/match-results/current/summary")
-    assert edited_summary.status_code == 200, edited_summary.text
-    assert edited_summary.json()["staleDemandIds"] == [demand_a]
+    draft_summary = client.get("/api/v1/match-results/current/summary")
+    assert draft_summary.status_code == 200, draft_summary.text
+    assert not draft_summary.json()["dataChangedSinceRun"]
+    assert draft_summary.json()["staleDemandIds"] == []
+
+    with database(client.app.state.settings) as db:
+        confirm_requirements(db, demand_a, None, 1, NOW + timedelta(seconds=20))
+
+    confirmed_summary = client.get("/api/v1/match-results/current/summary")
+    assert confirmed_summary.status_code == 200, confirmed_summary.text
+    assert confirmed_summary.json()["dataChangedSinceRun"]
+    assert confirmed_summary.json()["staleDemandIds"] == [demand_a]
+    assert confirmed_summary.json()["dataChangedReasons"] == ["JD confirmed"]
 
     with database(client.app.state.settings) as db:
         uploaded_at = (NOW + timedelta(seconds=30)).isoformat()
@@ -325,3 +330,4 @@ def test_current_stale_demands_scope_jd_events_but_global_uploads_remain_global(
     uploaded_summary = client.get("/api/v1/match-results/current/summary")
     assert uploaded_summary.status_code == 200, uploaded_summary.text
     assert uploaded_summary.json()["staleDemandIds"] == sorted([demand_a, demand_b])
+    assert uploaded_summary.json()["dataChangedReasons"] == ["DL/CT committed", "JD confirmed"]
