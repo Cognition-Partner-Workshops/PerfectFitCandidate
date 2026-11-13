@@ -734,7 +734,7 @@ def test_export_rejects_unknown_filter_values(populated: tuple[Api, dict[str, An
         ("status=Acme", ["Strong"]),
         ("status=Acme%20bank", ["Weak"]),
         ("account=Acm", []),
-        ("requisition=t1", ["Avg", "Strong", "Weak"]),
+        ("requisition=t1", []),
     ],
 )
 def test_dropdown_filters_match_exactly(

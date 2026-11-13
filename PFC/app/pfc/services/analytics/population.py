@@ -13,8 +13,14 @@ from pfc.domain.normalise import normalise_term, tokenise_skills
 from pfc.security.problems import Problem
 from pfc.services import matching
 from pfc.services.matching import results as result_views
-from pfc.services.matching.lifecycle import reconcile_runs
-from pfc.services.matching.results import _mask_email, active_overrides, apply_overrides
+from pfc.services.matching.current import current_runs, run_pair_predicate
+from pfc.services.matching.results import (
+    _mask_email,
+    active_overrides,
+    active_overrides_for_pairs,
+    apply_overrides,
+    filter_values,
+)
 from pfc.services.occ.domain import occ_domain_config
 
 BANDS = ("Strong", "Potential", "Avg", "Weak", "Insufficient data")
@@ -29,12 +35,9 @@ def _capacity_input(value: Any) -> bool:
     return isinstance(value, list) and any(_capacity_input(item) for item in value)
 
 
-def equal(actual: Any, expected: str | None) -> bool:
-    return not expected or str(actual or "").casefold() == expected.casefold()
-
-
-def contains(actual: Any, expected: str | None) -> bool:
-    return not expected or expected.casefold() in str(actual or "").casefold()
+def equal(actual: Any, expected: Any) -> bool:
+    values = filter_values(expected)
+    return not values or str(actual or "").casefold() in {value.casefold() for value in values}
 
 
 def counts(values: list[str], limit: int | None = None) -> list[dict[str, Any]]:
@@ -48,26 +51,51 @@ class Population:
         self.config = occ_domain_config(db)
         self.grades = self.config.grades.codes
         if filters.run_id is None:
-            reconcile_runs(db)
-            source = db.execute(
-                "SELECT run_id FROM match_runs WHERE status='completed' "
-                "ORDER BY run_id DESC LIMIT 1"
-            ).fetchone()
-            latest = source[0] if source else None
-            self.run = matching.get_run(db, latest) if latest is not None else None
+            self.run_pairs: dict[int, int] | None = current_runs(db)
+            run_ids = sorted(set(self.run_pairs.values()), reverse=True)
+            self.runs = {
+                run_id: run
+                for run_id in run_ids
+                if (run := matching.get_run(db, run_id)) is not None
+            }
+            self.run = self.runs.get(run_ids[0]) if run_ids else None
+            self.assessed_run_ids = dict(self.run_pairs)
         else:
+            self.run_pairs = None
             self.run = matching.get_run(db, filters.run_id)
             if self.run is None:
                 raise Problem(404, "RUN_NOT_FOUND", "Match run not found")
+            self.runs = {filters.run_id: self.run}
+            assessed: set[int] = set()
+            try:
+                demands = json.loads(self.run.get("dq_summary_json") or "{}").get("demands", {})
+            except (TypeError, ValueError):
+                demands = {}
+            if isinstance(demands, dict):
+                for value in demands:
+                    try:
+                        assessed.add(int(value))
+                    except (TypeError, ValueError):
+                        continue
+            assessed.update(
+                int(row[0])
+                for row in db.execute(
+                    "SELECT DISTINCT demand_id FROM match_results WHERE run_id=?",
+                    (filters.run_id,),
+                )
+            )
+            self.assessed_run_ids = {demand_id: filters.run_id for demand_id in assessed}
 
     @cached_property
     def overrides(self) -> dict[int, list[dict[str, Any]]]:
+        if self.run_pairs is not None:
+            return active_overrides_for_pairs(self.db, self.run_pairs)
         return active_overrides(self.db, self.run["run_id"]) if self.run else {}
 
     @cached_property
     def has_match_filters(self) -> bool:
         return any(
-            value is not None and value != ""
+            bool(filter_values(value)) if isinstance(value, (str, list)) else value is not None
             for value in self.filters.model_dump(exclude={"run_id"}).values()
         )
 
@@ -81,21 +109,28 @@ class Population:
             return Counter()
         if self.has_match_filters:
             return Counter((r["demand_id"], r["effective_band"]) for r in self.filtered_results)
+        parameters: tuple[Any, ...]
+        if self.run_pairs is None:
+            predicate, parameters = "m.run_id=?", (self.run["run_id"],)
+        else:
+            predicate, parameters = run_pair_predicate(self.run_pairs)
         counts = Counter(
             {
                 (row["demand_id"], row["band"]): row["n"]
                 for row in self.db.execute(
-                    "SELECT demand_id,band,COUNT(*) AS n FROM match_results "
-                    "WHERE run_id=? GROUP BY demand_id,band",
-                    (self.run["run_id"],),
+                    "SELECT m.demand_id,m.band,COUNT(*) AS n FROM match_results m "
+                    f"WHERE {predicate} GROUP BY m.demand_id,m.band",
+                    parameters,
                 )
             }
         )
         if self.overrides:
+            result_ids = tuple(self.overrides)
+            placeholders = ",".join("?" for _ in result_ids)
             for source in self.db.execute(
-                "SELECT result_id,demand_id,band FROM match_results WHERE run_id=? "
-                "AND result_id IN (SELECT result_id FROM overrides WHERE revoked_at IS NULL)",
-                (self.run["run_id"],),
+                "SELECT m.result_id,m.demand_id,m.band FROM match_results m "
+                f"WHERE {predicate} AND m.result_id IN ({placeholders})",
+                (*parameters, *result_ids),
             ):
                 row = dict(source)
                 counts[(row["demand_id"], row["band"])] -= 1
@@ -103,6 +138,40 @@ class Population:
                 if not row["effective_excluded"]:
                     counts[(row["demand_id"], row["effective_band"])] += 1
         return +counts
+
+    @cached_property
+    def assessed_demand_ids(self) -> set[int]:
+        return set(self.assessed_run_ids)
+
+    @cached_property
+    def weak_only_demand_ids(self) -> set[int]:
+        weak_only: set[int] = set()
+        for demand_id, run_id in self.assessed_run_ids.items():
+            run = self.runs.get(run_id)
+            if run is None:
+                continue
+            try:
+                demands = json.loads(run.get("dq_summary_json") or "{}").get("demands", {})
+            except (TypeError, ValueError):
+                continue
+            if demands.get(str(demand_id), {}).get("weak_only"):
+                weak_only.add(demand_id)
+        return weak_only
+
+    @cached_property
+    def pairs_scored(self) -> int:
+        if self.run is None:
+            return 0
+        parameters: tuple[Any, ...]
+        if self.run_pairs is None:
+            predicate, parameters = "m.run_id=?", (self.run["run_id"],)
+        else:
+            predicate, parameters = run_pair_predicate(self.run_pairs)
+        return int(
+            self.db.execute(
+                f"SELECT COUNT(*) FROM match_results m WHERE {predicate}", parameters
+            ).fetchone()[0]
+        )
 
     @staticmethod
     def _snapshot(key: str, fallback: str) -> str:
@@ -132,7 +201,7 @@ class Population:
             {
                 key: self._snapshot(key, fallback)
                 for key, (attribute, fallback) in fields.items()
-                if getattr(self.filters, attribute)
+                if filter_values(getattr(self.filters, attribute))
             }
             if not validation
             else {}
@@ -177,8 +246,13 @@ class Population:
             else None
         )
         mask = cache(result_views._mask_email)
+        parameters: tuple[Any, ...]
+        if self.run_pairs is None:
+            predicate, parameters = "m.run_id=?", (self.run["run_id"],)
+        else:
+            predicate, parameters = run_pair_predicate(self.run_pairs)
         cursor = self.db.execute(
-            "SELECT " + ",".join(columns) + joins + " WHERE m.run_id=?", (self.run["run_id"],)
+            "SELECT " + ",".join(columns) + joins + f" WHERE {predicate}", parameters
         )
         cursor.row_factory = None
         names = tuple(column[0] for column in cursor.description)
@@ -211,13 +285,18 @@ class Population:
         """REQ-OUT-10: inspect suspect scoring inputs once per run, not per result."""
         if self.run is None:
             return set()
+        parameters: tuple[Any, ...]
+        if self.run_pairs is None:
+            predicate, parameters = "m.run_id=?", (self.run["run_id"],)
+        else:
+            predicate, parameters = run_pair_predicate(self.run_pairs)
         return {
             row["result_id"]
             for row in self.db.execute(
                 "SELECT b.result_id,b.inputs_json FROM score_breakdowns b "
                 "JOIN match_results m INDEXED BY ix_results_demand USING(result_id) "
-                "WHERE m.run_id=? AND b.inputs_json LIKE '%capacity%'",
-                (self.run["run_id"],),
+                f"WHERE {predicate} AND b.inputs_json LIKE '%capacity%'",
+                parameters,
             )
             if _capacity_input(json.loads(row["inputs_json"]))
         }
@@ -259,7 +338,7 @@ class Population:
     def demand_filter(self, row: dict[str, Any]) -> bool:
         f = self.filters
         return (
-            contains(row["code_requisition"], f.code_requisition)
+            equal(row["code_requisition"], f.code_requisition)
             and equal(row["account_name"], f.account_name)
             and equal(row["bu"], f.bu)
             and equal(row["region"], f.region)
@@ -281,28 +360,25 @@ class Population:
 
     def match_filter(self, row: dict[str, Any]) -> bool:
         f = self.filters
+        grade_values = filter_values(f.grade)
+        incomplete = filter_values(f.incomplete_identity)
+        mandatory = filter_values(f.mandatory_skills)
         return (
-            contains(row["requisition"], f.code_requisition)
+            equal(row["requisition"], f.code_requisition)
             and equal(row["account"], f.account_name)
             and equal(row["bu"], f.bu)
             and equal(row["role_location"], f.region)
             and (
-                not f.grade
-                or equal(row["demand_grade"], f.grade)
-                or equal(row["person_grade"], f.grade)
+                not grade_values
+                or equal(row["demand_grade"], grade_values)
+                or equal(row["person_grade"], grade_values)
             )
             and equal(row["person_location"], f.location)
             and equal(row["status"], f.status)
             and equal(row["effective_band"], f.band)
             and equal(row["candidate_type"], f.candidate_type)
-            and (
-                not f.incomplete_identity
-                or bool(row["incomplete_identity"]) == (f.incomplete_identity == "yes")
-            )
-            and (
-                not f.mandatory_skills
-                or (row["mandatory_missing"] == 0) == (f.mandatory_skills == "met")
-            )
+            and (not incomplete or ("yes" if row["incomplete_identity"] else "no") in incomplete)
+            and (not mandatory or ("met" if row["mandatory_missing"] == 0 else "gap") in mandatory)
             and (f.score_min is None or row["score"] >= f.score_min)
             and (f.score_max is None or row["score"] <= f.score_max)
         )
@@ -342,7 +418,7 @@ class Population:
         by_demand: dict[int, Counter[str]] = defaultdict(Counter)
         for (demand_id, band), count in self.result_counts.items():
             by_demand[demand_id][band] += count
-        assessed = json.loads((self.run or {}).get("dq_summary_json") or "{}").get("demands", {})
+        assessed = self.assessed_demand_ids
         for source in self.db.execute(
             "SELECT d.*,v.jd_text_norm FROM demands d LEFT JOIN demand_versions v "
             "ON v.demand_version_id=d.current_version_id WHERE d.lifecycle='open' "
@@ -372,7 +448,7 @@ class Population:
             )
             if current is None and row["demand_id"] in historical:
                 status = "JD changed"
-            if current and current["status"] == "confirmed" and str(row["demand_id"]) in assessed:
+            if current and current["status"] == "confirmed" and row["demand_id"] in assessed:
                 status = "Scored"
             row.update(
                 jd_status=status,

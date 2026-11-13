@@ -295,10 +295,13 @@ class EmailService:
         with database(self.settings) as db:
             template = self._ensure_default_template(db, now)
             cc_addresses = self._resource_team(db)
-            results = self._top_results(db, run_id=run_id, demand_id=demand_id)
+            if run_id is None and demand_id is None and result_ids is not None:
+                results = self._top_results_for_ids(db, result_ids)
+            else:
+                results = self._top_results(db, run_id=run_id, demand_id=demand_id)
         if not results:
             raise Problem(404, "MATCH_RESULTS_NOT_FOUND", "No match results found")
-        if result_ids is not None:
+        if result_ids is not None and (run_id is not None or demand_id is not None):
             requested = set(result_ids)
             available = {int(row["result_id"]) for row in results}
             if requested - available:
@@ -981,6 +984,43 @@ class EmailService:
             parameters,
         ).fetchall()
         return list(rows)
+
+    def _top_results_for_ids(
+        self, db: sqlite3.Connection, result_ids: Sequence[int]
+    ) -> list[sqlite3.Row]:
+        requested = list(result_ids)
+        placeholders = ",".join("?" for _ in requested)
+        sources = {
+            int(row["result_id"]): (int(row["run_id"]), int(row["demand_id"]))
+            for row in db.execute(
+                "SELECT result_id,run_id,demand_id FROM match_results "
+                f"WHERE result_id IN ({placeholders})",
+                tuple(requested),
+            )
+        }
+        if set(sources) != set(requested):
+            raise Problem(
+                422,
+                "EMAIL_RESULT_NOT_TOP_FIVE",
+                "Selected results must be in the top five for their demand",
+            )
+        grouped: dict[tuple[int, int], list[int]] = {}
+        for result_id in requested:
+            grouped.setdefault(sources[result_id], []).append(result_id)
+
+        top_results: dict[int, sqlite3.Row] = {}
+        for run_id, demand_id in grouped:
+            rows = self._top_results(db, run_id=run_id, demand_id=demand_id)
+            available = {int(row["result_id"]): row for row in rows}
+            selected = grouped[(run_id, demand_id)]
+            if set(selected) - set(available):
+                raise Problem(
+                    422,
+                    "EMAIL_RESULT_NOT_TOP_FIVE",
+                    "Selected results must be in the top five for their demand",
+                )
+            top_results.update(available)
+        return [top_results[result_id] for result_id in requested]
 
     def _ensure_default_template(self, db: sqlite3.Connection, now: str) -> sqlite3.Row:
         row = db.execute(

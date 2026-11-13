@@ -14,6 +14,7 @@ from pfc.security.problems import Problem
 from pfc.services.pii import mask_emails_in
 
 from .common import atomic
+from .data_changes import REASONS
 from .results import get_run, list_results
 
 HEADERS = (
@@ -69,7 +70,7 @@ def display_start_date(value: str | None) -> str:
 
 def export_results(
     db: sqlite3.Connection,
-    run_id: int,
+    run_id: int | None,
     format: Literal["csv", "xlsx"],
     filters: dict[str, Any],
     *,
@@ -80,19 +81,55 @@ def export_results(
     descending: bool = False,
     limit: int | None = None,
     offset: int = 0,
+    run_pairs: dict[int, int] | None = None,
 ) -> tuple[bytes, str]:
-    run = get_run(db, run_id)
-    if run is None:
-        raise Problem(404, "RUN_NOT_FOUND", "Match run not found")
-    page = list_results(db, run_id, filters, sort=sort, descending=descending, limit=None, offset=0)
+    if run_pairs is None:
+        if run_id is None:
+            raise ValueError("run_id is required for a per-run export")
+        run = get_run(db, run_id)
+        if run is None:
+            raise Problem(404, "RUN_NOT_FOUND", "Match run not found")
+        run_ids = [run_id]
+        metadata = (
+            f"Run {run_id} · Finished {run['finished_at'] or ''} · "
+            f"Model {run['llm_model'] or ''} · Template v{run['template_version']} · "
+            f"dataChangedSinceRun: {json.dumps(run['data_changed_since_run'])} · "
+            f"dataChangedReasons: {json.dumps(run['data_changed_reasons'])}"
+        )
+    else:
+        if run_id is not None:
+            raise ValueError("run_id and run_pairs are mutually exclusive")
+        run_ids = sorted(set(run_pairs.values()), reverse=True)
+        runs = [get_run(db, contributing_run_id) for contributing_run_id in run_ids]
+        contributing = [run for run in runs if run is not None]
+        newest = contributing[0] if contributing else None
+        changed_reasons = [
+            reason
+            for reason in REASONS
+            if any(reason in run["data_changed_reasons"] for run in contributing)
+        ]
+        finished_at = newest["finished_at"] or "" if newest else ""
+        model = newest["llm_model"] or "" if newest else ""
+        template_version = newest["template_version"] if newest else ""
+        data_changed = any(run["data_changed_since_run"] for run in contributing)
+        metadata = (
+            f"Current results · Runs {', '.join(map(str, run_ids))} · "
+            f"Finished {finished_at} · Model {model} · Template v{template_version} · "
+            f"dataChangedSinceRun: {json.dumps(data_changed)} · "
+            f"dataChangedReasons: {json.dumps(changed_reasons)}"
+        )
+    page = list_results(
+        db,
+        run_id,
+        filters,
+        sort=sort,
+        descending=descending,
+        limit=None,
+        offset=0,
+        run_pairs=run_pairs,
+    )
     results = [row for row in page["items"] if not row["effective_excluded"]]
     results = results[offset : None if limit is None else offset + limit]
-    metadata = (
-        f"Run {run_id} · Finished {run['finished_at'] or ''} · "
-        f"Model {run['llm_model'] or ''} · Template v{run['template_version']} · "
-        f"dataChangedSinceRun: {json.dumps(run['data_changed_since_run'])} · "
-        f"dataChangedReasons: {json.dumps(run['data_changed_reasons'])}"
-    )
     rows: list[list[Any]] = [[metadata], [DISCLAIMER], list(HEADERS)]
     for row in results:
         email = row["person_email"]
@@ -145,12 +182,16 @@ def export_results(
         book.save(output)
         content = output.getvalue()
         media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    details = {
+    audit_filters = {
+        key: value[0] if isinstance(value, list) and len(value) == 1 else value
+        for key, value in filters.items()
+    }
+    details: dict[str, Any] = {
         "run_id": run_id,
         "format": format,
         "rows": len(results),
         "filters": {
-            **filters,
+            **audit_filters,
             "sort": sort,
             "descending": descending,
             "limit": limit,
@@ -158,6 +199,8 @@ def export_results(
         },
         "includeEmails": include_emails,
     }
+    if run_pairs is not None:
+        details["run_ids"] = run_ids
     with atomic(db):
         if include_emails:
             append_audit(
@@ -166,7 +209,9 @@ def export_results(
                 action="unmask",
                 user_id=user_id,
                 entity_type="match_run",
-                entity_id=str(run_id),
+                entity_id=(
+                    str(run_id) if run_id is not None else ",".join(map(str, run_ids)) or "current"
+                ),
                 details=details,
             )
         append_audit(
@@ -175,7 +220,9 @@ def export_results(
             action="export_results",
             user_id=user_id,
             entity_type="match_run",
-            entity_id=str(run_id),
+            entity_id=(
+                str(run_id) if run_id is not None else ",".join(map(str, run_ids)) or "current"
+            ),
             details=details,
         )
     return content, media

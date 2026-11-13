@@ -11,7 +11,7 @@ from pydantic import (
 )
 from pydantic.alias_generators import to_snake
 
-from .match import WireModel
+from .match import RunView, WireModel
 
 Band = Literal["Strong", "Potential", "Avg", "Weak", "Insufficient data"]
 Action = Literal["pin", "unpin", "exclude", "include", "adjust_band"]
@@ -22,22 +22,22 @@ def band_label(value: str) -> Band:
 
 
 class ResultsQuery(WireModel):
-    requisition: str | None = None
-    account: str | None = None
-    demand_grade: str | None = None
-    person_grade: str | None = None
-    person_location: str | None = None
-    band: Band | None = None
+    requisition: list[str] | None = None
+    account: list[str] | None = None
+    demand_grade: list[str] | None = None
+    person_grade: list[str] | None = None
+    person_location: list[str] | None = None
+    band: list[Band] | None = None
     location_assessment: str | None = None
     mandatory_skill: str | None = None
     score_min: float | None = Field(default=None, ge=0, le=100)
     score_max: float | None = Field(default=None, ge=0, le=100)
-    status: str | None = None
-    bu: str | None = None
-    region: str | None = None
-    candidate_type: Literal["Internal", "External", "Unknown", ""] | None = None
-    incomplete_identity: Literal["yes", "no", ""] | None = None
-    mandatory_skills: Literal["met", "gap", ""] | None = None
+    status: list[str] | None = None
+    bu: list[str] | None = None
+    region: list[str] | None = None
+    candidate_type: list[Literal["Internal", "External", "Unknown", ""]] | None = None
+    incomplete_identity: list[Literal["yes", "no", ""]] | None = None
+    mandatory_skills: list[Literal["met", "gap", ""]] | None = None
     shortlisted_only: bool = False
     sort: Literal[
         "rank",
@@ -63,8 +63,11 @@ class ResultsQuery(WireModel):
 
     @field_validator("band", mode="before")
     @classmethod
-    def normalize_band(cls, value: str | None) -> str | None:
-        return band_label(value) if value is not None else None
+    def normalize_band(cls, value: str | list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        values = value if isinstance(value, list) else [value]
+        return [band_label(item) for item in values]
 
     @model_validator(mode="after")
     def limits(self) -> Self:
@@ -200,3 +203,18 @@ class ExcludedRow(WireModel):
     reason_code: str
     detail: str | None
     scope: Literal["global", "pair"]
+
+
+class CurrentDemand(WireModel):
+    demand_id: int
+    code_requisition: str
+    run_id: int
+    finished_at: str
+
+
+class CurrentResults(WireModel):
+    demands: list[CurrentDemand]
+    runs: list[RunView]
+    data_changed_since_run: bool
+    data_changed_reasons: list[str]
+    stale_demand_ids: list[int]

@@ -2,10 +2,10 @@
 
 from typing import Literal, Self
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from pfc.api.schemas.match import WireModel
-from pfc.api.schemas.results import Band, ResultsQuery
+from pfc.api.schemas.results import Band, ResultsQuery, band_label
 
 
 class ExportQuery(ResultsQuery):
@@ -14,20 +14,28 @@ class ExportQuery(ResultsQuery):
 
 
 class DashboardFilters(WireModel):
-    code_requisition: str | None = None
-    account_name: str | None = None
-    bu: str | None = None
-    grade: str | None = None
-    location: str | None = None
-    region: str | None = None
-    band: Band | Literal[""] | None = None
-    status: str | None = None
-    candidate_type: Literal["Internal", "External", "Unknown", ""] | None = None
-    incomplete_identity: Literal["yes", "no", ""] | None = None
-    mandatory_skills: Literal["met", "gap", ""] | None = None
+    code_requisition: list[str] | None = None
+    account_name: list[str] | None = None
+    bu: list[str] | None = None
+    grade: list[str] | None = None
+    location: list[str] | None = None
+    region: list[str] | None = None
+    band: list[Band | Literal[""]] | None = None
+    status: list[str] | None = None
+    candidate_type: list[Literal["Internal", "External", "Unknown", ""]] | None = None
+    incomplete_identity: list[Literal["yes", "no", ""]] | None = None
+    mandatory_skills: list[Literal["met", "gap", ""]] | None = None
     score_min: float | None = Field(default=None, ge=0, le=100)
     score_max: float | None = Field(default=None, ge=0, le=100)
     run_id: int | None = Field(default=None, gt=0)
+
+    @field_validator("band", mode="before")
+    @classmethod
+    def normalize_band(cls, value: str | list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        values = value if isinstance(value, list) else [value]
+        return [band_label(item) for item in values]
 
     @model_validator(mode="after")
     def score_range(self) -> Self:
@@ -115,6 +123,7 @@ class DataQuality(WireModel):
 
 class AnalyticsSummary(WireModel):
     run: MatchRun | None
+    runs_included: int
     requisitions_assessed: int
     open_requisitions: int
     role_to_person_combinations: int
