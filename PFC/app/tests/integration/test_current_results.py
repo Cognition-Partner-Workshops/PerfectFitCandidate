@@ -31,14 +31,17 @@ def test_current_results_summary_excluded_export_filters_and_analytics(api: Api)
         for demand_id in demands
     ]
     with database(client.app.state.settings) as db:
-        for demand_id, band, base_score in zip(
-            demands, ("Strong", "Potential", "Weak"), (95.0, 85.0, 75.0), strict=True
-        ):
+        for demand_id, base_score in zip(demands, (95.0, 85.0, 75.0), strict=True):
             rows = db.execute(
                 "SELECT result_id,rank FROM match_results WHERE demand_id=? ORDER BY rank",
                 (demand_id,),
             ).fetchall()
-            for row in rows:
+            for index, row in enumerate(rows):
+                band = (
+                    "Strong"
+                    if demand_id == demands[0] and index == 0
+                    else ("Potential" if demand_id == demands[1] and index < 2 else "Weak")
+                )
                 db.execute(
                     "UPDATE match_results SET band=?,score=? WHERE result_id=?",
                     (band, base_score - row["rank"], row["result_id"]),
@@ -145,6 +148,34 @@ def test_current_results_summary_excluded_export_filters_and_analytics(api: Api)
     assert analytics.status_code == 200, analytics.text
     assert analytics.json()["requisitionsAssessed"] == 3
     assert analytics.json()["runsIncluded"] == 3
+    assert analytics.json()["roleToPersonCombinations"] == len(current.json())
+    current_filter = [
+        ("requisition", "T10001"),
+        ("requisition", "T10004"),
+        ("band", "Strong"),
+        ("band", "Potential"),
+    ]
+    filtered_rows = client.get("/api/v1/match-results/current", params=current_filter)
+    assert filtered_rows.status_code == 200, filtered_rows.text
+    assert len(filtered_rows.json()) == 3
+    filtered_summary = client.get(
+        "/api/v1/analytics/summary",
+        params=[
+            ("codeRequisition", "T10001"),
+            ("codeRequisition", "T10004"),
+            ("band", "Strong"),
+            ("band", "Potential"),
+        ],
+    )
+    assert filtered_summary.status_code == 200, filtered_summary.text
+    assert filtered_summary.json()["requisitionsAssessed"] == 2
+    assert filtered_summary.json()["roleToPersonCombinations"] == len(filtered_rows.json())
+    explicit_filtered = client.get(
+        "/api/v1/analytics/summary",
+        params=[("runId", str(runs[0])), ("codeRequisition", "T10001"), ("band", "Strong")],
+    )
+    assert explicit_filtered.status_code == 200, explicit_filtered.text
+    assert explicit_filtered.json()["roleToPersonCombinations"] == 1
     explicit = client.get(f"/api/v1/analytics/summary?runId={runs[0]}")
     assert explicit.status_code == 200
     assert explicit.json()["requisitionsAssessed"] == 1

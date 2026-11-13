@@ -101,6 +101,12 @@ def summary(p: Population) -> dict[str, Any]:
     )
     if run_view is not None:
         run_view["llm_model"] = run_view["llm_model"] or ""
+    if p.has_match_filters:
+        role_to_person_combinations = sum(p.result_counts.values())
+    elif p.filters.run_id is not None:
+        role_to_person_combinations = (run or {}).get("pairs_scored") or 0
+    else:
+        role_to_person_combinations = p.pairs_scored
     return {
         "run": run_view,
         "runs_included": len(p.runs),
@@ -110,9 +116,7 @@ def summary(p: Population) -> dict[str, Any]:
             else len(assessed)
         ),
         "open_requisitions": len(p.demands),
-        "role_to_person_combinations": (
-            (run or {}).get("pairs_scored") or 0 if p.filters.run_id is not None else p.pairs_scored
-        ),
+        "role_to_person_combinations": role_to_person_combinations,
         "roles_with_no_suitable_candidate": len(assessed - suitable),
         "weak_only_requisitions": sum(
             demand_id in p.weak_only_demand_ids for demand_id in assessed
