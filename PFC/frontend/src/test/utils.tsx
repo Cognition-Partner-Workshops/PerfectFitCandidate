@@ -14,6 +14,7 @@ export const ANALYST_PASSWORD = 'Bench#Matching2026'
 /** Fresh mock state with one Admin (and optionally one Analyst whose password is already changed). */
 export async function seed(options: { analyst?: boolean } = {}): Promise<{ analystEmail: string }> {
   localStorage.clear()
+  sessionStorage.clear()
   mock.reset()
   await mock.setupAdmin({ setupCode: mock.setupCode, ...ADMIN })
   const analystEmail = 'bea.analyst@example.com'

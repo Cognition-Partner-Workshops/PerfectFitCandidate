@@ -586,6 +586,36 @@ describe('HttpApiClient — health (REQ-AUTH-06)', () => {
   })
 })
 
+describe('HttpApiClient — current results', () => {
+  it('loads all current rows, summary and exclusions without a limit', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(json([])).mockResolvedValueOnce(json({ demands: [], runs: [], staleDemandIds: [] })).mockResolvedValueOnce(json([]))
+    expect(await api.getCurrentResults()).toEqual([])
+    expect((await api.getCurrentResultsSummary()).demands).toEqual([])
+    expect(await api.getCurrentExcluded()).toEqual([])
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      '/api/v1/match-results/current', '/api/v1/match-results/current/summary', '/api/v1/match-results/current/excluded',
+    ])
+  })
+
+  it('exports repeated result filter values and uses the current filename', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(new Response('csv', { headers: { 'Content-Type': 'text/csv' } }))
+    const file = await api.exportCurrentResults({ codeRequisition: ['A', 'B'], band: ['Strong', 'Potential'] }, 'csv', false)
+    const params = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost').searchParams
+    expect(params.getAll('requisition')).toEqual(['A', 'B'])
+    expect(params.getAll('band')).toEqual(['Strong', 'Potential'])
+    expect(file.fileName).toBe('PFC-results-current.csv')
+    expect(await file.blob.text()).toBe('csv')
+  })
+
+  it('propagates current endpoint errors', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(problem(403, 'FORBIDDEN', 'Not allowed'))
+    await expect(api.getCurrentResults()).rejects.toMatchObject({ status: 403, code: 'FORBIDDEN' })
+  })
+})
+
 describe('HttpApiClient — analytics and export wiring (REQ-OUT-04..09)', () => {
   it('serialises analytics arrays as repeated keys and skips empty lists', async () => {
     const api = new HttpApiClient('/api/v1')

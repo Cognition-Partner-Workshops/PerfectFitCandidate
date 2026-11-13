@@ -95,7 +95,9 @@ describe('pages', () => {
     expect(headers[i + 1]).toBe('Person Email')
     expect(headers.slice(2, 18)[0]).toBe('Requisition')
     expect(within(table).getAllByText(/\*{6}/).length).toBeGreaterThan(0)
-    fireEvent.change(screen.getByLabelText('Code Requisition'), { target: { value: 'T2B456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Code Requisition' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'T2B456' }))
+    fireEvent.keyDown(screen.getByRole('group', { name: 'Code Requisition options' }), { key: 'Escape' })
     await waitFor(() => expect(within(table).queryByText('T1A123')).toBeNull())
   })
 

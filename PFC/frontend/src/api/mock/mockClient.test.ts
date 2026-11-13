@@ -26,7 +26,7 @@ describe('current results', () => {
     expect(new Set(rows.map((r) => r.runId)).size).toBe(2)
     expect(new Set(rows.map((r) => r.codeRequisition)).size).toBeGreaterThanOrEqual(3)
     const summary = await api.getCurrentResultsSummary()
-    expect(summary.runs.map((r) => r.runId)).toEqual([1, 0])
+    expect(summary.runs.map((r) => r.runId)).toEqual([2, 1])
     for (const demand of summary.demands) {
       expect(rows.filter((r) => r.demandId === demand.demandId).every((r) => r.runId === demand.runId)).toBe(true)
     }

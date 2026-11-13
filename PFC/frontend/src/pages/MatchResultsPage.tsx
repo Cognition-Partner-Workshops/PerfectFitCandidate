@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight, Download, Mail, TriangleAlert } from 'lucide
 import { api } from '../api'
 import { ApiError, type ExportFormat } from '../api/client'
 import { downloadBlob } from '../lib/download'
-import type { Band, MatchResult, MatchRun, ResultFilters } from '../api/types'
+import type { Band, MatchResult, MatchRun } from '../api/types'
 import { FilterBar } from '../components/FilterBar'
 import { BandChip, Banner, Chip, EmptyState, ErrorState, MaskedValue, MatchDoughnut, Modal, ScoreBreakdown, Spinner } from '../components/ui'
 import { applyResultFilters, distinct } from '../lib/filters'
@@ -17,6 +17,7 @@ import { useAuth } from '../auth/context'
 import { canEdit } from '../lib/permissions'
 import { groupExcluded, type ExcludedPerson } from '../lib/excluded'
 import { DataChangedBanner } from '../components/DataChangedBanner'
+import { useResultFilters } from '../lib/FilterProvider'
 import { runMode } from '../lib/runMode'
 
 function OverrideDialog({ row, onClose }: { row: MatchResult; onClose: () => void }) {
@@ -27,7 +28,7 @@ function OverrideDialog({ row, onClose }: { row: MatchResult; onClose: () => voi
   const m = useMutation({
     mutationFn: () => api.addOverride(row.resultId, { action, reason, newBand: action === 'adjust_band' ? band : undefined }),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['results'] })
+      void qc.invalidateQueries({ queryKey: ['current-results'] })
       onClose()
     },
   })
@@ -232,14 +233,20 @@ export function MatchResultsPage() {
   const { user } = useAuth()
   const [params] = useSearchParams()
   const navigate = useNavigate()
-  const [filters, setFilters] = useState<ResultFilters>(() => (params.get('req') ? { codeRequisition: [params.get('req')!] } : {}))
+  const { filters, setFilters } = useResultFilters()
+  const req = params.get('req')
+  useEffect(() => {
+    if (req) setFilters((previous) => ({ ...previous, codeRequisition: [req] }))
+  }, [req, setFilters])
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [grouped, setGrouped] = useState(true)
   const [overrideRow, setOverrideRow] = useState<MatchResult | null>(null)
   const qc = useQueryClient()
   // Refetch on mount and focus so the data-changed flag reflects edits made on other screens or tabs.
   const runs = useQuery({ queryKey: ['runs'], queryFn: () => api.listMatchRuns(), staleTime: 0, refetchOnWindowFocus: true })
   // Runs are newest first; a queued/running run has no results yet, so the last completed run stays on screen.
-  const run = runs.data?.find((r) => r.status === 'completed')
+  const summary = useQuery({ queryKey: ['current-results', 'summary'], queryFn: () => api.getCurrentResultsSummary(), staleTime: 0, refetchOnWindowFocus: true })
+  const run = summary.data?.runs[0]
   const newer = runs.data?.[0] && isActive(runs.data[0]) ? runs.data[0] : undefined
   const progress = useQuery({
     queryKey: ['run', newer?.runId],
@@ -248,17 +255,20 @@ export function MatchResultsPage() {
     refetchInterval: (q) => (q.state.data && !isActive(q.state.data) ? false : RUN_POLL_MS),
   })
   useEffect(() => {
-    if (progress.data && !isActive(progress.data)) void qc.invalidateQueries({ queryKey: ['runs'] })
+    if (progress.data && !isActive(progress.data)) {
+      void qc.invalidateQueries({ queryKey: ['runs'] })
+      void qc.invalidateQueries({ queryKey: ['current-results'] })
+    }
   }, [progress.data, qc])
-  const results = useQuery({ queryKey: ['results', run?.runId], queryFn: () => api.getResults(run?.runId ?? 0), enabled: !!run })
+  const results = useQuery({ queryKey: ['current-results', 'rows'], queryFn: () => api.getCurrentResults() })
   const [tab, setTab] = useState<'results' | 'excluded'>('results')
-  const excluded = useQuery({ queryKey: ['run-excluded', run?.runId], queryFn: () => api.getRunExcluded(run?.runId ?? 0), enabled: !!run })
+  const excluded = useQuery({ queryKey: ['current-results', 'excluded'], queryFn: () => api.getCurrentExcluded() })
   // An older run can name people a later CT upload took off the bench, so join against every lifecycle.
   const bench = useQuery({ queryKey: ['resources', 'all-lifecycles'], queryFn: () => api.listAllResources(), enabled: !!run })
   const excludedRows = useMemo(() => groupExcluded(excluded.data ?? [], bench.data ?? []), [excluded.data, bench.data])
   const [selection, setSelection] = useState<Set<number> | null>(null)
   const send = useMutation({
-    mutationFn: (ids: number[]) => api.createDrafts(ids, run?.runId),
+    mutationFn: (ids: number[]) => api.createDrafts(ids),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['emails'] })
       navigate('/email')
@@ -268,7 +278,7 @@ export function MatchResultsPage() {
   const [exportFormat, setExportFormat] = useState<ExportFormat>('csv')
   const [includeEmails, setIncludeEmails] = useState(false)
   const exporter = useMutation({
-    mutationFn: () => api.exportResults(run?.runId ?? 0, filters, exportFormat, includeEmails),
+    mutationFn: () => api.exportCurrentResults(filters, exportFormat, includeEmails),
     onSuccess: ({ blob, fileName }) => downloadBlob(blob, fileName),
   })
 
@@ -277,6 +287,7 @@ export function MatchResultsPage() {
   const selected = selection ?? preselectForEmail(all)
   const options = useMemo(
     () => ({
+      requisitions: distinct(all, (r) => r.codeRequisition),
       accounts: distinct(all, (r) => r.accountName),
       bus: distinct(all, (r) => r.bu),
       grades: ['A3', 'A4', 'B1', 'B2', 'C1', 'C2', 'D1', 'D2', 'E1'],
@@ -293,8 +304,9 @@ export function MatchResultsPage() {
     setSelection(next)
   }
 
-  if (runs.isLoading || results.isLoading) return <div className="page"><Spinner /></div>
+  if (summary.isLoading || runs.isLoading || results.isLoading) return <div className="page"><Spinner /></div>
   if (runs.isError) return <div className="page"><ErrorState error={runs.error} /></div>
+  if (summary.isError) return <div className="page"><ErrorState error={summary.error} /></div>
   if (!run) {
     return (
       <div className="page">
@@ -308,9 +320,9 @@ export function MatchResultsPage() {
     )
   }
   const mode = runMode(run)
-  const meta = `Run ${formatDateTime(run.finishedAt)} · Model ${run.llmModel} · Template v${run.templateVersion}${mode ? ` · Mode: ${mode}` : ''}`
+  const meta = `Current results · ${summary.data?.demands.length ?? 0} reqs · ${summary.data?.runs.length ?? 0} runs · latest ${formatDateTime(run.finishedAt)} · Model ${run.llmModel} · Template v${run.templateVersion}${mode ? ` · Mode: ${mode}` : ''}`
   const selectedVisible = rows.filter((r) => selected.has(r.resultId))
-  const groups = grouped ? groupByRequisition(rows) : [['', rows] as [string, MatchResult[]]]
+  const groups = grouped ? groupByRequisition(rows) : [['', [...rows].sort((a, b) => b.score - a.score || a.codeRequisition.localeCompare(b.codeRequisition) || a.rank - b.rank)] as [string, MatchResult[]]]
   const canOverride = !!user && canEdit(user.role, 'matchOverrides')
 
   return (
@@ -320,11 +332,11 @@ export function MatchResultsPage() {
           Scoring run {newer.runId} is {progress.data?.status ?? newer.status}. {run ? 'Showing the last completed results until it finishes.' : 'Results appear when it finishes.'}
         </Banner>
       )}
-      <DataChangedBanner run={run} />
+      <DataChangedBanner run={run} summary={summary.data} />
       <div className="page-header">
         <h1>Match Results</h1>
         <span className="meta">
-          {meta} {user?.role === 'Analyst' && '(read-only)'} · {run.demandsAssessed} reqs · {run.pairsScored} rows
+          {meta} {user?.role === 'Analyst' && '(read-only)'} · {all.length} rows
         </span>
         <span className="spacer" />
         <select aria-label="Export format" value={exportFormat} onChange={(e) => setExportFormat(e.target.value as ExportFormat)}>
@@ -363,6 +375,10 @@ export function MatchResultsPage() {
           <label className="row">
             <input type="radio" checked={!grouped} onChange={() => setGrouped(false)} /> Flat list
           </label>
+          {grouped && <>
+            <button className="btn btn-sm" onClick={() => setCollapsed(new Set(rows.map((r) => r.codeRequisition)))}>Collapse all</button>
+            <button className="btn btn-sm" onClick={() => setCollapsed(new Set())}>Expand all</button>
+          </>}
           <span className="spacer" />
           <span className="muted">Top 4 of 5 per requisition are pre-selected for email.</span>
         </div>
@@ -395,12 +411,18 @@ export function MatchResultsPage() {
                 {grouped && list[0] && (
                   <tr className="group-row">
                     <td colSpan={19}>
-                      <span className="mono">{req}</span> · {list[0].demandRequestName} · {list[0].accountName} · {list[0].demandGrade} · {roleLocation(list[0].region)} · {formatDate(list[0].positionStartDate)}{' '}
+                      <button className="btn btn-sm" aria-label={`Toggle ${req}`} aria-expanded={!collapsed.has(req)} onClick={() => setCollapsed((previous) => {
+                        const next = new Set(previous)
+                        if (next.has(req)) next.delete(req)
+                        else next.add(req)
+                        return next
+                      })}>{collapsed.has(req) ? <ChevronRight size={16} /> : <ChevronDown size={16} />}</button>{' '}
+                      <span className="mono">{req}</span> · {list.length} rows · Scored {formatDateTime(summary.data?.demands.find((d) => d.demandId === list[0].demandId)?.finishedAt)} · Run {list[0].runId} · {list[0].demandRequestName} · {list[0].accountName} · {list[0].demandGrade} · {roleLocation(list[0].region)} · {formatDate(list[0].positionStartDate)}{' '}
                       {!list.some((r) => r.band !== 'Weak') && <Chip tone="danger">No suitable candidate — Weak Match shown</Chip>}
                     </td>
                   </tr>
                 )}
-                {list.map((r) => (
+                {(!grouped || !collapsed.has(req)) && list.map((r) => (
                   <ResultRow key={r.resultId} r={r} selected={selected.has(r.resultId)} onToggle={() => toggle(r.resultId)} onOverride={() => setOverrideRow(r)} canOverride={canOverride} />
                 ))}
               </Fragment>

@@ -446,7 +446,7 @@ export class MockApiClient implements ApiClient {
     const results = scoreAll(demands, this.state.raws, this.resources(), this.activeTemplate(), 1, this.policy().emailsPreselected)
     return results.map((r) => {
       const o = this.state.overrides[r.resultId]
-      const row = { ...r, runId: r.codeRequisition === 'T1A123' ? 1 : 0,
+      const row = { ...r, runId: r.codeRequisition === 'T1A123' ? 2 : 1,
         dataChangedSinceRun: (this.state.dataChanges ?? []).length > 0, dataChangedReasons: [...(this.state.dataChanges ?? [])] }
       return o ? { ...row, override: o } : row
     })
@@ -467,7 +467,7 @@ export class MockApiClient implements ApiClient {
     const scored = this.state.demands.filter((d) => d.jdStatus === 'Confirmed')
     const without = scored.filter((d) => !results.some((r) => r.demandId === d.demandId && r.band !== 'Weak')).length
     return {
-      runId: 1,
+      runId: 2,
       status: 'completed',
       finishedAt: '2026-11-04T14:32:00Z',
       llmModel: this.state.models.find((m) => m.id === this.state.settings.activeModel)?.name ?? 'local model',
@@ -489,7 +489,7 @@ export class MockApiClient implements ApiClient {
     // Mirrors the backend: only a full-scope run can be incremental.
     this.lastRun = req.incremental && req.scope === 'full' ? { mode: 'incremental', reason: 'inputs_compared' } : { mode: 'full', reason: req.incremental ? 'scope_not_full' : 'requested_full' }
     this.state.dataChanges = []
-    return this.done({ runId: 1, jobId: 1 })
+    return this.done({ runId: 2, jobId: 2 })
   }
 
   private noteDataChange(reason: string): void {
@@ -895,19 +895,19 @@ export class MockApiClient implements ApiClient {
   // ---- Matching -------------------------------------------------------------------------
   async listMatchRuns() {
     this.currentUser()
-    return this.done([this.currentRun(1), this.currentRun(0)])
+    return this.done([this.currentRun(2), this.currentRun(1)])
   }
 
   async getMatchRun(runId: number) {
     this.currentUser()
-    if (![0, 1].includes(runId)) fail(404, 'Run not found', 'NOT_FOUND')
+    if (![1, 2].includes(runId)) fail(404, 'Run not found', 'NOT_FOUND')
     return this.done(this.currentRun(runId))
   }
 
   private currentRun(runId: number): MatchRun {
     const rows = this.computeResults().filter((r) => r.runId === runId)
     return { ...this.run(), runId, scope: 'demands', demandIds: [...new Set(rows.map((r) => r.demandId))],
-      finishedAt: runId === 0 ? '2026-11-03T14:32:00Z' : '2026-11-04T14:32:00Z' }
+      finishedAt: runId === 1 ? '2026-11-03T14:32:00Z' : '2026-11-04T14:32:00Z' }
   }
 
   async getCurrentResults() {
@@ -919,10 +919,10 @@ export class MockApiClient implements ApiClient {
   async getCurrentResultsSummary() {
     this.currentUser()
     const demands = this.state.demands.filter((d) => d.jdStatus === 'Confirmed').map((d) => {
-      const runId = d.codeRequisition === 'T1A123' ? 1 : 0
+      const runId = d.codeRequisition === 'T1A123' ? 2 : 1
       return { demandId: d.demandId, codeRequisition: d.codeRequisition, runId, finishedAt: this.currentRun(runId).finishedAt! }
     }).sort((a, b) => a.codeRequisition.localeCompare(b.codeRequisition))
-    const runs = [1, 0].filter((id) => demands.some((d) => d.runId === id)).map((id) => this.currentRun(id))
+    const runs = [2, 1].filter((id) => demands.some((d) => d.runId === id)).map((id) => this.currentRun(id))
     return this.done({ demands, runs, dataChangedSinceRun: runs.some((r) => r.dataChangedSinceRun),
       dataChangedReasons: [...new Set(runs.flatMap((r) => r.dataChangedReasons))],
       staleDemandIds: demands.filter((d) => runs.find((r) => r.runId === d.runId)?.dataChangedSinceRun).map((d) => d.demandId) })
@@ -946,13 +946,13 @@ export class MockApiClient implements ApiClient {
 
   async getResults(runId: number) {
     this.currentUser()
-    if (![0, 1].includes(runId)) fail(404, 'Run not found', 'NOT_FOUND')
+    if (![1, 2].includes(runId)) fail(404, 'Run not found', 'NOT_FOUND')
     return this.done(this.computeResults().filter((r) => r.runId === runId))
   }
 
   async getRunExcluded(runId: number) {
     this.currentUser()
-    if (![0, 1].includes(runId)) fail(404, 'Run not found', 'NOT_FOUND')
+    if (![1, 2].includes(runId)) fail(404, 'Run not found', 'NOT_FOUND')
     return this.done(
       this.resources()
         .filter((r) => r.eligibility === 'excluded' || r.eligibility === 'insufficient')

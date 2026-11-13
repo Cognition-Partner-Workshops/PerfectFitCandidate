@@ -19,6 +19,11 @@ describe('Data changed since this run banner', () => {
   it.each(['/matches', '/'])('names the reasons and links to Confirm & Start on %s', async (path) => {
     const run = await stale()
     vi.spyOn(mock, 'listMatchRuns').mockResolvedValue([run])
+    const current = await mock.getCurrentResultsSummary()
+    vi.spyOn(mock, 'getCurrentResultsSummary').mockResolvedValue({
+      ...current, runs: [run], dataChangedSinceRun: true, dataChangedReasons: run.dataChangedReasons,
+      staleDemandIds: run.demandIds,
+    })
     vi.spyOn(mock, 'getMatchRun').mockResolvedValue(run)
     renderApp(path)
     expect(await screen.findByText('Data changed since this run', {}, { timeout: 5000 })).toBeTruthy()
@@ -27,8 +32,10 @@ describe('Data changed since this run banner', () => {
     expect(screen.getByRole('link', { name: 'Full re-run' }).getAttribute('href')).toContain('/demands')
   })
 
-  it('Re-run changed only starts an incremental run with the scope of the run on screen', async () => {
+  it('Re-run changed only starts an incremental run for the stale demand IDs from the current summary', async () => {
     const run = { ...(await stale()), scope: 'demands', demandIds: [3, 7] }
+    const current = await mock.getCurrentResultsSummary()
+    vi.spyOn(mock, 'getCurrentResultsSummary').mockResolvedValue({ ...current, runs: [run], dataChangedSinceRun: true, dataChangedReasons: run.dataChangedReasons, staleDemandIds: [3, 7] })
     vi.spyOn(mock, 'listMatchRuns').mockResolvedValue([run])
     vi.spyOn(mock, 'getMatchRun').mockResolvedValue(run)
     const start = vi.spyOn(mock, 'startMatchRun')
@@ -46,6 +53,8 @@ describe('Data changed since this run banner', () => {
 
   it('shows the run mode and a full run fallback reason in the run summary', async () => {
     const run = { ...(await stale()), mode: 'full' as const, modeReason: 'config_changed' }
+    const current = await mock.getCurrentResultsSummary()
+    vi.spyOn(mock, 'getCurrentResultsSummary').mockResolvedValue({ ...current, runs: [run] })
     vi.spyOn(mock, 'listMatchRuns').mockResolvedValue([run])
     vi.spyOn(mock, 'getMatchRun').mockResolvedValue(run)
     renderApp('/matches')

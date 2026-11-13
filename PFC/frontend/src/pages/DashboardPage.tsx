@@ -2,11 +2,12 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { DataChangedBanner } from '../components/DataChangedBanner'
+import { useResultFilters } from '../lib/FilterProvider'
 import { runMode } from '../lib/runMode'
 import type { EChartsCoreOption } from 'echarts/core'
 import { api } from '../api'
 import { toDashboardQuery } from '../api/mappers'
-import type { DashboardFilters, ResultFilters } from '../api/types'
+import type { DashboardFilters } from '../api/types'
 import { EChart } from '../components/EChart'
 import { CHART_PALETTE } from '../lib/chartPalette'
 import { FilterBar } from '../components/FilterBar'
@@ -60,7 +61,7 @@ const SECTIONS: { id: Section; label: string }[] = [
 
 /** Dashboard landing (REQ-OUT-04..08, GUI_OCC_DESIGN.md §8). Charts use Apache ECharts (DASHBOARD_RESEARCH.md §7). */
 export function DashboardPage() {
-  const [filters, setFilters] = useState<ResultFilters>({})
+  const { filters, setFilters } = useResultFilters()
   const [section, setSection] = useState<Section>('overview')
   const df: DashboardFilters = useMemo(() => toDashboardQuery(filters), [filters])
   const summary = useQuery({ queryKey: ['analytics', 'summary', df], queryFn: () => api.analyticsSummary(df) })
@@ -86,6 +87,7 @@ export function DashboardPage() {
   const options = useMemo(() => {
     const [ds = [], rs = []] = all.data ?? []
     return {
+      requisitions: distinct(ds, (d) => d.codeRequisition),
       accounts: distinct(ds, (d) => d.accountName),
       bus: distinct(ds, (d) => d.bu),
       grades: ['A3', 'A4', 'B1', 'B2', 'C1', 'C2', 'D1', 'D2', 'E1'],
