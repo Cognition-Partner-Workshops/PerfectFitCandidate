@@ -97,6 +97,7 @@ def result_view(db: sqlite3.Connection, row: dict[str, Any], *, detail: bool = F
             "candidate_type",
             "incomplete_identity",
             "effective_shortlisted",
+            "effective_excluded",
             "shortlisted",
         )
     }

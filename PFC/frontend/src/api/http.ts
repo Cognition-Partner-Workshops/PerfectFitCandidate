@@ -49,11 +49,12 @@ import {
   toBenchAnalytics,
   toDemandAnalytics,
   toMatchAnalytics,
+  toMatchResult,
   toExportQuery,
   toEmailTemplate,
   type EmailTemplateRow,
 } from './mappers'
-import type { BenchStatus, CurrentUser, InternalDomain, PersonalSettings, ProblemDetails, ResourceTeamMember, StatusMapEntry,
+import type { BenchStatus, CurrentUser, InternalDomain, MatchResult, PersonalSettings, ProblemDetails, ResourceTeamMember, StatusMapEntry,
   VolumeEncryption,
 } from './types'
 
@@ -246,7 +247,8 @@ export class HttpApiClient implements ApiClient {
 
   listMatchRuns: ApiClient['listMatchRuns'] = () => this.request('GET', '/match-runs')
   getMatchRun: ApiClient['getMatchRun'] = (runId) => this.request('GET', `/match-runs/${runId}`)
-  getCurrentResults: ApiClient['getCurrentResults'] = () => this.request('GET', '/match-results/current')
+  getCurrentResults: ApiClient['getCurrentResults'] = async () =>
+    (await this.request<MatchResult[]>('GET', '/match-results/current')).map(toMatchResult)
   getCurrentResultsSummary: ApiClient['getCurrentResultsSummary'] = () => this.request('GET', '/match-results/current/summary')
   getCurrentExcluded: ApiClient['getCurrentExcluded'] = () => this.request('GET', '/match-results/current/excluded')
   exportCurrentResults: ApiClient['exportCurrentResults'] = async (f, format, includeEmails) => {
@@ -254,7 +256,8 @@ export class HttpApiClient implements ApiClient {
     const named = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1]
     return { blob: await res.blob(), fileName: named ?? `PFC-results-current.${format}` }
   }
-  getResults: ApiClient['getResults'] = (runId) => this.request('GET', `/match-runs/${runId}/results`)
+  getResults: ApiClient['getResults'] = async (runId) =>
+    (await this.request<MatchResult[]>('GET', `/match-runs/${runId}/results`)).map(toMatchResult)
   getRunExcluded: ApiClient['getRunExcluded'] = (runId) => this.request('GET', `/match-runs/${runId}/excluded`)
   startMatchRun: ApiClient['startMatchRun'] = (req) => this.request('POST', '/match-runs', req)
   addOverride: ApiClient['addOverride'] = (id, o) => this.request('POST', `/match-results/${id}/overrides`, o)

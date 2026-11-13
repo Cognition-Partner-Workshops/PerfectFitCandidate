@@ -13,7 +13,7 @@ import { CHART_PALETTE } from '../lib/chartPalette'
 import { FilterBar } from '../components/FilterBar'
 import { Banner, BandChip, ChartCard, EligibilityBadge, ErrorState, KpiTile, Spinner } from '../components/ui'
 import { formatDate, formatDateTime, roleLocation } from '../lib/format'
-import { distinct } from '../lib/filters'
+import { applyResultFilters, distinct } from '../lib/filters'
 import { bandColorVar, bandLabel } from '../lib/bands'
 import type { Band } from '../api/types'
 import { summarizeCurrentResults } from '../lib/currentResults'
@@ -71,6 +71,11 @@ export function DashboardPage() {
     queryKey: ['current-results', 'rows'],
     queryFn: () => api.getCurrentResults(),
   })
+  const currentResultsSummary = useQuery({
+    queryKey: ['current-results', 'summary'],
+    queryFn: () => api.getCurrentResultsSummary(),
+    enabled: df.runId === undefined,
+  })
   const bench = useQuery({ queryKey: ['analytics', 'bench', df], queryFn: () => api.analyticsBench(df) })
   const match = useQuery({ queryKey: ['analytics', 'match', df], queryFn: () => api.analyticsMatch(df) })
   // The run list is capped at the newest 50 runs, so look up the summary's run by id. Refetch on mount and focus so a
@@ -88,9 +93,13 @@ export function DashboardPage() {
     () => new Map((all.data?.[1] ?? []).map((resource) => [resource.resourceId, resource])),
     [all.data],
   )
+  const filteredCurrentResults = useMemo(
+    () => applyResultFilters(currentResults.data ?? [], filters),
+    [currentResults.data, filters],
+  )
   const currentMatches = useMemo(
-    () => summarizeCurrentResults(currentResults.data ?? []),
-    [currentResults.data],
+    () => summarizeCurrentResults(filteredCurrentResults),
+    [filteredCurrentResults],
   )
 
   const options = useMemo(() => {
@@ -112,7 +121,12 @@ export function DashboardPage() {
 
   return (
     <div className="page">
-      {shownRun.data && <DataChangedBanner run={shownRun.data} />}
+      {shownRun.data && (
+        <DataChangedBanner
+          run={shownRun.data}
+          summary={df.runId === undefined ? currentResultsSummary.data : undefined}
+        />
+      )}
       <div className="page-header">
         <h1>Dashboard</h1>
         <span className="spacer" />

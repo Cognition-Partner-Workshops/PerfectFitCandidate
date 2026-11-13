@@ -258,6 +258,7 @@ export function DemandListPage() {
         ),
     [currentMatches, demands.data, search],
   )
+  const currentResultsUnavailable = currentResults.isLoading || currentResults.isError
   const newOnes = (demands.data ?? []).filter((d) => needsAnalysis(d.jdStatus))
   if (demands.isLoading) return <div className="page"><Spinner /></div>
   if (demands.isError) return <div className="page"><ErrorState error={demands.error} onRetry={() => void demands.refetch()} /></div>
@@ -278,6 +279,14 @@ export function DemandListPage() {
       <div className="card">
         <input aria-label="Search demands" placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} />
       </div>
+      {currentResults.isError && (
+        <Banner tone="warning">
+          Couldn't load match summaries.{' '}
+          <button className="btn btn-sm" onClick={() => void currentResults.refetch()}>
+            Retry
+          </button>
+        </Banner>
+      )}
       {rows.length === 0 ? (
         <EmptyState message="No demands yet. Upload the Demand List (.xlsx)." />
       ) : (
@@ -315,13 +324,23 @@ export function DemandListPage() {
                   <td>
                     <Chip tone={STATUS_TONE[d.jdStatus]}>{d.jdStatus}</Chip>
                   </td>
-                  <td className="num">{d.matches || '—'}</td>
-                  <td>{d.bestBand ? <BandChip band={d.bestBand} /> : '—'}</td>
+                  <td className="num">
+                    {currentResultsUnavailable ? <span className="muted">…</span> : d.matches || '—'}
+                  </td>
+                  <td>
+                    {currentResultsUnavailable ? (
+                      <span className="muted">…</span>
+                    ) : d.bestBand ? (
+                      <BandChip band={d.bestBand} />
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td className="row" style={{ flexWrap: 'nowrap' }}>
                     <button className="btn btn-sm" onClick={() => setOpen(d)}>
                       {needsAnalysis(d.jdStatus) ? 'Analyze JD' : 'Review JD'}
                     </button>
-                    {d.matches > 0 && (
+                    {!currentResultsUnavailable && d.matches > 0 && (
                       <Link className="btn btn-sm btn-tertiary" to={`/matches?req=${encodeURIComponent(d.codeRequisition)}`}>
                         View matches
                       </Link>

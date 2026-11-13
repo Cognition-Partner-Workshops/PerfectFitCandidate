@@ -630,6 +630,12 @@ describe('HttpApiClient — current results', () => {
     ])
   })
 
+  it('maps effective exclusion state on current result rows', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(json([{ effectiveExcluded: true }]))
+    expect((await api.getCurrentResults())[0]?.effectiveExcluded).toBe(true)
+  })
+
   it('exports repeated result filter values and uses the current filename', async () => {
     const api = new HttpApiClient('/api/v1')
     fetchMock.mockResolvedValueOnce(new Response('csv', { headers: { 'Content-Type': 'text/csv' } }))

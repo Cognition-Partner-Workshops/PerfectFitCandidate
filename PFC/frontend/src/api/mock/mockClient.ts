@@ -448,7 +448,7 @@ export class MockApiClient implements ApiClient {
       const o = this.state.overrides[r.resultId]
       const row = { ...r, runId: r.codeRequisition === 'T1A123' ? 2 : 1,
         dataChangedSinceRun: (this.state.dataChanges ?? []).length > 0, dataChangedReasons: [...(this.state.dataChanges ?? [])] }
-      return o ? { ...row, override: o } : row
+      return { ...row, effectiveExcluded: o?.action === 'exclude', ...(o ? { override: o } : {}) }
     })
   }
 

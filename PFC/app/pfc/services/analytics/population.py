@@ -368,11 +368,7 @@ class Population:
             and equal(row["account"], f.account_name)
             and equal(row["bu"], f.bu)
             and equal(row["role_location"], f.region)
-            and (
-                not grade_values
-                or equal(row["demand_grade"], grade_values)
-                or equal(row["person_grade"], grade_values)
-            )
+            and (not grade_values or equal(row["demand_grade"], grade_values))
             and equal(row["person_location"], f.location)
             and equal(row["status"], f.status)
             and equal(row["effective_band"], f.band)

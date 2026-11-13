@@ -28,6 +28,7 @@ import type {
   DashboardFilters,
   DemandAnalytics,
   MatchAnalytics,
+  MatchResult,
   ResultFilters,
   JdStatus,
 } from './types'
@@ -511,6 +512,11 @@ export const toMatchAnalytics = (r: MatchAnalytics): MatchAnalytics => ({
   bandDistribution: r.bandDistribution ?? [],
   emailStatusCounts: r.emailStatusCounts ?? [],
   validation: (r.validation ?? []).map((v) => ({ ...v, detail: v.detail ?? '' })),
+})
+
+export const toMatchResult = (r: MatchResult): MatchResult => ({
+  ...r,
+  effectiveExcluded: b(r.effectiveExcluded),
 })
 
 /** Match Results filters → `ExportQuery` (`pfc.api.schemas.analytics`), REQ-OUT-09. */

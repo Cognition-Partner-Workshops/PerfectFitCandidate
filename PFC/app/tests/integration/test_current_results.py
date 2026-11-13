@@ -202,3 +202,38 @@ def test_current_results_requires_analyst_role(api: Api) -> None:
     assert "runsIncluded" in openapi["components"]["schemas"]["AnalyticsSummary"]["properties"]
     client.cookies.clear()
     assert client.get("/api/v1/match-results/current").status_code == 401
+
+
+def test_result_rows_expose_effective_exclusion_with_later_include(api: Api) -> None:
+    client, headers = api
+    with database(client.app.state.settings) as db:
+        demand_id = seed_demand(db, "T10001", mandatory=("SQL",))
+        seed_resource(db, "ExcludedCandidate", skills="SQL, Python")
+    run_id = finish(
+        client,
+        client.post(
+            "/api/v1/match-runs",
+            headers=headers,
+            json={"scope": "demands", "demandIds": [demand_id]},
+        ),
+    )
+    run_path = f"/api/v1/match-runs/{run_id}/results"
+    result = client.get(run_path).json()[0]
+    result_id = result["resultId"]
+    override_path = f"/api/v1/match-results/{result_id}/overrides"
+    excluded = client.post(
+        override_path, headers=headers, json={"action": "exclude", "reason": "Review"}
+    )
+    assert excluded.status_code == 201, excluded.text
+
+    for path in (run_path, "/api/v1/match-results/current"):
+        rows = client.get(path).json()
+        assert next(row for row in rows if row["resultId"] == result_id)["effectiveExcluded"]
+
+    included = client.post(
+        override_path, headers=headers, json={"action": "include", "reason": "Restore"}
+    )
+    assert included.status_code == 201, included.text
+    for path in (run_path, "/api/v1/match-results/current"):
+        rows = client.get(path).json()
+        assert not next(row for row in rows if row["resultId"] == result_id)["effectiveExcluded"]

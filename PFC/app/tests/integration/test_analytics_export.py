@@ -428,6 +428,34 @@ def test_overrides_filters_and_explicit_run(populated: tuple[Api, dict[str, Any]
     assert client.get(f"{PREFIX}/analytics/match?scoreMin=90&scoreMax=10").status_code == 422
 
 
+def test_analytics_grade_filter_matches_demand_grade_only(
+    populated: tuple[Api, dict[str, Any]],
+) -> None:
+    api, ids = populated
+    client, _ = api
+    with database(client.app.state.settings) as db:
+        demand_ids = tuple(ids["demands"][:2])
+        result_ids = tuple(ids["results"])
+        demand_placeholders = ",".join("?" for _ in demand_ids)
+        result_placeholders = ",".join("?" for _ in result_ids)
+        db.execute(
+            f"UPDATE demands SET code_local_grade='B1' WHERE demand_id IN ({demand_placeholders})",
+            demand_ids,
+        )
+        db.execute(
+            "UPDATE resources SET grade='C1' WHERE resource_id IN "
+            "(SELECT resource_id FROM match_results "
+            f"WHERE result_id IN ({result_placeholders}))",
+            result_ids,
+        )
+
+    rows = client.get(f"/api/v1/match-runs/{ids['run']}/results").json()
+    assert rows and all(row["demandGrade"] == "B1" and row["personGrade"] == "C1" for row in rows)
+    summary = client.get("/api/v1/analytics/summary", params=[("grade", "C1")])
+    assert summary.status_code == 200, summary.text
+    assert summary.json()["roleToPersonCombinations"] == 0
+
+
 @pytest.mark.parametrize(
     "check,statement",
     [

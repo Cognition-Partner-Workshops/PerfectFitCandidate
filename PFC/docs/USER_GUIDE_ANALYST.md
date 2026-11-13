@@ -157,7 +157,7 @@ Recipients come from the OCC resource-team list; "No resource-team recipients" m
 
 The Dashboard is the landing page. It uses the latest completed scoring run; the run date and template version are shown in the header.
 
-- **Filters:** the same filter bar as Match Results. The Grade filter applies to the demand grade.
+- **Filters:** the same filter bar as Match Results. The Grade filter applies to the demand's local grade, not the candidate's person grade.
 - **Sections:** Overview, Demand analytics, Bench analytics, Match & communication and Data quality.
 - **Overview tiles:** Requisitions assessed (of open requisitions), Role-to-person combinations, Roles with no suitable candidate and Data-quality limitations.
 - **Demand analytics:** open demand by BU and region, top skills, Grade → JD count, top accounts, start pipeline, and the DL table sorted by start date (newest first).

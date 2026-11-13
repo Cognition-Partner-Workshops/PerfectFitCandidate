@@ -183,6 +183,7 @@ export interface MatchResult {
   score: number
   band: Band
   effectiveBand?: Band
+  effectiveExcluded?: boolean
   gradeRelation: GradeRelation
   locationAssessment: LocationAssessment
   matchingEvidence: string[]

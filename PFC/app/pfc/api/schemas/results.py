@@ -171,6 +171,7 @@ class ResultRow(WireModel):
     active_overrides: list[OverrideView]
     effective_band: Band
     effective_shortlisted: bool
+    effective_excluded: bool
     shortlisted: bool
 
     @model_serializer(mode="wrap")

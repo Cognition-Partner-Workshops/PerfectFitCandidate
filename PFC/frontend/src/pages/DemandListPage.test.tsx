@@ -159,4 +159,27 @@ describe('Demand List current match summaries', () => {
       `/matches?req=${encodeURIComponent(target.codeRequisition)}`,
     )
   })
+
+  it('keeps the demand table available and retries failed match summaries', async () => {
+    const results = await mock.getCurrentResults()
+    const target = results[0]!
+    vi.spyOn(mock, 'getCurrentResults')
+      .mockRejectedValueOnce(new Error('Service unavailable'))
+      .mockResolvedValue(results)
+    renderApp('/demands')
+
+    expect(await screen.findByText("Couldn't load match summaries.")).toBeTruthy()
+    const table = screen.getByRole('table', { name: 'Demands' })
+    const row = within(table)
+      .getAllByRole('row')
+      .find((candidate) => candidate.textContent?.includes(target.codeRequisition))
+    expect(row).toBeDefined()
+    expect(within(row!).getAllByText('…')).toHaveLength(2)
+    expect(within(row!).queryByRole('link', { name: 'View matches' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => {
+      expect(within(row!).getByRole('link', { name: 'View matches' })).toBeTruthy()
+    })
+  })
 })

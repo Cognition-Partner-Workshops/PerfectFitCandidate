@@ -6,7 +6,12 @@ export interface DemandMatchSummary {
   bestBand: Band | null
 }
 
-export function effectiveResultBand(result: MatchResult): Band {
+type ResultSummaryRow = Pick<
+  MatchResult,
+  'demandId' | 'band' | 'effectiveBand' | 'effectiveExcluded' | 'override'
+>
+
+export function effectiveResultBand(result: ResultSummaryRow): Band {
   return (
     result.effectiveBand ??
     (result.override?.action === 'adjust_band' && result.override.newBand
@@ -16,10 +21,11 @@ export function effectiveResultBand(result: MatchResult): Band {
 }
 
 export function summarizeCurrentResults(
-  results: readonly MatchResult[],
+  results: readonly ResultSummaryRow[],
 ): Map<number, DemandMatchSummary> {
   const summaries = new Map<number, DemandMatchSummary>()
   for (const result of results) {
+    if (result.effectiveExcluded) continue
     const band = effectiveResultBand(result)
     const current = summaries.get(result.demandId)
     summaries.set(result.demandId, {
