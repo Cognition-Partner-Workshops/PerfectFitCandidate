@@ -3,23 +3,29 @@
 import re
 from dataclasses import dataclass
 from datetime import date
+from functools import lru_cache
 
 from .normalise import SynonymTable, normalise_term
 
 
-def skill_hits(text: str, synonyms: SynonymTable) -> tuple[tuple[str, str, str], ...]:
-    """Return one dictionary canonical hit and its source line, never substrings."""
+@lru_cache(maxsize=32)
+def _skill_patterns(synonyms: SynonymTable) -> tuple[tuple[str, re.Pattern[str]], ...]:
     terms = {
         term
         for row in synonyms.rows
         if row.status == "approved"
         for term in synonyms.expand(row.canonical)
     }
-    hits: dict[str, tuple[str, str, str]] = {}
-    patterns = [
+    return tuple(
         (term, re.compile(r"(?<![\w+#.])" + re.escape(term) + r"(?![\w+#])", re.I))
         for term in sorted(terms, key=lambda value: (-len(value), value))
-    ]
+    )
+
+
+def skill_hits(text: str, synonyms: SynonymTable) -> tuple[tuple[str, str, str], ...]:
+    """Return one dictionary canonical hit and its source line, never substrings."""
+    hits: dict[str, tuple[str, str, str]] = {}
+    patterns = _skill_patterns(synonyms)
     for line in text.splitlines():
         for term, pattern in patterns:
             match = pattern.search(line)
@@ -86,6 +92,7 @@ def _work_lines(text: str) -> list[str]:
     return lines
 
 
+@lru_cache(maxsize=1024)
 def experience_years(text: str, as_of: date) -> float | None:
     """Explicit total > merged date ranges > summed stated role durations.
 
@@ -159,6 +166,7 @@ _TECHNICAL = (
 )
 
 
+@lru_cache(maxsize=8192)
 def degree(text: str) -> Degree | None:
     """Classify explicit degree lines only; unrelated technical work is not a degree."""
     found = []
@@ -176,7 +184,8 @@ def requirement_years(text: str) -> float | None:
     return float(match[1]) if match and float(match[1]) > 0 else None
 
 
-def degree_met(text: str, cv_text: str) -> Degree | None:
+@lru_cache(maxsize=8192)
+def degree_requirement(text: str) -> tuple[int, bool] | None:
     required = degree(text)
     if required is None and not re.search(
         r"\b(?:degrees?|bachelors?|graduates?|masters?|doctorate|phd)\b", text, re.I
@@ -184,9 +193,21 @@ def degree_met(text: str, cv_text: str) -> Degree | None:
         return None
     level = required.level if required else 1
     technical = bool(re.search(_TECHNICAL + r"|\btechnical\b", text, re.I))
+    return level, technical
+
+
+@lru_cache(maxsize=1024)
+def _cv_degrees(cv_text: str) -> tuple[Degree, ...]:
+    return tuple(candidate for line in cv_text.splitlines() if (candidate := degree(line)))
+
+
+def degree_met(text: str, cv_text: str) -> Degree | None:
+    required = degree_requirement(text)
+    if required is None:
+        return None
+    level, technical = required
     # Evaluate each line so a higher nontechnical degree cannot hide a technical bachelor.
-    for line in cv_text.splitlines():
-        candidate = degree(line)
-        if candidate and candidate.level >= level and (not technical or candidate.technical):
+    for candidate in _cv_degrees(cv_text):
+        if candidate.level >= level and (not technical or candidate.technical):
             return candidate
     return None

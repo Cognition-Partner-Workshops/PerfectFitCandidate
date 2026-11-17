@@ -3,6 +3,7 @@ from datetime import date
 
 import pytest
 
+from pfc.domain import cv_profile
 from pfc.domain.config_loader import ScoringTemplate, load_domain_config
 from pfc.domain.cv_profile import degree, degree_met, experience_years, skill_hits
 from pfc.domain.normalise import SynonymRow, SynonymTable, parse_date
@@ -17,9 +18,48 @@ from pfc.domain.scoring import (
     build_ct_basis,
     score_basis,
 )
-from pfc.domain.scoring.engine import _item
+from pfc.domain.scoring.engine import _cv_requirement, _item
 
 AS_OF = date(2026, 3, 1)
+
+
+def test_dictionary_patterns_are_reused_beyond_regex_cache_size():
+    table = SynonymTable([SynonymRow(f"Skill{i}", f"Skill{i}") for i in range(600)])
+    cv_profile._skill_patterns.cache_clear()
+    first = skill_hits("Skill599", table)
+    assert skill_hits("Skill599", table) == first
+    assert cv_profile._skill_patterns.cache_info().misses == 1
+    assert cv_profile._skill_patterns.cache_info().hits == 1
+    assert skill_hits("Skill599", SynonymTable([])) == ()
+
+
+def test_cv_and_requirement_caches_keep_inputs_isolated():
+    text = "2020 – Present\nBA in History\nMSc Computer Science"
+    experience_years.cache_clear()
+    assert experience_years(text, AS_OF) == experience_years(text, AS_OF)
+    assert experience_years.cache_info().misses == 1
+    assert experience_years(text, date(2025, 3, 1)) == pytest.approx(5 + 2 / 12)
+    cv_profile._cv_degrees.cache_clear()
+    assert degree_met("Bachelor degree", text).label == "Bachelor"
+    assert degree_met("Master degree", text).label == "Master"
+    assert cv_profile._cv_degrees.cache_info().misses == 1
+    assert cv_profile._cv_degrees.cache_info().hits == 1
+    assert degree_met("Master degree", "") is None
+    assert experience_years("", AS_OF) is None
+    assert experience_years("", AS_OF) is None
+    _cv_requirement.cache_clear()
+    table = SynonymTable([])
+    item = RequirementItem("1", "5 years of Java experience", "mandatory", source_kind="experience")
+    assert _cv_requirement(item, table)[0] == 5
+    assert _cv_requirement(item, table)[0] == 5
+    assert _cv_requirement.cache_info().misses == 1
+    assert _cv_requirement.cache_info().hits == 1
+    java = SynonymTable([SynonymRow("Java", "Java")])
+    assert _cv_requirement(item, java)[0] is None
+    assert _cv_requirement(RequirementItem("2", "AWS certification", "mandatory"), table) == (
+        None,
+        None,
+    )
 
 
 def test_skill_boundaries_and_dictionary_status():

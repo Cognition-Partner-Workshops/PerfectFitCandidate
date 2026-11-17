@@ -5,10 +5,17 @@ import re
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
+from functools import lru_cache
 
 from ..config_loader import DomainConfig, ScoringTemplate
-from ..cv_profile import degree_met, experience_years, requirement_years, skill_hits
-from ..normalise import normalise_term, tokenise_skills
+from ..cv_profile import (
+    degree_met,
+    degree_requirement,
+    experience_years,
+    requirement_years,
+    skill_hits,
+)
+from ..normalise import SynonymTable, normalise_term, tokenise_skills
 from .models import (
     BasisResult,
     Component,
@@ -176,6 +183,19 @@ def assign_band(score: float, template: ScoringTemplate) -> str:
     return "Weak"
 
 
+@lru_cache(maxsize=8192)
+def _cv_requirement(
+    item: RequirementItem, synonyms: SynonymTable
+) -> tuple[float | None, tuple[int, bool] | None]:
+    general_experience = (
+        item.source_kind in {None, "experience"}
+        and item.skill_term is None
+        and not skill_hits(item.text, synonyms)
+    )
+    minimum = (requirement_years(item.text) or item.min_years_exp) if general_experience else None
+    return minimum, degree_requirement(item.text)
+
+
 def _item(
     item: RequirementItem,
     basis: SkillBasis,
@@ -227,14 +247,7 @@ def _item(
         credit, method, source = semantic_credit, "semantic", f"semantic credit {semantic_credit:g}"
     if template.cv_experience_degree and basis.cv_text:
         # Rule credit augments, never lowers, existing exact/semantic credit.
-        general_experience = (
-            item.source_kind in {None, "experience"}
-            and item.skill_term is None
-            and not skill_hits(item.text, config.synonyms)
-        )
-        minimum = (
-            (requirement_years(item.text) or item.min_years_exp) if general_experience else None
-        )
+        minimum, degree_required = _cv_requirement(item, config.synonyms)
         years = experience_years(basis.cv_text, as_of_date) if minimum else None
         if minimum and years is not None:
             rule_credit = min(1.0, years / minimum)
@@ -248,7 +261,7 @@ def _item(
                 return ItemResult(
                     item.item_id, item.kind, round(rule_credit, 4), "cv-experience", evidence
                 )
-        qualification = degree_met(item.text, basis.cv_text)
+        qualification = degree_met(item.text, basis.cv_text) if degree_required else None
         if qualification:
             description = qualification.label + (", technical" if qualification.technical else "")
             return ItemResult(
