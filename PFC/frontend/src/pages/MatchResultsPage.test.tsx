@@ -1,6 +1,11 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { render } from '@testing-library/react'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MatchRun } from '../api/types'
+import { AppRoutes } from '../App'
+import { createQueryClient } from '../lib/queryClient'
 import { groupExcluded } from '../lib/excluded'
 import { ADMIN, mock, renderApp, seed, signIn } from '../test/utils'
 
@@ -10,6 +15,26 @@ describe('Match Results run selection (REQ-OUT-01)', () => {
     await signIn('Admin', ADMIN.email, ADMIN.password)
   })
   afterEach(() => vi.restoreAllMocks())
+
+  it('refreshes cached empty rows and exclusions when entering after a completed run', async () => {
+    const client = createQueryClient()
+    client.setQueryData(['current-results', 'rows'], [])
+    client.setQueryData(['current-results', 'excluded'], [])
+    const results = await mock.getCurrentResults()
+    const excluded = await mock.getCurrentExcluded()
+    expect(results.length).toBeGreaterThan(0)
+    expect(excluded.length).toBeGreaterThan(0)
+    const getResults = vi.spyOn(mock, 'getCurrentResults')
+    const getExcluded = vi.spyOn(mock, 'getCurrentExcluded')
+
+    render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/matches']}><AppRoutes /></MemoryRouter></QueryClientProvider>)
+
+    await waitFor(() => expect(getResults).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(getExcluded).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(client.getQueryData(['current-results', 'rows'])).toEqual(results))
+    await waitFor(() => expect(client.getQueryData(['current-results', 'excluded'])).toEqual(excluded))
+    expect(await screen.findByRole('table', { name: 'Match results' })).toBeTruthy()
+  })
 
   it('shows the latest completed run while a newer run is in progress, then switches to it', async () => {
     const completed = (await mock.listMatchRuns())[0] as MatchRun

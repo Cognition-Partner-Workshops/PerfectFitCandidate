@@ -261,9 +261,9 @@ export function MatchResultsPage() {
       void qc.invalidateQueries({ queryKey: ['current-results'] })
     }
   }, [progress.data, qc])
-  const results = useQuery({ queryKey: ['current-results', 'rows'], queryFn: () => api.getCurrentResults() })
+  const results = useQuery({ queryKey: ['current-results', 'rows'], queryFn: () => api.getCurrentResults(), staleTime: 0 })
   const [tab, setTab] = useState<'results' | 'excluded'>('results')
-  const excluded = useQuery({ queryKey: ['current-results', 'excluded'], queryFn: () => api.getCurrentExcluded() })
+  const excluded = useQuery({ queryKey: ['current-results', 'excluded'], queryFn: () => api.getCurrentExcluded(), staleTime: 0 })
   // An older run can name people a later CT upload took off the bench, so join against every lifecycle.
   const bench = useQuery({ queryKey: ['resources', 'all-lifecycles'], queryFn: () => api.listAllResources(), enabled: !!run })
   const excludedRows = useMemo(() => groupExcluded(excluded.data ?? [], bench.data ?? []), [excluded.data, bench.data])
