@@ -31,6 +31,8 @@ import type {
   MatchResult,
   ResultFilters,
   JdStatus,
+  ScoringTemplate,
+  ScoringWeights,
 } from './types'
 import { maskEmail } from '../lib/mask'
 import type { EmailTemplateVersion } from './types'
@@ -97,6 +99,68 @@ export const toLlmModel = (m: ModelRow): LlmModel => ({
   approved: b(m.approved),
   isDefault: b(m.is_active),
 })
+
+export interface ScoringTemplateRow {
+  template_id?: number | null
+  name?: string | null
+  version?: number | null
+  status?: string | null
+  created_at?: string | null
+  created_by?: number | null
+  created_by_name?: string | null
+  weights?: Record<string, unknown> | null
+  rules?: Record<string, unknown> | null
+}
+
+const SCORING_WEIGHT_DEFAULTS: ScoringWeights = {
+  skills: 70,
+  grade: 10,
+  location: 5,
+  benchStart: 5,
+  benchEnd: 5,
+  status: 5,
+}
+const SCORING_BAND_DEFAULTS = { strong: 90, potential: 70, avg: 61 }
+const scoringObject = (value: unknown): Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+const scoringNumber = (value: unknown, fallback: number): number =>
+  typeof value === 'number' && Number.isFinite(value) ? value : fallback
+
+export function toScoringTemplate(row: ScoringTemplateRow): ScoringTemplate {
+  const weights = scoringObject(row.weights)
+  const rules = scoringObject(row.rules)
+  const grade = scoringObject(rules.grade)
+  const bands = scoringObject(rules.bands)
+  const meta = scoringObject(rules._meta)
+  return {
+    templateId: scoringNumber(row.template_id, 0),
+    version: scoringNumber(row.version, 1),
+    status:
+      row.status === 'active' || row.status === 'retired' || row.status === 'draft'
+        ? row.status
+        : 'draft',
+    weights: {
+      skills: scoringNumber(weights.skills, SCORING_WEIGHT_DEFAULTS.skills),
+      grade: scoringNumber(weights.grade, SCORING_WEIGHT_DEFAULTS.grade),
+      location: scoringNumber(weights.location, SCORING_WEIGHT_DEFAULTS.location),
+      benchStart: scoringNumber(weights.bench_start, SCORING_WEIGHT_DEFAULTS.benchStart),
+      benchEnd: scoringNumber(weights.bench_end, SCORING_WEIGHT_DEFAULTS.benchEnd),
+      status: scoringNumber(weights.status, SCORING_WEIGHT_DEFAULTS.status),
+    },
+    adjacentGradePoints: scoringNumber(grade.adjacent, 7),
+    statusScoreMode: rules.status_score_mode === 'tiered' ? 'tiered' : 'binary',
+    bands: {
+      strong: scoringNumber(bands.Strong, SCORING_BAND_DEFAULTS.strong),
+      potential: scoringNumber(bands.Potential, SCORING_BAND_DEFAULTS.potential),
+      avg: scoringNumber(bands.Avg, SCORING_BAND_DEFAULTS.avg),
+    },
+    changeNote: typeof meta.change_note === 'string' ? meta.change_note : '',
+    createdAt: typeof row.created_at === 'string' ? row.created_at : '',
+    createdBy: row.created_by_name ?? 'System',
+  }
+}
 
 export interface PersonalRow {
   resume_root_path: string | null

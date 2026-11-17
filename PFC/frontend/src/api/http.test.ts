@@ -820,3 +820,135 @@ describe('HttpApiClient — resources across lifecycles', () => {
     ])
   })
 })
+
+describe('HttpApiClient — scoring templates', () => {
+  const activeRow = {
+    template_id: 10,
+    name: 'default',
+    version: 3,
+    status: 'active',
+    created_by: null,
+    created_at: '2026-11-06T09:00:00Z',
+    activated_at: '2026-11-06T09:01:00Z',
+    weights: { skills: 70, grade: 10, location: 5, bench_start: 5, bench_end: 5, status: 5 },
+    rules: {
+      grade: { exact: 10, adjacent: 7, max_distance: 1 },
+      skills: {
+        sub_weights: { mandatory: 0.6, preferred: 0.15, semantic: 0.25 },
+        semantic_low: 0.45,
+        semantic_high: 0.8,
+      },
+      location_points: { Aligned: 5, 'Remote/unspecified': 5 },
+      status_score_mode: 'binary',
+      bands: { Strong: 90, Potential: 70, Avg: 61 },
+      top_n: 5,
+      _meta: { change_note: 'Old note' },
+    },
+  }
+
+  it('maps seeded and published rows into the screen DTO', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(json([
+      { ...activeRow, rules: { ...activeRow.rules, _meta: undefined } },
+      {
+        ...activeRow,
+        template_id: 11,
+        version: 4,
+        created_by: 1,
+        created_by_name: 'Olivia Admin',
+        rules: { ...activeRow.rules, status_score_mode: 'tiered', _meta: { change_note: 'Adjusted bands' } },
+      },
+    ]))
+
+    expect(await api.listTemplates()).toEqual([
+      {
+        templateId: 10,
+        version: 3,
+        status: 'active',
+        weights: { skills: 70, grade: 10, location: 5, benchStart: 5, benchEnd: 5, status: 5 },
+        adjacentGradePoints: 7,
+        statusScoreMode: 'binary',
+        bands: { strong: 90, potential: 70, avg: 61 },
+        changeNote: '',
+        createdAt: '2026-11-06T09:00:00Z',
+        createdBy: 'System',
+      },
+      {
+        templateId: 11,
+        version: 4,
+        status: 'active',
+        weights: { skills: 70, grade: 10, location: 5, benchStart: 5, benchEnd: 5, status: 5 },
+        adjacentGradePoints: 7,
+        statusScoreMode: 'tiered',
+        bands: { strong: 90, potential: 70, avg: 61 },
+        changeNote: 'Adjusted bands',
+        createdAt: '2026-11-06T09:00:00Z',
+        createdBy: 'Olivia Admin',
+      },
+    ])
+  })
+
+  it('preserves active rules while creating and activating a mapped draft', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock
+      .mockResolvedValueOnce(json([activeRow]))
+      .mockResolvedValueOnce(json({ template_id: 42 }, 201))
+      .mockResolvedValueOnce(json({}))
+      .mockResolvedValueOnce(json([activeRow]))
+
+    const result = await api.publishTemplate({
+      weights: { skills: 60, grade: 20, location: 10, benchStart: 3, benchEnd: 2, status: 5 },
+      adjacentGradePoints: 8,
+      statusScoreMode: 'tiered',
+      bands: { strong: 94, potential: 84, avg: 74 },
+      changeNote: 'Tune the thresholds',
+    })
+
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, (init as RequestInit).method ?? 'GET'])).toEqual([
+      ['/api/v1/occ/scoring-templates', 'GET'],
+      ['/api/v1/occ/scoring-templates', 'POST'],
+      ['/api/v1/occ/scoring-templates/42/activate', 'POST'],
+      ['/api/v1/occ/scoring-templates', 'GET'],
+    ])
+    expect(JSON.parse((fetchMock.mock.calls[1]?.[1] as RequestInit).body as string)).toEqual({
+      weights: { skills: 60, grade: 20, location: 10, bench_start: 3, bench_end: 2, status: 5 },
+      rules: {
+        grade: { exact: 10, adjacent: 8, max_distance: 1 },
+        skills: {
+          sub_weights: { mandatory: 0.6, preferred: 0.15, semantic: 0.25 },
+          semantic_low: 0.45,
+          semantic_high: 0.8,
+        },
+        location_points: { Aligned: 5, 'Remote/unspecified': 5 },
+        status_score_mode: 'tiered',
+        bands: { Strong: 94, Potential: 84, Avg: 74 },
+        top_n: 5,
+      },
+      change_note: 'Tune the thresholds',
+    })
+    expect(result[0]?.templateId).toBe(10)
+  })
+
+  it('deletes a draft after activation fails and rethrows the activation error', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock
+      .mockResolvedValueOnce(json([activeRow]))
+      .mockResolvedValueOnce(json({ template_id: 42 }, 201))
+      .mockResolvedValueOnce(problem(422, 'VALIDATION_ERROR', 'Invalid scoring template'))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+
+    await expect(api.publishTemplate({
+      weights: { skills: 70, grade: 10, location: 5, benchStart: 5, benchEnd: 5, status: 5 },
+      adjacentGradePoints: 7,
+      statusScoreMode: 'binary',
+      bands: { strong: 90, potential: 70, avg: 61 },
+      changeNote: 'Invalid draft',
+    })).rejects.toThrow('Invalid scoring template')
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, (init as RequestInit).method ?? 'GET'])).toEqual([
+      ['/api/v1/occ/scoring-templates', 'GET'],
+      ['/api/v1/occ/scoring-templates', 'POST'],
+      ['/api/v1/occ/scoring-templates/42/activate', 'POST'],
+      ['/api/v1/occ/scoring-templates/42', 'DELETE'],
+    ])
+  })
+})

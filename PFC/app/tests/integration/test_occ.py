@@ -17,6 +17,7 @@ from pfc.db.connection import database
 from pfc.db.migrate import migrate
 from pfc.main import create_app
 from pfc.security.passwords import hasher
+from pfc.services.occ.domain import active_template
 from pfc.services.occ.users import list_users
 
 PASSWORD = "Strong!Random4567"
@@ -62,6 +63,27 @@ def login(
     csrf = result.json()["csrf_token"]
     client.headers["X-CSRF-Token"] = csrf
     return csrf
+
+
+def _scoring_template_seed():
+    path = Path(__file__).resolve().parents[3] / "config" / "scoring_template.default.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    weights = data.pop("weights")
+    data.pop("name")
+    data.pop("version")
+    return weights, data
+
+
+def _seed_active_scoring_template(client: TestClient, weights=None) -> int:
+    default_weights, rules = _scoring_template_seed()
+    weights = weights or default_weights
+    with database(client.app.state.settings) as db:
+        cursor = db.execute(
+            "INSERT INTO scoring_templates(name,version,weights_json,rules_json,status,"
+            "created_at) VALUES ('default',1,?,?,'active','2026-01-01T00:00:00Z')",
+            (json.dumps(weights), json.dumps(rules)),
+        )
+        return int(cursor.lastrowid or 0)
 
 
 def test_access_and_errors(client: TestClient) -> None:
@@ -442,16 +464,14 @@ def test_scoring_templates(client: TestClient) -> None:
         "status": 5,
     }
     assert client.post(base, json={"change_note": "First"}).status_code == 404
-    with database(client.app.state.settings) as db:
-        db.execute(
-            "INSERT INTO scoring_templates(name,version,weights_json,rules_json,status,"
-            "created_at) VALUES ('default',1,?,'{}','active','2026-01-01T00:00:00Z')",
-            (json.dumps(weights),),
-        )
+    active_id = _seed_active_scoring_template(client, weights)
     draft = client.post(base, json={"change_note": "Clone"}).json()
     target = draft["template_id"]
     assert draft["version"] == 2 and draft["status"] == "draft"
     assert draft["rules"]["_meta"]["change_note"] == "Clone"
+    rows = client.get(base).json()
+    assert next(row for row in rows if row["template_id"] == active_id)["created_by_name"] is None
+    assert next(row for row in rows if row["template_id"] == target)["created_by_name"] == "User"
     for bad in [
         {**weights, "skills": 69},
         {**weights, "capacity": 1},
@@ -463,16 +483,16 @@ def test_scoring_templates(client: TestClient) -> None:
             == 200
         )
         assert client.post(base + f"/{target}/activate").status_code == 422
-    assert (
-        client.put(
-            base + f"/{target}", json={"weights": weights, "change_note": "Fixed"}
-        ).status_code
-        == 200
-    )
+        assert (
+            client.put(
+                base + f"/{target}", json={"weights": weights, "change_note": "Fixed"}
+            ).status_code
+            == 200
+        )
     assert client.post(base + f"/{target}/activate").json()["status"] == "active"
-    assert client.get(base + "/1").json()["status"] == "retired"
+    assert client.get(base + f"/{active_id}").json()["status"] == "retired"
     assert sum(row["status"] == "active" for row in client.get(base).json()) == 1
-    for id in (1, target):
+    for id in (active_id, target):
         assert (
             client.put(base + f"/{id}", json={"change_note": "No"}).json()["code"]
             == "TEMPLATE_IMMUTABLE"
@@ -491,6 +511,57 @@ def test_scoring_templates(client: TestClient) -> None:
             ).fetchone()[0]
         )
         assert details["after"]["weights"] == weights
+
+
+@pytest.mark.parametrize("invalid", ["bands", "adjacent"])
+def test_scoring_template_invalid_rules_do_not_retire_active_template(
+    client: TestClient, invalid: str
+) -> None:
+    login(client)
+    base = "/api/v1/occ/scoring-templates"
+    active_id = _seed_active_scoring_template(client)
+    weights, rules = _scoring_template_seed()
+    if invalid == "bands":
+        rules["bands"] = {"Strong": 70, "Potential": 80, "Avg": 60}
+    else:
+        rules["grade"]["adjacent"] = weights["grade"] + 1
+
+    draft = client.post(base, json={"change_note": "Invalid rules"}).json()
+    target = draft["template_id"]
+    assert (
+        client.put(
+            base + f"/{target}", json={"rules": rules, "change_note": "Invalid rules"}
+        ).status_code
+        == 200
+    )
+    response = client.post(base + f"/{target}/activate")
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION_ERROR"
+    assert client.get(base + f"/{active_id}").json()["status"] == "active"
+    assert client.get(base + f"/{target}").json()["status"] == "draft"
+
+
+def test_scoring_template_patched_rules_round_trip(client: TestClient) -> None:
+    login(client)
+    base = "/api/v1/occ/scoring-templates"
+    active_id = _seed_active_scoring_template(client)
+    weights, rules = _scoring_template_seed()
+    rules["bands"] = {"Strong": 92, "Potential": 82, "Avg": 72}
+    rules["grade"]["adjacent"] = 6
+
+    draft = client.post(
+        base,
+        json={"weights": weights, "rules": rules, "change_note": "Adjusted thresholds"},
+    ).json()
+    target = draft["template_id"]
+    response = client.post(base + f"/{target}/activate")
+    assert response.status_code == 200, response.text
+    with database(client.app.state.settings) as db:
+        current_id, template = active_template(db)
+        assert current_id == target
+        assert template.bands == {"Strong": 92, "Potential": 82, "Avg": 72}
+        assert template.grade.adjacent == 6
+        assert client.get(base + f"/{active_id}").json()["status"] == "retired"
 
 
 def test_email_templates(client: TestClient) -> None:

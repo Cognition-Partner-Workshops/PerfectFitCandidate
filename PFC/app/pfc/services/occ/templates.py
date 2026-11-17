@@ -3,6 +3,7 @@ import sqlite3
 from string import Formatter
 from typing import Any
 
+from pfc.domain.config_loader import ScoringTemplate
 from pfc.security.problems import Problem
 from pfc.services.email.service import UNRESOLVED_PLACEHOLDER, sanitize_email_html
 from pfc.services.occ.common import audit_write, get_row, now
@@ -34,7 +35,10 @@ def scoring_list(db: sqlite3.Connection, user_id: int) -> list[dict[str, Any]]:
     """REQ-SCR-01/02: immutable published scoring versions."""
     return [
         decode(dict(r))
-        for r in db.execute("SELECT * FROM scoring_templates ORDER BY name,version DESC")
+        for r in db.execute(
+            "SELECT st.*,u.display_name AS created_by_name FROM scoring_templates st "
+            "LEFT JOIN users u ON u.user_id=st.created_by ORDER BY st.name,st.version DESC"
+        )
     ]
 
 
@@ -126,6 +130,13 @@ def activate(db: sqlite3.Connection, user_id: int, target: int) -> dict[str, Any
         raise Problem(
             422, "VALIDATION_ERROR", "Weights must be six non-negative integers totaling 100"
         )
+    rules = dict(before["rules"])
+    rules.pop("_meta", None)
+    rules.update(weights=weights, name=before["name"], version=before["version"])
+    try:
+        ScoringTemplate.from_dict(rules)
+    except ValueError as exc:
+        raise Problem(422, "VALIDATION_ERROR", str(exc)) from exc
     active = db.execute(
         "SELECT * FROM scoring_templates WHERE name=? AND "
         "coalesce(role_family,'')=coalesce(?,'') AND status='active'",
