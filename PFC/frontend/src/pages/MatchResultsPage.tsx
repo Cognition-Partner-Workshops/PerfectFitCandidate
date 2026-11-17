@@ -435,7 +435,7 @@ export function MatchResultsPage() {
                         else next.add(req)
                         return next
                       })}>{collapsed.has(req) ? <ChevronRight size={16} /> : <ChevronDown size={16} />}</button>{' '}
-                      <span className="mono">{req}</span> · {list.length} rows · Scored {formatDateTime(summary.data?.demands.find((d) => d.demandId === list[0].demandId)?.finishedAt)} · Run {list[0].runId} · {list[0].demandRequestName} · {list[0].accountName} · {list[0].demandGrade} · {roleLocation(list[0].region)} · {formatDate(list[0].positionStartDate)}{' '}
+                      <span className="mono">{req}</span> · {list.length} rows · Scored {formatDateTime(selectedRunId === undefined ? summary.data?.demands.find((d) => d.demandId === list[0].demandId)?.finishedAt : run.finishedAt)} · Run {list[0].runId} · {list[0].demandRequestName} · {list[0].accountName} · {list[0].demandGrade} · {roleLocation(list[0].region)} · {formatDate(list[0].positionStartDate)}{' '}
                       {!list.some((r) => r.band !== 'Weak') && <Chip tone="danger">No suitable candidate — Weak Match shown</Chip>}
                     </td>
                   </tr>
