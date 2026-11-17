@@ -64,8 +64,9 @@ def _work_lines(text: str) -> list[str]:
     education_section = False
     for line in text.splitlines():
         title = line.strip().strip("#* \t")
-        education_line = degree(line) is not None or re.search(
-            r"\b(?:university|college|school|institute|education)\b", line, re.I
+        education_line = degree(line) is not None or (
+            education_section
+            and re.search(r"\b(?:university|college|school|institute|education)\b", line, re.I)
         )
         if re.fullmatch(
             r"(?:(?:academic|educational)\s+)?(?:education|qualifications|academics)"
@@ -157,7 +158,7 @@ class Degree:
 
 _LEVELS = (
     r"\b(?:bachel?ors?|bachler|batchelor|bacholar|(?-i:B(?:\.?Tech|\.?E|\.?Sc|S|\.?A)\.?))\b",
-    r"\b(?:masters?|(?-i:M(?:\.?Tech|CA|\.?Sc|BA)\.?))\b",
+    r"\b(?:master(?:['’]s|s?\s+(?:of|in|degree))|(?-i:M(?:\.?Tech|CA|\.?Sc|BA)\.?))\b",
     r"\b(?:ph\.?d|doctorate)\b",
 )
 _TECHNICAL = (

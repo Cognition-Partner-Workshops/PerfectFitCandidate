@@ -95,7 +95,9 @@ def test_skill_boundaries_and_dictionary_status():
         ("Education\n2001–2005\nWork Experience\n2006–2009", 3),
         ("Qualifications:\nB.Tech\n2001–2005\nPROFESSIONAL EXPERIENCE\n2006–2009", 3),
         ("## Education\n2001–2005\n## Projects:\n2006–2009", 3),
-        ("School 2001–2005\n2006–2009", 3),
+        ("School 2001–2005\n2006–2009", 7),
+        ("Scrum Master 2015–2020\nDeveloper 2020–2022", 7),
+        ("Lecturer, XYZ University 2010–2015\nDeveloper 2015–2020", 10),
         ("Education\n2001–2005", None),
         ("No 5 years of experience", None),
         ("2030-2040", None),
@@ -151,6 +153,10 @@ def test_degree_unclear_and_levels():
         ("BS", 1, False),
         ("MBA", 2, False),
         ("MSc", 2, False),
+        ("Master of Science", 2, False),
+        ("Masters in Physics", 2, False),
+        ("Master’s in Engineering", 2, True),
+        ("Scrum Master", None, False),
     ],
 )
 def test_degree_abbreviation_case(text, level, technical):
