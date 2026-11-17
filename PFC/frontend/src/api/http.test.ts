@@ -2,7 +2,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolveApiMode } from '../config'
 import { ApiError } from './client'
 import { HttpApiClient, setUnauthorizedHandler } from './http'
-import { fromGrades, toCurrentUser, toDashboardQuery, toEmailDraft, toExportQuery, toGrade, toResource, type ResourceItem } from './mappers'
+import {
+  buildScoringTemplateRules,
+  fromGrades,
+  toCurrentUser,
+  toDashboardQuery,
+  toEmailDraft,
+  toExportQuery,
+  toGrade,
+  toResource,
+  type ResourceItem,
+} from './mappers'
 
 const AUTH = {
   user: { user_id: 1, email: 'admin@example.com', display_name: 'OCC Admin', role: 'Admin', must_change_password: false },
@@ -817,6 +827,233 @@ describe('HttpApiClient — resources across lifecycles', () => {
       '/api/v1/resources?lifecycle=active&page=1&page_size=200',
       '/api/v1/resources?lifecycle=off_bench&page=1&page_size=200',
       '/api/v1/resources?lifecycle=archived&page=1&page_size=200',
+    ])
+  })
+})
+
+describe('HttpApiClient — scoring templates', () => {
+  const defaultDraftWeights = {
+    skills: 70,
+    grade: 10,
+    location: 5,
+    benchStart: 5,
+    benchEnd: 5,
+    status: 5,
+  }
+  const activeRow = {
+    template_id: 10,
+    name: 'default',
+    version: 3,
+    status: 'active',
+    created_by: null,
+    created_at: '2026-11-06T09:00:00Z',
+    activated_at: '2026-11-06T09:01:00Z',
+    weights: { skills: 70, grade: 10, location: 5, bench_start: 5, bench_end: 5, status: 5 },
+    rules: {
+      grade: { exact: 10, adjacent: 7, max_distance: 1 },
+      skills: {
+        sub_weights: { mandatory: 0.6, preferred: 0.15, semantic: 0.25 },
+        semantic_low: 0.45,
+        semantic_high: 0.8,
+      },
+      location_points: { Aligned: 5, 'Remote/unspecified': 5 },
+      bench_start: {
+        tiers_days: [[0, 5], [30, 4], [45, 3], [60, 2], [90, 1]],
+        beyond: 0,
+        missing: 0,
+      },
+      bench_end_blank_points: 5,
+      status_tiered_points: { 1: 5, 2: 4, 3: 3, 4: 2, 5: 1, 6: 0 },
+      status_score_mode: 'binary',
+      bands: { Strong: 90, Potential: 70, Avg: 61 },
+      top_n: 5,
+      _meta: { change_note: 'Old note' },
+    },
+  }
+
+  it('maps seeded and published rows into the screen DTO', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(json([
+      { ...activeRow, rules: { ...activeRow.rules, _meta: undefined } },
+      {
+        ...activeRow,
+        template_id: 11,
+        version: 4,
+        created_by: 1,
+        created_by_name: 'Olivia Admin',
+        rules: { ...activeRow.rules, status_score_mode: 'tiered', _meta: { change_note: 'Adjusted bands' } },
+      },
+    ]))
+
+    expect(await api.listTemplates()).toEqual([
+      {
+        templateId: 10,
+        version: 3,
+        status: 'active',
+        weights: { skills: 70, grade: 10, location: 5, benchStart: 5, benchEnd: 5, status: 5 },
+        adjacentGradePoints: 7,
+        statusScoreMode: 'binary',
+        bands: { strong: 90, potential: 70, avg: 61 },
+        changeNote: '',
+        createdAt: '2026-11-06T09:00:00Z',
+        createdBy: 'System',
+      },
+      {
+        templateId: 11,
+        version: 4,
+        status: 'active',
+        weights: { skills: 70, grade: 10, location: 5, benchStart: 5, benchEnd: 5, status: 5 },
+        adjacentGradePoints: 7,
+        statusScoreMode: 'tiered',
+        bands: { strong: 90, potential: 70, avg: 61 },
+        changeNote: 'Adjusted bands',
+        createdAt: '2026-11-06T09:00:00Z',
+        createdBy: 'Olivia Admin',
+      },
+    ])
+  })
+
+  it('scales absolute component points with weight changes', () => {
+    const rules = buildScoringTemplateRules(activeRow, {
+      weights: { ...defaultDraftWeights, skills: 60, grade: 20 },
+      adjacentGradePoints: 7,
+      statusScoreMode: 'binary',
+      bands: { strong: 90, potential: 70, avg: 61 },
+    })
+    expect(rules.grade).toEqual({ exact: 20, adjacent: 14, max_distance: 1 })
+    expect(rules.location_points).toEqual(activeRow.rules.location_points)
+    expect(rules.bench_start).toEqual(activeRow.rules.bench_start)
+    expect(rules.bench_end_blank_points).toBe(5)
+    expect(rules.status_tiered_points).toEqual(activeRow.rules.status_tiered_points)
+    expect(rules.skills).toEqual(activeRow.rules.skills)
+  })
+
+  it('scales bench-end points and preserves an explicit adjacent edit', () => {
+    const benchEndRules = buildScoringTemplateRules(activeRow, {
+      weights: { ...defaultDraftWeights, skills: 72, benchEnd: 3 },
+      adjacentGradePoints: 7,
+      statusScoreMode: 'binary',
+      bands: { strong: 90, potential: 70, avg: 61 },
+    })
+    expect(benchEndRules.bench_end_blank_points).toBe(3)
+
+    const explicitAdjacentRules = buildScoringTemplateRules(activeRow, {
+      weights: { ...defaultDraftWeights, skills: 60, grade: 20 },
+      adjacentGradePoints: 9,
+      statusScoreMode: 'binary',
+      bands: { strong: 90, potential: 70, avg: 61 },
+    })
+    expect(explicitAdjacentRules.grade).toEqual({ exact: 20, adjacent: 9, max_distance: 1 })
+  })
+
+  it('scales location points and zeroes bench-start points', () => {
+    const rules = buildScoringTemplateRules(activeRow, {
+      weights: { ...defaultDraftWeights, location: 10, benchStart: 0 },
+      adjacentGradePoints: 7,
+      statusScoreMode: 'binary',
+      bands: { strong: 90, potential: 70, avg: 61 },
+    })
+    expect(rules.location_points).toEqual({
+      Aligned: 10,
+      'Remote/unspecified': 10,
+    })
+    expect(rules.bench_start).toEqual({
+      tiers_days: [[0, 0], [30, 0], [45, 0], [60, 0], [90, 0]],
+      beyond: 0,
+      missing: 0,
+    })
+  })
+
+  it('preserves active rules while creating and activating a mapped draft', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock
+      .mockResolvedValueOnce(json([activeRow]))
+      .mockResolvedValueOnce(json({ template_id: 42 }, 201))
+      .mockResolvedValueOnce(json({}))
+      .mockResolvedValueOnce(json([activeRow]))
+
+    const result = await api.publishTemplate({
+      weights: { skills: 60, grade: 20, location: 10, benchStart: 3, benchEnd: 2, status: 5 },
+      adjacentGradePoints: 7,
+      statusScoreMode: 'tiered',
+      bands: { strong: 94, potential: 84, avg: 74 },
+      changeNote: 'Tune the thresholds',
+    })
+
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, (init as RequestInit).method ?? 'GET'])).toEqual([
+      ['/api/v1/occ/scoring-templates', 'GET'],
+      ['/api/v1/occ/scoring-templates', 'POST'],
+      ['/api/v1/occ/scoring-templates/42/activate', 'POST'],
+      ['/api/v1/occ/scoring-templates', 'GET'],
+    ])
+    expect(JSON.parse((fetchMock.mock.calls[1]?.[1] as RequestInit).body as string)).toEqual({
+      clone_from_id: 10,
+      weights: { skills: 60, grade: 20, location: 10, bench_start: 3, bench_end: 2, status: 5 },
+      rules: {
+        grade: { exact: 20, adjacent: 14, max_distance: 1 },
+        skills: {
+          sub_weights: { mandatory: 0.6, preferred: 0.15, semantic: 0.25 },
+          semantic_low: 0.45,
+          semantic_high: 0.8,
+        },
+        location_points: {
+          Aligned: 10,
+          'Remote/unspecified': 10,
+        },
+        bench_start: {
+          tiers_days: [[0, 3], [30, 2.4], [45, 1.8], [60, 1.2], [90, 0.6]],
+          beyond: 0,
+          missing: 0,
+        },
+        bench_end_blank_points: 2,
+        status_tiered_points: { 1: 5, 2: 4, 3: 3, 4: 2, 5: 1, 6: 0 },
+        status_score_mode: 'tiered',
+        bands: { Strong: 94, Potential: 84, Avg: 74 },
+        top_n: 5,
+      },
+      change_note: 'Tune the thresholds',
+    })
+    expect(result[0]?.templateId).toBe(10)
+  })
+
+  it('rejects scaling up a component with zero active weight before posting', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock.mockResolvedValueOnce(
+      json([{ ...activeRow, weights: { ...activeRow.weights, grade: 0 } }]),
+    )
+
+    await expect(api.publishTemplate({
+      weights: { ...defaultDraftWeights, skills: 75, grade: 5 },
+      adjacentGradePoints: 7,
+      statusScoreMode: 'binary',
+      bands: { strong: 90, potential: 70, avg: 61 },
+      changeNote: 'Increase grade weight',
+    })).rejects.toThrow(
+      "Grade was 0 in the active template, so its points can't be scaled. Edit it in a settings package instead.",
+    )
+    expect(fetchMock.mock.calls).toHaveLength(1)
+  })
+
+  it('deletes a draft after activation fails and rethrows the activation error', async () => {
+    const api = new HttpApiClient('/api/v1')
+    fetchMock
+      .mockResolvedValueOnce(json([activeRow]))
+      .mockResolvedValueOnce(json({ template_id: 42 }, 201))
+      .mockResolvedValueOnce(problem(422, 'VALIDATION_ERROR', 'Invalid scoring template'))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+
+    await expect(api.publishTemplate({
+      weights: { skills: 70, grade: 10, location: 5, benchStart: 5, benchEnd: 5, status: 5 },
+      adjacentGradePoints: 7,
+      statusScoreMode: 'binary',
+      bands: { strong: 90, potential: 70, avg: 61 },
+      changeNote: 'Invalid draft',
+    })).rejects.toThrow('Invalid scoring template')
+    expect(fetchMock.mock.calls.map(([url, init]) => [url, (init as RequestInit).method ?? 'GET'])).toEqual([
+      ['/api/v1/occ/scoring-templates', 'GET'],
+      ['/api/v1/occ/scoring-templates', 'POST'],
+      ['/api/v1/occ/scoring-templates/42/activate', 'POST'],
+      ['/api/v1/occ/scoring-templates/42', 'DELETE'],
     ])
   })
 })

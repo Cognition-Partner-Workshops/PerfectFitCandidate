@@ -52,7 +52,10 @@ import {
   toMatchResult,
   toExportQuery,
   toEmailTemplate,
+  buildScoringTemplateRules,
+  toScoringTemplate,
   type EmailTemplateRow,
+  type ScoringTemplateRow,
 } from './mappers'
 import type { BenchStatus, CurrentUser, InternalDomain, MatchResult, PersonalSettings, ProblemDetails, ResourceTeamMember, StatusMapEntry,
   VolumeEncryption,
@@ -469,10 +472,36 @@ export class HttpApiClient implements ApiClient {
   restoreRejectedSkillTerms: ApiClient['restoreRejectedSkillTerms'] = (termNorms) =>
     this.request('POST', '/occ/skill-suggestions/restore', { term_norms: termNorms })
 
-  listTemplates: ApiClient['listTemplates'] = () => this.request('GET', '/occ/scoring-templates')
+  listTemplates: ApiClient['listTemplates'] = async () =>
+    (await this.request<ScoringTemplateRow[]>('GET', '/occ/scoring-templates')).map(toScoringTemplate)
   publishTemplate: ApiClient['publishTemplate'] = async (draft) => {
-    const created = await this.request<{ templateId: number }>('POST', '/occ/scoring-templates', draft)
-    await this.request('POST', `/occ/scoring-templates/${created.templateId}/activate`)
+    const templates = await this.request<ScoringTemplateRow[]>('GET', '/occ/scoring-templates')
+    const active =
+      templates.find((template) => template.status === 'active' && template.name === 'default') ??
+      templates.find((template) => template.status === 'active')
+    if (!active) throw new Error('No active scoring template.')
+    if (typeof active.template_id !== 'number') throw new Error('Active scoring template has no id.')
+
+    const rules = buildScoringTemplateRules(active, draft)
+    const created = await this.request<{ template_id: number }>('POST', '/occ/scoring-templates', {
+      clone_from_id: active.template_id,
+      weights: {
+        skills: draft.weights.skills,
+        grade: draft.weights.grade,
+        location: draft.weights.location,
+        bench_start: draft.weights.benchStart,
+        bench_end: draft.weights.benchEnd,
+        status: draft.weights.status,
+      },
+      rules,
+      change_note: draft.changeNote,
+    })
+    try {
+      await this.request('POST', `/occ/scoring-templates/${created.template_id}/activate`)
+    } catch (error) {
+      await this.request('DELETE', `/occ/scoring-templates/${created.template_id}`).catch(() => undefined)
+      throw error
+    }
     return this.listTemplates()
   }
 

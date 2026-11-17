@@ -1,4 +1,5 @@
-import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
+import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { ErrorBoundary } from '../../components/ErrorBoundary'
 import { OccOverview } from './OccOverview'
 import { OccUsers } from './OccUsers'
 import { OccStatusMap } from './OccStatusMap'
@@ -24,6 +25,8 @@ const GROUPS: [string, [string, string][]][] = [
 
 /** OCC — Object Control Center, Admin only (REQ-ROLE-03, GUI_OCC_DESIGN.md §16). */
 export function OccPage() {
+  const { pathname } = useLocation()
+
   return (
     <div className="page">
       <div className="page-header">
@@ -44,25 +47,27 @@ export function OccPage() {
             </div>
           ))}
         </nav>
-        <Routes>
-          <Route index element={<Navigate to="overview" replace />} />
-          <Route path="overview" element={<OccOverview />} />
-          <Route path="cv-extractions" element={<OccCvExtractions />} />
-          <Route path="users" element={<OccUsers />} />
-          <Route path="resource-team" element={<OccResourceTeam />} />
-          <Route path="email-templates" element={<OccEmailTemplates />} />
-          <Route path="status-map" element={<OccStatusMap />} />
-          <Route path="synonyms" element={<OccSynonyms />} />
-          <Route path="internal-domains" element={<OccInternalDomains />} />
-          <Route path="scoring-template" element={<OccScoringTemplate />} />
-          <Route path="approvals" element={<OccApprovals />} />
-          <Route path="grades" element={<OccGrades />} />
-          <Route path="models" element={<OccModels />} />
-          <Route path="audit-log" element={<OccAuditLog />} />
-          <Route path="admin-settings" element={<OccAdminSettings />} />
-          <Route path="settings-package" element={<OccSettingsPackage />} />
-          <Route path="*" element={<Navigate to="overview" replace />} />
-        </Routes>
+        <ErrorBoundary key={pathname}>
+          <Routes>
+            <Route index element={<Navigate to="overview" replace />} />
+            <Route path="overview" element={<OccOverview />} />
+            <Route path="cv-extractions" element={<OccCvExtractions />} />
+            <Route path="users" element={<OccUsers />} />
+            <Route path="resource-team" element={<OccResourceTeam />} />
+            <Route path="email-templates" element={<OccEmailTemplates />} />
+            <Route path="status-map" element={<OccStatusMap />} />
+            <Route path="synonyms" element={<OccSynonyms />} />
+            <Route path="internal-domains" element={<OccInternalDomains />} />
+            <Route path="scoring-template" element={<OccScoringTemplate />} />
+            <Route path="approvals" element={<OccApprovals />} />
+            <Route path="grades" element={<OccGrades />} />
+            <Route path="models" element={<OccModels />} />
+            <Route path="audit-log" element={<OccAuditLog />} />
+            <Route path="admin-settings" element={<OccAdminSettings />} />
+            <Route path="settings-package" element={<OccSettingsPackage />} />
+            <Route path="*" element={<Navigate to="overview" replace />} />
+          </Routes>
+        </ErrorBoundary>
       </div>
     </div>
   )

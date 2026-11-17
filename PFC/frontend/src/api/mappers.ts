@@ -31,6 +31,8 @@ import type {
   MatchResult,
   ResultFilters,
   JdStatus,
+  ScoringTemplate,
+  ScoringWeights,
 } from './types'
 import { maskEmail } from '../lib/mask'
 import type { EmailTemplateVersion } from './types'
@@ -97,6 +99,170 @@ export const toLlmModel = (m: ModelRow): LlmModel => ({
   approved: b(m.approved),
   isDefault: b(m.is_active),
 })
+
+export interface ScoringTemplateRow {
+  template_id?: number | null
+  name?: string | null
+  version?: number | null
+  status?: string | null
+  created_at?: string | null
+  created_by?: number | null
+  created_by_name?: string | null
+  weights?: Record<string, unknown> | null
+  rules?: Record<string, unknown> | null
+}
+
+const SCORING_WEIGHT_DEFAULTS: ScoringWeights = {
+  skills: 70,
+  grade: 10,
+  location: 5,
+  benchStart: 5,
+  benchEnd: 5,
+  status: 5,
+}
+const SCORING_BAND_DEFAULTS = { strong: 90, potential: 70, avg: 61 }
+const scoringObject = (value: unknown): Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {}
+const scoringNumber = (value: unknown, fallback: number): number =>
+  typeof value === 'number' && Number.isFinite(value) ? value : fallback
+
+export function toScoringTemplate(row: ScoringTemplateRow): ScoringTemplate {
+  const weights = scoringObject(row.weights)
+  const rules = scoringObject(row.rules)
+  const grade = scoringObject(rules.grade)
+  const bands = scoringObject(rules.bands)
+  const meta = scoringObject(rules._meta)
+  return {
+    templateId: scoringNumber(row.template_id, 0),
+    version: scoringNumber(row.version, 1),
+    status:
+      row.status === 'active' || row.status === 'retired' || row.status === 'draft'
+        ? row.status
+        : 'draft',
+    weights: {
+      skills: scoringNumber(weights.skills, SCORING_WEIGHT_DEFAULTS.skills),
+      grade: scoringNumber(weights.grade, SCORING_WEIGHT_DEFAULTS.grade),
+      location: scoringNumber(weights.location, SCORING_WEIGHT_DEFAULTS.location),
+      benchStart: scoringNumber(weights.bench_start, SCORING_WEIGHT_DEFAULTS.benchStart),
+      benchEnd: scoringNumber(weights.bench_end, SCORING_WEIGHT_DEFAULTS.benchEnd),
+      status: scoringNumber(weights.status, SCORING_WEIGHT_DEFAULTS.status),
+    },
+    adjacentGradePoints: scoringNumber(grade.adjacent, 7),
+    statusScoreMode: rules.status_score_mode === 'tiered' ? 'tiered' : 'binary',
+    bands: {
+      strong: scoringNumber(bands.Strong, SCORING_BAND_DEFAULTS.strong),
+      potential: scoringNumber(bands.Potential, SCORING_BAND_DEFAULTS.potential),
+      avg: scoringNumber(bands.Avg, SCORING_BAND_DEFAULTS.avg),
+    },
+    changeNote: typeof meta.change_note === 'string' ? meta.change_note : '',
+    createdAt: typeof row.created_at === 'string' ? row.created_at : '',
+    createdBy: row.created_by_name ?? 'System',
+  }
+}
+
+type ScoringTemplateDraft = Pick<
+  ScoringTemplate,
+  'weights' | 'adjacentGradePoints' | 'statusScoreMode' | 'bands'
+>
+
+const scaleScoringPoints = (value: unknown, factor: number): unknown => {
+  if (factor === 1 || typeof value !== 'number' || !Number.isFinite(value)) return value
+  return Math.round(value * factor * 10000) / 10000
+}
+
+const scoringWeightFactor = (label: string, oldWeight: number, newWeight: number): number => {
+  if (oldWeight === 0) {
+    if (newWeight > 0) {
+      throw new Error(
+        `${label} was 0 in the active template, so its points can't be scaled. Edit it in a settings package instead.`,
+      )
+    }
+    return 1
+  }
+  const factor = newWeight / oldWeight
+  return factor === 1 ? 1 : factor
+}
+
+const scaleScoringPointMap = (value: unknown, factor: number): Record<string, unknown> =>
+  Object.fromEntries(
+    Object.entries(scoringObject(value)).map(([key, points]) => [
+      key,
+      scaleScoringPoints(points, factor),
+    ]),
+  )
+
+export function buildScoringTemplateRules(
+  activeRow: ScoringTemplateRow,
+  draft: ScoringTemplateDraft,
+): Record<string, unknown> {
+  const activeWeights = scoringObject(activeRow.weights)
+  const activeRules = scoringObject(activeRow.rules)
+  const rules = Object.fromEntries(
+    Object.entries(activeRules).filter(([key]) => key !== '_meta'),
+  )
+  const grade = scoringObject(rules.grade)
+  const benchStart = scoringObject(rules.bench_start)
+  const gradeFactor = scoringWeightFactor(
+    'Grade',
+    scoringNumber(activeWeights.grade, SCORING_WEIGHT_DEFAULTS.grade),
+    draft.weights.grade,
+  )
+  const locationFactor = scoringWeightFactor(
+    'Location',
+    scoringNumber(activeWeights.location, SCORING_WEIGHT_DEFAULTS.location),
+    draft.weights.location,
+  )
+  const benchStartFactor = scoringWeightFactor(
+    'Bench Start',
+    scoringNumber(activeWeights.bench_start, SCORING_WEIGHT_DEFAULTS.benchStart),
+    draft.weights.benchStart,
+  )
+  const benchEndFactor = scoringWeightFactor(
+    'Bench End',
+    scoringNumber(activeWeights.bench_end, SCORING_WEIGHT_DEFAULTS.benchEnd),
+    draft.weights.benchEnd,
+  )
+  const statusFactor = scoringWeightFactor(
+    'Status',
+    scoringNumber(activeWeights.status, SCORING_WEIGHT_DEFAULTS.status),
+    draft.weights.status,
+  )
+  const activeAdjacent = grade.adjacent
+  const adjacent =
+    draft.adjacentGradePoints !== activeAdjacent
+      ? draft.adjacentGradePoints
+      : scaleScoringPoints(activeAdjacent, gradeFactor)
+  const tiers = benchStart.tiers_days
+  const scaledTiers = Array.isArray(tiers)
+    ? tiers.map((tier) => {
+        if (!Array.isArray(tier)) return tier
+        const [days, points, ...rest] = tier as unknown[]
+        return [days, scaleScoringPoints(points, benchStartFactor), ...rest]
+      })
+    : tiers
+  return {
+    ...rules,
+    grade: { ...grade, exact: draft.weights.grade, adjacent },
+    location_points: scaleScoringPointMap(rules.location_points, locationFactor),
+    bench_start: {
+      ...benchStart,
+      tiers_days: scaledTiers,
+      beyond: scaleScoringPoints(benchStart.beyond, benchStartFactor),
+      missing: scaleScoringPoints(benchStart.missing, benchStartFactor),
+    },
+    bench_end_blank_points: scaleScoringPoints(rules.bench_end_blank_points, benchEndFactor),
+    status_tiered_points: scaleScoringPointMap(rules.status_tiered_points, statusFactor),
+    status_score_mode: draft.statusScoreMode,
+    bands: {
+      ...scoringObject(rules.bands),
+      Strong: draft.bands.strong,
+      Potential: draft.bands.potential,
+      Avg: draft.bands.avg,
+    },
+  }
+}
 
 export interface PersonalRow {
   resume_root_path: string | null
