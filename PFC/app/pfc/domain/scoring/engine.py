@@ -227,8 +227,8 @@ def _item(
         credit, method, source = semantic_credit, "semantic", f"semantic credit {semantic_credit:g}"
     if template.cv_experience_degree and basis.cv_text:
         # Rule credit augments, never lowers, existing exact/semantic credit.
-        general_experience = item.source_kind == "experience" or (
-            item.source_kind is None
+        general_experience = (
+            item.source_kind in {None, "experience"}
             and item.skill_term is None
             and not skill_hits(item.text, config.synonyms)
         )

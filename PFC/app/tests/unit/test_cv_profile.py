@@ -119,6 +119,8 @@ def test_degree_abbreviation_case(text, level, technical):
     "source_kind,skill_term,text",
     [
         ("mandatory_skill", None, "5 years of Java experience"),
+        ("experience", None, "5 years of Java experience"),
+        ("experience", "Java", "At least 5 years experience"),
         (None, None, "5 years of Java experience"),
         (None, "Java", "At least 5 years experience"),
         ("domain", None, "At least 5 years experience"),
