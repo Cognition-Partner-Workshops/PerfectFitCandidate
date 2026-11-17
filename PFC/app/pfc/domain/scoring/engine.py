@@ -193,7 +193,7 @@ def _cv_requirement(
         and not skill_hits(item.text, synonyms)
     )
     minimum = (requirement_years(item.text) or item.min_years_exp) if general_experience else None
-    return minimum, degree_requirement(item.text)
+    return minimum, degree_requirement(item.text) if item.source_kind != "experience" else None
 
 
 def _item(

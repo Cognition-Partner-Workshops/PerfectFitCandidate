@@ -195,7 +195,7 @@ def test_experience_rule_excludes_skill_items(source_kind, skill_term, text):
 
 def test_explicit_qualification_kind():
     config = load_domain_config()
-    item = RequirementItem("1", "MSc", "mandatory", source_kind="qualification")
+    item = RequirementItem("1", "MSc degree", "mandatory", source_kind="qualification")
     result = _item(
         item,
         SkillBasis("CV:1", "CV", (), True, "MSc"),
@@ -207,13 +207,30 @@ def test_explicit_qualification_kind():
     assert (result.credit, result.method) == (1, "cv-degree")
 
 
-@pytest.mark.parametrize("text", ["AWS certification", "Professional qualification"])
+@pytest.mark.parametrize("text", ["AWS certification", "Professional qualification", "MSc"])
 @pytest.mark.parametrize("source_kind", ["qualification", None])
 def test_certification_is_not_a_degree(text, source_kind):
     config = load_domain_config()
     result = _item(
         RequirementItem("1", text, "mandatory", source_kind=source_kind),
         SkillBasis("CV:1", "CV", (), True, "BA in History"),
+        SemanticInput(item_credits={"1": 0.37}),
+        config,
+        config.template,
+        AS_OF,
+    )
+    assert (result.credit, result.method) == (0.37, "semantic")
+
+
+@pytest.mark.parametrize("source_kind", ["experience", "mandatory_skill", None])
+@pytest.mark.parametrize(
+    "text", ["5 years of BA experience", "5 years of bachelor degree experience"]
+)
+def test_experience_requirements_do_not_receive_degree_credit(source_kind, text):
+    config = load_domain_config()
+    result = _item(
+        RequirementItem("1", text, "mandatory", source_kind=source_kind),
+        SkillBasis("CV:1", "CV", (), True, "BSc Physics"),
         SemanticInput(item_credits={"1": 0.37}),
         config,
         config.template,
