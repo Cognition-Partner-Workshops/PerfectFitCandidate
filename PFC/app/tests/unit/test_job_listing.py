@@ -1,11 +1,13 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from fastapi import FastAPI, Request
+from fastapi.responses import Response
 from fastapi.testclient import TestClient
 
 from pfc.config import Settings
@@ -41,7 +43,9 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
     install_handlers(app)
 
     @app.middleware("http")
-    async def identity(request: Request, call_next):
+    async def identity(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         if role := request.headers.get("test-role"):
             request.state.principal = SimpleNamespace(
                 user=SimpleNamespace(user_id=1), session=SimpleNamespace(role_at_login=role)
@@ -65,7 +69,7 @@ def insert(
     params: object = None,
     message: str | None = None,
 ) -> int:
-    with database(client.app.state.job_runner.settings) as db:
+    with database(cast(FastAPI, client.app).state.job_runner.settings) as db:
         cursor = db.execute(
             "INSERT INTO jobs(kind,params_json,status,message,created_by,created_at,finished_at) "
             "VALUES (?,?,?,?,?,?,?)",
