@@ -343,7 +343,14 @@ def decide(
         state = "Reverted"
     else:
         if row["reopened_from_entry_id"] is not None:
-            values.update(json.loads(row["after_json"]))
+            uploaded = json.loads(row["after_json"])
+            fields = DISPLAY[entity] - {"current_version_id", "email_address"}
+            values.update({field: uploaded[field] for field in fields})
+            if entity == "resource":
+                values["bench_end_date_parse_status"] = (
+                    "valid" if values["bench_end_date"] else "blank"
+                )
+                _status_code(db, values)
         state = "Approved"
     values.update(occ_reviewed_by=user_id, occ_reviewed_at=now, updated_at=now)
     changed = {k: v for k, v in values.items() if v != current[k]}

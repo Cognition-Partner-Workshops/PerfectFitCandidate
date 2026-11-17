@@ -134,6 +134,53 @@ def test_reopen_decision_clears_superseded_admin_conflicts(client, kind, field, 
         assert tuple(stored) == (0, None)
 
 
+def test_reopened_approve_preserves_resolved_ct_identity(client):
+    ingest(
+        client,
+        "ct",
+        [{"Email Address": None}, {"Location": "Uploaded", "Bench End Date": "2026-12-01"}],
+    )
+    uploaded = next(e for e in queue(client) if e["targetId"] == 2)
+    decision(
+        client,
+        uploaded,
+        "modify",
+        comment="Correction",
+        values={"location": "Admin", "benchEndDate": "", "benchStatus": "Unknown status"},
+    )
+    response = client.put(
+        "/api/v1/candidates/1/identity", json={"action": "select_ct_record", "resourceId": 2}
+    )
+    assert response.status_code == 200, response.text
+    resolved = row(client, "resource", 2)
+    assert resolved["candidate_id"] == 1
+    response = client.post(
+        f"/api/v1/occ/approvals/{uploaded['entryId']}/reopen", json={"comment": "Reconsider"}
+    )
+    assert response.status_code == 200, response.text
+    decision(client, response.json(), "approve")
+    restored = row(client, "resource", 2)
+    assert restored["candidate_id"] == resolved["candidate_id"]
+    assert restored["email_address"] == resolved["email_address"]
+    assert restored["email_key"] == resolved["email_key"]
+    assert restored["location"] == "Uploaded"
+    assert restored["bench_end_date"] == "2026-12-01"
+    assert restored["bench_end_date_parse_status"] == "valid"
+    assert restored["bench_status"] == "Available"
+    with database(client.app.state.settings) as db:
+        original = json.loads(
+            db.execute(
+                "SELECT after_json FROM occ_approvals WHERE entry_id=?", (uploaded["entryId"],)
+            ).fetchone()[0]
+        )
+        assert original["candidate_id"] != restored["candidate_id"]
+        assert restored["bench_status_code"] == original["bench_status_code"]
+        assert (
+            db.execute("SELECT confirmed FROM candidate_emails WHERE candidate_id=1").fetchone()[0]
+            == 1
+        )
+
+
 def test_reopen_validation_conflicts_and_permissions(client):
     ingest(client, "dl", [{}])
     old = queue(client)[0]
