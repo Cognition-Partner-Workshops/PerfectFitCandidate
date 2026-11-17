@@ -108,12 +108,16 @@ def record_changes(
                 (run_id, json.dumps(after), change, uploader, now, pending["entry_id"]),
             )
             continue
-        modified = db.execute(
-            "SELECT admin_values_json FROM occ_approvals WHERE entity_type=? AND entity_id=? "
-            "AND state='Modified' ORDER BY entry_id DESC LIMIT 1",
+        decided = db.execute(
+            "SELECT state,admin_values_json FROM occ_approvals WHERE entity_type=? AND entity_id=? "
+            "AND state!='Pending' ORDER BY entry_id DESC LIMIT 1",
             (entity, entity_id),
         ).fetchone()
-        admin = json.loads(modified[0]) if modified else {}
+        admin = (
+            json.loads(decided["admin_values_json"] or "{}")
+            if decided and decided["state"] == "Modified"
+            else {}
+        )
         conflict = any(old and old.get(k) == v and after.get(k) != v for k, v in admin.items())
         db.execute(
             "INSERT INTO occ_approvals(entity_type,entity_id,ingestion_run_id,change,"

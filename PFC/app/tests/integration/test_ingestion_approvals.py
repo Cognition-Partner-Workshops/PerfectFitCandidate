@@ -99,6 +99,41 @@ def test_reopen_restores_upload_and_preserves_history(
         assert verify_chain(db)
 
 
+@pytest.mark.parametrize(
+    "kind,field,api_field",
+    [("dl", "Account Name", "accountName"), ("ct", "Location", "location")],
+)
+@pytest.mark.parametrize("action", ["approve", "revert"])
+def test_reopen_decision_clears_superseded_admin_conflicts(client, kind, field, api_field, action):
+    ingest(client, kind, [{field: "Original"}])
+    decision(client, queue(client)[0], "approve")
+    ingest(client, kind, [{field: "Uploaded"}])
+    old = queue(client)[0]
+    decision(
+        client,
+        old,
+        "modify",
+        comment="Confirm correction",
+        values={api_field: "Uploaded" if action == "approve" else "Original"},
+    )
+    response = client.post(
+        f"/api/v1/occ/approvals/{old['entryId']}/reopen", json={"comment": "Reconsider"}
+    )
+    assert response.status_code == 200, response.text
+    decision(client, response.json(), action)
+    ingest(client, kind, [{field: "Next upload"}])
+    pending = queue(client)[0]
+    assert pending["state"] == "Pending"
+    assert not pending["conflict"]
+    assert all("adminValue" not in f for f in pending["fields"])
+    with database(client.app.state.settings) as db:
+        stored = db.execute(
+            "SELECT conflict,admin_values_json FROM occ_approvals WHERE entry_id=?",
+            (pending["entryId"],),
+        ).fetchone()
+        assert tuple(stored) == (0, None)
+
+
 def test_reopen_validation_conflicts_and_permissions(client):
     ingest(client, "dl", [{}])
     old = queue(client)[0]
