@@ -592,7 +592,7 @@ def test_req_mat_03_run_persistence_uniqueness_cv_exclusions(
         run = get_run(db, run_id)
         assert run["status"] == "completed"
         assert run["template_id"] and run["embedding_model_id"]
-        assert run["engine_version"] == "1.2.1"
+        assert run["engine_version"] == "1.2.2"
         assert len(run["config_hash"]) == len(run["synonyms_version"]) == 64
         assert run["llm_model"] == "manual"
         assert run["demands_assessed"] == 2

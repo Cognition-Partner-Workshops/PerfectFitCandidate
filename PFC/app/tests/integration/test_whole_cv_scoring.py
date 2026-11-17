@@ -42,7 +42,7 @@ def test_minimum_experience_fallback_is_unambiguous(settings, experience, expect
         demand_id = seed_demand(db)
         confirm_requirements(db, demand_id, {"experience": experience}, 1, NOW)
         demands, *_ = _inputs(db, "demands", [demand_id], occ_domain_config(db))
-    items = [item for item in demands[0].items if item.source_kind == "experience"]
+    items = [item for item in demands[0].requirements if item.source_kind == "experience"]
     assert [item.min_years_exp for item in items] == expected
 
 

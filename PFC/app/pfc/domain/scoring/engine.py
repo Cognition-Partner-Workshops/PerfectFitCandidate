@@ -27,7 +27,7 @@ from .models import (
 )
 from .selection import RankingInput, input_key, select_scored_rows
 
-ENGINE_VERSION = "1.2.1"
+ENGINE_VERSION = "1.2.2"
 
 
 def normalise_cosine(cos: float, template: ScoringTemplate) -> float:
