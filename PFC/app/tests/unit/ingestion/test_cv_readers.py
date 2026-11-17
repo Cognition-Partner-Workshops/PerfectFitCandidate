@@ -57,8 +57,8 @@ def test_rtf_controls(tmp_path):
     path = tmp_path / "cv.rtf"
     path.write_bytes(
         rb"{\rtf1{\fonttbl hidden}{\colortbl hidden}{\stylesheet hidden}"
-        rb"{\info hidden}{\pict hidden}{\object hidden}{\header hidden}"
-        rb"{\footer hidden}{\*\unknown hidden}Hello\par next\line tab\tab "
+        rb"{\info hidden}{\pict hidden}{\object hidden}"
+        rb"{\*\unknown hidden}Hello\par next\line tab\tab "
         rb"\'80 \u233? {\uc2\u945??} \u946? \\ \{ok\}}"
     )
     assert read_rtf(path) == "Hello\nnext\ntab\t€ é α β \\ {ok}"
@@ -84,6 +84,16 @@ def test_rtf_unknown_codepage_uses_cp1252(tmp_path):
     path = tmp_path / "fallback.rtf"
     path.write_bytes(rb"{\rtf1\ansicpg99999 \'80 " + b"\x80}")
     assert read_rtf(path) == "€ €"
+
+
+@pytest.mark.parametrize(
+    "destination",
+    ["header", "headerl", "headerr", "headerf", "footer", "footerl", "footerr", "footerf"],
+)
+def test_rtf_includes_header_footer_contact_text(tmp_path, destination):
+    path = tmp_path / "contact.rtf"
+    path.write_bytes(b"{\\rtf1{\\" + destination.encode("ascii") + rb" alex@example.com\par}SQL}")
+    assert read_rtf(path) == "alex@example.com\nSQL"
 
 
 @pytest.mark.parametrize("extension", [".rtf", ".odt", ".pptx"])

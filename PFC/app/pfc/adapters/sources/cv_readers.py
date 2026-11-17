@@ -84,14 +84,6 @@ _DESTINATIONS = {
     "info",
     "pict",
     "object",
-    "header",
-    "footer",
-    "headerl",
-    "headerr",
-    "headerf",
-    "footerl",
-    "footerr",
-    "footerf",
 }
 
 
