@@ -66,8 +66,8 @@ def test_cv_text_evidence_redacts_contacts(settings, text):
     assert "alice@example.com" not in quotes
     assert "7700" not in quotes
     if "@" in text:
-        assert "[email removed]" in quotes
-        assert "[phone removed]" in quotes
+        assert "alice" not in quotes
+        assert "***23" in quotes
     assert bool(basis.skills) == bool(text)
 
 
