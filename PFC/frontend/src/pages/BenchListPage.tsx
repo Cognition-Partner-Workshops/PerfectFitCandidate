@@ -8,6 +8,7 @@ import { Chip, EligibilityBadge, EmptyState, ErrorState, MaskedValue, Modal, Spi
 import { UploadDialog } from '../components/UploadDialog'
 import { eligibilityReasonLabel, eligibilityReasonTitle } from '../lib/excluded'
 import { formatDate, orNotRecorded } from '../lib/format'
+import { useTasks } from '../lib/tasks'
 
 type View = 'eligible' | 'excluded' | 'all'
 
@@ -16,7 +17,7 @@ const isEligible = (r: Resource) => r.eligibility === 'eligible' || r.eligibilit
 /** Bench List (REQ-IN-10..14, REQ-IN-20..22, REQ-ELIG-01..08, GUI_OCC_DESIGN.md §10). */
 export function BenchListPage() {
   const qc = useQueryClient()
-  // CV sync is a background job with no status route, so refresh the list for a while after submitting it.
+  const { addJob } = useTasks()
   const [pollUntil, setPollUntil] = useState(0)
   const resources = useQuery({
     queryKey: ['resources'],
@@ -30,7 +31,8 @@ export function BenchListPage() {
   const [upload, setUpload] = useState(false)
   const sync = useMutation({
     mutationFn: (ids: number[]) => api.syncCvs(ids),
-    onSuccess: () => {
+    onSuccess: ({ jobId }, ids) => {
+      addJob(jobId, `CV Sync for ${ids.length} profile${ids.length === 1 ? '' : 's'}`)
       setSelected(new Set())
       setPollUntil(Date.now() + 60_000)
       void qc.invalidateQueries({ queryKey: ['resources'] })

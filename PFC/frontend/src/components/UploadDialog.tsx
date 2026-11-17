@@ -3,22 +3,24 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import type { UploadPreview } from '../api/types'
 import { Banner, ErrorState, Modal } from './ui'
+import { useTasks } from '../lib/tasks'
 
 /** Upload → preview/validation → Commit (REQ-ING-01..03/06, GUI_OCC_DESIGN.md §9.1, §10.1). */
 export function UploadDialog({ kind, onClose }: { kind: 'dl' | 'ct'; onClose: () => void }) {
   const qc = useQueryClient()
+  const { trackTask } = useTasks()
   const [preview, setPreview] = useState<UploadPreview | null>(null)
   const label = kind === 'dl' ? 'Demand List' : 'Candidate Tracker'
-  const upload = useMutation({ mutationFn: (f: File) => api.uploadWorkbook(kind, f), onMutate: () => setPreview(null), onSuccess: setPreview })
+  const upload = useMutation({ mutationFn: (f: File) => trackTask(`${kind.toUpperCase()} upload: ${f.name}`, api.uploadWorkbook(kind, f)), onMutate: () => setPreview(null), onSuccess: setPreview })
   const commit = useMutation({
-    mutationFn: (id: number) => api.commitIngestion(id),
+    mutationFn: (id: number) => trackTask(`${kind.toUpperCase()} commit`, api.commitIngestion(id)),
     onSuccess: () => {
       void qc.invalidateQueries()
       onClose()
     },
   })
   const discard = () => {
-    if (preview) void api.discardIngestion(preview.ingestionRunId)
+    if (preview) void trackTask(`${kind.toUpperCase()} discard`, api.discardIngestion(preview.ingestionRunId)).catch(() => {})
     onClose()
   }
   return (

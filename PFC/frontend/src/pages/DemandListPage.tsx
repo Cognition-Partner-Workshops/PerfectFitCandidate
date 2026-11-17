@@ -9,6 +9,7 @@ import { UploadDialog } from '../components/UploadDialog'
 import { SummaryCard } from '../components/SummaryCard'
 import { summarizeCurrentResults } from '../lib/currentResults'
 import { formatDate, roleLocation } from '../lib/format'
+import { useTasks } from '../lib/tasks'
 
 const STATUS_TONE: Record<JdStatus, 'neutral' | 'info' | 'success' | 'warning'> = {
   'Not analysed': 'neutral',
@@ -82,11 +83,12 @@ function SkillChips({ label, skills, items, kind, onChange }: { label: string; s
 /** JD review drawer: Analyze JD → review requirements → Confirm & Start (REQ-MAT-02, §9.3). */
 function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) {
   const qc = useQueryClient()
+  const { trackTask, addJob } = useTasks()
   // The row status is a snapshot from when the drawer opened; analysis turns it into Draft.
   const [jdChanged] = useState(demand.jdStatus === 'JD changed')
   const analyzed = useRef(false)
   const analyzeOnce = async () => {
-    const draft = await api.analyzeDemand(demand.demandId)
+    const draft = await trackTask(`JD analyze ${demand.codeRequisition}`, api.analyzeDemand(demand.demandId))
     analyzed.current = true
     void qc.invalidateQueries({ queryKey: ['demands'] })
     return draft
@@ -126,7 +128,8 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
   const confirm = useMutation({
     mutationFn: async (r: JdRequirements) => {
       await api.saveRequirements(r)
-      await api.confirmRequirements(r.demandId)
+      const { jobId } = await api.confirmRequirements(r.demandId)
+      addJob(jobId, `Matching for ${demand.codeRequisition}`)
     },
     onSuccess: done,
   })
@@ -232,6 +235,7 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
 /** Demand List (REQ-ING-01..03, REQ-MAT-02, GUI_OCC_DESIGN.md §9). */
 export function DemandListPage() {
   const qc = useQueryClient()
+  const { trackTask } = useTasks()
   const demands = useQuery({ queryKey: ['demands'], queryFn: () => api.listDemands() })
   const currentResults = useQuery({
     queryKey: ['current-results', 'rows'],
@@ -240,7 +244,7 @@ export function DemandListPage() {
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState<Demand | null>(null)
   const [upload, setUpload] = useState(false)
-  const analyze = useMutation({ mutationFn: (ids: number[]) => api.analyzeDemands(ids), onSuccess: () => void qc.invalidateQueries({ queryKey: ['demands'] }) })
+  const analyze = useMutation({ mutationFn: (ids: number[]) => trackTask(`Analyze all new (${ids.length})`, api.analyzeDemands(ids)), onSuccess: () => void qc.invalidateQueries({ queryKey: ['demands'] }) })
   const currentMatches = useMemo(
     () => summarizeCurrentResults(currentResults.data ?? []),
     [currentResults.data],

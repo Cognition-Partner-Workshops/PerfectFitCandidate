@@ -3,6 +3,7 @@
  * Shapes observed from the running backend; SQLite booleans arrive as 0/1.
  */
 import type {
+  JobItem,
   ApprovalEntry,
   AdminSettings,
   AuditEvent,
@@ -38,6 +39,14 @@ import type {
 
 import { maskEmail } from '../lib/mask'
 import type { EmailTemplateVersion } from './types'
+
+export function toJob(row: JobItem): JobItem {
+  return {
+    jobId: row.jobId, kind: row.kind, status: row.status, progress: row.progress,
+    message: row.message, label: row.label, link: row.link,
+    createdAt: row.createdAt, startedAt: row.startedAt, finishedAt: row.finishedAt,
+  }
+}
 
 export function toApproval(row: ApprovalEntry): ApprovalEntry {
   return { ...row, reopenedFromEntryId: row.reopenedFromEntryId ?? null }
