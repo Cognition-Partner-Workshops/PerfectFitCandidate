@@ -45,6 +45,7 @@ export function toJob(row: JobItem): JobItem {
     jobId: row.jobId, kind: row.kind, status: row.status, progress: row.progress,
     message: row.message, label: row.label, link: row.link,
     createdAt: row.createdAt, startedAt: row.startedAt, finishedAt: row.finishedAt,
+    skippedFiles: row.skippedFiles ?? null, skippedCount: row.skippedCount ?? null,
   }
 }
 

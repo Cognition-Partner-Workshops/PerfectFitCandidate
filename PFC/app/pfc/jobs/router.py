@@ -5,6 +5,7 @@ from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from pfc.api.schemas.match import WireModel
 from pfc.db.connection import database
@@ -24,6 +25,11 @@ Runner = Annotated[JobRunner, Depends(get_runner)]
 JobStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
 
 
+class SkippedFile(BaseModel):
+    file_name: str
+    reason: str
+
+
 class JobItem(WireModel):
     job_id: int
     kind: str
@@ -35,6 +41,32 @@ class JobItem(WireModel):
     created_at: str
     started_at: str | None
     finished_at: str | None
+    skipped_files: list[SkippedFile] | None = None
+    skipped_count: int | None = None
+
+
+def skipped_summary(job: Job) -> tuple[list[SkippedFile] | None, int | None]:
+    if job.kind != "cv_sync" or job.status != "completed":
+        return None, None
+    try:
+        summary = json.loads(job.message or "null")
+    except (ValueError, TypeError):
+        return None, None
+    if not isinstance(summary, dict):
+        return None, None
+    entries = summary.get("skipped_files")
+    count = summary.get("skipped_count")
+    if not isinstance(entries, list) and type(count) is not int:
+        return None, None
+    files = [
+        SkippedFile(file_name=entry["file_name"], reason=entry["reason"])
+        for entry in (entries if isinstance(entries, list) else [])
+        if isinstance(entry, dict)
+        and isinstance(entry.get("file_name"), str)
+        and isinstance(entry.get("reason"), str)
+    ]
+    total = count if type(count) is int and count >= 0 else len(files)
+    return files[:50], total
 
 
 def presentation(job: Job) -> tuple[str, str | None]:
@@ -82,6 +114,7 @@ def list_jobs(
     for row in rows:
         job = Job(**dict(row))
         label, link = presentation(job)
+        skipped_files, skipped_count = skipped_summary(job)
         # Like runner failures, expose fixed messages rather than exception or progress payloads.
         message = {
             "queued": "Job queued",
@@ -102,6 +135,8 @@ def list_jobs(
                 created_at=job.created_at,
                 started_at=job.started_at,
                 finished_at=job.finished_at,
+                skipped_files=skipped_files,
+                skipped_count=skipped_count,
             )
         )
     return result

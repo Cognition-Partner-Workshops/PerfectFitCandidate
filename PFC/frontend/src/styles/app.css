@@ -154,6 +154,13 @@ table.data tr.selected td { background: var(--color-primary-subtle); }
 .task-status-icon { flex-shrink: 0; color: var(--color-primary); }
 .task-text { color: var(--color-text-primary); font-size: var(--font-size-sm); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-failed .task-text { white-space: normal; overflow-wrap: anywhere; }
+.task-content { flex: 1; min-width: 0; }
+.task-content .task-text { display: block; }
+.task-skipped-toggle { position: relative; z-index: 1; margin-top: var(--space-2); }
+.task-skipped-files { padding-left: var(--space-3); font-size: var(--font-size-sm); }
+.task-skipped-files li { display: flex; min-width: 0; }
+.task-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.task-skipped-files li > span:last-child { flex-shrink: 0; }
 .task-card .icon-btn { position: relative; z-index: 1; flex-shrink: 0; }
 .task-completed { border-left-color: var(--color-success); }
 .task-completed .task-status-icon { color: var(--color-success); }

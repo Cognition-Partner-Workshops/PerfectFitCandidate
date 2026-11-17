@@ -14,6 +14,8 @@ export interface JobItem {
   createdAt: string
   startedAt: string | null
   finishedAt: string | null
+  skippedFiles?: { file_name: string; reason: string }[] | null
+  skippedCount?: number | null
 }
 
 export interface DocumentSummary {

@@ -56,7 +56,7 @@ export function TaskProvider({ children, client = api }: { children: ReactNode; 
   }, [busy, client])
 
   useEffect(() => {
-    const completed = tasks.filter((task) => !task.hidden && task.status === 'completed' && task.endedAt !== undefined)
+    const completed = tasks.filter((task) => !task.hidden && task.status === 'completed' && !(task.skippedCount && task.skippedCount > 0) && task.endedAt !== undefined)
     if (!completed.length) return
     const delay = Math.max(0, Math.min(...completed.map((task) => task.endedAt! + 10000 - Date.now())))
     const timer = setTimeout(() => {

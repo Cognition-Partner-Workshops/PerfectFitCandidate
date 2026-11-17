@@ -11,6 +11,8 @@ export interface Task {
   reason?: string
   endedAt?: number
   hidden?: boolean
+  skippedFiles?: JobItem['skippedFiles']
+  skippedCount?: number | null
 }
 
 export interface Tasks {
@@ -32,7 +34,7 @@ export function taskStatus(task: Task): string {
   switch (task.status) {
     case 'queued': return 'Started'
     case 'running': return `In Progress${task.progress !== undefined ? ` (${Math.round(Math.max(0, Math.min(1, task.progress)) * 100)}%)` : ''}`
-    case 'completed': return 'Completed'
+    case 'completed': return `Completed${(task.skippedCount ?? 0) > 0 ? ` · ${task.skippedCount} file${task.skippedCount === 1 ? '' : 's'} skipped` : ''}`
     case 'failed': return `Failed — ${task.reason ?? 'Please retry or contact an administrator.'}`
     case 'cancelled': return 'Cancelled'
   }
@@ -48,6 +50,7 @@ export function mergeJobs(tasks: Task[], jobs: JobItem[], dismissed: Set<string>
       id, jobId: job.jobId, label: job.label, status: job.status, progress: job.progress,
       link: job.link, endedAt: terminal ? previous?.endedAt ?? now : undefined,
       hidden: dismissed.has(id),
+      skippedFiles: job.skippedFiles, skippedCount: job.skippedCount,
     })
   }
   return [...merged.values()]

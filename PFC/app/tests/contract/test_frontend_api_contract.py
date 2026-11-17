@@ -66,6 +66,8 @@ def test_jobs_listing_openapi(tmp_path: Path) -> None:
         "createdAt",
         "startedAt",
         "finishedAt",
+        "skippedFiles",
+        "skippedCount",
     }
 
 

@@ -11,11 +11,13 @@ it('requests jobs with default and custom limits, maps the camelCase contract an
   const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify([job]))).mockResolvedValueOnce(new Response('[]'))
   vi.stubGlobal('fetch', fetch)
   const api = new HttpApiClient('/api/v1')
-  expect(await api.listJobs()).toEqual([job])
+  expect(await api.listJobs()).toEqual([{ ...job, skippedCount: null, skippedFiles: null }])
   expect(fetch.mock.calls[0][0]).toBe('/api/v1/jobs?limit=20')
   expect(await api.listJobs(5)).toEqual([])
   expect(fetch.mock.calls[1][0]).toBe('/api/v1/jobs?limit=5')
   expect(toJob(job)).not.toBe(job)
+  const skippedFiles = [{ file_name: 'CV.doc', reason: 'converter unavailable' }]
+  expect(toJob({ ...job, kind: 'cv_sync', skippedCount: 3, skippedFiles })).toMatchObject({ skippedCount: 3, skippedFiles })
 })
 
 it('propagates list errors', async () => {
@@ -27,7 +29,8 @@ it('provides sample mock cards with links and limits, plus CV sync job ids', asy
   await seed()
   await signIn('Admin', ADMIN.email, ADMIN.password)
   const jobs = await mock.listJobs()
-  expect(jobs).toHaveLength(3)
+  expect(jobs).toHaveLength(4)
+  expect(jobs.find((job) => job.kind === 'cv_sync' && job.status === 'completed')).toMatchObject({ skippedCount: 3, skippedFiles: expect.any(Array) })
   expect(jobs.some((job) => job.status === 'running' && job.kind === 'cv_sync')).toBe(true)
   expect(jobs.some((job) => job.status === 'completed' && job.link === '/#/matches')).toBe(true)
   expect(await mock.listJobs(1)).toHaveLength(1)

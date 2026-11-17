@@ -145,3 +145,44 @@ def test_empty_auth_and_limit(client: TestClient) -> None:
         assert client.get(f"/api/v1/jobs?limit={value}").status_code == 422
     client.headers.pop("test-role")
     assert client.get("/api/v1/jobs").status_code == 401
+
+
+@pytest.mark.parametrize("message", [None, "broken", "[]", "null", "{}"])
+def test_skipped_summary_absent(client: TestClient, message: str | None) -> None:
+    insert(client, status="completed", message=message)
+    item = client.get("/api/v1/jobs").json()[0]
+    assert item["skippedFiles"] is None
+    assert item["skippedCount"] is None
+
+
+def test_skipped_summary_sanitized_and_capped(client: TestClient) -> None:
+    files = [
+        {"file_name": f"cv-{i}.doc", "reason": "format not selected", "secret": "drop"}
+        for i in range(60)
+    ]
+    files.extend([{}, {"file_name": 1, "reason": "bad"}, "bad"])
+    insert(
+        client,
+        status="completed",
+        message=json.dumps({"skipped_files": files, "skipped_count": 80}),
+    )
+    item = client.get("/api/v1/jobs").json()[0]
+    assert item["message"] == "Job completed"
+    assert item["skippedCount"] == 80
+    assert item["skippedFiles"] == [
+        {"file_name": f"cv-{i}.doc", "reason": "format not selected"} for i in range(50)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("kind", "status"), [("cv_sync", "completed"), ("cv_sync", "running"), ("embed", "completed")]
+)
+def test_skipped_summary_scope_and_inferred_count(
+    client: TestClient, kind: str, status: str
+) -> None:
+    file = {"file_name": "cv.doc", "reason": "converter unavailable"}
+    insert(client, kind=kind, status=status, message=json.dumps({"skipped_files": [file, {}]}))
+    item = client.get("/api/v1/jobs").json()[0]
+    expected = kind == "cv_sync" and status == "completed"
+    assert item["skippedFiles"] == ([file] if expected else None)
+    assert item["skippedCount"] == (1 if expected else None)
