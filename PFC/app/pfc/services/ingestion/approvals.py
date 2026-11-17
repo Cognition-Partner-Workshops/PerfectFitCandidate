@@ -344,13 +344,12 @@ def decide(
     else:
         if row["reopened_from_entry_id"] is not None:
             uploaded = json.loads(row["after_json"])
-            fields = DISPLAY[entity] - {"current_version_id", "email_address"}
-            values.update({field: uploaded[field] for field in fields})
+            preserved = {"occ_reviewed_by", "occ_reviewed_at", "updated_at"}
             if entity == "resource":
-                values["bench_end_date_parse_status"] = (
-                    "valid" if values["bench_end_date"] else "blank"
-                )
-                _status_code(db, values)
+                preserved |= {"candidate_id", "eligibility", "exclusion_reason"}
+            values.update(
+                {field: value for field, value in uploaded.items() if field not in preserved}
+            )
         state = "Approved"
     values.update(occ_reviewed_by=user_id, occ_reviewed_at=now, updated_at=now)
     changed = {k: v for k, v in values.items() if v != current[k]}

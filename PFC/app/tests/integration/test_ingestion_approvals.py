@@ -181,6 +181,62 @@ def test_reopened_approve_preserves_resolved_ct_identity(client):
         )
 
 
+@pytest.mark.parametrize(
+    "kind,entity,field,db_field",
+    [("dl", "demand", "Account Name", "account_name"), ("ct", "resource", "Location", "location")],
+)
+def test_reopened_approve_restores_upload_hash_and_jd_after_revert(
+    client, kind, entity, field, db_field
+):
+    before_fields = {field: "Before", **({"JD": "Original SQL JD"} if kind == "dl" else {})}
+    ingest(client, kind, [before_fields])
+    decision(client, queue(client)[0], "approve")
+    before = row(client, entity)
+    ingest(
+        client, kind, [{field: "Uploaded", **({"JD": "Changed Python JD"} if kind == "dl" else {})}]
+    )
+    uploaded = row(client, entity)
+    old = queue(client)[0]
+    decision(client, old, "revert")
+    assert row(client, entity)["row_hash"] == before["row_hash"]
+    response = client.post(
+        f"/api/v1/occ/approvals/{old['entryId']}/reopen", json={"comment": "Restore upload"}
+    )
+    assert response.status_code == 200, response.text
+    decision(client, response.json(), "approve")
+    restored = row(client, entity)
+    assert restored[db_field] == "Uploaded"
+    assert restored["row_hash"] == uploaded["row_hash"] != before["row_hash"]
+    if kind == "dl":
+        assert (
+            restored["current_version_id"]
+            == uploaded["current_version_id"]
+            != before["current_version_id"]
+        )
+    other = (
+        {"Code Requisition": "T21234"}
+        if kind == "dl"
+        else {"ShortName": "Other", "Email Address": "other@example.com"}
+    )
+    ingest(client, kind, [before_fields, other])
+    assert row(client, entity)[db_field] == "Before"
+    assert row(client, entity)["row_hash"] == before["row_hash"]
+
+
+def test_reopened_approve_preserves_invalid_uploaded_bench_end_date(client):
+    ingest(client, "ct", [{"Bench End Date": "not a date"}])
+    old = queue(client)[0]
+    assert row(client, "resource")["bench_end_date_parse_status"] == "unparseable"
+    decision(client, old, "modify", comment="Clear date", values={"benchEndDate": ""})
+    assert row(client, "resource")["bench_end_date_parse_status"] == "blank"
+    response = client.post(
+        f"/api/v1/occ/approvals/{old['entryId']}/reopen", json={"comment": "Restore upload"}
+    )
+    assert response.status_code == 200, response.text
+    decision(client, response.json(), "approve")
+    assert row(client, "resource")["bench_end_date_parse_status"] == "unparseable"
+
+
 def test_reopen_validation_conflicts_and_permissions(client):
     ingest(client, "dl", [{}])
     old = queue(client)[0]
