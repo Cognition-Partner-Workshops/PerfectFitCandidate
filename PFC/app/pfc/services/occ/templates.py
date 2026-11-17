@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from math import isclose
 from string import Formatter
 from typing import Any
 
@@ -134,9 +135,28 @@ def activate(db: sqlite3.Connection, user_id: int, target: int) -> dict[str, Any
     rules.pop("_meta", None)
     rules.update(weights=weights, name=before["name"], version=before["version"])
     try:
-        ScoringTemplate.from_dict(rules)
+        template = ScoringTemplate.from_dict(rules)
     except ValueError as exc:
         raise Problem(422, "VALIDATION_ERROR", str(exc)) from exc
+    bench_start_points = [
+        *(points for _, points in template.bench_start.tiers_days),
+        template.bench_start.beyond,
+        template.bench_start.missing,
+    ]
+    full_credit = (
+        ("Grade", template.grade.exact, weights["grade"]),
+        ("Location", max(template.location_points.values(), default=-1.0), weights["location"]),
+        ("Bench Start", max(bench_start_points, default=-1.0), weights["bench_start"]),
+        ("Bench End", template.bench_end_blank_points, weights["bench_end"]),
+        ("Status", max(template.status_tiered_points.values(), default=-1.0), weights["status"]),
+    )
+    for component, points, weight in full_credit:
+        if not isclose(points, weight, rel_tol=0.0, abs_tol=1e-6):
+            raise Problem(
+                422,
+                "VALIDATION_ERROR",
+                f"{component} full-credit points must equal its component weight",
+            )
     active = db.execute(
         "SELECT * FROM scoring_templates WHERE name=? AND "
         "coalesce(role_family,'')=coalesce(?,'') AND status='active'",

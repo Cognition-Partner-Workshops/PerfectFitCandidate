@@ -162,6 +162,108 @@ export function toScoringTemplate(row: ScoringTemplateRow): ScoringTemplate {
   }
 }
 
+type ScoringTemplateDraft = Pick<
+  ScoringTemplate,
+  'weights' | 'adjacentGradePoints' | 'statusScoreMode' | 'bands'
+>
+
+const scaleScoringPoints = (value: unknown, factor: number): unknown => {
+  if (factor === 1 || typeof value !== 'number' || !Number.isFinite(value)) return value
+  return Math.round(value * factor * 10000) / 10000
+}
+
+const scoringWeightFactor = (label: string, oldWeight: number, newWeight: number): number => {
+  if (oldWeight === 0) {
+    if (newWeight > 0) {
+      throw new Error(
+        `${label} was 0 in the active template, so its points can't be scaled. Edit it in a settings package instead.`,
+      )
+    }
+    return 1
+  }
+  const factor = newWeight / oldWeight
+  return factor === 1 ? 1 : factor
+}
+
+const scaleScoringPointMap = (value: unknown, factor: number): Record<string, unknown> =>
+  Object.fromEntries(
+    Object.entries(scoringObject(value)).map(([key, points]) => [
+      key,
+      scaleScoringPoints(points, factor),
+    ]),
+  )
+
+export function buildScoringTemplateRules(
+  activeRow: ScoringTemplateRow,
+  draft: ScoringTemplateDraft,
+): Record<string, unknown> {
+  const activeWeights = scoringObject(activeRow.weights)
+  const activeRules = scoringObject(activeRow.rules)
+  const rules = Object.fromEntries(
+    Object.entries(activeRules).filter(([key]) => key !== '_meta'),
+  )
+  const grade = scoringObject(rules.grade)
+  const benchStart = scoringObject(rules.bench_start)
+  const gradeFactor = scoringWeightFactor(
+    'Grade',
+    scoringNumber(activeWeights.grade, SCORING_WEIGHT_DEFAULTS.grade),
+    draft.weights.grade,
+  )
+  const locationFactor = scoringWeightFactor(
+    'Location',
+    scoringNumber(activeWeights.location, SCORING_WEIGHT_DEFAULTS.location),
+    draft.weights.location,
+  )
+  const benchStartFactor = scoringWeightFactor(
+    'Bench Start',
+    scoringNumber(activeWeights.bench_start, SCORING_WEIGHT_DEFAULTS.benchStart),
+    draft.weights.benchStart,
+  )
+  const benchEndFactor = scoringWeightFactor(
+    'Bench End',
+    scoringNumber(activeWeights.bench_end, SCORING_WEIGHT_DEFAULTS.benchEnd),
+    draft.weights.benchEnd,
+  )
+  const statusFactor = scoringWeightFactor(
+    'Status',
+    scoringNumber(activeWeights.status, SCORING_WEIGHT_DEFAULTS.status),
+    draft.weights.status,
+  )
+  const activeAdjacent = grade.adjacent
+  const adjacent =
+    draft.adjacentGradePoints !== activeAdjacent
+      ? draft.adjacentGradePoints
+      : scaleScoringPoints(activeAdjacent, gradeFactor)
+  const tiers = benchStart.tiers_days
+  const scaledTiers = Array.isArray(tiers)
+    ? tiers.map((tier) => {
+        if (!Array.isArray(tier)) return tier
+        const [days, points, ...rest] = tier as unknown[]
+        return [days, scaleScoringPoints(points, benchStartFactor), ...rest]
+      })
+    : tiers
+  return {
+    ...rules,
+    grade: { ...grade, exact: draft.weights.grade, adjacent },
+    location_points: scaleScoringPointMap(rules.location_points, locationFactor),
+    bench_start: {
+      ...benchStart,
+      tiers_days: scaledTiers,
+      beyond: scaleScoringPoints(benchStart.beyond, benchStartFactor),
+      missing: scaleScoringPoints(benchStart.missing, benchStartFactor),
+    },
+    bench_end_blank_points: scaleScoringPoints(rules.bench_end_blank_points, benchEndFactor),
+    status_tiered_points: scaleScoringPointMap(rules.status_tiered_points, statusFactor),
+    status_score_mode: draft.statusScoreMode,
+    bands: {
+      ...scoringObject(rules.bands),
+      Strong: draft.bands.strong,
+      Potential: draft.bands.potential,
+      Avg: draft.bands.avg,
+    },
+  }
+}
+
 export interface PersonalRow {
   resume_root_path: string | null
   watch: { dl: { enabled: boolean; path: string | null; pattern: string }; ct: { enabled: boolean; path: string | null; pattern: string } }

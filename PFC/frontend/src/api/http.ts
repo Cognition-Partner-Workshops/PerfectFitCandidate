@@ -52,6 +52,7 @@ import {
   toMatchResult,
   toExportQuery,
   toEmailTemplate,
+  buildScoringTemplateRules,
   toScoringTemplate,
   type EmailTemplateRow,
   type ScoringTemplateRow,
@@ -479,35 +480,11 @@ export class HttpApiClient implements ApiClient {
       templates.find((template) => template.status === 'active' && template.name === 'default') ??
       templates.find((template) => template.status === 'active')
     if (!active) throw new Error('No active scoring template.')
+    if (typeof active.template_id !== 'number') throw new Error('Active scoring template has no id.')
 
-    const activeRules = active.rules ?? {}
-    const rulesWithoutMetadata = Object.fromEntries(
-      Object.entries(activeRules).filter(([key]) => key !== '_meta'),
-    )
-    const grade =
-      rulesWithoutMetadata.grade !== null &&
-      typeof rulesWithoutMetadata.grade === 'object' &&
-      !Array.isArray(rulesWithoutMetadata.grade)
-        ? (rulesWithoutMetadata.grade as Record<string, unknown>)
-        : {}
-    const bands =
-      rulesWithoutMetadata.bands !== null &&
-      typeof rulesWithoutMetadata.bands === 'object' &&
-      !Array.isArray(rulesWithoutMetadata.bands)
-        ? (rulesWithoutMetadata.bands as Record<string, unknown>)
-        : {}
-    const rules = {
-      ...rulesWithoutMetadata,
-      grade: { ...grade, adjacent: draft.adjacentGradePoints },
-      status_score_mode: draft.statusScoreMode,
-      bands: {
-        ...bands,
-        Strong: draft.bands.strong,
-        Potential: draft.bands.potential,
-        Avg: draft.bands.avg,
-      },
-    }
+    const rules = buildScoringTemplateRules(active, draft)
     const created = await this.request<{ template_id: number }>('POST', '/occ/scoring-templates', {
+      clone_from_id: active.template_id,
       weights: {
         skills: draft.weights.skills,
         grade: draft.weights.grade,
