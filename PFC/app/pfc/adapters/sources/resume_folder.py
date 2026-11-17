@@ -17,7 +17,7 @@ from pypdf import PdfReader
 
 from pfc.config import Settings
 
-from .cv_converter import ConverterUnavailable, convert_legacy
+from .cv_converter import ConverterUnavailable, conversion_lock, convert_legacy
 from .cv_readers import read_odt, read_pptx, read_rtf
 from .resume_paths import confined_path, read_resume, resume_files
 
@@ -98,18 +98,19 @@ def bounded_extract(
         snapshot = Path(directory) / path.name
         snapshot.write_bytes(content)
         if extractor is extract_text and path.suffix.lower() in {".doc", ".ppt"}:
-            started = time.monotonic()
-            try:
-                converted, target = convert_legacy(snapshot, timeout=timeout, work_dir=work_dir)
-            except subprocess.TimeoutExpired:
-                return "", ["extraction_timeout"]
-            except ConverterUnavailable:
-                return "", ["extraction failed: ConverterUnavailable"]
-            except (OSError, RuntimeError) as exc:
-                return "", [f"extraction failed: {type(exc).__name__}"]
-            snapshot = Path(directory) / f"converted.{target}"
-            snapshot.write_bytes(converted)
-            timeout = max(0, timeout - (time.monotonic() - started))
+            with conversion_lock:
+                started = time.monotonic()
+                try:
+                    converted, target = convert_legacy(snapshot, timeout=timeout, work_dir=work_dir)
+                except subprocess.TimeoutExpired:
+                    return "", ["extraction_timeout"]
+                except ConverterUnavailable:
+                    return "", ["extraction failed: ConverterUnavailable"]
+                except (OSError, RuntimeError) as exc:
+                    return "", [f"extraction failed: {type(exc).__name__}"]
+                snapshot = Path(directory) / f"converted.{target}"
+                snapshot.write_bytes(converted)
+                timeout = max(0, timeout - (time.monotonic() - started))
         return _run_extractor(snapshot, extractor, timeout)
 
 

@@ -7,6 +7,9 @@ import subprocess
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import RLock
+
+conversion_lock = RLock()
 
 
 class ConverterUnavailable(RuntimeError):
@@ -56,7 +59,7 @@ def convert_legacy(path: Path, *, timeout: float, work_dir: Path) -> tuple[bytes
     target = {".doc": "docx", ".ppt": "pptx"}[path.suffix.lower()]
     work_dir.mkdir(parents=True, exist_ok=True)
     profile = work_dir.parent / "lo-profile"
-    with TemporaryDirectory(prefix="convert-", dir=work_dir) as directory:
+    with conversion_lock, TemporaryDirectory(prefix="convert-", dir=work_dir) as directory:
         process = subprocess.Popen(
             [
                 str(executable),

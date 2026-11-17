@@ -1,5 +1,8 @@
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
+from threading import Event, Lock
 from unittest.mock import Mock
 from zipfile import ZipFile
 
@@ -248,6 +251,80 @@ def test_converter_failure(tmp_path, monkeypatch):
     )
     with pytest.raises(RuntimeError, match="conversion failed"):
         cv_converter.convert_legacy(tmp_path / "cv.doc", timeout=1, work_dir=tmp_path)
+
+
+def test_concurrent_conversions_share_profile_without_overlap(tmp_path, monkeypatch):
+    monkeypatch.setattr(cv_converter, "find_soffice", lambda: Path("soffice"))
+    first_started, release_first, second_requested, second_started = (Event() for _ in range(4))
+    guard = Lock()
+    active = 0
+    profiles = []
+
+    def launch(argv, **kwargs):
+        nonlocal active
+        with guard:
+            assert active == 0
+            active += 1
+            profiles.append(next(arg for arg in argv if arg.startswith("-env:UserInstallation=")))
+            first = len(profiles) == 1
+        directory = Path(argv[argv.index("--outdir") + 1])
+        (directory / "cv.docx").write_bytes(b"converted")
+        (first_started if first else second_started).set()
+
+        def wait(*, timeout):
+            nonlocal active
+            assert timeout == 7.5
+            if first:
+                assert release_first.wait(5)
+            with guard:
+                active -= 1
+            return 0
+
+        return Mock(wait=wait)
+
+    def convert(second=False):
+        if second:
+            second_requested.set()
+        return cv_converter.convert_legacy(tmp_path / "cv.doc", timeout=7.5, work_dir=tmp_path)
+
+    monkeypatch.setattr(cv_converter.subprocess, "Popen", launch)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(convert)
+        try:
+            assert first_started.wait(5)
+            second = executor.submit(convert, True)
+            assert second_requested.wait(5)
+            assert not second_started.wait(0.1)
+        finally:
+            release_first.set()
+        assert first.result(timeout=5) == second.result(timeout=5) == (b"converted", "docx")
+    assert active == 0
+    assert len(profiles) == 2 and profiles[0] == profiles[1]
+    assert not list(tmp_path.glob("convert-*"))
+
+
+def test_bounded_extraction_does_not_charge_conversion_lock_wait(tmp_path, monkeypatch):
+    clock = [0.0]
+
+    @contextmanager
+    def queued_conversion():
+        clock[0] += 100
+        yield
+
+    def convert(*args, **kwargs):
+        assert kwargs["timeout"] == 7.5
+        clock[0] += 0.25
+        return b"converted", "docx"
+
+    reader = Mock(return_value=("Tiny CV", []))
+    monkeypatch.setattr(resume_folder, "conversion_lock", queued_conversion())
+    monkeypatch.setattr(resume_folder, "convert_legacy", convert)
+    monkeypatch.setattr(resume_folder, "_run_extractor", reader)
+    monkeypatch.setattr(resume_folder.time, "monotonic", lambda: clock[0])
+    assert resume_folder.bounded_extract(
+        tmp_path / "cv.doc", resume_folder.extract_text, 7.5, content=b"legacy", work_dir=tmp_path
+    ) == ("Tiny CV", [])
+    assert reader.call_args.args[2] == 7.25
 
 
 @pytest.mark.skipif(not cv_converter.converter_available(), reason="LibreOffice not installed")
