@@ -196,6 +196,48 @@ def test_ambiguous_degree_requirements_are_rejected(text):
 
 
 @pytest.mark.parametrize(
+    "text",
+    [
+        "Postgraduate in Computer Science",
+        "Post-graduate in Computer Science",
+        "Post graduate degree",
+        "PG degree",
+        "Master's-level qualification",
+    ],
+)
+def test_postgraduate_requirements_need_a_master(text):
+    required = cv_profile.degree_requirement(text)
+    assert required is not None and required[0] == 2
+    assert degree_met(text, "BSc Computer Science") is None
+    assert degree_met(text, "MSc Computer Science").level == 2
+    config = load_domain_config()
+    result = _item(
+        RequirementItem("1", text, "mandatory", source_kind="qualification"),
+        SkillBasis("CV:1", "CV", (), True, "BSc Computer Science"),
+        SemanticInput(item_credits={"1": 0.37}),
+        config,
+        config.template,
+        AS_OF,
+    )
+    assert (result.credit, result.method) == (0.37, "semantic")
+
+
+@pytest.mark.parametrize(
+    "text", ["Postgraduate Diploma", "Post-graduate Diploma in Computer Science"]
+)
+def test_postgraduate_diploma_is_not_a_master(text):
+    assert degree(text) is None
+    assert degree_met("Postgraduate in Computer Science", text) is None
+    assert degree_met("Postgraduate in Computer Science", text + "\nBSc Computer Science") is None
+    assert (
+        degree_met(
+            "Postgraduate in Computer Science", text + "\nMaster's in Computer Science"
+        ).level
+        == 2
+    )
+
+
+@pytest.mark.parametrize(
     "text,level,technical",
     [
         ("I will be responsible for it", None, False),

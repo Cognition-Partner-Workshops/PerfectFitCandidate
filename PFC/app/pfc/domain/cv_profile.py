@@ -195,15 +195,19 @@ def requirement_years(text: str) -> float | None:
 
 @lru_cache(maxsize=8192)
 def degree_requirement(text: str) -> tuple[int, bool] | None:
-    if requirement_years(text) is not None or not re.search(
-        r"\b(?:degrees?|bachelors?|(?:post)?graduates?|"
-        r"master(?:['’]s|s?\s+(?:of|in|degree))|doctorate|ph\.?d)\b",
-        text,
-        re.I,
+    postgraduate = bool(re.search(r"\b(?:post[-\s]?graduate|PG\s+degrees?)\b", text, re.I))
+    if requirement_years(text) is not None or not (
+        postgraduate
+        or re.search(
+            r"\b(?:degrees?|bachelors?|(?:post)?graduates?|"
+            r"master(?:['’]s|s?\s+(?:of|in|degree))|doctorate|ph\.?d)\b",
+            text,
+            re.I,
+        )
     ):
         return None
     required = degree(text)
-    level = required.level if required else 1
+    level = max(required.level if required else 1, 2 if postgraduate else 1)
     technical = bool(re.search(_TECHNICAL + r"|\btechnical\b", text, re.I))
     return level, technical
 
