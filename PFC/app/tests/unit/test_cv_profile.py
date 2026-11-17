@@ -171,6 +171,32 @@ def test_degree_unclear_and_levels():
 @pytest.mark.parametrize(
     "text,level,technical",
     [
+        ("Master of Science", 2, False),
+        ("Masters in Engineering", 2, True),
+        ("Master’s in Engineering", 2, True),
+        ("Bachelor of Engineering", 1, True),
+        ("Bachelor's in History", 1, False),
+        ("Bachelors in History", 1, False),
+        ("Graduate", 1, False),
+        ("Academic qualification", 1, False),
+        ("Doctorate", 3, False),
+        ("PhD", 3, False),
+    ],
+)
+def test_full_word_degree_requirements(text, level, technical):
+    assert cv_profile.degree_requirement(text) == (level, technical)
+    assert degree_met(text, "PhD Engineering").level == 3
+
+
+@pytest.mark.parametrize("text", ["BA", "MSc", "Scrum Master", "5 years of BA experience"])
+def test_ambiguous_degree_requirements_are_rejected(text):
+    assert cv_profile.degree_requirement(text) is None
+    assert degree_met(text, "PhD Engineering") is None
+
+
+@pytest.mark.parametrize(
+    "text,level,technical",
+    [
         ("I will be responsible for it", None, False),
         ("ba bs mba mca it", None, False),
         ("BE (Mechanical)", 1, True),
@@ -237,7 +263,7 @@ def test_explicit_qualification_kind():
     assert (result.credit, result.method) == (1, "cv-degree")
 
 
-@pytest.mark.parametrize("text", ["AWS certification", "Professional qualification", "MSc"])
+@pytest.mark.parametrize("text", ["AWS certification", "MSc"])
 @pytest.mark.parametrize("source_kind", ["qualification", None])
 def test_certification_is_not_a_degree(text, source_kind):
     config = load_domain_config()
