@@ -103,6 +103,26 @@ describe('task store', () => {
     expect(client.listJobs.mock.calls.length).toBeGreaterThan(2)
   })
 
+  it('marks a resolved partial failure as failed without changing the returned value', async () => {
+    const { result } = mount()
+    await flush()
+    const response = { failed: [{ detail: 'private@example.com /home/private/file' }] }
+    await act(async () => {
+      expect(await result.current.trackTask('Analyze all new (5)', Promise.resolve(response), {
+        failureReason: (value) => value.failed.length ? `${value.failed.length} of 5 failed` : undefined,
+      })).toBe(response)
+    })
+    expect(result.current.tasks[0]).toMatchObject({ status: 'failed', reason: '1 of 5 failed' })
+    await act(() => vi.advanceTimersByTimeAsync(10000))
+    expect(result.current.tasks).toHaveLength(1)
+    await act(async () => {
+      await result.current.trackTask('Analyze all new (1)', Promise.resolve({ failed: [] }), {
+        failureReason: (value) => value.failed.length ? '1 of 1 failed' : undefined,
+      })
+    })
+    expect(result.current.tasks[1].status).toBe('completed')
+  })
+
   it('returns to the idle interval when jobs finish and does not restart completion expiry', async () => {
     const { client, result } = mount([job])
     await flush()

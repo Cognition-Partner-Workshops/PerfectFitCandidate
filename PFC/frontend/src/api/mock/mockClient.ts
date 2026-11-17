@@ -7,6 +7,7 @@
 import { ApiError, type ApiClient, type EmailList, type StatusMapData } from '../client'
 import { applyChanges } from '../crud'
 import type {
+  BulkAnalysis,
   JobItem,
   DocumentSummary,
   CandidateDetail,
@@ -637,12 +638,13 @@ export class MockApiClient implements ApiClient {
     return this.done({ ...demand })
   }
 
-  async analyzeDemands(ids: number[]) {
+  async analyzeDemands(ids: number[]): Promise<BulkAnalysis> {
     this.currentUser()
     for (const d of this.state.demands) {
       if (ids.includes(d.demandId) && needsAnalysis(d)) d.jdStatus = 'Draft'
     }
-    return this.done(undefined)
+    const analyzed = await Promise.all(this.state.demands.filter((d) => ids.includes(d.demandId)).map((d) => this.getRequirements(d.demandId)))
+    return this.done({ analyzed, failed: [] })
   }
 
   async analyzeDemand(demandId: number) {

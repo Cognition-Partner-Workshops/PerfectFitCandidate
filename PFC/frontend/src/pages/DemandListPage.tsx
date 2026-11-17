@@ -244,7 +244,9 @@ export function DemandListPage() {
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState<Demand | null>(null)
   const [upload, setUpload] = useState(false)
-  const analyze = useMutation({ mutationFn: (ids: number[]) => trackTask(`Analyze all new (${ids.length})`, api.analyzeDemands(ids)), onSuccess: () => void qc.invalidateQueries({ queryKey: ['demands'] }) })
+  const analyze = useMutation({ mutationFn: (ids: number[]) => trackTask(`Analyze all new (${ids.length})`, api.analyzeDemands(ids), {
+    failureReason: (result) => result.failed.length ? `${result.failed.length} of ${ids.length} failed` : undefined,
+  }), onSuccess: () => void qc.invalidateQueries({ queryKey: ['demands'] }) })
   const currentMatches = useMemo(
     () => summarizeCurrentResults(currentResults.data ?? []),
     [currentResults.data],

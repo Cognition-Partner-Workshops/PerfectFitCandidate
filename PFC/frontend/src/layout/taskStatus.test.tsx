@@ -58,3 +58,16 @@ it('refreshes historical result rows after saving an override', async () => {
   await waitFor(() => expect(rows.mock.calls.length).toBeGreaterThan(calls))
   expect(await within(row).findByText('Overridden')).toBeTruthy()
 })
+
+it('shows bulk analysis partial failures without breaking the successful response refresh', async () => {
+  const failed = vi.spyOn(mock, 'analyzeDemands').mockResolvedValue({ analyzed: [], failed: [{ demandId: 1, detail: 'private@example.com /home/private/file' }] })
+  const demands = vi.spyOn(mock, 'listDemands')
+  renderApp('/demands')
+  const button = await screen.findByRole('button', { name: /Analyze all new/ })
+  const calls = demands.mock.calls.length
+  fireEvent.click(button)
+  await waitFor(() => expect(failed).toHaveBeenCalled())
+  const count = failed.mock.calls[0][0].length
+  expect(await screen.findByText(`Analyze all new (${count}): Failed — 1 of ${count} failed`)).toBeTruthy()
+  await waitFor(() => expect(demands.mock.calls.length).toBeGreaterThan(calls))
+})

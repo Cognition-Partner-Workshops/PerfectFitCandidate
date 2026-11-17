@@ -1,4 +1,5 @@
 import type {
+  BulkAnalysis,
   JobItem,
   DocumentSummary,
   ExcludedEntry,
@@ -129,7 +130,7 @@ export interface ApiClient {
   /** GET /demands/{id} */
   getDemand(demandId: number): Promise<Demand>
   /** POST /demands/analyze */
-  analyzeDemands(demandIds: number[]): Promise<void>
+  analyzeDemands(demandIds: number[]): Promise<BulkAnalysis>
   /** POST /demands/{id}/analyze — extracts a new requirements draft */
   analyzeDemand(demandId: number): Promise<JdRequirements>
   /** GET /demands/{id}/requirements */

@@ -80,7 +80,8 @@ export function TaskProvider({ children, client = api }: { children: ReactNode; 
     const started = setTimeout(() => setTasks((previous) => previous.map((item) => item.id === id ? { ...item, status: 'running' } : item)), 0)
     try {
       const value = await promise
-      setTasks((previous) => previous.map((item) => item.id === id ? { ...item, status: 'completed', endedAt: Date.now() } : item))
+      const reason = options?.failureReason?.(value)
+      setTasks((previous) => previous.map((item) => item.id === id ? { ...item, status: reason ? 'failed' : 'completed', reason, endedAt: Date.now() } : item))
       return value
     } catch (error) {
       setTasks((previous) => previous.map((item) => item.id === id ? { ...item, status: 'failed', reason: safeReason(error), endedAt: Date.now() } : item))

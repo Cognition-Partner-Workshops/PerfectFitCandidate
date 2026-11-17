@@ -1,3 +1,8 @@
+export interface BulkAnalysis {
+  analyzed: JdRequirements[]
+  failed: { demandId: number; detail: string }[]
+}
+
 export interface JobItem {
   jobId: number
   kind: string

@@ -17,7 +17,7 @@ export interface Tasks {
   tasks: Task[]
   busy?: boolean
   hasFailed?: boolean
-  trackTask: <T>(label: string, promise: Promise<T>, options?: { link?: string }) => Promise<T>
+  trackTask: <T>(label: string, promise: Promise<T>, options?: { link?: string; failureReason?: (value: T) => string | undefined }) => Promise<T>
   addJob: (jobId: number, label?: string) => void
   dismiss: (id: string) => void
 }
