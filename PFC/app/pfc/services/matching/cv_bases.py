@@ -7,6 +7,7 @@ from pfc.domain.config_loader import DomainConfig
 from pfc.domain.cv_profile import skill_hits
 from pfc.domain.normalise import ParsedDate, normalise_term, parse_date
 from pfc.domain.scoring import Resource, SkillBasis, SkillEvidence
+from pfc.services.summaries import redact_contacts
 
 
 def load_resources(
@@ -120,7 +121,9 @@ def load_cv_bases(
                 canonical_ids.get(normalise_term(canonical)),
                 "CV text",
             )
-            for raw, canonical, line in skill_hits(version["text_norm"] or "", config.synonyms)
+            for raw, canonical, line in skill_hits(
+                redact_contacts(version["text_norm"] or ""), config.synonyms
+            )
             if normalise_term(canonical) not in recorded
         )
         cv_bases.setdefault(candidate, []).append(

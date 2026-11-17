@@ -21,6 +21,31 @@ from pfc.services.matching.cv_bases import load_cv_bases, load_resources
 from pfc.services.occ.domain import occ_domain_config
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "SQL engineer alice@example.com +44 7700 900123",
+        "SQL engineer",
+        "",
+    ],
+)
+def test_cv_text_evidence_redacts_contacts(settings, text):
+    with database(settings) as db:
+        candidate = seed_candidate(db)
+        resource = seed_resource(db, candidate=candidate)
+        cv = seed_cv(db, resource, candidate, skills=())
+        db.execute("UPDATE cv_versions SET text_norm=? WHERE cv_version_id=?", (text, cv))
+        config = occ_domain_config(db)
+        basis = load_cv_bases(db, config)[f"candidate:{candidate}"][0]
+    quotes = " ".join(skill.evidence for skill in basis.skills)
+    assert "alice@example.com" not in quotes
+    assert "7700" not in quotes
+    if "@" in text:
+        assert "[email removed]" in quotes
+        assert "[phone removed]" in quotes
+    assert bool(basis.skills) == bool(text)
+
+
 def test_dummy_candidate_whole_cv_score(settings):
     text = (
         "Project Manager\nSkills: Project Management\n"
