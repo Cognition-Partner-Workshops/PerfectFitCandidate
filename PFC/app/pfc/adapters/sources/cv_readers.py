@@ -116,10 +116,14 @@ def read_rtf(path: Path) -> str:
             fallback = uc
         else:
             value = ""
-            if word in {"par", "line"}:
+            if word in {"par", "line", "row"}:
                 value = "\n"
-            elif word == "tab":
+            elif word in {"tab", "cell"}:
                 value = "\t"
+            elif escaped == "~":
+                value = " "
+            elif escaped == "_":
+                value = "-"
             elif hex_byte:
                 value = bytes.fromhex(hex_byte).decode("cp1252", errors="replace")
             elif escaped in {"\\", "{", "}"}:

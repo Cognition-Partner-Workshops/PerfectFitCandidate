@@ -64,6 +64,12 @@ def test_rtf_controls(tmp_path):
     assert read_rtf(path) == "Hello\nnext\ntab\t€ é α β \\ {ok}"
 
 
+def test_rtf_table_and_control_symbol_separators(tmp_path):
+    path = tmp_path / "table.rtf"
+    path.write_bytes(rb"{\rtf1 SQL\cell Python\row Data\~Science\par full\_time co\-operate}")
+    assert read_rtf(path) == "SQL\tPython\nData Science\nfull-time cooperate"
+
+
 @pytest.mark.parametrize("extension", [".rtf", ".odt", ".pptx"])
 def test_empty_reader(tmp_path, extension):
     path = tmp_path / f"empty{extension}"
