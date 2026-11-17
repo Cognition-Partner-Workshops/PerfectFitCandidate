@@ -147,7 +147,7 @@ def test_bundled_converter(tmp_path, monkeypatch):
 
 
 def test_converter_override(tmp_path, monkeypatch):
-    executable = tmp_path / "custom-soffice"
+    executable = tmp_path / "custom-soffice.exe"
     executable.touch(mode=0o700)
     monkeypatch.setenv("PFC_SOFFICE", str(executable))
     assert cv_converter.find_soffice() == executable
@@ -171,7 +171,7 @@ def test_converter_success(tmp_path, monkeypatch):
     ) == ("Converted CV", [])
     argv, kwargs = calls[0]
     assert argv[argv.index("--convert-to") + 1] == "docx"
-    assert kwargs["start_new_session"] is True
+    assert kwargs["start_new_session"] is (cv_converter.os.name != "nt")
     assert not list(tmp_path.glob("convert-*"))
     assert not list(tmp_path.glob("pfc-cv-*"))
 
@@ -182,11 +182,22 @@ def test_converter_timeout(tmp_path, monkeypatch):
     process.wait.side_effect = [subprocess.TimeoutExpired("soffice", 0.1), 0]
     monkeypatch.setattr(cv_converter.subprocess, "Popen", Mock(return_value=process))
     kill = Mock()
-    monkeypatch.setattr(cv_converter.os, "killpg", kill)
+    if cv_converter.sys.platform == "win32":
+        monkeypatch.setattr(cv_converter.subprocess, "run", kill)
+    else:
+        monkeypatch.setattr(cv_converter.os, "killpg", kill)
     assert resume_folder.bounded_extract(
         tmp_path / "cv.ppt", resume_folder.extract_text, 0.1, content=b"legacy", work_dir=tmp_path
     ) == ("", ["extraction_timeout"])
-    kill.assert_called_once_with(123, cv_converter.signal.SIGKILL)
+    if cv_converter.sys.platform == "win32":
+        kill.assert_called_once_with(
+            ["taskkill", "/PID", "123", "/T", "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+    else:
+        kill.assert_called_once_with(123, cv_converter.signal.SIGKILL)
     assert process.wait.call_args_list[0].kwargs == {"timeout": 0.1}
     assert not list(tmp_path.glob("convert-*"))
 
