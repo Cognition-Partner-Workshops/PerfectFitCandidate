@@ -216,6 +216,8 @@ function initialState(): MockState {
     overrides: {},
     settings: {
       resumeFolderPath: 'C:\\Users\\analyst\\OneDrive\\Bench CVs',
+      resumeFileTypes: ['.docx', '.pdf'],
+      resumeConverterAvailable: true,
       autoSyncDl: { enabled: false, watchPath: '', pattern: 'DL_*.xlsx' },
       autoSyncCt: { enabled: false, watchPath: '', pattern: 'CT_*.xlsx' },
       activeModel: 'qwen3-4b',
@@ -1209,7 +1211,7 @@ export class MockApiClient implements ApiClient {
   // ---- Settings -------------------------------------------------------------------------
   async getMySettings() {
     this.currentUser()
-    return this.done(this.state.settings)
+    return this.done({ ...this.state.settings, resumeFileTypes: this.state.settings.resumeFileTypes ?? ['.docx', '.pdf'], resumeConverterAvailable: this.state.settings.resumeConverterAvailable ?? true })
   }
 
   async saveMySettings(s: PersonalSettings) {

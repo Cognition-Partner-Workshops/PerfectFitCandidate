@@ -451,6 +451,8 @@ export interface EmailTransportStatus {
 
 export interface PersonalSettings {
   resumeFolderPath: string
+  resumeFileTypes: string[]
+  resumeConverterAvailable: boolean
   autoSyncDl: { enabled: boolean; watchPath: string; pattern: string }
   autoSyncCt: { enabled: boolean; watchPath: string; pattern: string }
   activeModel: string
