@@ -53,17 +53,50 @@ def _month_index(value: str, as_of: date) -> int:
     return year * 12 + month
 
 
+def _work_lines(text: str) -> list[str]:
+    lines = []
+    education_section = False
+    for line in text.splitlines():
+        title = line.strip().strip("#* \t")
+        education_line = degree(line) is not None or re.search(
+            r"\b(?:university|college|school|institute|education)\b", line, re.I
+        )
+        if re.fullmatch(
+            r"(?:(?:academic|educational)\s+)?(?:education|qualifications|academics)"
+            r"(?:\s*(?:&|and)\s*(?:education|qualifications))?"
+            r"(?:\s+(?:history|background))?\s*:?",
+            title,
+            re.I,
+        ):
+            education_section = True
+        elif not education_line and (
+            re.fullmatch(
+                r"(?:(?:work|professional|employment|career)\s+)?"
+                r"(?:experience|history|summary)|employment|skills|projects|certifications|"
+                r"achievements|publications|personal details|references",
+                title.rstrip(":"),
+                re.I,
+            )
+            or re.fullmatch(r"[A-Z][A-Z &/-]{1,70}:?", title)
+            or (title.endswith(":") and not re.search(r"\d", title))
+        ):
+            education_section = False
+        if not education_section and not education_line:
+            lines.append(line)
+    return lines
+
+
 def experience_years(text: str, as_of: date) -> float | None:
     """Explicit total > merged date ranges > summed stated role durations.
 
     Present/current/till date use the frozen run date. Invalid/future ranges and
     negated durations are ignored. Specialised summaries are not overall totals
     or role durations unless explicitly labelled overall/total/professional/IT/industry.
-    This is overall, not specialist experience.
+    Education lines and sections are excluded. This is overall, not specialist experience.
     """
     clean = "\n".join(
         line
-        for line in text.splitlines()
+        for line in _work_lines(text)
         if not re.search(r"\b(?:no|not|less than|up to|under)\b", line, re.I)
     )
     summary = re.compile(
