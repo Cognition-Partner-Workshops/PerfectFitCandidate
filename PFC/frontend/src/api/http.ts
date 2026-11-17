@@ -2,6 +2,7 @@ import { ApiError, type ApiClient } from './client'
 import { applyChanges } from './crud'
 import { ADMIN_SETTINGS } from './mock/fixtures'
 import {
+  toApproval,
   fromAdminSettings,
   fromGrades,
   fromPersonal,
@@ -57,7 +58,7 @@ import {
   type EmailTemplateRow,
   type ScoringTemplateRow,
 } from './mappers'
-import type { BenchStatus, CurrentUser, InternalDomain, MatchResult, PersonalSettings, ProblemDetails, ResourceTeamMember, StatusMapEntry,
+import type { ApprovalEntry, BenchStatus, CurrentUser, InternalDomain, MatchResult, PersonalSettings, ProblemDetails, ResourceTeamMember, StatusMapEntry,
   VolumeEncryption,
 } from './types'
 
@@ -550,7 +551,9 @@ export class HttpApiClient implements ApiClient {
   lastExportedPackage: ApiClient['lastExportedPackage'] = () => this.request('GET', '/occ/settings-package')
   exportPackage: ApiClient['exportPackage'] = (passphrase) => this.request('POST', '/occ/settings-package/export', { passphrase })
 
-  listApprovals: ApiClient['listApprovals'] = () => this.request('GET', '/occ/approvals')
+  listApprovals: ApiClient['listApprovals'] = async () => (await this.request<ApprovalEntry[]>('GET', '/occ/approvals')).map(toApproval)
+  reopenApproval: ApiClient['reopenApproval'] = async (e, comment) =>
+    toApproval(await this.request<ApprovalEntry>('POST', `/occ/approvals/${e.entryId}/reopen`, { comment }))
   decideApproval: ApiClient['decideApproval'] = (e, d) =>
     this.request('PUT', `${e.source === 'CT' ? '/occ/resources' : '/occ/demands'}/${e.targetId}`, d)
   listGrades: ApiClient['listGrades'] = async () => (await this.request<GradeRow[]>('GET', '/occ/grades')).map(toGrade)

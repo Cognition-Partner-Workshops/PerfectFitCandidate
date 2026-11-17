@@ -33,6 +33,16 @@ const problem = (status: number, code: string, detail: string, headers: Record<s
 let fetchMock: ReturnType<typeof vi.fn>
 const headersOf = (call: number) => (fetchMock.mock.calls[call][1] as RequestInit).headers as Record<string, string>
 
+it('maps approval reopen linkage and sends the required comment by entry id', async () => {
+  const api = new HttpApiClient('/api/v1')
+  const entry = { entryId: 4, source: 'CT' as const, targetId: 9, key: 'Alex', change: 'Updated' as const, uploadedBy: 'Admin', uploadedAt: '2026-01-01', state: 'Approved' as const, conflict: false, fields: [] }
+  fetchMock.mockResolvedValueOnce(json([entry])).mockResolvedValueOnce(json({ ...entry, entryId: 5, state: 'Pending', reopenedFromEntryId: 4 }))
+  expect((await api.listApprovals())[0].reopenedFromEntryId).toBeNull()
+  expect((await api.reopenApproval(entry, 'Reconsider')).reopenedFromEntryId).toBe(4)
+  expect(fetchMock.mock.calls[1][0]).toBe('/api/v1/occ/approvals/4/reopen')
+  expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: 'POST', body: JSON.stringify({ comment: 'Reconsider' }) })
+})
+
 beforeEach(() => {
   fetchMock = vi.fn()
   vi.stubGlobal('fetch', fetchMock)

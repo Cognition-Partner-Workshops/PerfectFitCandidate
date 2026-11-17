@@ -138,6 +138,7 @@ interface MockState {
   lastExport: SettingsPackageInfo | null
   audit: MockAuditEntry[]
   approvals: ApprovalEntry[]
+  approvalUploads?: Record<number, ApprovalEntry['fields']>
   grades: Grade[]
   models: OccLlmModel[]
   adminSettings: AdminSettings
@@ -1232,6 +1233,26 @@ export class MockApiClient implements ApiClient {
     return this.done(this.state.approvals)
   }
 
+  async reopenApproval(entry: ApprovalEntry, comment: string) {
+    this.requireAdmin()
+    if (!comment.trim()) fail(422, 'A reason is required', 'REASON_REQUIRED')
+    const original = this.state.approvals.find((e) => e.entryId === entry.entryId)
+    if (!original) fail(404, 'Entry not found', 'NOT_FOUND')
+    const siblings = this.state.approvals.filter((e) => e.source === original.source && e.targetId === original.targetId)
+    if (siblings.some((e) => e.state === 'Pending')) fail(409, 'A Pending approval already exists', 'PENDING_APPROVAL_EXISTS')
+    if (siblings.some((e) => e.entryId > original.entryId)) fail(409, 'Only the latest approval entry can be re-opened', 'APPROVAL_NOT_LATEST')
+    const reopened: ApprovalEntry = {
+      ...structuredClone(original),
+      entryId: Math.max(0, ...this.state.approvals.map((e) => e.entryId)) + 1,
+      state: 'Pending', comment, reopenedFromEntryId: original.entryId,
+      fields: structuredClone(this.state.approvalUploads?.[original.entryId] ?? original.fields).map(({ field, before, after }) => ({ field, before, after })),
+    }
+    this.state.approvals.unshift(reopened)
+    this.noteDataChange('OCC approval decision')
+    this.audit('OCC_REOPEN', undefined, { action: 'OCC_REOPEN', entity: original.source === 'DL' ? 'demand' : 'resource', details: comment.replace(/[\w.+-]+@[\w.-]+/g, '[email redacted]') })
+    return this.done(reopened)
+  }
+
   async decideApproval(entry: ApprovalEntry, d: ApprovalDecision) {
     this.requireAdmin()
     const e = this.state.approvals.find((x) => x.entryId === entry.entryId)
@@ -1241,6 +1262,8 @@ export class MockApiClient implements ApiClient {
     if ((d.action === 'modify' || d.action === 'revert') && !comment) fail(422, 'A reason is required', 'REASON_REQUIRED')
     this.noteDataChange('OCC approval decision')
     if (d.action === 'modify') {
+      this.state.approvalUploads ??= {}
+      this.state.approvalUploads[e.entryId] ??= structuredClone(e.fields)
       const values = d.values ?? {}
       if (!Object.keys(values).length) fail(422, 'Enter at least one corrected value', 'NO_CHANGES')
       e.fields = e.fields.map((f) => (f.field in values ? { ...f, after: values[f.field] } : f))

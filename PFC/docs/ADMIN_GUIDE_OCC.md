@@ -66,7 +66,9 @@ Emails are masked in the list; Admins can reveal them.
 
 ## 4. DL / CT approvals
 
-**Pending:** the screen is built (Demand List and Candidate Tracker tabs, **Approve**, **Modify**, **Revert**, fields before → after), but the backend routes `GET /occ/approvals` and `PUT /occ/demands/{id}` / `PUT /occ/resources/{id}` are not merged. Against the real backend the queue cannot load yet.
+Demand List and Candidate Tracker tabs show Pending upload changes with **Approve**, **Modify** (comment and corrected values required), and **Revert** actions.
+
+Enable **Show decided** to review history. Admins can **Re-open** only the latest decided entry for a demand or resource, providing a non-blank audit comment. This creates a new Pending entry labelled **Re-opened from #N**; the original decision remains unchanged. A newer entry or an existing Pending review blocks re-opening (409). Approving a re-opened entry restores the original uploaded values, including values previously modified or reverted; Modify and Revert remain available as usual. Re-opening and subsequent decisions flag existing match runs as having newer data; rerun matching to use the current data. Comments in the audit log redact email addresses.
 
 ## 5. Status list and mapping
 
