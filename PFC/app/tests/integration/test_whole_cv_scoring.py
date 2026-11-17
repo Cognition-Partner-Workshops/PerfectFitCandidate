@@ -18,7 +18,32 @@ from pfc.domain.normalise import SynonymRow, SynonymTable, parse_date
 from pfc.domain.scoring import Demand, RequirementItem, SemanticInput, SkillBasis, score_basis
 from pfc.services.matching import confirm_requirements
 from pfc.services.matching.cv_bases import load_cv_bases, load_resources
+from pfc.services.matching.runs import _inputs
 from pfc.services.occ.domain import occ_domain_config
+
+
+@pytest.mark.parametrize(
+    "experience,expected",
+    [
+        ([{"text": "Delivery experience", "years": 5}], [5]),
+        ([{"text": "5 years delivery experience", "years": 5}], [None]),
+        (
+            [
+                {"text": "5 years delivery experience", "years": 5},
+                {"text": "Leadership experience", "years": 2},
+            ],
+            [None, None],
+        ),
+        ([], []),
+    ],
+)
+def test_minimum_experience_fallback_is_unambiguous(settings, experience, expected):
+    with database(settings) as db:
+        demand_id = seed_demand(db)
+        confirm_requirements(db, demand_id, {"experience": experience}, 1, NOW)
+        demands, *_ = _inputs(db, "demands", [demand_id], occ_domain_config(db))
+    items = [item for item in demands[0].items if item.source_kind == "experience"]
+    assert [item.min_years_exp for item in items] == expected
 
 
 @pytest.mark.parametrize(

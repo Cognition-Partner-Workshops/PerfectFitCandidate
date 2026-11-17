@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pfc.config import Settings
 from pfc.db.connection import database
 from pfc.domain.config_loader import DomainConfig, ScoringTemplate
+from pfc.domain.cv_profile import requirement_years
 from pfc.domain.normalise import parse_date
 from pfc.domain.scoring import (
     ENGINE_VERSION,
@@ -87,13 +88,18 @@ def _inputs(
             "WHERE i.jd_req_id=? ORDER BY i.position,i.item_id",
             (row["jd_req_id"],),
         ).fetchall()
+        experience_count = sum(item["kind"] == "experience" for item in items)
         requirements = tuple(
             RequirementItem(
                 str(item["item_id"]),
                 item["text"],
                 "preferred" if item["kind"] in {"preferred_skill", "domain"} else "mandatory",
                 item["canonical"] or config.synonyms.resolve(item["text"]),
-                row["min_years_exp"] if item["kind"] == "experience" else None,
+                row["min_years_exp"]
+                if item["kind"] == "experience"
+                and experience_count == 1
+                and requirement_years(item["text"]) is None
+                else None,
                 item["kind"],
             )
             for item in items
