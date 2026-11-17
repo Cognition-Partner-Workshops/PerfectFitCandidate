@@ -3,6 +3,8 @@
 import hashlib
 import multiprocessing
 import re
+import subprocess
+import time
 from collections.abc import Callable
 from multiprocessing.connection import Connection
 from pathlib import Path
@@ -15,6 +17,8 @@ from pypdf import PdfReader
 
 from pfc.config import Settings
 
+from .cv_converter import ConverterUnavailable, convert_legacy
+from .cv_readers import read_odt, read_pptx, read_rtf
 from .resume_paths import confined_path, read_resume, resume_files
 
 
@@ -45,6 +49,16 @@ class ResumeResult(BaseModel):
 
 def extract_text(path: Path) -> str:
     """REQ-IN-23: deterministic text only; no OCR or invented identity facts."""
+    if path.suffix.lower() in {".doc", ".ppt"}:
+        work_dir = Settings().data_dir / "work" / "cv-extraction"
+        content, target = convert_legacy(path, timeout=30, work_dir=work_dir)
+        with TemporaryDirectory(prefix="read-", dir=work_dir) as directory:
+            converted = Path(directory) / f"converted.{target}"
+            converted.write_bytes(content)
+            return extract_text(converted)
+    readers = {".pptx": read_pptx, ".odt": read_odt, ".rtf": read_rtf}
+    if reader := readers.get(path.suffix.lower()):
+        return reader(path)
     if path.suffix.lower() == ".txt":
         return path.read_text(encoding="utf-8-sig", errors="replace").strip()
     if path.suffix.lower() == ".pdf":
@@ -88,6 +102,19 @@ def bounded_extract(
     with TemporaryDirectory(prefix="pfc-cv-", dir=work_dir) as directory:
         snapshot = Path(directory) / path.name
         snapshot.write_bytes(content)
+        if extractor is extract_text and path.suffix.lower() in {".doc", ".ppt"}:
+            started = time.monotonic()
+            try:
+                converted, target = convert_legacy(snapshot, timeout=timeout, work_dir=work_dir)
+            except subprocess.TimeoutExpired:
+                return "", ["extraction_timeout"]
+            except ConverterUnavailable:
+                return "", ["extraction failed: ConverterUnavailable"]
+            except (OSError, RuntimeError) as exc:
+                return "", [f"extraction failed: {type(exc).__name__}"]
+            snapshot = Path(directory) / f"converted.{target}"
+            snapshot.write_bytes(converted)
+            timeout = max(0, timeout - (time.monotonic() - started))
         return _run_extractor(snapshot, extractor, timeout)
 
 
@@ -133,8 +160,10 @@ class ResumeFolderSource:
         extract_timeout_s: float = 30,
         extractor: Callable[[Path], str] | None = None,
         work_dir: Path | None = None,
+        extensions: set[str] | None = None,
     ) -> None:
         self.root = root.resolve()
+        self.extensions = extensions
         self.max_file_bytes = max_file_bytes
         self.extract_timeout_s = extract_timeout_s
         self.extractor = extractor or extract_text
@@ -157,7 +186,7 @@ class ResumeFolderSource:
             }
             for candidate in candidates
         ]
-        for path in sorted(resume_files(self.root)):
+        for path in sorted(resume_files(self.root, self.extensions)):
             relative = path.relative_to(self.root).as_posix()
             try:
                 content, stat = read_resume(self.root, relative, self.max_file_bytes)

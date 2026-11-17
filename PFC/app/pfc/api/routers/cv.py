@@ -17,7 +17,7 @@ Analyst = Annotated[Principal, Depends(require_role("Analyst"))]
 async def _submit(request: Request, principal: Principal, ids: list[int] | None) -> CVSyncJob:
     settings = request.app.state.settings
     user_id = principal.user.user_id
-    root, selected = await asyncio.to_thread(cv_sync.prepare, settings, user_id, ids)
+    root, selected, extensions = await asyncio.to_thread(cv_sync.prepare, settings, user_id, ids)
     embedder = getattr(request.app.state, "embedder", None)
     provider = getattr(request.app.state, "llm_provider", None)
     if not hasattr(request.app.state, "cv_facts_limiter"):
@@ -29,7 +29,9 @@ async def _submit(request: Request, principal: Principal, ids: list[int] | None)
     )
     job_id = request.app.state.job_runner.submit(
         "cv_sync",
-        lambda context: cv_sync.sync(context, settings, root, selected, user_id, embedder, bridge),
+        lambda context: cv_sync.sync(
+            context, settings, root, selected, user_id, embedder, bridge, extensions=extensions
+        ),
         {"resource_ids": selected},
         created_by=user_id,
     )

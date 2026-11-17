@@ -56,6 +56,16 @@ def test_occ_reopen_openapi(tmp_path: Path) -> None:
     assert "reopenedFromEntryId" in entry["properties"]
 
 
+def test_resume_formats_openapi(tmp_path: Path) -> None:
+    schema = create_app(Settings(data_dir=tmp_path)).openapi()
+    models = schema["components"]["schemas"]
+    assert "resumeFileTypes" in models["PersonalSettings"]["properties"]
+    view = models["PersonalSettingsView"]["properties"]
+    assert "resumeFileTypes" in view
+    assert view["resume_converter_available"]["readOnly"] is True
+    assert "resume_converter_available" not in models["PersonalSettings"]["properties"]
+
+
 def _frontend_paths(path_literal: str) -> set[str]:
     path = path_literal[1:-1]
     path = re.sub(r"\$\{this\.qs\([^}]*\)\}", "", path)
