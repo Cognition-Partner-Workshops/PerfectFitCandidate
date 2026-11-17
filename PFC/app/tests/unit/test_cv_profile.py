@@ -111,6 +111,18 @@ def test_experience(text, expected):
 
 
 @pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("Scrum Master 2015–2020\nDeveloper 2020–2022", 7),
+        ("Lecturer, XYZ University 2010–2015", 5),
+    ],
+)
+def test_employment_titles_and_institutions_are_not_degrees(text, expected):
+    assert degree(text) is None
+    assert experience_years(text, AS_OF) == expected
+
+
+@pytest.mark.parametrize(
     "heading",
     [
         "Professional Background",
