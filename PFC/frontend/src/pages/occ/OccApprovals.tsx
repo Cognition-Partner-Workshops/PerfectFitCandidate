@@ -5,7 +5,7 @@ import type { ApprovalDecision, ApprovalEntry } from '../../api/types'
 import { Banner, Chip, EmptyState, ErrorState, Modal, Spinner } from '../../components/ui'
 import { formatDateTime } from '../../lib/format'
 
-type Pending = { entry: ApprovalEntry; action: 'modify' | 'revert' }
+type Pending = { entry: ApprovalEntry; action: 'modify' | 'revert' | 'reopen' }
 
 /** DL/CT approvals: approve, modify (reason required) or revert uploaded changes (REQ-ROLE-03, REQ-ING-03, GUI_OCC_DESIGN.md §16.4). */
 export function OccApprovals() {
@@ -17,7 +17,8 @@ export function OccApprovals() {
   const [comment, setComment] = useState('')
   const [values, setValues] = useState<Record<string, string>>({})
   const decide = useMutation({
-    mutationFn: ({ entry, d }: { entry: ApprovalEntry; d: ApprovalDecision }) => api.decideApproval(entry, d),
+    mutationFn: ({ entry, d }: { entry: ApprovalEntry; d: Omit<ApprovalDecision, 'action'> & { action: ApprovalDecision['action'] | 'reopen' } }) =>
+      d.action === 'reopen' ? api.reopenApproval(entry, d.comment ?? '') : api.decideApproval(entry, { ...d, action: d.action }),
     onSuccess: () => {
       setPending(null)
       setComment('')
@@ -85,6 +86,7 @@ export function OccApprovals() {
                     </div>
                   ))}
                   {e.comment && <div className="meta">Reason: {e.comment}</div>}
+                  {e.reopenedFromEntryId != null && <div className="meta">Re-opened from #{e.reopenedFromEntryId}</div>}
                 </td>
                 <td>
                   {e.uploadedBy}
@@ -94,6 +96,9 @@ export function OccApprovals() {
                   <Chip tone={e.state === 'Pending' ? 'warning' : e.state === 'Reverted' ? 'danger' : 'success'}>{e.state}</Chip>
                 </td>
                 <td>
+                  {e.state !== 'Pending' && !all.some((other) => other.source === e.source && other.targetId === e.targetId && other.entryId > e.entryId) && (
+                    <button className="btn btn-sm" aria-label={`Re-open ${e.key}`} onClick={() => open(e, 'reopen')}>Re-open</button>
+                  )}
                   {e.state === 'Pending' && (
                     <div className="row" style={{ gap: 4 }}>
                       <button className="btn btn-sm btn-primary" aria-label={`Approve ${e.key}`} onClick={() => decide.mutate({ entry: e, d: { action: 'approve' } })}>
@@ -117,7 +122,7 @@ export function OccApprovals() {
       )}
       {pending && (
         <Modal
-          title={`${pending.action === 'modify' ? 'Modify' : 'Revert'} ${pending.entry.key}`}
+          title={`${pending.action === 'modify' ? 'Modify' : pending.action === 'reopen' ? 'Re-open' : 'Revert'} ${pending.entry.key}`}
           onClose={() => setPending(null)}
           actions={
             <>
@@ -134,7 +139,7 @@ export function OccApprovals() {
                   })
                 }
               >
-                {pending.action === 'modify' ? 'Save correction' : 'Revert change'}
+                {pending.action === 'modify' ? 'Save correction' : pending.action === 'reopen' ? 'Re-open approval' : 'Revert change'}
               </button>
             </>
           }

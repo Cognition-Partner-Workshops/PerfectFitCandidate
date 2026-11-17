@@ -657,6 +657,7 @@ export interface UploadPreview {
 
 /** DL/CT approval queue entry (GUI_OCC_DESIGN.md §16.4, REQ-ROLE-03, REQ-ING-03). */
 export interface ApprovalEntry {
+  reopenedFromEntryId?: number | null
   entryId: number
   source: 'DL' | 'CT'
   /** demandId (DL) or resourceId (CT) addressed by PUT /occ/demands|resources/{id}. */

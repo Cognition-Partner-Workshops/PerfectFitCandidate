@@ -3,6 +3,7 @@
  * Shapes observed from the running backend; SQLite booleans arrive as 0/1.
  */
 import type {
+  ApprovalEntry,
   AdminSettings,
   AuditEvent,
   ClassificationPreview,
@@ -34,8 +35,13 @@ import type {
   ScoringTemplate,
   ScoringWeights,
 } from './types'
+
 import { maskEmail } from '../lib/mask'
 import type { EmailTemplateVersion } from './types'
+
+export function toApproval(row: ApprovalEntry): ApprovalEntry {
+  return { ...row, reopenedFromEntryId: row.reopenedFromEntryId ?? null }
+}
 
 type Flag = boolean | 0 | 1
 const b = (v: Flag | null | undefined): boolean => Boolean(v)

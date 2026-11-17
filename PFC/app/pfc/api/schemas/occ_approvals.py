@@ -18,6 +18,7 @@ class ApprovalField(CamelModel):
 
 
 class ApprovalEntry(CamelModel):
+    reopened_from_entry_id: int | None = None
     entry_id: int
     source: Literal["DL", "CT"]
     target_id: int
@@ -29,6 +30,10 @@ class ApprovalEntry(CamelModel):
     conflict: bool
     fields: list[ApprovalField]
     comment: str | None = None
+
+
+class ApprovalReopen(CamelModel):
+    comment: str = Field(min_length=1, max_length=2000, pattern=r"\S")
 
 
 class ApprovalDecision(CamelModel):

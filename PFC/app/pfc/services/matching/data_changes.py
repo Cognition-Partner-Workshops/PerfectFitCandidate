@@ -20,7 +20,7 @@ SOURCES = (
     "AND kind IN ('DL','CT') AND julianday(committed_at)>=julianday(?)",
     "SELECT CASE WHEN action='OCC_EDIT' THEN 'OCC settings edit' "
     "ELSE 'OCC approval decision' END,ts FROM audit_log WHERE action IN "
-    "('OCC_EDIT','OCC_APPROVE','OCC_MODIFY','OCC_REVERT') "
+    "('OCC_EDIT','OCC_APPROVE','OCC_MODIFY','OCC_REVERT','OCC_REOPEN') "
     "AND julianday(ts)>=julianday(?)",
     "SELECT 'JD confirmed',confirmed_at FROM jd_requirements "
     "WHERE julianday(confirmed_at)>=julianday(?)",

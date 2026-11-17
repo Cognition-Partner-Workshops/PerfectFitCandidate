@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 
-from pfc.api.schemas.occ_approvals import ApprovalDecision, ApprovalEntry
+from pfc.api.schemas.occ_approvals import ApprovalDecision, ApprovalEntry, ApprovalReopen
 from pfc.db.connection import database
 from pfc.security.dependencies import Principal, require_role
 from pfc.security.problems import Problem
@@ -33,6 +33,15 @@ DB = Annotated[sqlite3.Connection, Depends(connection)]
 @router.get("/approvals", response_model_exclude_unset=True)
 def queue(db: DB) -> list[ApprovalEntry]:
     return approvals.list_entries(db)
+
+
+@router.post("/approvals/{entry_id}/reopen", response_model_exclude_unset=True)
+def reopen_entry(
+    entry_id: int, body: ApprovalReopen, request: Request, db: DB, admin: Admin
+) -> ApprovalEntry:
+    return approvals.reopen(
+        db, entry_id, body.comment, admin.user.user_id, stamp(request.app.state.clock())
+    )
 
 
 @router.get("/demands/{entity_id}", response_model_exclude_unset=True)
