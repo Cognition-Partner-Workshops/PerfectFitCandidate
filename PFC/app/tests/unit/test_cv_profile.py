@@ -464,3 +464,8 @@ def test_combined_ct_cv_equal_credit_and_sources():
         )
         assert result.credit == 1
         assert f"[{source}]" in result.evidence
+
+
+def test_numbered_years_label_is_not_negation():
+    assert experience_years("No. of years: 8 years", date(2026, 11, 17)) == 8
+    assert experience_years("No experience: 8 years", date(2026, 11, 17)) is None

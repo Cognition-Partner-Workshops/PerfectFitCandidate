@@ -113,7 +113,7 @@ def experience_years(text: str, as_of: date) -> float | None:
     clean = "\n".join(
         line
         for line in _work_lines(text)
-        if not re.search(r"\b(?:no|not|less than|up to|under)\b", line, re.I)
+        if not re.search(r"\b(?:no(?!\.)|not|less than|up to|under)\b", line, re.I)
     )
     summary = re.compile(
         _AMOUNT + r"\s+(?:of\s+)?(?P<context>(?:(?:overall|total|professional|IT|industry)\s+)?)"
