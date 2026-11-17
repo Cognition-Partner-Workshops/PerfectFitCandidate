@@ -178,7 +178,8 @@ def test_degree_unclear_and_levels():
         ("Bachelor's in History", 1, False),
         ("Bachelors in History", 1, False),
         ("Graduate", 1, False),
-        ("Academic qualification", 1, False),
+        ("Graduate qualification", 1, False),
+        ("Degree-level qualification", 1, False),
         ("Doctorate", 3, False),
         ("PhD", 3, False),
     ],
@@ -263,10 +264,21 @@ def test_explicit_qualification_kind():
     assert (result.credit, result.method) == (1, "cv-degree")
 
 
-@pytest.mark.parametrize("text", ["AWS certification", "MSc"])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "AWS certification",
+        "MSc",
+        "PMP qualification",
+        "AWS qualification",
+        "Academic qualification",
+        "Professional qualification",
+    ],
+)
 @pytest.mark.parametrize("source_kind", ["qualification", None])
 def test_certification_is_not_a_degree(text, source_kind):
     config = load_domain_config()
+    assert degree_met(text, "BA in History") is None
     result = _item(
         RequirementItem("1", text, "mandatory", source_kind=source_kind),
         SkillBasis("CV:1", "CV", (), True, "BA in History"),

@@ -196,7 +196,7 @@ def requirement_years(text: str) -> float | None:
 @lru_cache(maxsize=8192)
 def degree_requirement(text: str) -> tuple[int, bool] | None:
     if requirement_years(text) is not None or not re.search(
-        r"\b(?:degrees?|bachelors?|graduates?|qualifications?|"
+        r"\b(?:degrees?|bachelors?|(?:post)?graduates?|"
         r"master(?:['’]s|s?\s+(?:of|in|degree))|doctorate|ph\.?d)\b",
         text,
         re.I,
