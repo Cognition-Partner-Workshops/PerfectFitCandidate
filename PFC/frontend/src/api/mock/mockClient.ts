@@ -180,6 +180,7 @@ const DEFAULT_TEMPLATE: ScoringTemplate = {
   weights: { skills: 70, grade: 10, location: 5, benchStart: 5, benchEnd: 5, status: 5 },
   adjacentGradePoints: 7,
   statusScoreMode: 'binary',
+  cvExperienceDegree: true,
   bands: { strong: 90, potential: 70, avg: 61 },
   changeNote: 'Baseline 70/10/5/5/5/5 (D-02)',
   createdAt: '2026-11-03T16:40:00Z',

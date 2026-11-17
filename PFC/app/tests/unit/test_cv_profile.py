@@ -45,6 +45,11 @@ def test_skill_boundaries_and_dictionary_status():
         ("8+ yrs at A\n8.5 years at B", 16.5),
         ("23 years of experience\n2010-2018\n8 years at A", 23),
         ("Overall experience of 23 years\n8 yrs at A", 23),
+        ("5 years of experience in SQL\n2010-2020", 10),
+        ("5 years of experience with SQL\n8 yrs at A\n9 years at B", 17),
+        ("5 years of experience of SQL", None),
+        ("5 years of professional experience in SQL\n2010-2020", 5),
+        ("Overall 5 years of experience in SQL\n2010-2020", 5),
         ("2010-2018\n9 years at A", 8),
         ("No 5 years of experience", None),
         ("2030-2040", None),
@@ -83,6 +88,69 @@ def test_degree_unclear_and_levels():
     assert degree_met("Degree in technical subject", "BA History\nEngineering work") is None
     assert degree_met("Bachelor degree", "Masters in History").level == 2
     assert degree_met("Doctorate qualification", "PhD Computer Science").level == 3
+
+
+@pytest.mark.parametrize(
+    "text,level,technical",
+    [
+        ("I will be responsible for it", None, False),
+        ("ba bs mba mca it", None, False),
+        ("BE (Mechanical)", 1, True),
+        ("B.E.", 1, True),
+        ("BA in History", 1, False),
+        ("Bachelor in History: it was interesting", 1, False),
+        ("Bachelor IT", 1, True),
+        ("Bachler in Technology (Computer Science)", 1, True),
+        ("B.Sc", 1, False),
+        ("BS", 1, False),
+        ("MBA", 2, False),
+        ("MSc", 2, False),
+    ],
+)
+def test_degree_abbreviation_case(text, level, technical):
+    result = degree(text)
+    if level is None:
+        assert result is None
+    else:
+        assert (result.level, result.technical) == (level, technical)
+
+
+@pytest.mark.parametrize(
+    "source_kind,skill_term,text",
+    [
+        ("mandatory_skill", None, "5 years of Java experience"),
+        (None, None, "5 years of Java experience"),
+        (None, "Java", "At least 5 years experience"),
+        ("domain", None, "At least 5 years experience"),
+    ],
+)
+def test_experience_rule_excludes_skill_items(source_kind, skill_term, text):
+    config = load_domain_config()
+    config = config.model_copy(update={"synonyms": SynonymTable([SynonymRow("Java", "Java")])})
+    item = RequirementItem("1", text, "mandatory", skill_term, source_kind=source_kind)
+    result = _item(
+        item,
+        SkillBasis("CV:1", "CV", (), True, "23 years of experience"),
+        SemanticInput(item_credits={"1": 0.37}),
+        config,
+        config.template,
+        AS_OF,
+    )
+    assert (result.credit, result.method) == (0.37, "semantic")
+
+
+def test_explicit_qualification_kind():
+    config = load_domain_config()
+    item = RequirementItem("1", "MSc", "mandatory", source_kind="qualification")
+    result = _item(
+        item,
+        SkillBasis("CV:1", "CV", (), True, "MSc"),
+        SemanticInput(),
+        config,
+        config.template,
+        AS_OF,
+    )
+    assert (result.credit, result.method) == (1, "cv-degree")
 
 
 @pytest.mark.parametrize(

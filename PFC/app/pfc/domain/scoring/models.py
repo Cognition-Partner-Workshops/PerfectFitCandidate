@@ -59,6 +59,7 @@ class RequirementItem:
     kind: Literal["mandatory", "preferred"]
     skill_term: str | None = None
     min_years_exp: float | None = None
+    source_kind: str | None = None
 
     def __post_init__(self) -> None:
         if self.kind not in {"mandatory", "preferred"}:

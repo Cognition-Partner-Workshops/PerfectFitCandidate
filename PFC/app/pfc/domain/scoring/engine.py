@@ -7,7 +7,7 @@ from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
 from ..config_loader import DomainConfig, ScoringTemplate
-from ..cv_profile import degree_met, experience_years, requirement_years
+from ..cv_profile import degree_met, experience_years, requirement_years, skill_hits
 from ..normalise import normalise_term, tokenise_skills
 from .models import (
     BasisResult,
@@ -27,7 +27,7 @@ from .models import (
 )
 from .selection import RankingInput, input_key, select_scored_rows
 
-ENGINE_VERSION = "1.2.0"
+ENGINE_VERSION = "1.2.1"
 
 
 def normalise_cosine(cos: float, template: ScoringTemplate) -> float:
@@ -227,7 +227,14 @@ def _item(
         credit, method, source = semantic_credit, "semantic", f"semantic credit {semantic_credit:g}"
     if template.cv_experience_degree and basis.cv_text:
         # Rule credit augments, never lowers, existing exact/semantic credit.
-        minimum = requirement_years(item.text) or item.min_years_exp
+        general_experience = item.source_kind == "experience" or (
+            item.source_kind is None
+            and item.skill_term is None
+            and not skill_hits(item.text, config.synonyms)
+        )
+        minimum = (
+            (requirement_years(item.text) or item.min_years_exp) if general_experience else None
+        )
         years = experience_years(basis.cv_text, as_of_date) if minimum else None
         if minimum and years is not None:
             rule_credit = min(1.0, years / minimum)
@@ -241,7 +248,9 @@ def _item(
                 return ItemResult(
                     item.item_id, item.kind, round(rule_credit, 4), "cv-experience", evidence
                 )
-        qualification = degree_met(item.text, basis.cv_text)
+        qualification = degree_met(
+            item.text, basis.cv_text, qualification=item.source_kind == "qualification"
+        )
         if qualification:
             description = qualification.label + (", technical" if qualification.technical else "")
             return ItemResult(

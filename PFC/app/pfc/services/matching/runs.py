@@ -94,6 +94,7 @@ def _inputs(
                 "preferred" if item["kind"] in {"preferred_skill", "domain"} else "mandatory",
                 item["canonical"] or config.synonyms.resolve(item["text"]),
                 row["min_years_exp"] if item["kind"] == "experience" else None,
+                item["kind"],
             )
             for item in items
         )

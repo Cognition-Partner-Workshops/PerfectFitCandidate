@@ -97,8 +97,11 @@ Search the list, use **Select all** for the visible filtered rows, then add sele
 Whole-CV scoring is enabled for all candidates on the next run; scores may change
 for everyone, not just newly uploaded CVs. Scoring template `rules` accepts
 `cv_experience_degree` (boolean, default `true` when absent in older templates).
-Set it to `false` in a draft's rules and activate the new version to retain legacy
-experience/degree scoring. Whole-CV dictionary skill detection is always enabled.
+In the Scoring template screen, clear **Use CV experience & degree rules**, add a
+change note and publish the new version to retain legacy experience/degree scoring.
+The switch defaults on for older templates and preserves its value on publish.
+OCC editing remains Admin-only; Analysts cannot change this setting.
+Whole-CV dictionary skill detection is always enabled.
 The setting is frozen in each run and changing it forces a full re-score.
 Approved OCC dictionary edits also apply to stored CV text without re-ingestion.
 Experience uses explicit total experience first, otherwise merged date ranges

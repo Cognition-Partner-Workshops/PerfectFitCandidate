@@ -57,16 +57,31 @@ def experience_years(text: str, as_of: date) -> float | None:
     """Explicit total > merged date ranges > summed stated role durations.
 
     Present/current/till date use the frozen run date. Invalid/future ranges and
-    negated durations are ignored. This is overall, not specialist experience.
+    negated durations are ignored. Specialised summaries are not overall totals
+    or role durations unless explicitly labelled overall/total/professional/IT/industry.
+    This is overall, not specialist experience.
     """
     clean = "\n".join(
         line
         for line in text.splitlines()
         if not re.search(r"\b(?:no|not|less than|up to|under)\b", line, re.I)
     )
-    totals = re.findall(
-        _AMOUNT + r"\s+(?:of\s+)?(?:(?:overall|total|professional)\s+)?experience\b", clean, re.I
+    summary = re.compile(
+        _AMOUNT + r"\s+(?:of\s+)?(?P<context>(?:(?:overall|total|professional|IT|industry)\s+)?)"
+        r"experience\b",
+        re.I,
     )
+    totals = []
+    specialised = set()
+    for match in summary.finditer(clean):
+        prefix = clean[: match.start()].rsplit("\n", 1)[-1]
+        explicit = match["context"] or re.search(
+            r"\b(?:overall|total|professional|IT|industry)\s*$", prefix, re.I
+        )
+        if not explicit and re.match(r"\s+(?:in|with|of)\s+\S", clean[match.end() :], re.I):
+            specialised.add(match.start())
+        else:
+            totals.append(match[1])
     totals += re.findall(r"\b(?:overall|total)\s+experience\s*(?:of|:)?\s*" + _AMOUNT, clean, re.I)
     if totals:
         return max(map(float, totals))
@@ -84,7 +99,9 @@ def experience_years(text: str, as_of: date) -> float | None:
             else:
                 merged.append((start, end))
         return sum(end - start for start, end in merged) / 12
-    durations = re.findall(_AMOUNT, clean, re.I)
+    durations = [
+        match[1] for match in re.finditer(_AMOUNT, clean, re.I) if match.start() not in specialised
+    ]
     return sum(map(float, durations)) if durations else None
 
 
@@ -99,13 +116,13 @@ class Degree:
 
 
 _LEVELS = (
-    r"\b(?:bachel?ors?|bachler|batchelor|bacholar|b\.?\s*(?:tech|e|sc|s|a)\.?)\b",
-    r"\b(?:masters?|m\.?\s*(?:tech|ca|sc|ba)\.?)\b",
+    r"\b(?:bachel?ors?|bachler|batchelor|bacholar|(?-i:B(?:\.?Tech|\.?E|\.?Sc|S|\.?A)\.?))\b",
+    r"\b(?:masters?|(?-i:M(?:\.?Tech|CA|\.?Sc|BA)\.?))\b",
     r"\b(?:ph\.?d|doctorate)\b",
 )
 _TECHNICAL = (
     r"\b(?:technology|engineering|engg|computer\s+(?:science|applications)|"
-    r"information\s+technology|IT|[bm]\.?\s*(?:tech|e)\.?|mca)\b"
+    r"information\s+technology|(?-i:IT|[BM](?:\.?Tech|\.?E)\.?|MCA))\b"
 )
 
 
@@ -126,8 +143,8 @@ def requirement_years(text: str) -> float | None:
     return float(match[1]) if match and float(match[1]) > 0 else None
 
 
-def degree_met(text: str, cv_text: str) -> Degree | None:
-    if not re.search(
+def degree_met(text: str, cv_text: str, *, qualification: bool = False) -> Degree | None:
+    if not qualification and not re.search(
         r"\b(?:degrees?|bachelors?|graduates?|qualifications?|masters?|doctorate|phd)\b", text, re.I
     ):
         return None
