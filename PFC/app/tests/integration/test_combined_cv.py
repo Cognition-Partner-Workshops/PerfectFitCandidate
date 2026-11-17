@@ -102,6 +102,7 @@ def test_combined_shared_cv_is_unique_per_resource(settings: Settings, runner: J
         first = seed_resource(db, "First", skills="SQL", candidate=candidate)
         second = seed_resource(db, "Second", skills="AWS", candidate=candidate)
         version = seed_cv(db, first, candidate, skills=("Python",))
+        db.execute("UPDATE cv_versions SET text_norm='Python' WHERE cv_version_id=?", (version,))
         config = load_domain_config()
         demands, resources, cvs, metadata, _ = _inputs(db, "full", [], config)
         bases = [build_combined_basis(r, cvs[r.candidate_id], config) for r in resources]

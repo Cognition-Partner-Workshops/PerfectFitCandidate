@@ -323,7 +323,7 @@ def execute(
 
 
 @pytest.mark.parametrize("ct_skills", ["Python", "unrecognised"])
-def test_req_in_21_23_synced_skill_rows_count_in_matching(
+def test_req_in_21_23_synced_skills_fall_back_to_whole_cv_text(
     settings: Settings, runner: JobRunner, ct_skills: str
 ) -> None:
     with database(settings) as db:
@@ -377,7 +377,7 @@ def test_req_in_21_23_synced_skill_rows_count_in_matching(
                     "WHERE run_id=? AND reason_code='NO_SKILLS'",
                     (second,),
                 ).fetchone()[0]
-                == 1
+                == 0
             )
             assert (
                 db.execute(
@@ -390,7 +390,7 @@ def test_req_in_21_23_synced_skill_rows_count_in_matching(
         else:
             assert (
                 row["score"]
-                > db.execute(
+                == db.execute(
                     "SELECT score FROM match_results WHERE run_id=?", (second,)
                 ).fetchone()[0]
             )
@@ -422,10 +422,14 @@ def test_cv_row_basis_deduplication_and_removal(settings: Settings, removed: boo
             assert key not in cvs
         else:
             basis = build_combined_basis(resources[0], cvs[key], config)
-            assert [item.normalised for item in basis.skills] == ["sql", "python"]
+            assert [item.normalised for item in basis.skills] == ["sql", "python", "aws"]
         db.execute("DELETE FROM resource_skills WHERE cv_version_id=?", (version,))
         cvs = _inputs(db, "full", (), config)[2]
-        assert key not in cvs if removed else cvs[key][0].skills == ()
+        if removed:
+            assert key not in cvs
+        else:
+            assert {item.normalised for item in cvs[key][0].skills} == {"sql", "python", "aws"}
+            assert all(item.source == "CV text" for item in cvs[key][0].skills)
 
 
 @pytest.mark.parametrize("llm", [FakeLlm(), FakeLlm(fail=True), FakeLlm(invalid=True), None])
@@ -588,7 +592,7 @@ def test_req_mat_03_run_persistence_uniqueness_cv_exclusions(
         run = get_run(db, run_id)
         assert run["status"] == "completed"
         assert run["template_id"] and run["embedding_model_id"]
-        assert run["engine_version"] == "1.1.0"
+        assert run["engine_version"] == "1.2.2"
         assert len(run["config_hash"]) == len(run["synonyms_version"]) == 64
         assert run["llm_model"] == "manual"
         assert run["demands_assessed"] == 2

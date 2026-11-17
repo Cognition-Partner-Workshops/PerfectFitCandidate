@@ -560,6 +560,7 @@ export interface ScoringTemplate {
   weights: ScoringWeights
   adjacentGradePoints: number
   statusScoreMode: 'binary' | 'tiered'
+  cvExperienceDegree?: boolean
   bands: { strong: number; potential: number; avg: number }
   changeNote: string
   createdAt: string

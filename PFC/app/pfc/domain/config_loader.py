@@ -145,6 +145,7 @@ class ScoringTemplate(FrozenConfig):
     mandatory_gap_policy: str
     unmapped_status_priority: int
     bench_end_blank_points: float
+    cv_experience_degree: bool = True
 
     @model_validator(mode="after")
     def validate_template(self) -> Self:

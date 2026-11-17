@@ -37,6 +37,7 @@ class SkillEvidence:
     canonical: str | None = None
     evidence: str = ""
     canonical_skill_id: int | None = None
+    source: str = ""
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,7 @@ class SkillBasis:
     label: str
     skills: tuple[SkillEvidence, ...]
     is_latest: bool = False
+    cv_text: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "skills", tuple(self.skills))
@@ -56,6 +58,8 @@ class RequirementItem:
     text: str
     kind: Literal["mandatory", "preferred"]
     skill_term: str | None = None
+    min_years_exp: float | None = None
+    source_kind: str | None = None
 
     def __post_init__(self) -> None:
         if self.kind not in {"mandatory", "preferred"}:

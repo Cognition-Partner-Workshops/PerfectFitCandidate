@@ -22,7 +22,7 @@ export function OccScoringTemplate() {
   const [draft, setDraft] = useState<ScoringTemplate | null>(null)
   const publish = useMutation({
     mutationFn: (t: ScoringTemplate) =>
-      api.publishTemplate({ weights: t.weights, adjacentGradePoints: t.adjacentGradePoints, statusScoreMode: t.statusScoreMode, bands: t.bands, changeNote: t.changeNote }),
+      api.publishTemplate({ weights: t.weights, adjacentGradePoints: t.adjacentGradePoints, statusScoreMode: t.statusScoreMode, cvExperienceDegree: t.cvExperienceDegree ?? true, bands: t.bands, changeNote: t.changeNote }),
     onSuccess: () => {
       setDraft(null)
       void qc.invalidateQueries()
@@ -102,6 +102,10 @@ export function OccScoringTemplate() {
           </tbody>
         </table>
         {total !== 100 && <Banner tone="danger">Weights must total 100 (currently {total}).</Banner>}
+        <label className="row">
+          <input type="checkbox" checked={t.cvExperienceDegree ?? true} onChange={(e) => setDraft({ ...t, cvExperienceDegree: e.target.checked })} />
+          Use CV experience &amp; degree rules
+        </label>
         <div className="row small">
           Bands: Strong ≥ <input type="number" aria-label="Strong threshold" value={t.bands.strong} onChange={(e) => setB('strong', Number(e.target.value))} style={{ width: 60 }} /> · Potential ≥{' '}
           <input type="number" aria-label="Potential threshold" value={t.bands.potential} onChange={(e) => setB('potential', Number(e.target.value))} style={{ width: 60 }} /> · Avg. ≥{' '}

@@ -11,6 +11,7 @@ import {
   toExportQuery,
   toGrade,
   toResource,
+  toScoringTemplate,
   type ResourceItem,
 } from './mappers'
 
@@ -903,6 +904,7 @@ describe('HttpApiClient — scoring templates', () => {
         weights: { skills: 70, grade: 10, location: 5, benchStart: 5, benchEnd: 5, status: 5 },
         adjacentGradePoints: 7,
         statusScoreMode: 'binary',
+        cvExperienceDegree: true,
         bands: { strong: 90, potential: 70, avg: 61 },
         changeNote: '',
         createdAt: '2026-11-06T09:00:00Z',
@@ -915,6 +917,7 @@ describe('HttpApiClient — scoring templates', () => {
         weights: { skills: 70, grade: 10, location: 5, benchStart: 5, benchEnd: 5, status: 5 },
         adjacentGradePoints: 7,
         statusScoreMode: 'tiered',
+        cvExperienceDegree: true,
         bands: { strong: 90, potential: 70, avg: 61 },
         changeNote: 'Adjusted bands',
         createdAt: '2026-11-06T09:00:00Z',
@@ -936,6 +939,15 @@ describe('HttpApiClient — scoring templates', () => {
     expect(rules.bench_end_blank_points).toBe(5)
     expect(rules.status_tiered_points).toEqual(activeRow.rules.status_tiered_points)
     expect(rules.skills).toEqual(activeRow.rules.skills)
+  })
+
+  it('round-trips a disabled CV rule and defaults absent rules on', () => {
+    expect(toScoringTemplate(activeRow).cvExperienceDegree).toBe(true)
+    const disabled = { ...activeRow, rules: { ...activeRow.rules, cv_experience_degree: false } }
+    const mapped = toScoringTemplate(disabled)
+    expect(mapped.cvExperienceDegree).toBe(false)
+    expect(buildScoringTemplateRules(disabled, mapped).cv_experience_degree).toBe(false)
+    expect(buildScoringTemplateRules(disabled, { ...mapped, cvExperienceDegree: true }).cv_experience_degree).toBe(true)
   })
 
   it('scales bench-end points and preserves an explicit adjacent edit', () => {
@@ -986,6 +998,7 @@ describe('HttpApiClient — scoring templates', () => {
       weights: { skills: 60, grade: 20, location: 10, benchStart: 3, benchEnd: 2, status: 5 },
       adjacentGradePoints: 7,
       statusScoreMode: 'tiered',
+      cvExperienceDegree: false,
       bands: { strong: 94, potential: 84, avg: 74 },
       changeNote: 'Tune the thresholds',
     })
@@ -1018,6 +1031,7 @@ describe('HttpApiClient — scoring templates', () => {
         bench_end_blank_points: 2,
         status_tiered_points: { 1: 5, 2: 4, 3: 3, 4: 2, 5: 1, 6: 0 },
         status_score_mode: 'tiered',
+        cv_experience_degree: false,
         bands: { Strong: 94, Potential: 84, Avg: 74 },
         top_n: 5,
       },

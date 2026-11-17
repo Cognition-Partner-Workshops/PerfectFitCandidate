@@ -6,6 +6,21 @@ Use the Summary card on Candidate Profile or in the JD review drawer to generate
 
 Summaries fully redact emails and phones; other screens use the REQ-OUT-03 mask.
 
+Matching now scans the whole stored CV for approved dictionary skills, including
+experience bullets without section headings. Skills-section evidence takes priority;
+other hits quote their source line as `found in CV text: '…'` (`cv-text`).
+The combined basis is CT ∪ CV: CT Skills, CV Skills and CV text all receive equal
+skill credit and combined evidence identifies the source. Candidates without a CV
+still score from CT Skills alone, retain `CV not found`, and use the previous
+semantic behavior for experience/degree items.
+Matching evidence beside Score breakdown and in email drafts also explains
+`Experience: 23 yrs ≥ 5 (CV)` (`cv-experience`) and
+`Degree: Bachelor, technical (CV)` (`cv-degree`). Partial experience says, for
+example, `Experience: 3 yrs of 5 (CV); partial — requires validation`.
+Unknown qualifications or durations retain semantic evidence and need validation.
+These are overall CV years, not proof of specialist skill tenure. Scores may change
+for everyone on the next scoring run; historical results remain unchanged.
+
 ## Contents
 
 1. [Daily flow](#1-daily-flow)

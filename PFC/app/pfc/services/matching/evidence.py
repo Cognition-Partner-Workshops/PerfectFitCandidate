@@ -127,6 +127,9 @@ def apply_experience_checks(db: sqlite3.Connection, run_id: int, snapshot: dict[
             )
         }
         items = json.loads(row["inputs_json"]).get("items", [])
+        for item in items:
+            if item.get("method") == "cv-experience":
+                missing.pop(item["item_id"], None)
         if not items:
             continue
         evidence = "; ".join(

@@ -157,6 +157,7 @@ export function toScoringTemplate(row: ScoringTemplateRow): ScoringTemplate {
     },
     adjacentGradePoints: scoringNumber(grade.adjacent, 7),
     statusScoreMode: rules.status_score_mode === 'tiered' ? 'tiered' : 'binary',
+    cvExperienceDegree: rules.cv_experience_degree !== false,
     bands: {
       strong: scoringNumber(bands.Strong, SCORING_BAND_DEFAULTS.strong),
       potential: scoringNumber(bands.Potential, SCORING_BAND_DEFAULTS.potential),
@@ -170,7 +171,7 @@ export function toScoringTemplate(row: ScoringTemplateRow): ScoringTemplate {
 
 type ScoringTemplateDraft = Pick<
   ScoringTemplate,
-  'weights' | 'adjacentGradePoints' | 'statusScoreMode' | 'bands'
+  'weights' | 'adjacentGradePoints' | 'statusScoreMode' | 'cvExperienceDegree' | 'bands'
 >
 
 const scaleScoringPoints = (value: unknown, factor: number): unknown => {
@@ -261,6 +262,7 @@ export function buildScoringTemplateRules(
     bench_end_blank_points: scaleScoringPoints(rules.bench_end_blank_points, benchEndFactor),
     status_tiered_points: scaleScoringPointMap(rules.status_tiered_points, statusFactor),
     status_score_mode: draft.statusScoreMode,
+    cv_experience_degree: draft.cvExperienceDegree ?? (rules.cv_experience_degree !== false),
     bands: {
       ...scoringObject(rules.bands),
       Strong: draft.bands.strong,
