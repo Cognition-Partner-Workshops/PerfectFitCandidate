@@ -94,6 +94,18 @@ Search the list, use **Select all** for the visible filtered rows, then add sele
 
 ## 8. Scoring template
 
+Whole-CV scoring is enabled for all candidates on the next run; scores may change
+for everyone, not just newly uploaded CVs. Scoring template `rules` accepts
+`cv_experience_degree` (boolean, default `true` when absent in older templates).
+Set it to `false` in a draft's rules and activate the new version to retain legacy
+experience/degree scoring. Whole-CV dictionary skill detection is always enabled.
+The setting is frozen in each run and changing it forces a full re-score.
+Approved OCC dictionary edits also apply to stored CV text without re-ingestion.
+Experience uses explicit total experience first, otherwise merged date ranges
+(present/current/till date use the run date), otherwise summed stated durations.
+Rule credit never reduces existing credit. Degree rules require an explicit
+qualification; uncertain evidence retains the existing semantic behavior.
+
 **OCC → Scoring template**
 
 Edit component **Weights**, band thresholds (**Strong**, **Potential**, **Avg**; they must be descending) and adjacent-grade points. Available Capacity, Tracker and Group are not scored (locked, REQ-ELIG-06). **Publish v(N+1)** activates the draft; **Discard draft** drops it. **History** lists earlier versions. Analysts see the template read-only.

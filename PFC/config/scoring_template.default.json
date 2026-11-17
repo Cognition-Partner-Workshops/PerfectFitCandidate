@@ -81,5 +81,6 @@
   },
   "mandatory_gap_policy": "flag_only",
   "unmapped_status_priority": 2,
-  "bench_end_blank_points": 5
+  "bench_end_blank_points": 5,
+  "cv_experience_degree": true
 }

@@ -69,7 +69,8 @@ def _inputs(
 ]:
     selected = sorted(set(demand_ids))
     rows = db.execute(
-        "SELECT d.*,v.jd_text_norm,q.jd_req_id,q.location_norm,q.onsite_required,q.extracted_by "
+        "SELECT d.*,v.jd_text_norm,q.jd_req_id,q.location_norm,q.onsite_required,"
+        "q.extracted_by,q.min_years_exp "
         "FROM demands d LEFT JOIN demand_versions v ON v.demand_version_id=d.current_version_id "
         "LEFT JOIN jd_requirements q ON q.demand_version_id=v.demand_version_id "
         "AND q.status='confirmed' WHERE d.lifecycle='open' ORDER BY d.demand_id",
@@ -92,6 +93,7 @@ def _inputs(
                 item["text"],
                 "preferred" if item["kind"] in {"preferred_skill", "domain"} else "mandatory",
                 item["canonical"] or config.synonyms.resolve(item["text"]),
+                row["min_years_exp"] if item["kind"] == "experience" else None,
             )
             for item in items
         )

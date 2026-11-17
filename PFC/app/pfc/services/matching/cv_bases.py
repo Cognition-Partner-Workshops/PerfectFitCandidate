@@ -4,6 +4,7 @@ import sqlite3
 from collections.abc import Iterable
 
 from pfc.domain.config_loader import DomainConfig
+from pfc.domain.cv_profile import skill_hits
 from pfc.domain.normalise import ParsedDate, normalise_term, parse_date
 from pfc.domain.scoring import Resource, SkillBasis, SkillEvidence
 
@@ -104,9 +105,23 @@ def load_cv_bases(
                     canonical_ids.get(
                         normalise_term(config.synonyms.resolve(item["skill_raw"]) or "")
                     ),
+                    "CV Skills",
                 )
                 for item in skills
             )
+        )
+        recorded = {normalise_term(item.canonical or item.normalised) for item in evidence}
+        evidence += tuple(
+            SkillEvidence(
+                raw,
+                normalise_term(raw),
+                canonical,
+                f"found in CV text: '{line}'",
+                canonical_ids.get(normalise_term(canonical)),
+                "CV text",
+            )
+            for raw, canonical, line in skill_hits(version["text_norm"] or "", config.synonyms)
+            if normalise_term(canonical) not in recorded
         )
         cv_bases.setdefault(candidate, []).append(
             SkillBasis(
@@ -114,6 +129,7 @@ def load_cv_bases(
                 f"CV v{version['version_no']}",
                 evidence,
                 bool(version["is_latest"]),
+                version["text_norm"] or "",
             )
         )
     return cv_bases

@@ -1,5 +1,17 @@
 # Phase 1 requirement traceability — P1-EX-01 readiness
 
+## Whole-CV scoring supplement
+
+These rows supplement the corresponding requirement rows below. New runs can
+change scores for every candidate; historical runs are not rewritten.
+
+| REQ | Whole-CV implementation | Verification |
+| --- | --- | --- |
+| REQ-MAT-01 / REQ-MAT-05 | `domain/cv_profile.py::skill_hits`, `services/matching/cv_bases.py::load_cv_bases`: boundary-aware approved dictionary hits across stored CV lines; Skills-section evidence wins. | `tests/unit/test_cv_profile.py`, `tests/integration/test_whole_cv_scoring.py` |
+| REQ-MAT-06 | Explicit overall totals, else merged ranges, else durations; run-date present; explicit degree levels/technical subjects. Unknown retains semantic behavior; partial requires validation. Overall years do not establish specialist tenure, so this requirement remains Partial. | `tests/unit/test_cv_profile.py` |
+| REQ-MAT-07 / REQ-MAT-08 | CV text and derived skills are frozen in bases and included in resource fingerprints; dictionary, rule toggle, run date and engine version guard config reuse. No migration/re-ingestion needed. | `tests/integration/test_whole_cv_scoring.py::test_whole_cv_incremental` |
+| REQ-SCR-01 / REQ-SCR-04 | Default-on `rules.cv_experience_degree`; rule credit never lowers legacy credit; `cv-text`, `cv-experience`, `cv-degree` explain methods in persisted breakdown/evidence and email. | `tests/unit/test_cv_profile.py`, `tests/integration/test_whole_cv_scoring.py::test_dummy_candidate_whole_cv_score` |
+
 Source reviewed: merged `origin/main` **6363f49** (includes #37), 2026-11-06.
 This is source/test traceability, **not a UAT pass or an MVP release approval**.
 The original inventory was docs-only. Subsequent OCC-domain/masking and CLS-02

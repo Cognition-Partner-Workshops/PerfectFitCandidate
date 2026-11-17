@@ -7,6 +7,7 @@ from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
 from ..config_loader import DomainConfig, ScoringTemplate
+from ..cv_profile import degree_met, experience_years, requirement_years
 from ..normalise import normalise_term, tokenise_skills
 from .models import (
     BasisResult,
@@ -26,7 +27,7 @@ from .models import (
 )
 from .selection import RankingInput, input_key, select_scored_rows
 
-ENGINE_VERSION = "1.1.0"
+ENGINE_VERSION = "1.2.0"
 
 
 def normalise_cosine(cos: float, template: ScoringTemplate) -> float:
@@ -43,7 +44,10 @@ def build_ct_basis(resource: Resource, config: DomainConfig) -> SkillBasis:
     return SkillBasis(
         f"CT:{resource.resource_id}",
         "CT",
-        tuple(SkillEvidence(t.raw, t.normalised, t.canonical, t.raw) for t in tokens.tokens),
+        tuple(
+            SkillEvidence(t.raw, t.normalised, t.canonical, t.raw, source="CT")
+            for t in tokens.tokens
+        ),
         False,
     )
 
@@ -79,7 +83,11 @@ def build_combined_basis(
         )
         skills[key] = skill
     return SkillBasis(
-        f"CTCV:{resource.resource_id}:{version}", f"CT + {cv.label}", tuple(skills.values()), True
+        f"CTCV:{resource.resource_id}:{version}",
+        f"CT + {cv.label}",
+        tuple(skills.values()),
+        True,
+        cv.cv_text,
     )
 
 
@@ -174,6 +182,7 @@ def _item(
     semantic: SemanticInput,
     config: DomainConfig,
     template: ScoringTemplate,
+    as_of_date: date,
 ) -> ItemResult:
     term = item.skill_term or item.text
     key = normalise_term(term)
@@ -190,9 +199,13 @@ def _item(
         if exact:
             credit = 1.0
             method = "exact" if key == normalise_term(skill.raw) else "synonym"
+            if skill.evidence.startswith("found in CV text:"):
+                method = "cv-text"
             source = skill.raw
             if skill.evidence and skill.evidence != skill.raw:
                 source += f": {skill.evidence}"
+            if basis.basis_id.startswith("CTCV:") and skill.source:
+                source += f" [{skill.source}]"
             break
         related = [
             amount
@@ -212,6 +225,28 @@ def _item(
     )
     if semantic_credit > credit:
         credit, method, source = semantic_credit, "semantic", f"semantic credit {semantic_credit:g}"
+    if template.cv_experience_degree and basis.cv_text:
+        # Rule credit augments, never lowers, existing exact/semantic credit.
+        minimum = requirement_years(item.text) or item.min_years_exp
+        years = experience_years(basis.cv_text, as_of_date) if minimum else None
+        if minimum and years is not None:
+            rule_credit = min(1.0, years / minimum)
+            if rule_credit > credit or (
+                rule_credit == credit and method in {"semantic", "not recorded"}
+            ):
+                relation = "≥" if years >= minimum else "of"
+                evidence = f"Experience: {years:g} yrs {relation} {minimum:g} (CV)"
+                if rule_credit < 1:
+                    evidence += "; partial — requires validation"
+                return ItemResult(
+                    item.item_id, item.kind, round(rule_credit, 4), "cv-experience", evidence
+                )
+        qualification = degree_met(item.text, basis.cv_text)
+        if qualification:
+            description = qualification.label + (", technical" if qualification.technical else "")
+            return ItemResult(
+                item.item_id, item.kind, 1.0, "cv-degree", f"Degree: {description} (CV)"
+            )
     credit = round(credit, 4)
     if credit == 0:
         evidence = f"{item.text}: not recorded — requires validation ({basis.label})"
@@ -280,7 +315,9 @@ def score_basis(
                 "Position Start Date" if demand.position_start.status == "valid" else "as_of_date"
             )
             gaps.append(f"Bench Start Date after {reference_label} by {gap_days} days — confirm")
-    items = tuple(_item(item, basis, semantic, config, t) for item in demand.requirements)
+    items = tuple(
+        _item(item, basis, semantic, config, t, as_of_date) for item in demand.requirements
+    )
     mandatory = [item.credit for item in items if item.kind == "mandatory"]
     preferred = [item.credit for item in items if item.kind == "preferred"]
     mand = round(sum(mandatory) / len(mandatory), 4) if mandatory else 1.0
