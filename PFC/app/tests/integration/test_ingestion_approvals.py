@@ -32,8 +32,14 @@ PASSWORD = "Strong!Random4567"
 )
 @pytest.mark.parametrize("action", ["approve", "modify", "revert"])
 def test_reopen_restores_upload_and_preserves_history(
-    client, kind, entity, field, api_field, stored, action
-):
+    client: TestClient,
+    kind: str,
+    entity: str,
+    field: str,
+    api_field: str,
+    stored: str,
+    action: str,
+) -> None:
     ingest(client, kind, [{field: "Original"}])
     decision(client, queue(client)[0], "approve")
     ingest(client, kind, [{field: "Uploaded"}])
@@ -104,7 +110,9 @@ def test_reopen_restores_upload_and_preserves_history(
     [("dl", "Account Name", "accountName"), ("ct", "Location", "location")],
 )
 @pytest.mark.parametrize("action", ["approve", "revert"])
-def test_reopen_decision_clears_superseded_admin_conflicts(client, kind, field, api_field, action):
+def test_reopen_decision_clears_superseded_admin_conflicts(
+    client: TestClient, kind: str, field: str, api_field: str, action: str
+) -> None:
     ingest(client, kind, [{field: "Original"}])
     decision(client, queue(client)[0], "approve")
     ingest(client, kind, [{field: "Uploaded"}])
@@ -134,7 +142,7 @@ def test_reopen_decision_clears_superseded_admin_conflicts(client, kind, field, 
         assert tuple(stored) == (0, None)
 
 
-def test_reopened_approve_preserves_resolved_ct_identity(client):
+def test_reopened_approve_preserves_resolved_ct_identity(client: TestClient) -> None:
     ingest(
         client,
         "ct",
@@ -186,8 +194,8 @@ def test_reopened_approve_preserves_resolved_ct_identity(client):
     [("dl", "demand", "Account Name", "account_name"), ("ct", "resource", "Location", "location")],
 )
 def test_reopened_approve_restores_upload_hash_and_jd_after_revert(
-    client, kind, entity, field, db_field
-):
+    client: TestClient, kind: str, entity: str, field: str, db_field: str
+) -> None:
     before_fields = {field: "Before", **({"JD": "Original SQL JD"} if kind == "dl" else {})}
     ingest(client, kind, [before_fields])
     decision(client, queue(client)[0], "approve")
@@ -224,7 +232,9 @@ def test_reopened_approve_restores_upload_hash_and_jd_after_revert(
 
 
 @pytest.mark.parametrize("delete_code", [False, True])
-def test_reopened_approve_uses_current_status_mapping(client, delete_code):
+def test_reopened_approve_uses_current_status_mapping(
+    client: TestClient, delete_code: bool
+) -> None:
     ingest(client, "ct", [{}])
     uploaded = row(client, "resource")
     old = queue(client)[0]
@@ -247,7 +257,7 @@ def test_reopened_approve_uses_current_status_mapping(client, delete_code):
     assert restored["bench_status_code"] == "SELECTED"
 
 
-def test_reopened_approve_preserves_invalid_uploaded_bench_end_date(client):
+def test_reopened_approve_preserves_invalid_uploaded_bench_end_date(client: TestClient) -> None:
     ingest(client, "ct", [{"Bench End Date": "not a date"}])
     old = queue(client)[0]
     assert row(client, "resource")["bench_end_date_parse_status"] == "unparseable"
@@ -261,7 +271,7 @@ def test_reopened_approve_preserves_invalid_uploaded_bench_end_date(client):
     assert row(client, "resource")["bench_end_date_parse_status"] == "unparseable"
 
 
-def test_reopen_validation_conflicts_and_permissions(client):
+def test_reopen_validation_conflicts_and_permissions(client: TestClient) -> None:
     ingest(client, "dl", [{}])
     old = queue(client)[0]
     url = f"/api/v1/occ/approvals/{old['entryId']}/reopen"
