@@ -86,6 +86,13 @@ def test_rtf_unknown_codepage_uses_cp1252(tmp_path):
     assert read_rtf(path) == "€ €"
 
 
+@pytest.mark.parametrize("fallback", [b"\x82\xa0", rb"\'82\'a0", b"\x82" + rb"\'a0"])
+def test_rtf_unicode_fallback_counts_bytes_before_decoding(tmp_path, fallback):
+    path = tmp_path / "japanese.rtf"
+    path.write_bytes(rb"{\rtf1\ansicpg932\uc2\u12354" + fallback + b"SQL}")
+    assert read_rtf(path) == "あSQL"
+
+
 @pytest.mark.parametrize(
     "destination",
     ["header", "headerl", "headerr", "headerf", "footer", "footerl", "footerr", "footerf"],

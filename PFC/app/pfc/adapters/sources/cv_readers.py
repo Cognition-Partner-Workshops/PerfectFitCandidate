@@ -116,6 +116,7 @@ def read_rtf(path: Path) -> str:
             fallback = uc
         else:
             value = ""
+            raw: bytes | None = None
             if word in {"par", "line", "row"}:
                 value = "\n"
             elif word in {"tab", "cell"}:
@@ -125,19 +126,19 @@ def read_rtf(path: Path) -> str:
             elif escaped == "_":
                 value = "-"
             elif hex_byte:
-                value = bytes.fromhex(hex_byte).decode(codepage, errors="replace")
+                raw = bytes.fromhex(hex_byte)
             elif escaped in {"\\", "{", "}"}:
                 value = escaped
             elif plain:
-                value = (
-                    plain.replace("\r", "")
-                    .replace("\n", "")
-                    .encode("latin1")
-                    .decode(codepage, errors="replace")
-                )
-            count = min(fallback, len(value))
-            fallback -= count
-            output.append(value[count:])
+                raw = plain.replace("\r", "").replace("\n", "").encode("latin1")
+            if raw is not None:
+                count = min(fallback, len(raw))
+                fallback -= count
+                output.append(raw[count:].decode(codepage, errors="replace"))
+            else:
+                count = min(fallback, len(value))
+                fallback -= count
+                output.append(value[count:])
     return (
         "".join(output)
         .encode("utf-16", errors="surrogatepass")
