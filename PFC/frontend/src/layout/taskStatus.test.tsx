@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ADMIN, mock, renderApp, seed, signIn } from '../test/utils'
 import type { JobItem } from '../api/types'
@@ -43,4 +43,18 @@ it('loads a linked historical run and its rows instead of current rows', async (
   expect(await screen.findByText(/Run #2 · completed/)).toBeTruthy()
   await act(async () => { fireEvent.click(screen.getByRole('link', { name: 'Show current results' })) })
   expect(await screen.findByText(/Current results ·/)).toBeTruthy()
+})
+
+it('refreshes historical result rows after saving an override', async () => {
+  const rows = vi.spyOn(mock, 'getResults')
+  renderApp('/matches?runId=2')
+  const button = (await screen.findAllByRole('button', { name: 'Override' }))[0]
+  const row = button.closest('tr')!
+  expect(within(row).queryByText('Overridden')).toBeNull()
+  fireEvent.click(button)
+  fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Reviewed historical result' } })
+  const calls = rows.mock.calls.length
+  fireEvent.click(screen.getByRole('button', { name: 'Save override' }))
+  await waitFor(() => expect(rows.mock.calls.length).toBeGreaterThan(calls))
+  expect(await within(row).findByText('Overridden')).toBeTruthy()
 })

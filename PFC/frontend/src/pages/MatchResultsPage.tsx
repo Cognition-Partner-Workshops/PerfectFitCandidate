@@ -30,6 +30,7 @@ function OverrideDialog({ row, onClose }: { row: MatchResult; onClose: () => voi
     mutationFn: () => api.addOverride(row.resultId, { action, reason, newBand: action === 'adjust_band' ? band : undefined }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['current-results'] })
+      void qc.invalidateQueries({ queryKey: ['run-results', row.runId] })
       onClose()
     },
   })
