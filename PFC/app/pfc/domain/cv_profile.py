@@ -64,6 +64,13 @@ def _work_lines(text: str) -> list[str]:
     education_section = False
     for line in text.splitlines():
         title = line.strip().strip("#* \t")
+        heading = title.rstrip(":").strip()
+        heading_like = (
+            len(heading) <= 80
+            and len(heading.split()) <= 8
+            and not any(character.isdigit() for character in heading)
+            and (heading.istitle() or heading.isupper())
+        )
         education_line = degree(line) is not None or (
             education_section
             and re.search(r"\b(?:university|college|school|institute|education)\b", line, re.I)
@@ -78,13 +85,14 @@ def _work_lines(text: str) -> list[str]:
             education_section = True
         elif not education_line and (
             re.fullmatch(
-                r"(?:(?:work|professional|employment|career)\s+)?"
-                r"(?:experience|history|summary)|employment|skills|projects|certifications|"
+                r"(?:work|professional|employment|career)"
+                r"(?:\s+(?:experience|history|summary|background|profile))?|"
+                r"experience|history|summary|skills|projects|certifications|"
                 r"achievements|publications|personal details|references",
                 title.rstrip(":"),
                 re.I,
             )
-            or re.fullmatch(r"[A-Z][A-Z &/-]{1,70}:?", title)
+            or heading_like
             or (title.endswith(":") and not re.search(r"\d", title))
         ):
             education_section = False

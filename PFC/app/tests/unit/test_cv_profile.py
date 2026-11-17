@@ -111,6 +111,24 @@ def test_experience(text, expected):
 
 
 @pytest.mark.parametrize(
+    "heading",
+    [
+        "Professional Background",
+        "CAREER PROFILE",
+        "Technical Employment",
+        "Work History:",
+        "professional",
+        "career",
+        "projects",
+        "employment",
+    ],
+)
+def test_work_resumes_after_education_heading(heading):
+    text = f"Education\nB.Tech, XYZ University\n2001–2005\n{heading}\nDeveloper 2006–2009"
+    assert experience_years(text, AS_OF) == 3
+
+
+@pytest.mark.parametrize(
     "text",
     [
         "Bachler in Technology (Computer Science)",
