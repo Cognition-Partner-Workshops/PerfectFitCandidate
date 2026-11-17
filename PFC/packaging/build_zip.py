@@ -22,6 +22,7 @@ APP_DIR = PFC_DIR / "app"
 FRONTEND_DIR = PFC_DIR / "frontend"
 PYTHON_MANIFEST_PATH = PACKAGE_DIR / "python.manifest.json"
 LLAMA_MANIFEST_PATH = PACKAGE_DIR / "llama_cpp.manifest.json"
+LIBREOFFICE_MANIFEST_PATH = PACKAGE_DIR / "libreoffice.manifest.json"
 MODELS_LOCK_PATH = PACKAGE_DIR / "MODELS.lock"
 REQUIREMENTS_LOCK_PATH = PACKAGE_DIR / "requirements.lock"
 SHA256_PATTERN = re.compile(r"[0-9a-fA-F]{64}")
@@ -235,6 +236,62 @@ def extract_llama_server(archive_path: Path, destination: Path) -> None:
         raise ValueError("llama.cpp archive does not contain llama-server.exe")
 
 
+def normalize_libreoffice_layout(extracted: Path, destination: Path) -> None:
+    executables = list(extracted.rglob("program/soffice.exe"))
+    if len(executables) != 1:
+        raise ValueError("Expected exactly one extracted LibreOffice program/soffice.exe")
+    shutil.copytree(executables[0].parent.parent, destination)
+
+
+def extract_libreoffice(archive: Path, destination: Path, workspace: Path) -> None:
+    extracted = workspace / "libreoffice-extracted"
+    extracted.mkdir()
+    result = subprocess.run(
+        ["msiexec", "/a", str(archive.resolve()), "/qn", f"TARGETDIR={extracted.resolve()}"],
+        check=False,
+        timeout=300,
+    )
+    if result.returncode not in {0, 3010}:
+        logging.warning(
+            "MSI administrative extraction failed (%s); using lessmsi", result.returncode
+        )
+        shutil.rmtree(extracted)
+        extracted.mkdir()
+        lessmsi = shutil.which("lessmsi")
+        if lessmsi is None:
+            subprocess.run(["choco", "install", "lessmsi", "--yes", "--no-progress"], check=True)
+            lessmsi = shutil.which("lessmsi")
+        if lessmsi is None:
+            raise RuntimeError("lessmsi is required after MSI administrative extraction failed")
+        subprocess.run(
+            [lessmsi, "x", str(archive.resolve()), str(extracted.resolve()) + "\\"],
+            check=True,
+            timeout=300,
+        )
+    normalize_libreoffice_layout(extracted, destination)
+    size = sum(path.stat().st_size for path in destination.rglob("*") if path.is_file())
+    logging.info("Bundled LibreOffice directory: %s bytes", size)
+
+
+def bundle_libreoffice(workspace: Path, destination: Path) -> str:
+    data = read_json(LIBREOFFICE_MANIFEST_PATH)
+    manifest = parse_manifest(data, "version")
+    if not isinstance(data, dict) or data.get("licence") != "MPL-2.0":
+        raise ValueError("LibreOffice manifest must declare MPL-2.0")
+    if urlparse(manifest["url"]).hostname != "download.documentfoundation.org":
+        raise ValueError("LibreOffice must be downloaded from the official host")
+    archive = workspace / manifest["file"]
+    download_verified(manifest["url"], archive, manifest["sha256"])
+    extract_libreoffice(archive, destination, workspace)
+    return manifest["version"]
+
+
+def copy_cv_smoke_fixtures(destination: Path) -> None:
+    destination.mkdir(parents=True, exist_ok=True)
+    for name in ("tiny.doc", "tiny.ppt"):
+        shutil.copyfile(APP_DIR / "tests" / "fixtures" / "cv_formats" / name, destination / name)
+
+
 def _wheel_target(python_dir: Path, site_packages: Path, filename: str) -> Path:
     member = PurePosixPath(filename)
     if member.is_absolute() or ".." in member.parts:
@@ -333,7 +390,9 @@ def _locked_packages() -> list[str]:
     return packages
 
 
-def write_third_party_notices(destination: Path, python_version: str, llama_tag: str) -> None:
+def write_third_party_notices(
+    destination: Path, python_version: str, llama_tag: str, libreoffice_version: str | None = None
+) -> None:
     python_packages = _locked_packages()
     model_entries = parse_models_lock(read_json(MODELS_LOCK_PATH))
     lines = [
@@ -342,6 +401,16 @@ def write_third_party_notices(destination: Path, python_version: str, llama_tag:
         f"CPython {python_version} is distributed under the Python Software Foundation License.",
         "llama.cpp is distributed under the MIT License.",
         f"llama.cpp release tag: {llama_tag}",
+        *(
+            [
+                f"LibreOffice {libreoffice_version} is distributed under MPL-2.0.",
+                "Mozilla Public License 2.0: https://www.mozilla.org/MPL/2.0/",
+                "LibreOffice's own license files and third-party notices "
+                "are retained in libreoffice/.",
+            ]
+            if libreoffice_version
+            else []
+        ),
         "Python dependency license files and metadata are retained under python/Lib/site-packages.",
         "",
         "Vendored Python dependencies:",
@@ -417,6 +486,7 @@ def build_package(
     skip_frontend: bool = False,
     allow_unpinned: bool = False,
     models_cache: Path | None = None,
+    skip_libreoffice: bool = False,
 ) -> Path:
     version = load_version()
     output_path = output_dir / f"PFC-{version}-win-x64.zip"
@@ -473,6 +543,13 @@ def build_package(
         download_verified(llama_manifest["url"], llama_archive, llama_manifest["sha256"])
         extract_llama_server(llama_archive, package_root / "llama")
 
+        libreoffice_version = None
+        if sys.platform == "win32" and not skip_libreoffice:
+            libreoffice_version = bundle_libreoffice(workspace, package_root / "libreoffice")
+        else:
+            logging.info("Skipping Windows LibreOffice MSI extraction on this build")
+        copy_cv_smoke_fixtures(package_root / "smoke-fixtures" / "cv-formats")
+
         models_dir = package_root / "models"
         models_dir.mkdir()
         if with_models:
@@ -486,6 +563,7 @@ def build_package(
             package_root / "THIRD_PARTY_NOTICES.txt",
             python_manifest["version"],
             llama_manifest["tag"],
+            libreoffice_version,
         )
         create_zip(package_root, output_path)
 
@@ -495,6 +573,9 @@ def build_package(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Build the PFC Windows x64 portable ZIP.")
+    parser.add_argument(
+        "--skip-libreoffice", action="store_true", help="Omit LibreOffice (Windows builds only)."
+    )
     parser.add_argument(
         "--models-cache", type=Path, help="Hash-keyed model download cache; every hit is verified."
     )
@@ -532,6 +613,7 @@ def main(argv: list[str] | None = None) -> int:
             skip_frontend=args.skip_frontend,
             allow_unpinned=args.allow_unpinned,
             models_cache=args.models_cache,
+            skip_libreoffice=args.skip_libreoffice,
         )
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         logging.error("%s", error)

@@ -73,7 +73,7 @@ try {
     Set-NetFirewallProfile -Profile Domain,Private,Public -Enabled True
     # Scope isolation to every network-capable app executable, not the Actions agent.
     $remote = @('0.0.0.0-126.255.255.255', '128.0.0.0-255.255.255.255', '::2-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff')
-    foreach ($exe in @((Join-Path $root 'python\python.exe'), (Join-Path $root 'llama\llama-server.exe'))) {
+    foreach ($exe in @((Join-Path $root 'python\python.exe'), (Join-Path $root 'llama\llama-server.exe'), (Join-Path $root 'libreoffice\program\soffice.exe'), (Join-Path $root 'libreoffice\program\soffice.bin'))) {
         $name = 'PFC offline ' + [guid]::NewGuid().ToString('N')
         New-NetFirewallRule -DisplayName $name -Direction Outbound -Action Block -Enabled True -Profile Any -Program $exe -RemoteAddress $remote | Out-Null
         $rules += $name
@@ -100,6 +100,7 @@ try {
     if ($violations.Count) { throw "Non-loopback app connections observed: $($violations -join ', ')" }
     $metrics = Get-Content "$root/smoke-metrics.json" -Raw | ConvertFrom-Json
     if (-not $metrics.shutdown_clean -or -not $metrics.bundled_embedding_active -or $metrics.token_elevated -or $metrics.administrator) { throw 'Smoke evidence failed' }
+    if (($metrics.legacy_cv_formats -join ',') -ne 'doc,ppt') { throw 'Offline legacy CV conversion evidence failed' }
     Copy-Item "$root/smoke-metrics.json" $evidence
     @"
 ## Model-complete offline first run — Windows CI/VM, not target laptop
@@ -108,10 +109,11 @@ try {
 - Models exercised (generation + re-embed): $($metrics.models_ready_seconds) s
 - Peak RSS (100 ms sampled aggregate launcher + llama-server): $($metrics.peak_rss_bytes) bytes
 - Non-admin: dedicated local Users-group account; actual launcher TokenElevation=false and IsUserAnAdmin=false
-- Egress: outbound firewall blocks non-loopback IPv4/IPv6 for packaged Python and llama-server; dead HTTP(S)/ALL proxies
+- Egress: outbound firewall blocks non-loopback IPv4/IPv6 for packaged Python, llama-server and LibreOffice; dead HTTP(S)/ALL proxies
 - Non-loopback app TCP connections observed: $($violations.Count) (snapshot sampling, not proof of zero attempted packets)
 - Bundled embedding registered before smoke re-embed: $($metrics.bundled_embedding_active)
 - Re-embed: $($metrics.reembed_job_status); generation: $($metrics.generation_chars) characters; clean shutdown: $($metrics.shutdown_clean)
+- Bundled LibreOffice legacy CV extraction: $($metrics.legacy_cv_formats -join ', ') — expected text asserted through bounded_extract
 - CI explicitly exercises the pinned GGUF; production model approval defaults are unchanged.
 "@ | Add-Content $env:GITHUB_STEP_SUMMARY
 } finally {
