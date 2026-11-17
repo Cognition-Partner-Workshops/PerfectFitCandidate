@@ -143,12 +143,12 @@ def requirement_years(text: str) -> float | None:
     return float(match[1]) if match and float(match[1]) > 0 else None
 
 
-def degree_met(text: str, cv_text: str, *, qualification: bool = False) -> Degree | None:
-    if not qualification and not re.search(
-        r"\b(?:degrees?|bachelors?|graduates?|qualifications?|masters?|doctorate|phd)\b", text, re.I
+def degree_met(text: str, cv_text: str) -> Degree | None:
+    required = degree(text)
+    if required is None and not re.search(
+        r"\b(?:degrees?|bachelors?|graduates?|masters?|doctorate|phd)\b", text, re.I
     ):
         return None
-    required = degree(text)
     level = required.level if required else 1
     technical = bool(re.search(_TECHNICAL + r"|\btechnical\b", text, re.I))
     # Evaluate each line so a higher nontechnical degree cannot hide a technical bachelor.

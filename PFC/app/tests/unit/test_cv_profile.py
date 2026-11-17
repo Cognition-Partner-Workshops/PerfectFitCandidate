@@ -155,6 +155,21 @@ def test_explicit_qualification_kind():
     assert (result.credit, result.method) == (1, "cv-degree")
 
 
+@pytest.mark.parametrize("text", ["AWS certification", "Professional qualification"])
+@pytest.mark.parametrize("source_kind", ["qualification", None])
+def test_certification_is_not_a_degree(text, source_kind):
+    config = load_domain_config()
+    result = _item(
+        RequirementItem("1", text, "mandatory", source_kind=source_kind),
+        SkillBasis("CV:1", "CV", (), True, "BA in History"),
+        SemanticInput(item_credits={"1": 0.37}),
+        config,
+        config.template,
+        AS_OF,
+    )
+    assert (result.credit, result.method) == (0.37, "semantic")
+
+
 @pytest.mark.parametrize(
     ("text", "cv", "semantic", "credit", "method"),
     [

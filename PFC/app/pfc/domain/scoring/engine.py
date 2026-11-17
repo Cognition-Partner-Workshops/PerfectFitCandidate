@@ -248,9 +248,7 @@ def _item(
                 return ItemResult(
                     item.item_id, item.kind, round(rule_credit, 4), "cv-experience", evidence
                 )
-        qualification = degree_met(
-            item.text, basis.cv_text, qualification=item.source_kind == "qualification"
-        )
+        qualification = degree_met(item.text, basis.cv_text)
         if qualification:
             description = qualification.label + (", technical" if qualification.technical else "")
             return ItemResult(
