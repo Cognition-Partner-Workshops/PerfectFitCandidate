@@ -48,14 +48,9 @@ class ResumeResult(BaseModel):
 
 
 def extract_text(path: Path) -> str:
-    """REQ-IN-23: deterministic text only; no OCR or invented identity facts."""
+    """REQ-IN-23: deterministic text only; legacy formats require bounded_extract."""
     if path.suffix.lower() in {".doc", ".ppt"}:
-        work_dir = Settings().data_dir / "work" / "cv-extraction"
-        content, target = convert_legacy(path, timeout=30, work_dir=work_dir)
-        with TemporaryDirectory(prefix="read-", dir=work_dir) as directory:
-            converted = Path(directory) / f"converted.{target}"
-            converted.write_bytes(content)
-            return extract_text(converted)
+        raise ValueError("Legacy resume formats require bounded_extract with timeout and work_dir")
     readers = {".pptx": read_pptx, ".odt": read_odt, ".rtf": read_rtf}
     if reader := readers.get(path.suffix.lower()):
         return reader(path)

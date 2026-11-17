@@ -171,6 +171,50 @@ The append-only log of sign-ins, OCC changes, uploads, overrides, approvals and 
 
 **OCC → Admin settings** holds instance-wide settings such as sign-in lockout limits, minimum password lengths, whether Analysts may unmask emails (this also controls whether Analysts can export results with full emails) and the number of pre-selected emails per requisition. **Admin settings saved.** confirms a save.
 
+### CV formats and offline conversion
+
+Under personal **Settings → Data sources → Resume folder path**, **CV file
+formats in this folder** offers `.docx`, `.pdf`, `.txt`, `.pptx`, `.odt`, `.rtf`,
+`.doc` and `.ppt`. The default is `.docx` + `.pdf`; at least one must be selected
+before saving. `resume.file_types` follows the same user→system precedence as
+`resume.root_path`. Both preferences remain local and are not exported in a
+`.pfcpkg` settings package. Unticking a format never deletes or deactivates
+already-synced CV versions.
+
+The Windows portable ZIP bundles **LibreOffice 25.8.7 (MPL-2.0)** under
+`libreoffice/`, with the executable at `libreoffice/program/soffice.exe`.
+Its license files are retained there and referenced by `THIRD_PARTY_NOTICES.txt`.
+The MSI is pinned and SHA-256 verified during packaging. Bundling adds
+**508,482,591 bytes (~508 MB, +18.70%)** to the measured model-complete ZIP
+(2,718,772,328 → 3,227,254,919 bytes). Keep the complete `libreoffice/` directory
+when distributing or moving the app; the user only unzips the package and does
+not install Office or need administrator rights for conversion.
+
+Legacy `.doc`/`.ppt` files convert offline to `.docx`/`.pptx` in private temporary
+work directories, then use the normal readers. Conversion plus reading shares
+the CV Sync `cv.extract_timeout_s` budget (default **30 seconds**); timed-out
+conversion terminates its process tree. Direct legacy calls to the low-level
+`extract_text` reader are rejected: integrations must use `bounded_extract`
+with their configured timeout and work directory. `PFC_SOFFICE` can override
+discovery with a trusted soffice executable path; an invalid override makes the
+converter unavailable rather than silently falling back. Without a converter,
+unchecked legacy options are disabled with **Converter not installed — save as
+.docx/.pptx**; previously selected legacy options can still be unticked.
+
+The backend CV sync job summary adds `skipped_count` and `skipped_files`
+(`file_name`, `reason`) when files are skipped, and includes these in warnings:
+
+- `format not selected`: a supported extension was not ticked.
+- `format not supported`: an unknown extension was found.
+- `converter unavailable`: a selected `.doc`/`.ppt` could not find a converter.
+
+The Bench List does not yet render this detailed summary; inspect the stored
+job result for diagnostics. Migration **0012_resume_mime_types.sql** widens the
+`resumes.mime_type` CHECK to all eight MIME types. The migration runner rebuilds
+the table while preserving rows, IDs, indexes, triggers and dependent foreign
+keys, and checks `PRAGMA foreign_key_check` before committing. Back up the
+database before upgrading as usual; do not remove the MIME constraint manually.
+
 ## 16. Pending in this build
 
 | Area | Status |

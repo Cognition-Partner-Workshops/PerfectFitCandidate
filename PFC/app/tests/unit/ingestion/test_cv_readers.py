@@ -95,11 +95,43 @@ def test_extensions(tmp_path):
     assert list(resume_files(tmp_path, set())) == []
 
 
+@pytest.mark.parametrize("extension", [".doc", ".ppt", ".DOC", ".PPT"])
+def test_direct_legacy_extraction_requires_bounded_path(tmp_path, monkeypatch, extension):
+    convert = Mock()
+    settings = Mock()
+    monkeypatch.setattr(resume_folder, "convert_legacy", convert)
+    monkeypatch.setattr(resume_folder, "Settings", settings)
+    with pytest.raises(ValueError, match="require bounded_extract with timeout and work_dir"):
+        resume_folder.extract_text(tmp_path / f"cv{extension}")
+    convert.assert_not_called()
+    settings.assert_not_called()
+
+
+@pytest.mark.parametrize("extension", [".doc", ".ppt"])
+def test_bounded_legacy_extraction_uses_supplied_budget(tmp_path, monkeypatch, extension):
+    convert = Mock(return_value=(b"converted", "docx" if extension == ".doc" else "pptx"))
+    reader = Mock(return_value=("Tiny CV", []))
+    monkeypatch.setattr(resume_folder, "convert_legacy", convert)
+    monkeypatch.setattr(resume_folder, "_run_extractor", reader)
+    monkeypatch.setattr(resume_folder.time, "monotonic", Mock(side_effect=[10, 10.25]))
+    work_dir = tmp_path / "configured-work"
+    assert resume_folder.bounded_extract(
+        tmp_path / f"cv{extension}",
+        resume_folder.extract_text,
+        7.5,
+        content=b"legacy",
+        work_dir=work_dir,
+    ) == ("Tiny CV", [])
+    assert convert.call_args.kwargs == {"timeout": 7.5, "work_dir": work_dir}
+    assert reader.call_args.args[2] == 7.25
+    assert not list(work_dir.iterdir())
+
+
 def test_missing_converter(tmp_path, monkeypatch):
     monkeypatch.setenv("PFC_SOFFICE", str(tmp_path / "absent"))
     assert not cv_converter.converter_available()
     with pytest.raises(cv_converter.ConverterUnavailable):
-        resume_folder.extract_text(tmp_path / "cv.doc")
+        cv_converter.convert_legacy(tmp_path / "cv.doc", timeout=2, work_dir=tmp_path)
     assert resume_folder.bounded_extract(
         tmp_path / "cv.doc", resume_folder.extract_text, 2, content=b"legacy", work_dir=tmp_path
     ) == ("", ["extraction failed: ConverterUnavailable"])
