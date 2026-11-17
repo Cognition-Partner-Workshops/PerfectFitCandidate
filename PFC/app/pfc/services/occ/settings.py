@@ -2,13 +2,16 @@ import json
 import sqlite3
 from typing import Any
 
-from pfc.api.schemas.settings import PersonalSettings
+from pfc.adapters.sources.cv_converter import converter_available
+from pfc.api.schemas.settings import PersonalSettings, PersonalSettingsView
 from pfc.security.problems import Problem
+from pfc.services.matching.common import atomic
 from pfc.services.occ import llm
 from pfc.services.occ.common import audit_write, now
 
 KEYS = {
     "resume_root_path": "resume.root_path",
+    "resume_file_types": "resume.file_types",
     "watch": "watch.sources",
     "density": "display.density",
     "page_size": "display.page_size",
@@ -16,7 +19,24 @@ KEYS = {
 }
 
 
-def get_personal(db: sqlite3.Connection, user_id: int) -> PersonalSettings:
+def resume_preferences(db: sqlite3.Connection, user_id: int) -> PersonalSettings:
+    values = {}
+    for field, key in (
+        ("resume_root_path", "resume.root_path"),
+        ("resume_file_types", "resume.file_types"),
+    ):
+        row = db.execute(
+            "SELECT value_json FROM settings WHERE key=? AND "
+            "((scope='user' AND user_id=?) OR scope='system') "
+            "ORDER BY CASE scope WHEN 'user' THEN 0 ELSE 1 END LIMIT 1",
+            (key, user_id),
+        ).fetchone()
+        if row:
+            values[field] = json.loads(row[0])
+    return PersonalSettings.model_validate(values)
+
+
+def get_personal(db: sqlite3.Connection, user_id: int) -> PersonalSettingsView:
     """REQ-ING-04/05, REQ-IN-20: user paths and display preferences."""
     stored = {
         row["key"]: json.loads(row["value_json"])
@@ -25,13 +45,29 @@ def get_personal(db: sqlite3.Connection, user_id: int) -> PersonalSettings:
         )
     }
     values = {field: stored[key] for field, key in KEYS.items() if key in stored}
+    preferences = resume_preferences(db, user_id)
+    values.update(
+        resume_root_path=preferences.resume_root_path,
+        resume_file_types=preferences.resume_file_types,
+    )
     model = llm.active(db, user_id)
     values["active_model_id"] = model["model_id"] if model else None
-    return PersonalSettings.model_validate(values)
+    return PersonalSettingsView.model_validate(
+        {**values, "resume_converter_available": converter_available()}
+    )
 
 
-def put_personal(db: sqlite3.Connection, user_id: int, changes: dict[str, Any]) -> PersonalSettings:
-    before = get_personal(db, user_id).model_dump()
+def put_personal(
+    db: sqlite3.Connection, user_id: int, changes: dict[str, Any]
+) -> PersonalSettingsView:
+    with atomic(db, immediate=True):
+        return _put_personal(db, user_id, changes)
+
+
+def _put_personal(
+    db: sqlite3.Connection, user_id: int, changes: dict[str, Any]
+) -> PersonalSettingsView:
+    before = get_personal(db, user_id).model_dump(exclude={"resume_converter_available"})
     merged = {**before, **changes}
     if "watch" in changes:
         merged["watch"] = {

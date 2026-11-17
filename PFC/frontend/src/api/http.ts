@@ -345,7 +345,7 @@ export class HttpApiClient implements ApiClient {
   /** Fields the backend does not store yet (SPOCs, personal email template) are kept locally, per user. */
   private localPersonal(): PersonalSettings {
     const empty = { enabled: false, watchPath: '', pattern: '' }
-    const base: PersonalSettings = { resumeFolderPath: '', autoSyncDl: empty, autoSyncCt: empty, activeModel: '', spoc1: '', spoc2: '', emailTemplate: '', density: 'Comfortable' }
+    const base: PersonalSettings = { resumeFolderPath: '', resumeFileTypes: ['.docx', '.pdf'], resumeConverterAvailable: false, autoSyncDl: empty, autoSyncCt: empty, activeModel: '', spoc1: '', spoc2: '', emailTemplate: '', density: 'Comfortable' }
     try {
       return { ...base, ...(JSON.parse(localStorage.getItem(this.personalKey()) ?? '{}') as Partial<PersonalSettings>) }
     } catch {

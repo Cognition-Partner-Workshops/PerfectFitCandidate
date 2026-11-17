@@ -18,6 +18,8 @@ from typing import Any
 import httpx
 import uvicorn
 from pfc.adapters.llm.providers import PromptRequest
+from pfc.adapters.sources.cv_converter import find_soffice
+from pfc.adapters.sources.resume_folder import bounded_extract, extract_text
 from pfc.adapters.vector.stores import NumpyStore
 from pfc.db.connection import database
 from pfc.jobs.runner import JobContext
@@ -127,6 +129,28 @@ def tiny_reembed(settings: Settings, app: Any, digest: str) -> int:
     return int(app.state.job_runner.submit("reembed", job))
 
 
+def smoke_cv_conversion(root: Path, settings: Settings) -> list[str]:
+    bundled = root / "libreoffice" / "program" / "soffice.exe"
+    assert bundled.is_file(), "Bundled LibreOffice is missing"
+    os.environ.pop("PFC_SOFFICE", None)
+    assert find_soffice() == bundled.resolve(), "Converter did not resolve bundled LibreOffice"
+    converted = []
+    for extension in ("doc", "ppt"):
+        path = root / "smoke-fixtures" / "cv-formats" / f"tiny.{extension}"
+        text, flags = bounded_extract(
+            path,
+            extract_text,
+            30,
+            content=path.read_bytes(),
+            work_dir=settings.data_dir / "work" / "cv-extraction",
+        )
+        assert not flags, f"{extension} extraction failed: {flags}"
+        assert "Tiny CV" in text, f"{extension} extraction did not return expected text"
+        converted.append(extension)
+    assert not list((settings.data_dir / "work" / "cv-extraction").iterdir())
+    return converted
+
+
 def main() -> None:
     root = Path(sys.argv[1]).resolve()
     assert sys.platform == "win32", "This smoke requires Windows"
@@ -177,6 +201,7 @@ def main() -> None:
                         )
                         assert_health_ok(health)
                         metrics["startup_seconds"] = time.perf_counter() - start
+                        metrics["legacy_cv_formats"] = smoke_cv_conversion(root, settings)
                         page = await client.get(f"http://127.0.0.1:{kwargs['port']}/setup")
                         assert page.status_code == 200
                     assert (settings.data_dir / "run" / "setup-code.txt").is_file()

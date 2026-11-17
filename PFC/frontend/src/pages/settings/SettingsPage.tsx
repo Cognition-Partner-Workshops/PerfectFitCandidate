@@ -7,6 +7,7 @@ import { useAuth } from '../../auth/context'
 import { Banner, ErrorState, Spinner } from '../../components/ui'
 import { ChangePasswordForm } from '../auth/ChangePasswordForm'
 import { SettingsPackagePanel } from './SettingsPackagePanel'
+import { CvFileFormats } from './CvFileFormats'
 import { EMAIL_PLACEHOLDERS, unknownPlaceholders } from '../../lib/emailTemplate'
 import { access } from '../../lib/permissions'
 
@@ -35,14 +36,14 @@ function useSettingsForm() {
   return { q, form, setForm, save }
 }
 
-function Footer({ dirty, onDiscard, onSave, saved }: { dirty: boolean; onDiscard: () => void; onSave: () => void; saved: boolean }) {
+function Footer({ dirty, onDiscard, onSave, saved, invalid }: { dirty: boolean; onDiscard: () => void; onSave: () => void; saved: boolean; invalid: boolean }) {
   return (
     <div className="modal-actions">
       {saved && !dirty && <span className="small" style={{ color: 'var(--color-success)' }}>Saved</span>}
       <button className="btn" disabled={!dirty} onClick={onDiscard}>
         Discard
       </button>
-      <button className="btn btn-primary" disabled={!dirty} onClick={onSave}>
+      <button className="btn btn-primary" disabled={!dirty || invalid} onClick={onSave}>
         Save
       </button>
     </div>
@@ -57,7 +58,8 @@ function FormSection({ section }: { section: 'data' | 'llm' | 'email' | 'templat
   if (q.isError) return <ErrorState error={q.error} />
   const dirty = JSON.stringify(form) !== JSON.stringify(q.data)
   const set = (patch: Partial<PersonalSettings>) => setForm({ ...form, ...patch })
-  const footer = <Footer dirty={dirty} saved={save.isSuccess} onDiscard={() => setForm(null)} onSave={() => save.mutate(form)} />
+  const invalid = form.resumeFileTypes.length === 0
+  const footer = <Footer dirty={dirty} invalid={invalid} saved={save.isSuccess} onDiscard={() => setForm(null)} onSave={() => { if (!invalid) save.mutate(form) }} />
   const unknown = unknownPlaceholders(form.emailTemplate)
   return (
     <section className="card stack">
@@ -69,6 +71,7 @@ function FormSection({ section }: { section: 'data' | 'llm' | 'email' | 'templat
             Resume folder path
             <input value={form.resumeFolderPath} onChange={(e) => set({ resumeFolderPath: e.target.value })} />
           </label>
+          <CvFileFormats value={form.resumeFileTypes} converterAvailable={form.resumeConverterAvailable} onChange={(resumeFileTypes) => set({ resumeFileTypes })} />
           {(['autoSyncDl', 'autoSyncCt'] as const).map((k) => (
             <fieldset key={k} className="stack" style={{ border: '1px solid var(--color-border)', borderRadius: 8 }}>
               <legend>Auto-sync — {k === 'autoSyncDl' ? 'Demand List' : 'Candidate Tracker'} (placeholder, Phase 2)</legend>

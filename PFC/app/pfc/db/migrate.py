@@ -30,6 +30,21 @@ def migrate(settings: Settings, migrations_dir: Path | None = None) -> list[str]
             version = migration.name.split("_", 1)[0]
             if version in known:
                 continue
+            sql = migration.read_text(encoding="utf-8")
+            rebuilds = [
+                line.removeprefix("-- rebuild-table: ").strip()
+                for line in sql.splitlines()
+                if line.startswith("-- rebuild-table: ")
+            ]
+            schema = [
+                row[0]
+                for table in rebuilds
+                for row in connection.execute(
+                    "SELECT sql FROM sqlite_schema WHERE tbl_name=? "
+                    "AND type IN ('index','trigger') AND sql IS NOT NULL ORDER BY type,name",
+                    (table,),
+                )
+            ]
             backup_path = None
             if nonempty:
                 backup_dir = settings.data_dir / "backups"
@@ -39,9 +54,11 @@ def migrate(settings: Settings, migrations_dir: Path | None = None) -> list[str]
                 with closing(sqlite3.connect(backup_path)) as backup:
                     connection.backup(backup)
             try:
+                if rebuilds:
+                    connection.execute("PRAGMA foreign_keys=OFF")
                 connection.execute("BEGIN IMMEDIATE")
                 statement = ""
-                for line in migration.read_text(encoding="utf-8").splitlines(keepends=True):
+                for line in sql.splitlines(keepends=True):
                     statement += line
                     if sqlite3.complete_statement(statement):
                         connection.execute(statement)
@@ -51,6 +68,10 @@ def migrate(settings: Settings, migrations_dir: Path | None = None) -> list[str]
                     for line in statement.splitlines()
                 ):
                     raise ValueError(f"Incomplete SQL in {migration.name}")
+                for statement in schema:
+                    connection.execute(statement)
+                if rebuilds and connection.execute("PRAGMA foreign_key_check").fetchone():
+                    raise sqlite3.IntegrityError("Foreign key violation after table rebuild")
                 connection.execute(
                     "INSERT INTO schema_migrations VALUES (?, ?)",
                     (version, datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")),
@@ -62,6 +83,9 @@ def migrate(settings: Settings, migrations_dir: Path | None = None) -> list[str]
                     with closing(sqlite3.connect(backup_path)) as backup:
                         backup.backup(connection)
                 raise
+            finally:
+                if rebuilds:
+                    connection.execute("PRAGMA foreign_keys=ON")
             applied.append(version)
             nonempty = True
     return applied

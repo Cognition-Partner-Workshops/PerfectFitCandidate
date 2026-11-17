@@ -22,6 +22,17 @@ describe('task store', () => {
   })
   afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
 
+  it('keeps completed CV Sync skipped-file warnings until manually dismissed', async () => {
+    const skippedFiles = [{ file_name: 'CV.doc', reason: 'converter unavailable' }]
+    const { result } = mount([{ ...job, status: 'completed', skippedCount: 1, skippedFiles }])
+    await flush()
+    await act(() => vi.advanceTimersByTimeAsync(60000))
+    expect(result.current.tasks).toHaveLength(1)
+    expect(result.current.tasks[0]).toMatchObject({ skippedCount: 1, skippedFiles })
+    act(() => result.current.dismiss('job-10'))
+    expect(result.current.tasks).toEqual([])
+  })
+
   it('polls at 15 seconds idle and 2 seconds while active, pauses hidden, resumes immediately', async () => {
     const { client, result } = mount()
     await flush()

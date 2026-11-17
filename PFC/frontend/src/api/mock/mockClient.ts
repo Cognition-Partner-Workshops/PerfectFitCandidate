@@ -218,6 +218,8 @@ function initialState(): MockState {
     overrides: {},
     settings: {
       resumeFolderPath: 'C:\\Users\\analyst\\OneDrive\\Bench CVs',
+      resumeFileTypes: ['.docx', '.pdf'],
+      resumeConverterAvailable: true,
       autoSyncDl: { enabled: false, watchPath: '', pattern: 'DL_*.xlsx' },
       autoSyncCt: { enabled: false, watchPath: '', pattern: 'CT_*.xlsx' },
       activeModel: 'qwen3-4b',
@@ -757,6 +759,11 @@ export class MockApiClient implements ApiClient {
     this.currentUser()
     const now = new Date().toISOString()
     return this.done([
+      { jobId: 4, kind: 'cv_sync', status: 'completed', progress: 1, message: 'Job completed', label: 'CV Sync for 3 profiles', link: '/#/bench', createdAt: now, startedAt: now, finishedAt: now, skippedCount: 3, skippedFiles: [
+        { file_name: 'Alex Morgan - CV.doc', reason: 'converter unavailable' },
+        { file_name: 'Taylor - presentation.pptx', reason: 'format not selected' },
+        { file_name: 'Consultant profile with a very long descriptive filename and project history.pages', reason: 'format not supported' },
+      ] },
       { jobId: 3, kind: 'cv_sync', status: 'running', progress: 0.45, message: 'Job running', label: 'CV Sync for 3 profiles', link: '/#/bench', createdAt: now, startedAt: now, finishedAt: null },
       { jobId: 2, kind: 'match_run', status: 'completed', progress: 1, message: 'Job completed', label: 'Matching run #2', link: '/#/matches', createdAt: now, startedAt: now, finishedAt: now },
       { jobId: 1, kind: 'embed', status: 'completed', progress: 1, message: 'Job completed', label: 'Re-indexing CVs', link: null, createdAt: now, startedAt: now, finishedAt: now },
@@ -1222,7 +1229,7 @@ export class MockApiClient implements ApiClient {
   // ---- Settings -------------------------------------------------------------------------
   async getMySettings() {
     this.currentUser()
-    return this.done(this.state.settings)
+    return this.done({ ...this.state.settings, resumeFileTypes: this.state.settings.resumeFileTypes ?? ['.docx', '.pdf'], resumeConverterAvailable: this.state.settings.resumeConverterAvailable ?? true })
   }
 
   async saveMySettings(s: PersonalSettings) {

@@ -1,5 +1,45 @@
 # Phase 1 requirement traceability — P1-EX-01 readiness
 
+## Selectable CV formats and offline legacy conversion supplement
+
+- **REQ-IN-20..25 / REQ-ING-05:** `app/pfc/cv_formats.py` defines the eight
+  supported formats: `.docx`, `.pdf`, `.txt`, `.pptx`, `.odt`, `.rtf`, `.doc`,
+  `.ppt`. Settings **CV file formats in this folder** defaults to `.docx` +
+  `.pdf`, requires at least one, and saves `resume.file_types` with user→system
+  precedence. Unticking a format retains already-synced versions.
+  `app/tests/integration/test_resume_formats.py` covers defaults, normalization,
+  validation, scope precedence, filtering and retained versions;
+  `frontend/src/pages/settings/SettingsPage.test.tsx` covers the controls and
+  converter-unavailable behavior.
+- **Bounded extraction:** `adapters/sources/resume_folder.py::bounded_extract`
+  supervises legacy conversion and subsequent reading within the supplied
+  budget; CV Sync supplies `cv.extract_timeout_s` (default 30 seconds).
+  Direct `extract_text` calls reject `.doc`/`.ppt` and require this bounded path.
+  `app/tests/unit/ingestion/test_cv_readers.py` covers readers, direct-call
+  rejection, supplied conversion budgets, missing converter, timeout and real
+  legacy fixtures when LibreOffice is available.
+- **Sync reporting:** `services/ingestion/cv_sync.py` adds `skipped_count` and
+  `skipped_files` (filename/reason) to the backend job summary when nonempty,
+  with warning counts and reasons `format not selected`, `format not supported`
+  and `converter unavailable`. Detailed job-result rendering is not implemented
+  in the Bench List UI. Coverage: `tests/integration/test_resume_formats.py`.
+- **Migration 0012:** `db/migrations/0012_resume_mime_types.sql` widens the
+  `resumes.mime_type` CHECK to all eight MIME types. The opt-in table-rebuild
+  runner preserves rows, IDs, indexes, triggers and foreign-key relationships;
+  `app/tests/unit/test_resume_migration.py` checks preservation,
+  `PRAGMA foreign_key_check`, new/invalid MIME types and rollback.
+- **REQ-PKG-02:** `packaging/libreoffice.manifest.json` pins official Windows
+  x64 LibreOffice **25.8.7**, **MPL-2.0**, verified against the published SHA-256.
+  `build_zip.py` normalizes `libreoffice/program/soffice.exe`, preserves license
+  files and adds notices. `PFC_SOFFICE` overrides converter discovery. Conversion
+  works offline; no user-side installation or elevation is required.
+  Windows [dispatch 44124605190](https://github.com/Cognition-Partner-Workshops/PerfectFitCandidate/actions/runs/44124605190)
+  passed the standard-user, network-blocked DOC/PPT extraction smoke through
+  `bounded_extract`, asserting `Tiny CV`. ZIP size increased from 2,718,772,328
+  to 3,227,254,919 bytes: **+508,482,591 bytes (~508 MB, +18.70%)**.
+  `packaging/tests/test_libreoffice.py` covers manifest/hash, notices, layout and
+  extraction fallback. This is Windows CI evidence, not target-laptop UAT.
+
 ## Whole-CV scoring supplement
 
 These rows supplement the corresponding requirement rows below. New runs can

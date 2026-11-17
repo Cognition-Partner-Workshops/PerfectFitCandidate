@@ -10,11 +10,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from pfc.adapters.sources.resume_folder import CandidateLookup, CVVersion, ResumeFolderSource
-from pfc.adapters.sources.resume_paths import read_resume, resume_files
+from pfc.adapters.sources.resume_paths import read_resume, resume_entries
 from pfc.adapters.vector.embeddings import Embedder
 from pfc.adapters.vector.stores import create_vector_store
 from pfc.api.schemas.cv import CVSyncCounts, CVVersionItem
 from pfc.config import Settings
+from pfc.cv_formats import ALLOWED_CV_EXTENSIONS, CV_MIME_TYPES
 from pfc.db.audit import append_audit
 from pfc.db.connection import database
 from pfc.domain.normalise import normalise_term
@@ -26,6 +27,8 @@ from pfc.services.embeddings.chunking import OwnerType
 from pfc.services.embeddings.reembed import ReembedCounts, embed_owners
 from pfc.services.embeddings.runtime import EmbeddingModelUnavailable, create_embedder
 from pfc.services.ingestion.eligibility import refresh_resource_eligibility
+from pfc.services.matching.common import atomic
+from pfc.services.occ.settings import resume_preferences
 from pfc.services.occ.synonyms import valid_synonym_table
 
 from .cv_facts import (
@@ -40,23 +43,15 @@ from .limits import positive_setting
 from .masking import phone_matches
 
 EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}(?![\w-])")
-MIMES = {
-    ".pdf": "application/pdf",
-    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-}
+MIMES = CV_MIME_TYPES
 
 
 def prepare(
     settings: Settings, user_id: int, resource_ids: list[int] | None
-) -> tuple[Path, list[int]]:
+) -> tuple[Path, list[int], set[str]]:
     with database(settings) as db:
-        row = db.execute(
-            "SELECT value_json FROM settings WHERE key='resume.root_path' AND "
-            "((scope='user' AND user_id=?) OR scope='system') "
-            "ORDER BY CASE scope WHEN 'user' THEN 0 ELSE 1 END LIMIT 1",
-            (user_id,),
-        ).fetchone()
-        value = json.loads(row[0]) if row else None
+        preferences = resume_preferences(db, user_id)
+        value = preferences.resume_root_path
         if not isinstance(value, str) or not value.strip() or not Path(value).is_dir():
             raise Problem(
                 409, "RESUME_PATH_NOT_CONFIGURED", "Configure an existing resume directory"
@@ -73,7 +68,7 @@ def prepare(
                     "SELECT 1 FROM resources WHERE resource_id=?", (resource_id,)
                 ).fetchone():
                     raise Problem(404, "RESOURCE_NOT_FOUND", "Resource not found")
-    return Path(value), ids
+    return Path(value), ids, set(preferences.resume_file_types)
 
 
 def versions(settings: Settings, candidate_id: int) -> list[CVVersionItem]:
@@ -378,20 +373,42 @@ def sync(
     user_id: int,
     embedder: Embedder | None = None,
     facts_bridge: LLMBridge | None = None,
+    *,
+    extensions: set[str] | None = None,
 ) -> None:
     context.raise_if_cancelled()
     lookups = _lookups(settings, ids)
     inventory = set()
+    skipped_files: list[dict[str, str]] = []
+    with database(settings) as db:
+        selected = (
+            extensions
+            if extensions is not None
+            else set(resume_preferences(db, user_id).resume_file_types)
+        )
+    scanned = 0
     if ids:
-        for path in resume_files(root):
+        for path in resume_entries(root):
             context.raise_if_cancelled()
-            inventory.add(path.relative_to(root.resolve()).as_posix())
-    counts = CVSyncCounts(scanned=len(inventory))
+            scanned += 1
+            relative = path.relative_to(root.resolve()).as_posix()
+            suffix = path.suffix.lower()
+            if suffix not in selected:
+                reason = (
+                    "format not selected"
+                    if suffix in ALLOWED_CV_EXTENSIONS
+                    else "format not supported"
+                )
+                skipped_files.append({"file_name": relative, "reason": reason})
+            else:
+                inventory.add(relative)
+    counts = CVSyncCounts(scanned=scanned, warnings=len(skipped_files))
     with database(settings) as db:
         facts_timeout = positive_setting(db, "cv.llm_timeout_s", 180)
         skill_synonyms = valid_synonym_table(db)
         source = ResumeFolderSource(
             root,
+            extensions=selected,
             work_dir=settings.data_dir / "work" / "cv-extraction",
             max_file_bytes=max(1, int(positive_setting(db, "cv.max_file_mb", 20) * 1024**2)),
             extract_timeout_s=positive_setting(db, "cv.extract_timeout_s", 30),
@@ -425,6 +442,13 @@ def sync(
                 identities[version.file_sha256].add(identity)
     for matches in matched.values():
         version = next(iter(matches.values()))
+        if "extraction failed: ConverterUnavailable" in version.flags:
+            skipped_files.append(
+                {"file_name": version.source_path, "reason": "converter unavailable"}
+            )
+            counts.warnings += 1
+            counts.extraction_failed += 1
+            continue
         if "too_large" in version.flags:
             counts.too_large += 1
             continue
@@ -460,9 +484,6 @@ def sync(
                 version = version.model_copy(
                     update={"identity_match": "email_exact" if email_match else "name_fuzzy"}
                 )
-        if Path(version.source_path).suffix.lower() not in MIMES:
-            counts.warnings += 1
-            continue
         groups[candidate_id].append(version)
     facts_cache: dict[str, ExtractedFacts] = {}
     for index, (candidate_id, found) in enumerate(groups.items()):
@@ -494,8 +515,7 @@ def sync(
                 prepared[version.source_path] = extracted
                 counts.facts_llm_timeout += int(extracted.failure == "timeout")
                 counts.facts_llm_failed += int(extracted.failure == "error")
-        with database(settings) as db:
-            db.execute("BEGIN IMMEDIATE")
+        with database(settings) as db, atomic(db, immediate=True):
             affected = (
                 {
                     row[0]
@@ -563,8 +583,10 @@ def sync(
         "embedding_counts": asdict(embedding_counts),
         "embedding_notes": embedding_notes,
     }
-    with database(settings) as db:
-        db.execute("BEGIN IMMEDIATE")
+    if skipped_files:
+        summary["skipped_count"] = len(skipped_files)
+        summary["skipped_files"] = sorted(skipped_files, key=lambda item: item["file_name"])
+    with database(settings) as db, atomic(db, immediate=True):
         append_audit(
             db,
             ts=stamp(datetime.now(UTC)),

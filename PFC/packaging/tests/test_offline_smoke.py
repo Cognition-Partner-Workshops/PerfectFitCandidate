@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import os
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
@@ -56,3 +57,46 @@ def test_health_requires_ok_status(
 def test_health_requires_http_200(assert_health_ok: Callable[[Any], None]) -> None:
     with pytest.raises(AssertionError):
         assert_health_ok(SimpleNamespace(status_code=503, json=lambda: {"status": "ok"}))
+
+
+@pytest.mark.parametrize("text,flags", [("Tiny CV", []), ("", []), ("", ["timeout"])])
+def test_legacy_conversion_requires_expected_text_and_no_flags(tmp_path, text, flags) -> None:
+    source = Path(__file__).resolve().parents[1] / "offline_smoke.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    helper = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "smoke_cv_conversion"
+    )
+    bundled = tmp_path / "libreoffice" / "program" / "soffice.exe"
+    bundled.parent.mkdir(parents=True)
+    bundled.touch()
+    fixtures = tmp_path / "smoke-fixtures" / "cv-formats"
+    fixtures.mkdir(parents=True)
+    for extension in ("doc", "ppt"):
+        (fixtures / f"tiny.{extension}").write_bytes(b"fixture")
+    calls = []
+
+    def extract(path, reader, timeout, **kwargs):
+        calls.append(path.suffix)
+        kwargs["work_dir"].mkdir(parents=True, exist_ok=True)
+        return text, flags
+
+    namespace = {
+        "Path": Path,
+        "Settings": Any,
+        "os": os,
+        "find_soffice": lambda: bundled,
+        "bounded_extract": extract,
+        "extract_text": object(),
+    }
+    exec(compile(ast.Module(body=[helper], type_ignores=[]), str(source), "exec"), namespace)
+    if text == "Tiny CV" and not flags:
+        assert namespace["smoke_cv_conversion"](tmp_path, SimpleNamespace(data_dir=tmp_path)) == [
+            "doc",
+            "ppt",
+        ]
+        assert calls == [".doc", ".ppt"]
+    else:
+        with pytest.raises(AssertionError):
+            namespace["smoke_cv_conversion"](tmp_path, SimpleNamespace(data_dir=tmp_path))

@@ -14,6 +14,8 @@ export interface JobItem {
   createdAt: string
   startedAt: string | null
   finishedAt: string | null
+  skippedFiles?: { file_name: string; reason: string }[] | null
+  skippedCount?: number | null
 }
 
 export interface DocumentSummary {
@@ -469,6 +471,8 @@ export interface EmailTransportStatus {
 
 export interface PersonalSettings {
   resumeFolderPath: string
+  resumeFileTypes: string[]
+  resumeConverterAvailable: boolean
   autoSyncDl: { enabled: boolean; watchPath: string; pattern: string }
   autoSyncCt: { enabled: boolean; watchPath: string; pattern: string }
   activeModel: string

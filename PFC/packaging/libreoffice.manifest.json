@@ -1,0 +1,8 @@
+{
+  "version": "25.8.7",
+  "file": "LibreOffice_25.8.7_Win_x86-64.msi",
+  "url": "https://download.documentfoundation.org/libreoffice/stable/25.8.7/win/x86_64/LibreOffice_25.8.7_Win_x86-64.msi",
+  "sha256": "ecdb65e76f5e91dc198b8c8dce5b5d6e1eb12fea6023553e52b591afd10b619d",
+  "licence": "MPL-2.0",
+  "checksum_url": "https://download.documentfoundation.org/libreoffice/stable/25.8.7/win/x86_64/LibreOffice_25.8.7_Win_x86-64.msi.sha256"
+}

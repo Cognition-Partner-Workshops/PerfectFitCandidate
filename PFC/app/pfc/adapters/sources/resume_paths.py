@@ -5,6 +5,8 @@ import stat
 from collections.abc import Iterator
 from pathlib import Path, PureWindowsPath
 
+from pfc.cv_formats import ALLOWED_CV_EXTENSIONS
+
 
 def confined_path(root: Path, relative: str) -> Path | None:
     windows = PureWindowsPath(relative)
@@ -30,7 +32,12 @@ def confined_path(root: Path, relative: str) -> Path | None:
         return None
 
 
-def resume_files(root: Path) -> Iterator[Path]:
+def resume_files(root: Path, extensions: set[str] | None = None) -> Iterator[Path]:
+    allowed = ALLOWED_CV_EXTENSIONS if extensions is None else extensions
+    yield from (path for path in resume_entries(root) if path.suffix.lower() in allowed)
+
+
+def resume_entries(root: Path) -> Iterator[Path]:
     base = root.resolve(strict=True)
     for current, directories, files in os.walk(base, followlinks=False):
         directory = Path(current)
@@ -41,12 +48,7 @@ def resume_files(root: Path) -> Iterator[Path]:
         )
         for name in sorted(files):
             path = confined_path(base, (directory / name).relative_to(base).as_posix())
-            if (
-                path is not None
-                and path.is_file()
-                and not name.startswith("~$")
-                and path.suffix.lower() in {".txt", ".docx", ".pdf"}
-            ):
+            if path is not None and path.is_file() and not name.startswith("~$"):
                 yield path
 
 

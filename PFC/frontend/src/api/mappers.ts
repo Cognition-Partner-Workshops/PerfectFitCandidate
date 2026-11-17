@@ -45,6 +45,7 @@ export function toJob(row: JobItem): JobItem {
     jobId: row.jobId, kind: row.kind, status: row.status, progress: row.progress,
     message: row.message, label: row.label, link: row.link,
     createdAt: row.createdAt, startedAt: row.startedAt, finishedAt: row.finishedAt,
+    skippedFiles: row.skippedFiles ?? null, skippedCount: row.skippedCount ?? null,
   }
 }
 
@@ -283,6 +284,8 @@ export function buildScoringTemplateRules(
 
 export interface PersonalRow {
   resume_root_path: string | null
+  resumeFileTypes?: string[]
+  resume_converter_available?: boolean
   watch: { dl: { enabled: boolean; path: string | null; pattern: string }; ct: { enabled: boolean; path: string | null; pattern: string } }
   active_model_id: number | null
   density: 'comfortable' | 'compact'
@@ -293,6 +296,8 @@ export function toPersonal(r: PersonalRow, fallback: PersonalSettings): Personal
   return {
     ...fallback,
     resumeFolderPath: r.resume_root_path ?? '',
+    resumeFileTypes: r.resumeFileTypes ?? ['.docx', '.pdf'],
+    resumeConverterAvailable: r.resume_converter_available ?? false,
     autoSyncDl: w(r.watch.dl),
     autoSyncCt: w(r.watch.ct),
     activeModel: r.active_model_id == null ? '' : String(r.active_model_id),
@@ -303,6 +308,7 @@ export function fromPersonal(s: PersonalSettings) {
   const w = (x: PersonalSettings['autoSyncDl']) => ({ enabled: x.enabled, path: x.watchPath || null, pattern: x.pattern })
   return {
     resume_root_path: s.resumeFolderPath || null,
+    resumeFileTypes: s.resumeFileTypes,
     watch: { dl: w(s.autoSyncDl), ct: w(s.autoSyncCt) },
     active_model_id: s.activeModel && /^\d+$/.test(s.activeModel) ? Number(s.activeModel) : null,
     density: s.density === 'Compact' ? 'compact' : 'comfortable',

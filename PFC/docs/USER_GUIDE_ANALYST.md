@@ -127,10 +127,29 @@ An Admin can clear cached CV text in **OCC → Cached CV text**. This preserves 
 
 ## 5. Sync CVs
 
-1. Set **Settings → Data sources → Resume folder path** once.
+1. Set **Settings → Data sources → Resume folder path**, then choose **CV file formats in this folder** and save.
 2. On **Bench List**, tick candidates and choose **Sync selected (N)**, or **Sync** on one row, then confirm.
 
 CVs are searched in the configured resume folder. A missing CV is not a blocker: matching continues on CT skills.
+
+The format checkboxes offer Word (`.docx`), PDF (`.pdf`), Text (`.txt`),
+PowerPoint (`.pptx`), OpenDocument (`.odt`), Rich text (`.rtf`),
+Word 97-2003 (`.doc`) and PowerPoint 97-2003 (`.ppt`). The default is `.docx`
+and `.pdf`. Select at least one format; saving is blocked if none are selected.
+Unticking a format does not delete or deactivate CVs already synced.
+
+Legacy `.doc` and `.ppt` files convert offline using bundled LibreOffice 25.8.7.
+If it is unavailable, the settings show **Converter not installed — save as
+.docx/.pptx**. Unchecked legacy formats cannot be selected, but previously saved
+legacy selections can still be unticked. Ask your administrator about a missing
+converter or conversion timeouts; the extraction budget is `cv.extract_timeout_s`.
+
+The backend CV sync job summary reports `skipped_count` and `skipped_files`
+(filename and reason) when files are skipped: **format not selected** for an
+unticked supported format, **format not supported** for an unknown extension,
+or **converter unavailable** for a selected legacy file without a converter.
+These also contribute to warnings. The Bench List does not currently display
+this detailed job summary; an administrator must inspect the stored job result.
 
 The Bench List **CV status** column shows **Synced (N)** when N CV versions are stored for that candidate, otherwise **Not synced**.
 

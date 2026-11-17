@@ -5,6 +5,25 @@ import { TaskContext, taskStatus } from '../lib/tasks'
 import type { Task } from '../lib/tasks'
 
 describe('task cards', () => {
+  it('shows skipped counts and toggles the first twenty filenames and reasons', () => {
+    const task: Task = { id: 'skip', label: 'CV Sync for 3 profiles', status: 'completed', skippedCount: 25,
+      skippedFiles: Array.from({ length: 25 }, (_, i) => ({ file_name: `CV ${i}.doc`, reason: 'format not selected' })) }
+    render(<TaskContext.Provider value={{ tasks: [task], dismiss: vi.fn(), addJob: vi.fn(), trackTask: (_label, promise) => promise }}><TaskCards /></TaskContext.Provider>)
+    expect(screen.getByText('CV Sync for 3 profiles: Completed · 25 files skipped')).toBeTruthy()
+    const toggle = screen.getByRole('button', { name: 'Show skipped files' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(document.getElementById(toggle.getAttribute('aria-controls')!)?.hidden).toBe(false)
+    expect(screen.getByTitle('CV 0.doc')).toBeTruthy()
+    expect(screen.getAllByText('— format not selected')).toHaveLength(20)
+    expect(screen.queryByTitle('CV 20.doc')).toBeNull()
+    expect(screen.getByText('+5 more')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Hide skipped files' }))
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    expect(taskStatus({ ...task, skippedCount: 1 })).toBe('Completed · 1 file skipped')
+  })
+
   it('shows three cards, expands extras, minimizes, exposes links and keyboard dismissal', () => {
     const tasks: Task[] = [
       { id: '1', label: 'DL upload: demand.xlsx', status: 'completed' },

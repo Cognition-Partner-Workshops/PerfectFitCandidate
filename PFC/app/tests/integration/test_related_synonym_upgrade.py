@@ -171,6 +171,7 @@ def test_old_unique_schema_upgrade_preserves_data_and_admin_changes(
         "0009",
         "0010",
         "0011",
+        "0012",
     ]
     assert migrate(settings) == []
     with database(settings) as db:
