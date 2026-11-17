@@ -350,6 +350,8 @@ def decide(
             values.update(
                 {field: value for field, value in uploaded.items() if field not in preserved}
             )
+            if entity == "resource":
+                _status_code(db, values)
         state = "Approved"
     values.update(occ_reviewed_by=user_id, occ_reviewed_at=now, updated_at=now)
     changed = {k: v for k, v in values.items() if v != current[k]}

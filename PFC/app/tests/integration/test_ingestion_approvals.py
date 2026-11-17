@@ -223,6 +223,30 @@ def test_reopened_approve_restores_upload_hash_and_jd_after_revert(
     assert row(client, entity)["row_hash"] == before["row_hash"]
 
 
+@pytest.mark.parametrize("delete_code", [False, True])
+def test_reopened_approve_uses_current_status_mapping(client, delete_code):
+    ingest(client, "ct", [{}])
+    uploaded = row(client, "resource")
+    old = queue(client)[0]
+    decision(client, old, "modify", comment="Status confirmed", values={"benchStatus": "Selected"})
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "UPDATE status_map SET canonical_code='SELECTED' WHERE canonical_code=?",
+            (uploaded["bench_status_code"],),
+        )
+        if delete_code:
+            db.execute("DELETE FROM bench_statuses WHERE code=?", (uploaded["bench_status_code"],))
+        db.commit()
+    response = client.post(
+        f"/api/v1/occ/approvals/{old['entryId']}/reopen", json={"comment": "Restore upload"}
+    )
+    assert response.status_code == 200, response.text
+    decision(client, response.json(), "approve")
+    restored = row(client, "resource")
+    assert restored["bench_status"] == uploaded["bench_status"]
+    assert restored["bench_status_code"] == "SELECTED"
+
+
 def test_reopened_approve_preserves_invalid_uploaded_bench_end_date(client):
     ingest(client, "ct", [{"Bench End Date": "not a date"}])
     old = queue(client)[0]
