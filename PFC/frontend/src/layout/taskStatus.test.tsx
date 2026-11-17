@@ -79,6 +79,6 @@ it('uses the selected historical run date in every requisition heading', async (
   renderApp('/matches?runId=1')
   const headings = await screen.findAllByRole('button', { name: /^Toggle / })
   for (const heading of headings) {
-    expect(heading.textContent).toContain(`Scored ${formatDateTime('2020-01-02T12:00:00Z')} · Run 1`)
+    expect(heading.closest('tr')?.textContent).toContain(`Scored ${formatDateTime('2020-01-02T12:00:00Z')} · Run 1`)
   }
 })
