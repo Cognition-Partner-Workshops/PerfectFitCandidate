@@ -2,6 +2,7 @@ import { ApiError, type ApiClient } from './client'
 import { applyChanges } from './crud'
 import { ADMIN_SETTINGS } from './mock/fixtures'
 import {
+  toJob,
   toApproval,
   fromAdminSettings,
   fromGrades,
@@ -58,7 +59,7 @@ import {
   type EmailTemplateRow,
   type ScoringTemplateRow,
 } from './mappers'
-import type { ApprovalEntry, BenchStatus, CurrentUser, InternalDomain, MatchResult, PersonalSettings, ProblemDetails, ResourceTeamMember, StatusMapEntry,
+import type { ApprovalEntry, BenchStatus, CurrentUser, InternalDomain, JobItem, MatchResult, PersonalSettings, ProblemDetails, ResourceTeamMember, StatusMapEntry,
   VolumeEncryption,
 } from './types'
 
@@ -241,6 +242,7 @@ export class HttpApiClient implements ApiClient {
   listExcludedResources: ApiClient['listExcludedResources'] = async () =>
     (await this.allPages<ResourceItem>((page) => this.request('GET', `/resources/excluded?page=${page}&page_size=200`))).map(toResource)
   syncCvs: ApiClient['syncCvs'] = (ids) => this.request('POST', '/resources/cv-sync', { resource_ids: ids })
+  listJobs: ApiClient['listJobs'] = async (limit = 20) => (await this.request<JobItem[]>('GET', `/jobs?limit=${limit}`)).map(toJob)
 
   getCandidate: ApiClient['getCandidate'] = (id) => this.request('GET', `/candidates/${id}`)
   setClassification: ApiClient['setClassification'] = (id, body) => this.request('PUT', `/candidates/${id}/classification`, body)

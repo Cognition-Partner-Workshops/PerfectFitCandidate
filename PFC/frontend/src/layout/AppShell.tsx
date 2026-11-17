@@ -25,6 +25,9 @@ import { appVersion } from '../config'
 import { api } from '../api'
 import { Modal } from '../components/ui'
 import { DISCLAIMER } from '../lib/csv'
+import { TaskProvider } from '../components/TaskProvider'
+import { TaskCards } from '../components/TaskCards'
+import { useTasks } from '../lib/tasks'
 
 const ICONS: Record<string, ReactNode> = {
   dashboard: <LayoutGrid size={18} aria-hidden />,
@@ -70,12 +73,21 @@ function useIdleTimeout(onExpire: () => void) {
 }
 
 export function AppShell() {
+  return <TaskProvider><ShellContent /></TaskProvider>
+}
+
+function ShellContent() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('pfc.navCollapsed') === '1')
   const emails = useQuery({ queryKey: ['emails'], queryFn: () => api.listEmails() })
   const drafts = emails.data?.items.filter((e) => e.status === 'Draft').length ?? 0
+  const models = useQuery({ queryKey: ['models'], queryFn: () => api.listModels() })
+  const activeModel = models.data?.find((model) => model.isDefault && model.purpose === 'generation')
+  const { busy, hasFailed } = useTasks()
+  const syncState = busy ? 'busy' : hasFailed ? 'error' : 'idle'
+  const syncTitle = syncState === 'busy' ? 'Sync: tasks in progress' : syncState === 'error' ? 'Sync: a task failed' : 'Sync: no tasks in progress'
 
   useEffect(() => {
     localStorage.setItem(LAST_ROUTE_KEY, location.pathname + location.search)
@@ -114,8 +126,8 @@ export function AppShell() {
           <input id="global-search" placeholder="/  Search requisitions, people, skills…" />
         </div>
         <span className="spacer" />
-        <span className="row" title="DL 04 Nov 2026 09:12 · CT 04 Nov 2026 09:20 · Local model loaded · Outlook detected">
-          <RefreshCw size={16} aria-hidden /> <span className="small">Sync</span> <span className="status-dot" aria-label="All healthy" />
+        <span className="row" title={syncTitle} role="status" aria-label={syncTitle}>
+          <RefreshCw size={16} aria-hidden /> <span className="small">Sync</span> <span className={`status-dot sync-${syncState}`} />
         </span>
         <button className="icon-btn" aria-label={`Notifications (${drafts} drafts awaiting approval)`}>
           <Bell size={18} />
@@ -161,8 +173,9 @@ export function AppShell() {
         <Outlet />
       </main>
       <footer className="footer">
-        v{appVersion} · Local model: Qwen3-4B-Instruct-2507 · {DISCLAIMER}
+        v{appVersion} · Local model: {activeModel?.name ?? 'not loaded'} · {DISCLAIMER}
       </footer>
+      <TaskCards />
       {warning && (
         <Modal
           title="You'll be signed out in 60 s"

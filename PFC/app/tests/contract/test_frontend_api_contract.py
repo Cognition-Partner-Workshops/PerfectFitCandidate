@@ -49,6 +49,26 @@ ALLOWED_PENDING_LABELS = (
 PENDING: dict[Route, str] = {}
 
 
+def test_jobs_listing_openapi(tmp_path: Path) -> None:
+    document = create_app(Settings(data_dir=tmp_path)).openapi()
+    route = document["paths"]["/api/v1/jobs"]["get"]
+    assert route["responses"]["200"]["content"]["application/json"]["schema"]["items"] == {
+        "$ref": "#/components/schemas/JobItem"
+    }
+    assert set(document["components"]["schemas"]["JobItem"]["properties"]) == {
+        "jobId",
+        "kind",
+        "status",
+        "progress",
+        "message",
+        "label",
+        "link",
+        "createdAt",
+        "startedAt",
+        "finishedAt",
+    }
+
+
 def test_occ_reopen_openapi(tmp_path: Path) -> None:
     schema = create_app(Settings(data_dir=tmp_path)).openapi()
     assert "post" in schema["paths"]["/api/v1/occ/approvals/{entry_id}/reopen"]

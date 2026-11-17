@@ -54,6 +54,24 @@ flowchart LR
 
 The left panel has Dashboard, Demand List, Bench List, Match Results, Candidate Profile, Email Approval and Settings. OCC Admin is shown to Admins only. Chat is Phase 2 and is not shown.
 
+### Task status popups
+
+Bottom-right task cards follow DL/CT uploads, commits and discards, JD analysis,
+CV sync and matching across page navigation. Each shows **Started**, **In Progress**
+(with a percentage when available), **Completed**, **Failed** or **Cancelled**.
+Completed cards disappear after about ten seconds. Failed cards keep a safe,
+short reason until you close them; retry the action or contact your administrator.
+Use **+N more** to expand beyond three cards, or **Minimize tasks** to keep just
+the task count. Close a card with its Dismiss button, or press Escape while
+focused inside it. Dismissed server jobs do not return during this signed-in visit.
+Linked CV and matching cards open Bench List and the current Match Results view.
+Polling pauses while the browser tab is hidden and resumes when it is visible.
+The header Sync dot reflects active/failed tasks, not fabricated upload times;
+the footer shows the selected local generation model, or `Local model: not loaded`.
+
+Traceability: these cards provide operational feedback for the upload flow
+(REQ-ING-01..03), CV sync (REQ-IN-21) and JD analysis/confirmation (REQ-MAT-02).
+
 ## 2. First sign-in and password change
 
 1. Open PFC in the browser (by default `http://127.0.0.1:8765`).

@@ -1,4 +1,6 @@
 import type {
+  BulkAnalysis,
+  JobItem,
   DocumentSummary,
   ExcludedEntry,
   AdminSettings,
@@ -128,7 +130,7 @@ export interface ApiClient {
   /** GET /demands/{id} */
   getDemand(demandId: number): Promise<Demand>
   /** POST /demands/analyze */
-  analyzeDemands(demandIds: number[]): Promise<void>
+  analyzeDemands(demandIds: number[]): Promise<BulkAnalysis>
   /** POST /demands/{id}/analyze — extracts a new requirements draft */
   analyzeDemand(demandId: number): Promise<JdRequirements>
   /** GET /demands/{id}/requirements */
@@ -136,7 +138,7 @@ export interface ApiClient {
   /** PUT /demands/{id}/requirements */
   saveRequirements(req: JdRequirements): Promise<JdRequirements>
   /** POST /demands/{id}/requirements/confirm */
-  confirmRequirements(demandId: number): Promise<void>
+  confirmRequirements(demandId: number): Promise<{ jobId: number }>
   /** POST /uploads/{kind} */
   uploadWorkbook(kind: 'dl' | 'ct', file: File): Promise<UploadPreview>
   /** POST /ingestion-runs/{id}/commit */
@@ -151,7 +153,9 @@ export interface ApiClient {
   /** GET /resources/excluded */
   listExcludedResources(): Promise<Resource[]>
   /** POST /resources/cv-sync (ids ≥ 1) */
-  syncCvs(resourceIds: number[]): Promise<void>
+  syncCvs(resourceIds: number[]): Promise<{ jobId: number }>
+  /** GET /jobs — caller-owned and system jobs, including recently finished jobs. */
+  listJobs(limit?: number): Promise<JobItem[]>
 
   /** GET /candidates/{id} */
   getCandidate(candidateId: number): Promise<CandidateDetail>
