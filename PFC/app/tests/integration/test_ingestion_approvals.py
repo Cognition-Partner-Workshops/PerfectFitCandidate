@@ -3,6 +3,7 @@
 import json
 import sqlite3
 from collections.abc import Iterator
+from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 
@@ -17,8 +18,107 @@ from pfc.main import create_app
 from pfc.security.setup import code_path
 from pfc.services.ingestion import service
 from pfc.services.ingestion.workbooks import CT, DL
+from pfc.services.matching.data_changes import annotate_data_changes
 
 PASSWORD = "Strong!Random4567"
+
+
+@pytest.mark.parametrize(
+    "kind,entity,field,api_field,stored",
+    [
+        ("dl", "demand", "Account Name", "accountName", "account_name"),
+        ("ct", "resource", "Location", "location", "location"),
+    ],
+)
+@pytest.mark.parametrize("action", ["approve", "modify", "revert"])
+def test_reopen_restores_upload_and_preserves_history(
+    client, kind, entity, field, api_field, stored, action
+):
+    ingest(client, kind, [{field: "Original"}])
+    decision(client, queue(client)[0], "approve")
+    ingest(client, kind, [{field: "Uploaded"}])
+    old = queue(client)[0]
+    decided = decision(
+        client,
+        old,
+        action,
+        **({"comment": "Correction", "values": {api_field: "Admin"}} if action == "modify" else {}),
+    )
+    with database(client.app.state.settings) as db:
+        original = dict(
+            db.execute("SELECT * FROM occ_approvals WHERE entry_id=?", (old["entryId"],)).fetchone()
+        )
+    reopen_time = datetime.fromisoformat(client.app.state.clock().isoformat()) + timedelta(
+        seconds=10
+    )
+    client.app.state.clock = lambda: reopen_time
+    response = client.post(
+        f"/api/v1/occ/approvals/{old['entryId']}/reopen", json={"comment": "Ask owner@example.com"}
+    )
+    assert response.status_code == 200, response.text
+    reopened = response.json()
+    assert reopened["state"] == "Pending"
+    assert reopened["reopenedFromEntryId"] == old["entryId"]
+    assert reopened["entryId"] != old["entryId"]
+    assert next(e for e in queue(client) if e["entryId"] == old["entryId"]) == decided
+    assert row(client, entity)["occ_reviewed_at"] is None
+    with database(client.app.state.settings) as db:
+        new = db.execute(
+            "SELECT * FROM occ_approvals WHERE entry_id=?", (reopened["entryId"],)
+        ).fetchone()
+        assert all(
+            new[k] == original[k]
+            for k in ("change", "before_json", "after_json", "ingestion_run_id")
+        )
+        assert (
+            dict(
+                db.execute(
+                    "SELECT * FROM occ_approvals WHERE entry_id=?", (old["entryId"],)
+                ).fetchone()
+            )
+            == original
+        )
+        audit = db.execute(
+            "SELECT details_json,ts FROM audit_log WHERE action='OCC_REOPEN'"
+        ).fetchone()
+        assert json.loads(audit[0])["comment"] == "Ask [email redacted]"
+        runs = [
+            {"finished_at": (reopen_time - timedelta(seconds=2)).isoformat(), "status": "completed"}
+        ]
+        annotate_data_changes(db, runs)
+        assert "OCC approval decision" in runs[0]["data_changed_reasons"]
+    client.app.state.clock = lambda: reopen_time + timedelta(seconds=10)
+    decision(client, reopened, "approve")
+    assert row(client, entity)[stored] == "Uploaded"
+    with database(client.app.state.settings) as db:
+        runs = [
+            {"finished_at": (reopen_time + timedelta(seconds=2)).isoformat(), "status": "completed"}
+        ]
+        annotate_data_changes(db, runs)
+        assert "OCC approval decision" in runs[0]["data_changed_reasons"]
+        assert verify_chain(db)
+
+
+def test_reopen_validation_conflicts_and_permissions(client):
+    ingest(client, "dl", [{}])
+    old = queue(client)[0]
+    url = f"/api/v1/occ/approvals/{old['entryId']}/reopen"
+    for body in ({}, {"comment": ""}, {"comment": "   "}):
+        assert client.post(url, json=body).status_code == 422
+    assert client.post(url, json={"comment": "Review"}).status_code == 409
+    decision(client, old, "approve")
+    ingest(client, "dl", [{"Account Name": "New upload"}])
+    response = client.post(url, json={"comment": "Review"})
+    assert response.status_code == 409 and "Pending" in response.text
+    decision(client, queue(client)[0], "approve")
+    response = client.post(url, json={"comment": "Review"})
+    assert response.status_code == 409 and "latest" in response.text
+    assert (
+        client.post("/api/v1/occ/approvals/999999/reopen", json={"comment": "Review"}).status_code
+        == 404
+    )
+    login(client, "Analyst")
+    assert client.post(url, json={"comment": "Review"}).status_code == 403
 
 
 def login(client: TestClient, role: str = "Admin") -> None:

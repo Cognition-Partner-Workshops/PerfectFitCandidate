@@ -2,6 +2,13 @@
 
 Source reviewed: merged `origin/main` **6363f49** (includes #37), 2026-11-06.
 This is source/test traceability, **not a UAT pass or an MVP release approval**.
+OCC re-open evidence supplements the REQ-ROLE-03 and REQ-ING-03 rows below:
+
+| REQ | Re-open implementation | Verification |
+| --- | --- | --- |
+| REQ-ROLE-03 | Admin-only `POST /occ/approvals/{entry_id}/reopen`; required comment; atomic latest/Pending guards; immutable prior decisions; `OCC_REOPEN` redacted audit. Migration `0011_occ_reopen.sql`, `services/ingestion/approvals.py`, `api/routers/occ_approvals.py`; UI `OccApprovals.tsx` with latest-only action and required-comment dialog. | `tests/integration/test_ingestion_approvals.py::test_reopen_validation_conflicts_and_permissions`; frontend `pages/occ/occScreens.test.tsx`; `api/http.test.ts`; OpenAPI contract test. |
+| REQ-ING-03 | New Pending entry retains original upload snapshots and links to the prior decision; subsequent Approve restores uploaded values. Resource eligibility refresh and `matching/data_changes.py` include re-opening in run staleness. | `tests/integration/test_ingestion_approvals.py::test_reopen_restores_upload_and_preserves_history` covers DL/CT after Approve, Modify and Revert, history, audit redaction and staleness after both actions. |
+
 The original inventory was docs-only. Subsequent OCC-domain/masking and CLS-02
 updates add executable edit/run, masking and classification regressions; they do
 not supply laptop or UAT acceptance. CLS-02 and MAT-07 are **Implemented+tested**,

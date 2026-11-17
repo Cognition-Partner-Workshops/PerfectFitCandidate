@@ -49,6 +49,13 @@ ALLOWED_PENDING_LABELS = (
 PENDING: dict[Route, str] = {}
 
 
+def test_occ_reopen_openapi(tmp_path: Path) -> None:
+    schema = create_app(Settings(data_dir=tmp_path)).openapi()
+    assert "post" in schema["paths"]["/api/v1/occ/approvals/{entry_id}/reopen"]
+    entry = schema["components"]["schemas"]["ApprovalEntry"]
+    assert "reopenedFromEntryId" in entry["properties"]
+
+
 def _frontend_paths(path_literal: str) -> set[str]:
     path = path_literal[1:-1]
     path = re.sub(r"\$\{this\.qs\([^}]*\)\}", "", path)

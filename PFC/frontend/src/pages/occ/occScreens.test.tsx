@@ -43,6 +43,19 @@ describe('OCC mock API (GUI_OCC_DESIGN.md §16.4/§16.8/§16.10/§16.12/§16.14)
     expect(log[0].summary).toContain('T1A123: Modified')
   })
 
+  it('requires a non-blank reopen comment, restores uploaded fields and rejects a second pending review', async () => {
+    const [entry] = await api.listApprovals()
+    const fields = structuredClone(entry.fields)
+    await api.decideApproval(entry, { action: 'modify', comment: 'Correction', values: { [fields[0].field]: 'Admin' } })
+    await expect(api.reopenApproval(entry, '  ')).rejects.toMatchObject({ problem: { status: 422 } })
+    const reopened = await api.reopenApproval(entry, 'Review')
+    expect(reopened.reopenedFromEntryId).toBe(entry.entryId)
+    expect(reopened.fields).toEqual(fields)
+    await expect(api.reopenApproval(entry, 'Again')).rejects.toMatchObject({ problem: { status: 409 } })
+    await api.decideApproval(reopened, { action: 'approve' })
+    await expect(api.reopenApproval(entry, 'Obsolete')).rejects.toMatchObject({ problem: { status: 409 } })
+  })
+
   it('masks account emails in list, update and unlock responses without changing sign-in', async () => {
     const created = await api.createUser({ fullName: 'Short Account', email: 'ab@x.com', role: 'Analyst' })
     const listed = await api.listUsers()
@@ -156,6 +169,24 @@ describe('OCC screens', () => {
     fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Status set by Admin' } })
     fireEvent.click(confirm)
     await waitFor(() => expect(screen.queryByRole('button', { name: /Revert ALEXANDER/ })).toBeNull())
+  })
+
+  it('re-opens only the latest decided row with a required comment and shows linkage', async () => {
+    const entry = (await api.listApprovals()).find((e) => e.source === 'DL' && e.state === 'Pending')!
+    await api.decideApproval(entry, { action: 'approve' })
+    renderApp('/occ/approvals')
+    fireEvent.click(await screen.findByLabelText('Show decided'))
+    fireEvent.click(await screen.findByRole('button', { name: `Re-open ${entry.key}` }))
+    const submit = screen.getByRole('button', { name: 'Re-open approval' }) as HTMLButtonElement
+    expect(submit.disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: '   ' } })
+    expect(submit.disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Review again' } })
+    expect(submit.disabled).toBe(false)
+    fireEvent.click(submit)
+    expect(await screen.findByText(`Re-opened from #${entry.entryId}`)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: `Re-open ${entry.key}` })).toBeNull()
+    expect(screen.getByRole('button', { name: `Approve ${entry.key}` })).toBeTruthy()
   })
 
   it('previews the ±1 window and reorders grades', async () => {

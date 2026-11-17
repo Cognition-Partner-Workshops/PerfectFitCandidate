@@ -11,6 +11,7 @@ from pydantic.alias_generators import to_camel
 from pfc.api.schemas.occ_approvals import ApprovalDecision, ApprovalEntry, ApprovalField
 from pfc.db.audit import append_audit
 from pfc.security.problems import Problem
+from pfc.services.matching.common import atomic
 
 from .browse import _mask
 from .eligibility import refresh_resource_eligibility
@@ -163,6 +164,7 @@ def entry(db: sqlite3.Connection, row: sqlite3.Row) -> ApprovalEntry:
         else (f"{after['short_name']} · {_mask(after['email_address']) or 'No email'}")
     )
     return ApprovalEntry(
+        reopened_from_entry_id=row["reopened_from_entry_id"],
         entry_id=row["entry_id"],
         source="DL" if row["entity_type"] == "demand" else "CT",
         target_id=row["entity_id"],
@@ -221,6 +223,69 @@ def _redact(value: Any) -> Any:
     return value
 
 
+def reopen(
+    db: sqlite3.Connection, entry_id: int, comment: str, user_id: int, now: str
+) -> ApprovalEntry:
+    if not comment.strip():
+        raise Problem(422, "COMMENT_REQUIRED", "Re-open requires a non-empty comment")
+    with atomic(db, immediate=True):
+        row = db.execute("SELECT * FROM occ_approvals WHERE entry_id=?", (entry_id,)).fetchone()
+        if row is None:
+            raise Problem(404, "APPROVAL_NOT_FOUND", "Approval entry not found")
+        entity, entity_id = row["entity_type"], row["entity_id"]
+        pending = db.execute(
+            "SELECT 1 FROM occ_approvals WHERE entity_type=? AND entity_id=? AND state='Pending'",
+            (entity, entity_id),
+        ).fetchone()
+        if pending:
+            raise Problem(
+                409, "PENDING_APPROVAL_EXISTS", "A Pending approval already exists for this entity"
+            )
+        if latest(db, entity, entity_id)["entry_id"] != entry_id:
+            raise Problem(
+                409, "APPROVAL_NOT_LATEST", "Only the latest approval entry can be re-opened"
+            )
+        cursor = db.execute(
+            "INSERT INTO occ_approvals(entity_type,entity_id,ingestion_run_id,change,"
+            "before_json,after_json,uploaded_by,uploaded_at,comment,reopened_from_entry_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                entity,
+                entity_id,
+                row["ingestion_run_id"],
+                row["change"],
+                row["before_json"],
+                row["after_json"],
+                row["uploaded_by"],
+                row["uploaded_at"],
+                comment,
+                entry_id,
+            ),
+        )
+        db.execute(
+            f"UPDATE {entity}s SET occ_reviewed_by=NULL,occ_reviewed_at=NULL,updated_at=? "
+            f"WHERE {entity}_id=?",
+            (now, entity_id),
+        )
+        append_audit(
+            db,
+            ts=now,
+            action="OCC_REOPEN",
+            user_id=user_id,
+            entity_type=entity,
+            entity_id=str(entity_id),
+            details={"reopenedFromEntryId": entry_id, "comment": _redact(comment)},
+        )
+        if entity == "resource":
+            refresh_resource_eligibility(db, [entity_id])
+        return entry(
+            db,
+            db.execute(
+                "SELECT * FROM occ_approvals WHERE entry_id=?", (cursor.lastrowid,)
+            ).fetchone(),
+        )
+
+
 def decide(
     db: sqlite3.Connection,
     entity: str,
@@ -273,6 +338,8 @@ def decide(
             values.update(before)
         state = "Reverted"
     else:
+        if row["reopened_from_entry_id"] is not None:
+            values.update(json.loads(row["after_json"]))
         state = "Approved"
     values.update(occ_reviewed_by=user_id, occ_reviewed_at=now, updated_at=now)
     changed = {k: v for k, v in values.items() if v != current[k]}

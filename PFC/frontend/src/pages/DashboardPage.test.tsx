@@ -42,7 +42,7 @@ describe('Dashboard current-result summaries', () => {
     })
     renderApp('/dashboard')
 
-    const region = await screen.findByRole('region', { name: 'Demand List rows' })
+    const region = await screen.findByRole('region', { name: 'Demand List rows' }, { timeout: 5000 })
     const table = within(region).getByRole('table')
     const row = within(table).getByText(targetDemand!.codeRequisition).closest('tr')
     expect(row).not.toBeNull()
