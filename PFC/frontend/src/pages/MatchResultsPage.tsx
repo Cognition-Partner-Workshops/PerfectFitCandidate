@@ -30,7 +30,6 @@ function OverrideDialog({ row, onClose }: { row: MatchResult; onClose: () => voi
     mutationFn: () => api.addOverride(row.resultId, { action, reason, newBand: action === 'adjust_band' ? band : undefined }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['current-results'] })
-      void qc.invalidateQueries({ queryKey: ['run-results', row.runId] })
       onClose()
     },
   })
@@ -234,8 +233,6 @@ function ExcludedPanel({ rows, loading, error }: { rows: ExcludedPerson[]; loadi
 export function MatchResultsPage() {
   const { user } = useAuth()
   const [params] = useSearchParams()
-  const requestedRun = Number(params.get('runId'))
-  const selectedRunId = Number.isSafeInteger(requestedRun) && requestedRun > 0 ? requestedRun : undefined
   const navigate = useNavigate()
   const { filters, setFilters } = useResultFilters()
   const req = params.get('req')
@@ -250,13 +247,7 @@ export function MatchResultsPage() {
   const runs = useQuery({ queryKey: ['runs'], queryFn: () => api.listMatchRuns(), staleTime: 0, refetchOnWindowFocus: true })
   // Runs are newest first; a queued/running run has no results yet, so the last completed run stays on screen.
   const summary = useQuery({ queryKey: ['current-results', 'summary'], queryFn: () => api.getCurrentResultsSummary(), staleTime: 0, refetchOnWindowFocus: true })
-  const selectedRun = useQuery({
-    queryKey: ['run', selectedRunId, 'selected'],
-    queryFn: () => api.getMatchRun(selectedRunId!),
-    enabled: selectedRunId !== undefined,
-    refetchInterval: (query) => query.state.data && isActive(query.state.data) ? RUN_POLL_MS : false,
-  })
-  const run = selectedRunId === undefined ? summary.data?.runs[0] : selectedRun.data
+  const run = summary.data?.runs[0]
   const newer = runs.data?.[0] && isActive(runs.data[0]) ? runs.data[0] : undefined
   const progress = useQuery({
     queryKey: ['run', newer?.runId],
@@ -270,15 +261,9 @@ export function MatchResultsPage() {
       void qc.invalidateQueries({ queryKey: ['current-results'] })
     }
   }, [progress.data, qc])
-  const results = useQuery({
-    queryKey: selectedRunId === undefined ? ['current-results', 'rows'] : ['run-results', selectedRunId, selectedRun.data?.status],
-    queryFn: () => selectedRunId === undefined ? api.getCurrentResults() : api.getResults(selectedRunId),
-  })
+  const results = useQuery({ queryKey: ['current-results', 'rows'], queryFn: () => api.getCurrentResults() })
   const [tab, setTab] = useState<'results' | 'excluded'>('results')
-  const excluded = useQuery({
-    queryKey: selectedRunId === undefined ? ['current-results', 'excluded'] : ['run-excluded', selectedRunId, selectedRun.data?.status],
-    queryFn: () => selectedRunId === undefined ? api.getCurrentExcluded() : api.getRunExcluded(selectedRunId),
-  })
+  const excluded = useQuery({ queryKey: ['current-results', 'excluded'], queryFn: () => api.getCurrentExcluded() })
   // An older run can name people a later CT upload took off the bench, so join against every lifecycle.
   const bench = useQuery({ queryKey: ['resources', 'all-lifecycles'], queryFn: () => api.listAllResources(), enabled: !!run })
   const excludedRows = useMemo(() => groupExcluded(excluded.data ?? [], bench.data ?? []), [excluded.data, bench.data])
@@ -294,7 +279,7 @@ export function MatchResultsPage() {
   const [exportFormat, setExportFormat] = useState<ExportFormat>('csv')
   const [includeEmails, setIncludeEmails] = useState(false)
   const exporter = useMutation({
-    mutationFn: () => selectedRunId === undefined ? api.exportCurrentResults(filters, exportFormat, includeEmails) : api.exportResults(selectedRunId, filters, exportFormat, includeEmails),
+    mutationFn: () => api.exportCurrentResults(filters, exportFormat, includeEmails),
     onSuccess: ({ blob, fileName }) => downloadBlob(blob, fileName),
   })
 
@@ -320,8 +305,7 @@ export function MatchResultsPage() {
     setSelection(next)
   }
 
-  if (summary.isLoading || runs.isLoading || results.isLoading || (selectedRunId !== undefined && selectedRun.isLoading)) return <div className="page"><Spinner /></div>
-  if (selectedRun.isError) return <div className="page"><ErrorState error={selectedRun.error} /></div>
+  if (summary.isLoading || runs.isLoading || results.isLoading) return <div className="page"><Spinner /></div>
   if (runs.isError) return <div className="page"><ErrorState error={runs.error} /></div>
   if (summary.isError) return <div className="page"><ErrorState error={summary.error} /></div>
   if (!run) {
@@ -337,7 +321,7 @@ export function MatchResultsPage() {
     )
   }
   const mode = runMode(run)
-  const meta = `${selectedRunId === undefined ? `Current results · ${summary.data?.demands.length ?? 0} reqs · ${summary.data?.runs.length ?? 0} runs · latest` : `Run #${selectedRunId} · ${run.status} ·`} ${formatDateTime(run.finishedAt)} · Model ${run.llmModel} · Template v${run.templateVersion}${mode ? ` · Mode: ${mode}` : ''}`
+  const meta = `Current results · ${summary.data?.demands.length ?? 0} reqs · ${summary.data?.runs.length ?? 0} runs · latest ${formatDateTime(run.finishedAt)} · Model ${run.llmModel} · Template v${run.templateVersion}${mode ? ` · Mode: ${mode}` : ''}`
   const selectedVisible = rows.filter((r) => selected.has(r.resultId))
   const groups = grouped ? groupByRequisition(rows) : [['', [...rows].sort((a, b) => b.score - a.score || a.codeRequisition.localeCompare(b.codeRequisition) || a.rank - b.rank)] as [string, MatchResult[]]]
   const canOverride = !!user && canEdit(user.role, 'matchOverrides')
@@ -349,8 +333,7 @@ export function MatchResultsPage() {
           Scoring run {newer.runId} is {progress.data?.status ?? newer.status}. {run ? 'Showing the last completed results until it finishes.' : 'Results appear when it finishes.'}
         </Banner>
       )}
-      <DataChangedBanner run={run} summary={selectedRunId === undefined ? summary.data : undefined} />
-      {selectedRunId !== undefined && <Link to="/matches">Show current results</Link>}
+      <DataChangedBanner run={run} summary={summary.data} />
       <div className="page-header">
         <h1>Match Results</h1>
         <span className="meta">
@@ -435,7 +418,7 @@ export function MatchResultsPage() {
                         else next.add(req)
                         return next
                       })}>{collapsed.has(req) ? <ChevronRight size={16} /> : <ChevronDown size={16} />}</button>{' '}
-                      <span className="mono">{req}</span> · {list.length} rows · Scored {formatDateTime(selectedRunId === undefined ? summary.data?.demands.find((d) => d.demandId === list[0].demandId)?.finishedAt : run.finishedAt)} · Run {list[0].runId} · {list[0].demandRequestName} · {list[0].accountName} · {list[0].demandGrade} · {roleLocation(list[0].region)} · {formatDate(list[0].positionStartDate)}{' '}
+                      <span className="mono">{req}</span> · {list.length} rows · Scored {formatDateTime(summary.data?.demands.find((d) => d.demandId === list[0].demandId)?.finishedAt)} · Run {list[0].runId} · {list[0].demandRequestName} · {list[0].accountName} · {list[0].demandGrade} · {roleLocation(list[0].region)} · {formatDate(list[0].positionStartDate)}{' '}
                       {!list.some((r) => r.band !== 'Weak') && <Chip tone="danger">No suitable candidate — Weak Match shown</Chip>}
                     </td>
                   </tr>

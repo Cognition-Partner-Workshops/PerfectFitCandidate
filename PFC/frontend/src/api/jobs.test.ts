@@ -29,7 +29,7 @@ it('provides sample mock cards with links and limits, plus CV sync job ids', asy
   const jobs = await mock.listJobs()
   expect(jobs).toHaveLength(3)
   expect(jobs.some((job) => job.status === 'running' && job.kind === 'cv_sync')).toBe(true)
-  expect(jobs.some((job) => job.status === 'completed' && job.link?.includes('runId='))).toBe(true)
+  expect(jobs.some((job) => job.status === 'completed' && job.link === '/#/matches')).toBe(true)
   expect(await mock.listJobs(1)).toHaveLength(1)
   expect(await mock.syncCvs([1])).toEqual({ jobId: 3 })
 })

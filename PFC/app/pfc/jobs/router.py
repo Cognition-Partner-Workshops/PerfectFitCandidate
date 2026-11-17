@@ -52,7 +52,7 @@ def presentation(job: Job) -> tuple[str, str | None]:
     if job.kind == "match_run":
         run_id = params.get("run_id")
         if type(run_id) is int and run_id > 0:
-            return f"Matching run #{run_id}", f"/#/matches?runId={run_id}"
+            return f"Matching run #{run_id}", "/#/matches"
         return "Matching run", "/#/matches"
     if job.kind == "embed":
         return ("Model check" if params.get("model_type") == "llm" else "Re-indexing CVs"), None

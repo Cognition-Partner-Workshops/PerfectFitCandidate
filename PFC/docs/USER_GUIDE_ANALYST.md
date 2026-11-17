@@ -64,7 +64,7 @@ short reason until you close them; retry the action or contact your administrato
 Use **+N more** to expand beyond three cards, or **Minimize tasks** to keep just
 the task count. Close a card with its Dismiss button, or press Escape while
 focused inside it. Dismissed server jobs do not return during this signed-in visit.
-Linked CV and matching cards open Bench List and the relevant Match Results run.
+Linked CV and matching cards open Bench List and the current Match Results view.
 Polling pauses while the browser tab is hidden and resumes when it is visible.
 The header Sync dot reflects active/failed tasks, not fabricated upload times;
 the footer shows the selected local generation model, or `Local model: not loaded`.

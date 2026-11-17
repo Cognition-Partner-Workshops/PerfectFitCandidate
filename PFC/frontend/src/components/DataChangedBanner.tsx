@@ -15,7 +15,7 @@ export function DataChangedBanner({ run, summary }: { run: MatchRun; summary?: C
   const { addJob } = useTasks()
   const rerun = useMutation({
     mutationFn: () => api.startMatchRun({ incremental: true, scope: summary || run.scope === 'demands' ? 'demands' : 'full', demandIds: summary ? summary.staleDemandIds : run.scope === 'demands' ? run.demandIds : [] }),
-    onSuccess: ({ jobId, runId }) => addJob(jobId, `Matching run #${runId}`),
+    onSuccess: ({ jobId }) => addJob(jobId, 'Matching run'),
   })
   // Follow the new run until it finishes, then refresh every view of "the latest run" (Match Results, Dashboard summary).
   const startedId = rerun.data?.runId

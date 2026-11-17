@@ -138,7 +138,7 @@ export interface ApiClient {
   /** PUT /demands/{id}/requirements */
   saveRequirements(req: JdRequirements): Promise<JdRequirements>
   /** POST /demands/{id}/requirements/confirm */
-  confirmRequirements(demandId: number): Promise<{ runId: number; jobId: number }>
+  confirmRequirements(demandId: number): Promise<{ jobId: number }>
   /** POST /uploads/{kind} */
   uploadWorkbook(kind: 'dl' | 'ct', file: File): Promise<UploadPreview>
   /** POST /ingestion-runs/{id}/commit */

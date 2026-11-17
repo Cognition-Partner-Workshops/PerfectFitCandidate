@@ -112,7 +112,7 @@ def test_scope_window_order(client: TestClient, role: str) -> None:
         ("cv_sync", {"resource_ids": [1, 2, 3]}, "CV Sync for 3 profiles", "/#/bench"),
         ("cv_sync", None, "CV Sync for all profiles", "/#/bench"),
         ("cv_sync", {"resource_ids": []}, "CV Sync for all profiles", "/#/bench"),
-        ("match_run", {"run_id": 12}, "Matching run #12", "/#/matches?runId=12"),
+        ("match_run", {"run_id": 12}, "Matching run #12", "/#/matches"),
         ("embed", {}, "Re-indexing CVs", None),
         ("embed", {"model_type": "llm"}, "Model check", None),
         ("other_task", [], "Other task", None),
