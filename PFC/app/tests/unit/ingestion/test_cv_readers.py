@@ -70,6 +70,22 @@ def test_rtf_table_and_control_symbol_separators(tmp_path):
     assert read_rtf(path) == "SQL\tPython\nData Science\nfull-time cooperate"
 
 
+@pytest.mark.parametrize("hex_escaped", [False, True])
+def test_rtf_ansi_codepage(tmp_path, hex_escaped):
+    path = tmp_path / "cyrillic.rtf"
+    content = "Привет мир".encode("cp1251")
+    if hex_escaped:
+        content = b"".join(f"\\'{byte:02x}".encode("ascii") for byte in content)
+    path.write_bytes(rb"{\rtf1\ansi\ansicpg1251 " + content + b"}")
+    assert read_rtf(path) == "Привет мир"
+
+
+def test_rtf_unknown_codepage_uses_cp1252(tmp_path):
+    path = tmp_path / "fallback.rtf"
+    path.write_bytes(rb"{\rtf1\ansicpg99999 \'80 " + b"\x80}")
+    assert read_rtf(path) == "€ €"
+
+
 @pytest.mark.parametrize("extension", [".rtf", ".odt", ".pptx"])
 def test_empty_reader(tmp_path, extension):
     path = tmp_path / f"empty{extension}"

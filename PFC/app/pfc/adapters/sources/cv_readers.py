@@ -1,5 +1,6 @@
 """Small text-only readers for zipped XML and RTF CVs."""
 
+import codecs
 import posixpath
 import re
 from pathlib import Path
@@ -96,19 +97,26 @@ _DESTINATIONS = {
 
 def read_rtf(path: Path) -> str:
     output: list[str] = []
-    stack: list[tuple[bool, int]] = []
+    stack: list[tuple[bool, int, str]] = []
     skip, uc, fallback = False, 1, 0
-    for match in _RTF_TOKEN.finditer(path.read_bytes().decode("cp1252", errors="replace")):
+    codepage = "cp1252"
+    for match in _RTF_TOKEN.finditer(path.read_bytes().decode("latin1")):
         word, number, hex_byte, escaped, brace, plain = match.groups()
         if brace == "{":
-            stack.append((skip, uc))
+            stack.append((skip, uc, codepage))
         elif brace == "}":
             if stack:
-                skip, uc = stack.pop()
+                skip, uc, codepage = stack.pop()
         elif word in _DESTINATIONS or escaped == "*":
             skip = True
         elif skip:
             continue
+        elif word == "ansicpg":
+            codepage = f"cp{number}"
+            try:
+                codecs.lookup(codepage)
+            except LookupError:
+                codepage = "cp1252"
         elif word == "uc":
             uc = max(0, int(number or "1"))
         elif word == "u":
@@ -125,11 +133,16 @@ def read_rtf(path: Path) -> str:
             elif escaped == "_":
                 value = "-"
             elif hex_byte:
-                value = bytes.fromhex(hex_byte).decode("cp1252", errors="replace")
+                value = bytes.fromhex(hex_byte).decode(codepage, errors="replace")
             elif escaped in {"\\", "{", "}"}:
                 value = escaped
             elif plain:
-                value = plain.replace("\r", "").replace("\n", "")
+                value = (
+                    plain.replace("\r", "")
+                    .replace("\n", "")
+                    .encode("latin1")
+                    .decode(codepage, errors="replace")
+                )
             count = min(fallback, len(value))
             fallback -= count
             output.append(value[count:])
