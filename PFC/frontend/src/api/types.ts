@@ -1,3 +1,21 @@
+export interface BulkAnalysis {
+  analyzed: JdRequirements[]
+  failed: { demandId: number; detail: string }[]
+}
+
+export interface JobItem {
+  jobId: number
+  kind: string
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  progress: number
+  message: string | null
+  label: string
+  link: string | null
+  createdAt: string
+  startedAt: string | null
+  finishedAt: string | null
+}
+
 export interface DocumentSummary {
   sentences: { text: string; evidence: string }[]
   model: string

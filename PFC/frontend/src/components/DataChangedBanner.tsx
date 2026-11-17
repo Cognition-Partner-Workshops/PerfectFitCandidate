@@ -5,14 +5,17 @@ import { api } from '../api'
 import type { CurrentResults, MatchRun } from '../api/types'
 import { formatDateTime } from '../lib/format'
 import { Banner, ErrorState } from './ui'
+import { useTasks } from '../lib/tasks'
 
 const active = (status: MatchRun['status']) => status === 'queued' || status === 'running'
 
 /** Stale-run notice: inputs changed after the run finished, so its scores are a point-in-time snapshot. */
 export function DataChangedBanner({ run, summary }: { run: MatchRun; summary?: CurrentResults }) {
   const qc = useQueryClient()
+  const { addJob } = useTasks()
   const rerun = useMutation({
     mutationFn: () => api.startMatchRun({ incremental: true, scope: summary || run.scope === 'demands' ? 'demands' : 'full', demandIds: summary ? summary.staleDemandIds : run.scope === 'demands' ? run.demandIds : [] }),
+    onSuccess: ({ jobId }) => addJob(jobId, 'Matching run'),
   })
   // Follow the new run until it finishes, then refresh every view of "the latest run" (Match Results, Dashboard summary).
   const startedId = rerun.data?.runId

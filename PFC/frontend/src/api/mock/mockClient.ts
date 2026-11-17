@@ -7,6 +7,8 @@
 import { ApiError, type ApiClient, type EmailList, type StatusMapData } from '../client'
 import { applyChanges } from '../crud'
 import type {
+  BulkAnalysis,
+  JobItem,
   DocumentSummary,
   CandidateDetail,
   CandidateClassification,
@@ -636,12 +638,13 @@ export class MockApiClient implements ApiClient {
     return this.done({ ...demand })
   }
 
-  async analyzeDemands(ids: number[]) {
+  async analyzeDemands(ids: number[]): Promise<BulkAnalysis> {
     this.currentUser()
     for (const d of this.state.demands) {
       if (ids.includes(d.demandId) && needsAnalysis(d)) d.jdStatus = 'Draft'
     }
-    return this.done(undefined)
+    const analyzed = await Promise.all(this.state.demands.filter((d) => ids.includes(d.demandId)).map((d) => this.getRequirements(d.demandId)))
+    return this.done({ analyzed, failed: [] })
   }
 
   async analyzeDemand(demandId: number) {
@@ -697,7 +700,7 @@ export class MockApiClient implements ApiClient {
     d.jdStatus = 'Confirmed'
     this.noteDataChange('JD confirmed')
     this.audit(`JD requirements confirmed for ${d.codeRequisition}; scoring queued`)
-    return this.done(undefined)
+    return this.done({ jobId: 2 })
   }
 
   async uploadWorkbook(kind: 'dl' | 'ct', file: File) {
@@ -750,6 +753,16 @@ export class MockApiClient implements ApiClient {
     return this.done(this.resources().filter((r) => r.eligibility === 'excluded' || r.eligibility === 'insufficient'))
   }
 
+  async listJobs(limit = 20): Promise<JobItem[]> {
+    this.currentUser()
+    const now = new Date().toISOString()
+    return this.done([
+      { jobId: 3, kind: 'cv_sync', status: 'running', progress: 0.45, message: 'Job running', label: 'CV Sync for 3 profiles', link: '/#/bench', createdAt: now, startedAt: now, finishedAt: null },
+      { jobId: 2, kind: 'match_run', status: 'completed', progress: 1, message: 'Job completed', label: 'Matching run #2', link: '/#/matches', createdAt: now, startedAt: now, finishedAt: now },
+      { jobId: 1, kind: 'embed', status: 'completed', progress: 1, message: 'Job completed', label: 'Re-indexing CVs', link: null, createdAt: now, startedAt: now, finishedAt: now },
+    ].slice(0, limit) as JobItem[])
+  }
+
   async syncCvs(ids: number[]) {
     this.currentUser()
     if (ids.length < 1) fail(422, 'Select at least one candidate', 'SYNC_EMPTY')
@@ -762,7 +775,7 @@ export class MockApiClient implements ApiClient {
       }
     }
     this.audit(`CV sync for ${ids.length} candidate(s)`)
-    return this.done(undefined)
+    return this.done({ jobId: 3 })
   }
 
   async getCandidate(candidateId: number) {
