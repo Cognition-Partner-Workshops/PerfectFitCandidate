@@ -18,6 +18,8 @@ import type {
   CandidateDetail,
   CandidateClassification,
   CandidateType,
+  CvCompareScoring,
+  CvComparison,
   CvExtraction,
   RemovalCounts,
   ChangePasswordRequest,
@@ -173,6 +175,12 @@ export interface ApiClient {
   getCandidate(candidateId: number): Promise<CandidateDetail>
   setClassification(candidateId: number, body: { classification: CandidateType | null; reason: string }): Promise<CandidateClassification>
   listCvExtractions(candidateId: number): Promise<CvExtraction[]>
+  /** GET /candidates/{id}/cv-versions/compare — read-only, masked (REQ-IN-24). */
+  compareCvVersions(candidateId: number, left: number, right: number): Promise<CvComparison>
+  /** POST /candidates/{id}/cv-comparisons — what-if scoring job; never changes match results. */
+  startCvComparison(candidateId: number, left: number, right: number): Promise<{ comparisonId: number; jobId: number }>
+  /** GET /candidates/{id}/cv-comparisons/latest — newest scoring for this exact pair, or null. */
+  getLatestCvComparison(candidateId: number, left: number, right: number): Promise<CvCompareScoring | null>
   clearCandidateExtractions(candidateId: number): Promise<RemovalCounts>
   clearAllExtractions(): Promise<RemovalCounts>
   /** PUT /candidates/{id}/identity */

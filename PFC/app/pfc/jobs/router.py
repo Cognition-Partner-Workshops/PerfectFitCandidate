@@ -115,6 +115,15 @@ def presentation(job: Job) -> tuple[str, str | None]:
         if type(run_id) is int and run_id > 0:
             return f"Matching run #{run_id}", "/#/matches"
         return "Matching run", "/#/matches"
+    if job.kind == "cv_compare":
+        candidate_id = params.get("candidate_id")
+        left, right = params.get("left_cv_version_id"), params.get("right_cv_version_id")
+        if all(type(value) is int and value > 0 for value in (candidate_id, left, right)):
+            return (
+                f"CV comparison scoring CV-{left} vs CV-{right}",
+                f"/#/candidates/{candidate_id}?compare={left},{right}",
+            )
+        return "CV comparison scoring", None
     if job.kind == "chat":
         return "Chat question", f"/#/chat?job={job.job_id}"
     if job.kind == "embed":

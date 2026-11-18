@@ -1,12 +1,20 @@
-"""REQ-IN-21/24: Analyst/Admin CV jobs and metadata-only version history."""
+"""REQ-IN-21/24: Analyst/Admin CV jobs, metadata-only version history and comparison."""
 
 import asyncio
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 
+from pfc.api.routers.match import available
 from pfc.api.schemas.cv import CVSyncJob, CVSyncRequest, CVVersionItem
+from pfc.api.schemas.cv_compare import (
+    CvCompareJob,
+    CvCompareRequest,
+    CvCompareScoring,
+    CvComparison,
+)
 from pfc.security.dependencies import Principal, require_role
+from pfc.services.candidates import cv_compare
 from pfc.services.ingestion import cv_sync
 from pfc.services.ingestion.cv_facts import LLMBridge
 
@@ -53,3 +61,40 @@ async def sync_one(resource_id: int, request: Request, principal: Analyst) -> CV
 @router.get("/candidates/{candidate_id}/cv-versions")
 def versions(candidate_id: int, request: Request) -> list[CVVersionItem]:
     return cv_sync.versions(request.app.state.settings, candidate_id)
+
+
+Version = Annotated[int, Query(ge=1)]
+
+
+@router.get("/candidates/{candidate_id}/cv-versions/compare")
+def compare(candidate_id: int, left: Version, right: Version, request: Request) -> CvComparison:
+    """FR-ING-52: read-only, masked facts, text diff and stored scores for two versions."""
+    return CvComparison.model_validate(
+        cv_compare.compare(request.app.state.settings, candidate_id, left, right)
+    )
+
+
+@router.post("/candidates/{candidate_id}/cv-comparisons", status_code=202)
+def score_comparison(
+    candidate_id: int, body: CvCompareRequest, request: Request, principal: Analyst
+) -> CvCompareJob:
+    """Queue what-if scoring of both versions for current demands; results never change."""
+    comparison_id, job_id = cv_compare.start_scoring(
+        request.app.state.settings,
+        request.app.state.job_runner,
+        available(request),
+        candidate_id,
+        body.left_cv_version_id,
+        body.right_cv_version_id,
+        user_id=principal.user.user_id,
+        clock=request.app.state.clock,
+    )
+    return CvCompareJob(comparison_id=comparison_id, job_id=job_id)
+
+
+@router.get("/candidates/{candidate_id}/cv-comparisons/latest")
+def latest_comparison(
+    candidate_id: int, left: Version, right: Version, request: Request
+) -> CvCompareScoring | None:
+    found = cv_compare.latest_scoring(request.app.state.settings, candidate_id, left, right)
+    return CvCompareScoring.model_validate(found) if found else None
