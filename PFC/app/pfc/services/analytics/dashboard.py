@@ -101,7 +101,7 @@ def summary(p: Population) -> dict[str, Any]:
     )
     if run_view is not None:
         run_view["llm_model"] = run_view["llm_model"] or ""
-        if p.has_archived_results:
+        if p.has_retired_results:
             run_view.update(
                 demands_assessed=len(assessed),
                 pairs_scored=p.pairs_scored,
@@ -109,7 +109,7 @@ def summary(p: Population) -> dict[str, Any]:
             )
     if p.has_match_filters:
         role_to_person_combinations = sum(p.result_counts.values())
-    elif p.filters.run_id is not None and not p.has_archived_results:
+    elif p.filters.run_id is not None and not p.has_retired_results:
         role_to_person_combinations = (run or {}).get("pairs_scored") or 0
     else:
         role_to_person_combinations = p.pairs_scored
@@ -118,7 +118,7 @@ def summary(p: Population) -> dict[str, Any]:
         "runs_included": len(p.runs),
         "requisitions_assessed": (
             (run or {}).get("demands_assessed") or 0
-            if p.filters.run_id is not None and not p.has_archived_results
+            if p.filters.run_id is not None and not p.has_retired_results
             else len(assessed)
         ),
         "open_requisitions": len(p.demands),

@@ -92,10 +92,11 @@ class Population:
                     (filters.run_id,),
                 )
             )
-            archived = {
-                r[0] for r in db.execute("SELECT demand_id FROM demands WHERE lifecycle='archived'")
+            existing = {
+                r[0]
+                for r in db.execute("SELECT demand_id FROM demands WHERE lifecycle!='archived'")
             }
-            self.assessed_run_ids = {demand_id: filters.run_id for demand_id in assessed - archived}
+            self.assessed_run_ids = {demand_id: filters.run_id for demand_id in assessed & existing}
 
     @cached_property
     def overrides(self) -> dict[int, list[dict[str, Any]]]:
@@ -323,9 +324,28 @@ class Population:
         return self.load_resources()
 
     @cached_property
-    def has_archived_results(self) -> bool:
+    def has_retired_results(self) -> bool:
         if self.run is None:
             return False
+        for field in ("dq_summary_json", "input_fingerprints_json"):
+            try:
+                summary = json.loads(self.run.get(field) or "{}")
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(summary, dict):
+                continue
+            for entity in ("demand", "resource"):
+                inputs = summary.get(f"{entity}s")
+                if not isinstance(inputs, dict):
+                    continue
+                available = {
+                    str(row[0])
+                    for row in self.db.execute(
+                        f"SELECT {entity}_id FROM {entity}s WHERE lifecycle!='archived'"
+                    )
+                }
+                if any(str(key).isdigit() and str(key) not in available for key in inputs):
+                    return True
         return (
             self.db.execute(
                 "SELECT 1 FROM match_results m JOIN demands d USING(demand_id) "
