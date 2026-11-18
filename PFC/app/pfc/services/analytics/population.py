@@ -48,6 +48,8 @@ def counts(values: list[str], limit: int | None = None) -> list[dict[str, Any]]:
 class Population:
     def __init__(self, db: sqlite3.Connection, filters: DashboardFilters, today: date):
         self.db, self.filters, self.today = db, filters, today
+        self._incomplete_values = filter_values(filters.incomplete_identity)
+        self._mandatory_values = filter_values(filters.mandatory_skills)
         self.config = occ_domain_config(db)
         self.grades = self.config.grades.codes
         if filters.run_id is None:
@@ -280,7 +282,6 @@ class Population:
                 if row["effective_excluded"] and not include_excluded:
                     continue
             if self.has_match_filters and not validation:
-                row = {**dict.fromkeys(fields), **row}
                 if not self.match_filter(row):
                     continue
             yield row
@@ -367,21 +368,34 @@ class Population:
             )
         )
 
+    @cached_property
+    def match_terms(self) -> dict[str, frozenset[str]]:
+        f = self.filters
+        expected = {
+            "requisition": f.code_requisition,
+            "account": f.account_name,
+            "bu": f.bu,
+            "role_location": f.region,
+            "demand_grade": f.grade,
+            "person_location": f.location,
+            "status": f.status,
+            "effective_band": f.band,
+            "candidate_type": f.candidate_type,
+        }
+        return {
+            field: frozenset(value.casefold() for value in values)
+            for field, expected_values in expected.items()
+            if (values := filter_values(expected_values))
+        }
+
     def match_filter(self, row: dict[str, Any]) -> bool:
         f = self.filters
-        grade_values = filter_values(f.grade)
-        incomplete = filter_values(f.incomplete_identity)
-        mandatory = filter_values(f.mandatory_skills)
+        incomplete, mandatory = self._incomplete_values, self._mandatory_values
         return (
-            equal(row["requisition"], f.code_requisition)
-            and equal(row["account"], f.account_name)
-            and equal(row["bu"], f.bu)
-            and equal(row["role_location"], f.region)
-            and (not grade_values or equal(row["demand_grade"], grade_values))
-            and equal(row["person_location"], f.location)
-            and equal(row["status"], f.status)
-            and equal(row["effective_band"], f.band)
-            and equal(row["candidate_type"], f.candidate_type)
+            all(
+                str(row[field] or "").casefold() in values
+                for field, values in self.match_terms.items()
+            )
             and (not incomplete or ("yes" if row["incomplete_identity"] else "no") in incomplete)
             and (not mandatory or ("met" if row["mandatory_missing"] == 0 else "gap") in mandatory)
             and (f.score_min is None or row["score"] >= f.score_min)

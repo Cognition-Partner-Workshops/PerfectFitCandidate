@@ -9,9 +9,47 @@ from test_matching_api import Api
 from test_matching_api import api as api
 from test_matching_service import NOW, seed_candidate, seed_demand
 
+from pfc.api.schemas.analytics import DashboardFilters
 from pfc.db.connection import database
+from pfc.services.analytics.population import Population
 
 URL = "/api/v1/analytics/extended"
+
+
+@pytest.mark.parametrize(
+    ("filters", "expected"),
+    [
+        ({}, True),
+        ({"grade": ["b1", "C1"], "codeRequisition": ["r1"], "location": ["LEEDS"]}, True),
+        ({"grade": ["C1"]}, False),
+        ({"grade": [" b1 "]}, False),
+        ({"scoreMin": 76}, False),
+        ({"scoreMax": 74}, False),
+        ({"incompleteIdentity": ["yes"]}, False),
+        ({"mandatorySkills": ["gap"]}, False),
+        ({"incompleteIdentity": ["no"], "mandatorySkills": ["met"], "scoreMin": 75}, True),
+        ({"accountName": [""], "bu": []}, True),
+    ],
+)
+def test_compiled_match_filter(api: Api, filters: dict[str, Any], expected: bool) -> None:
+    row = {
+        "requisition": "R1",
+        "account": "Acme",
+        "bu": "Platform",
+        "role_location": "London",
+        "demand_grade": "B1",
+        "person_location": "Leeds",
+        "status": "Bench",
+        "effective_band": "Strong",
+        "candidate_type": "Internal",
+        "incomplete_identity": False,
+        "mandatory_missing": 0,
+        "score": 75,
+    }
+    with database(api[0].app.state.settings) as db:
+        population = Population(db, DashboardFilters.model_validate(filters), NOW.date())
+        assert population.match_filter(row) is expected
+        assert population.match_filter(row) is expected
 
 
 @pytest.mark.parametrize("filters", [{}, {"scoreMin": 61, "band": "Strong"}, {"grade": "B1"}])

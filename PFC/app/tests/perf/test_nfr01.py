@@ -350,6 +350,8 @@ def test_nfr01_matching_and_analytics(tmp_path: Path) -> None:
         panel_values: dict[str, Any] = {}
         for panel in ("summary", "demand", "bench", "match", "extended", "dashboard"):
             url = f"/api/v1/analytics/{panel}?runId={run_id}"
+            if panel == "dashboard":
+                url += "&scoreMin=0"
             response = client.get(url)
             assert response.status_code == 200, response.text
             samples = []

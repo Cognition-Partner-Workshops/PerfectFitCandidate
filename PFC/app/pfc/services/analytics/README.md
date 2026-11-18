@@ -5,9 +5,9 @@
 Analyst-authorized, with the same DashboardFilters and optional runId as the
 individual endpoints. Returns summary, demand, bench, match and extended using
 their unchanged service functions and one request-local Population. Cached
-Population properties share match rows and projections within this request;
-there is no cross-request cache or TTL that could serve stale override/filter
-values. The individual panel endpoints remain available. The Dashboard uses
+Population properties share match rows, compiled filter terms and projections
+within this request; there is no cross-request cache or TTL that could serve
+stale override/filter values. The individual panel endpoints remain available. The Dashboard uses
 this snapshot to avoid competing scans and Python row materialization across
 five parallel requests. Previous values remain visible with an updating notice
 until the next filtered snapshot arrives.

@@ -30,6 +30,7 @@ export function EChart({ option, height = 260, ariaLabel, onSelect }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const chartRef = useRef<echarts.ECharts | null>(null)
   const selectRef = useRef(onSelect)
+  const revision = useRef(0)
 
   useEffect(() => {
     selectRef.current = onSelect
@@ -63,6 +64,7 @@ export function EChart({ option, height = 260, ariaLabel, onSelect }: Props) {
       },
       true,
     )
+    if (ref.current) ref.current.dataset.chartRevision = String(++revision.current)
   }, [option])
 
   return <div ref={ref} className="chart" style={{ height }} role="img" aria-label={ariaLabel} />
