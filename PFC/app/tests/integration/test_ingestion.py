@@ -5,6 +5,7 @@ import os
 import threading
 import time
 from collections.abc import Iterable, Iterator
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 
@@ -19,8 +20,11 @@ from pfc.adapters.vector.stores import create_vector_store
 from pfc.config import Settings
 from pfc.db.audit import verify_chain
 from pfc.db.connection import database
-from pfc.jobs.runner import JobCancelled, JobContext
+from pfc.db.migrate import migrate
+from pfc.db.users import create_user
+from pfc.jobs.runner import JobCancelled, JobContext, JobRunner
 from pfc.main import create_app
+from pfc.security.sessions import stamp
 from pfc.security.setup import code_path
 from pfc.services.embeddings.chunking import OwnerType
 from pfc.services.embeddings.incremental import submit_incremental_embed
@@ -29,6 +33,293 @@ from pfc.services.embeddings.runtime import EmbeddingModelUnavailable
 from pfc.services.ingestion import cv_sync, service
 from pfc.services.ingestion.repository import parse
 from pfc.services.ingestion.workbooks import CT, DL
+from pfc.services.occ.seed import seed_reference_data
+
+WATCH_NOW = datetime(2026, 1, 1, tzinfo=UTC)
+
+
+def enable_watch(client: TestClient, root: Path, kind: str = "dl", **options) -> None:
+    client.app.state.clock = lambda: WATCH_NOW
+    client.app.state.watch_poller.clock = lambda: WATCH_NOW
+    response = client.put(
+        "/api/v1/settings/me",
+        json={
+            "watch": {
+                kind: {
+                    "enabled": True,
+                    "path": str(root),
+                    "pattern": "*.xlsx",
+                    "poll_minutes": 1,
+                    **options,
+                }
+            }
+        },
+    )
+    assert response.status_code == 200, response.text
+
+
+def watch_tick(client: TestClient, second: int) -> None:
+    client.app.state.watch_poller.tick(WATCH_NOW + timedelta(seconds=second))
+
+
+def wait_watch(client: TestClient, expected: str = "completed") -> dict:
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        with database(client.app.state.settings) as db:
+            row = db.execute(
+                "SELECT * FROM jobs WHERE kind='watch_pickup' ORDER BY job_id DESC LIMIT 1"
+            ).fetchone()
+        if row and row["status"] in {"completed", "failed", "cancelled"}:
+            assert row["status"] == expected, dict(row)
+            return json.loads(row["message"]) if expected == "completed" else dict(row)
+        time.sleep(0.01)
+    pytest.fail("Watch job did not finish")
+
+
+@pytest.mark.parametrize("kind", ["dl", "ct"])
+def test_watch_matches_manual_fresh_database(client: TestClient, tmp_path: Path, kind: str) -> None:
+    root = tmp_path / "watch"
+    root.mkdir()
+    payload = data(kind, [{}])
+    (root / "workbook.xlsx").write_bytes(payload)
+    enable_watch(client, root, kind)
+    watch_tick(client, 0)
+    status = client.get("/api/v1/settings/me/watch-status").json()
+    assert status[kind]["pending"] == [{"file_name": "workbook.xlsx", "reason": "settling"}]
+    watch_tick(client, 1)
+    outcome = wait_watch(client)
+    assert outcome == {"run_id": 1, "outcome": "committed"}
+    manual = Settings(data_dir=tmp_path / "manual", bundled_models_dir=tmp_path / "none")
+    migrate(manual)
+    with database(manual) as db:
+        seed_reference_data(db)
+        create_user(
+            db,
+            email="owner@example.com",
+            display_name="Owner",
+            role_id=1,
+            password_hash="unused",
+            now=stamp(WATCH_NOW),
+        )
+    runner = JobRunner(manual)
+    try:
+        preview = service.upload(
+            manual, kind.upper(), "workbook.xlsx", payload, 1, stamp(WATCH_NOW)
+        )
+        committed = service.commit_with_downstream(
+            manual, runner, preview.ingestion_run_id, 1, stamp(WATCH_NOW)
+        )
+        with database(client.app.state.settings) as watched_db, database(manual) as manual_db:
+            for table in (
+                "demands",
+                "demand_versions",
+                "resources",
+                "candidates",
+                "candidate_emails",
+                "occ_approvals",
+            ):
+                assert [tuple(r) for r in watched_db.execute(f"SELECT * FROM {table}")] == [
+                    tuple(r) for r in manual_db.execute(f"SELECT * FROM {table}")
+                ], table
+            actual = service.repo.run_response(watched_db, client.app.state.settings, 1)
+            assert actual.counts == committed.counts
+            assert actual.diff == committed.diff
+            audits = watched_db.execute(
+                "SELECT details_json FROM audit_log "
+                "WHERE action IN ('UPLOAD_PREVIEW','INGEST_COMMIT')"
+            ).fetchall()
+            assert len(audits) == 2
+            assert all(json.loads(r[0])["source"] == "watch_folder" for r in audits)
+            assert verify_chain(watched_db)
+    finally:
+        runner.shutdown()
+    # Filename changes and later polls still refer to the same file hash.
+    (root / "copy.xlsx").write_bytes(payload)
+    for second in (61, 62, 122):
+        watch_tick(client, second)
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT count(*) FROM ingestion_runs").fetchone()[0] == 1
+        assert db.execute("SELECT count(*) FROM jobs WHERE kind='watch_pickup'").fetchone()[0] == 1
+    status = client.get("/api/v1/settings/me/watch-status").json()[kind]
+    assert status["reachable"] is True and status["last_error"] is None
+    assert status["last_pickup"]["run_id"] == 1 and status["awaiting_review"] == []
+    listing = client.get("/api/v1/jobs").json()
+    job = next(j for j in listing if j["kind"] == "watch_pickup")
+    assert job["label"].endswith("workbook.xlsx — committed")
+    assert job["link"] == "/#/settings/data"
+
+
+@pytest.mark.parametrize("kind", ["dl", "ct"])
+def test_watch_manual_identical_noop_once(client: TestClient, tmp_path: Path, kind: str) -> None:
+    payload = data(kind, [{}])
+    first = client.post(f"/api/v1/uploads/{kind}", files={"file": ("first.xlsx", payload)}).json()
+    commit(client, first)
+    root = tmp_path / "watch"
+    root.mkdir()
+    (root / "copy.xlsx").write_bytes(payload)
+    enable_watch(client, root, kind)
+    watch_tick(client, 0)
+    watch_tick(client, 1)
+    assert wait_watch(client) == {"run_id": 2, "outcome": "no_op"}
+    watch_tick(client, 61)
+    watch_tick(client, 121)
+    with database(client.app.state.settings) as db:
+        assert [
+            r[0] for r in db.execute("SELECT status FROM ingestion_runs ORDER BY ingestion_run_id")
+        ] == ["committed", "no_op"]
+
+
+@pytest.mark.parametrize("require_preview,error", [(True, False), (False, True)])
+def test_watch_requires_review(
+    client: TestClient, tmp_path: Path, require_preview: bool, error: bool
+) -> None:
+    root = tmp_path / "watch"
+    root.mkdir()
+    (root / "DL.xlsx").write_bytes(data("dl", [{"Code Requisition": ""}] if error else [{}]))
+    enable_watch(client, root, require_preview=require_preview)
+    watch_tick(client, 0)
+    watch_tick(client, 1)
+    assert wait_watch(client)["outcome"] == "awaiting_review"
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT count(*) FROM demands").fetchone()[0] == 0
+        assert db.execute("SELECT status FROM ingestion_runs").fetchone()[0] == "preview"
+    status = client.get("/api/v1/settings/me/watch-status").json()["dl"]
+    assert status["awaiting_review"][0]["run_id"] == 1
+
+
+@pytest.mark.parametrize("inactive", [False, True])
+def test_watch_disabled_and_inactive(client: TestClient, tmp_path: Path, inactive: bool) -> None:
+    root = tmp_path / "watch"
+    root.mkdir()
+    (root / "DL.xlsx").write_bytes(data("dl", [{}]))
+    enable_watch(client, root)
+    if inactive:
+        with database(client.app.state.settings) as db:
+            db.execute("UPDATE users SET is_active=0 WHERE user_id=1")
+    else:
+        response = client.put("/api/v1/settings/me", json={"watch": {"dl": {"enabled": False}}})
+        assert response.status_code == 200
+    watch_tick(client, 0)
+    watch_tick(client, 1)
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT count(*) FROM jobs WHERE kind='watch_pickup'").fetchone()[0] == 0
+
+
+def test_watch_failed_and_unreachable_retry(client: TestClient, tmp_path: Path) -> None:
+    root = tmp_path / "watch"
+    root.mkdir()
+    file = root / "broken.xlsx"
+    file.write_bytes(b"not a workbook")
+    enable_watch(client, root)
+    watch_tick(client, 0)
+    watch_tick(client, 1)
+    wait_watch(client, "failed")
+    watch_tick(client, 61)
+    with database(client.app.state.settings) as db:
+        assert (
+            db.execute("SELECT count(*) FROM ingestion_runs WHERE status='failed'").fetchone()[0]
+            == 1
+        )
+        assert (
+            db.execute("SELECT count(*) FROM audit_log WHERE action='INGEST_FAILED'").fetchone()[0]
+            == 1
+        )
+    file.unlink()
+    root.rmdir()
+    watch_tick(client, 121)
+    state = client.get("/api/v1/settings/me/watch-status").json()["dl"]
+    assert state["reachable"] is False
+    assert state["last_error"] == "Watch folder is not accessible"
+    root.mkdir()
+    watch_tick(client, 181)
+    assert client.get("/api/v1/settings/me/watch-status").json()["dl"]["reachable"] is True
+
+
+@pytest.mark.parametrize(
+    "pattern", ["../DL.xlsx", "sub/DL.xlsx", "sub\\DL.xlsx", "DL.xls", "DL.xlsx.exe"]
+)
+def test_watch_pattern_validation(client: TestClient, tmp_path: Path, pattern: str) -> None:
+    response = client.put(
+        "/api/v1/settings/me",
+        json={"watch": {"dl": {"enabled": True, "path": str(tmp_path), "pattern": pattern}}},
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "WATCH_PATTERN_INVALID"
+    assert (
+        client.put(
+            "/api/v1/settings/me",
+            json={"watch": {"dl": {"enabled": False, "path": "not present", "pattern": pattern}}},
+        ).status_code
+        == 200
+    )
+
+
+def test_watch_settings_paths_roundtrip(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    file = tmp_path / "file"
+    file.touch()
+    for path in (None, "", "relative", str(tmp_path / "missing"), str(file)):
+        response = client.put(
+            "/api/v1/settings/me", json={"watch": {"dl": {"enabled": True, "path": path}}}
+        )
+        assert response.status_code == 422
+        assert response.json()["code"] == "WATCH_PATH_INVALID"
+    enable_watch(client, tmp_path, require_preview=True)
+    assert client.get("/api/v1/settings/me").json()["watch"]["dl"] == {
+        "enabled": True,
+        "path": str(tmp_path),
+        "pattern": "*.xlsx",
+        "poll_minutes": 1,
+        "require_preview": True,
+    }
+
+    def unlistable(path):
+        raise PermissionError("private folder")
+
+    monkeypatch.setattr("pfc.services.occ.settings.os.scandir", unlistable)
+    response = client.put(
+        "/api/v1/settings/me", json={"watch": {"ct": {"enabled": True, "path": str(tmp_path)}}}
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "WATCH_PATH_INVALID"
+
+
+def test_watch_preview_discard_changed_file_and_user_scope(
+    client: TestClient, tmp_path: Path
+) -> None:
+    root = tmp_path / "watch"
+    root.mkdir()
+    file = root / "DL.xlsx"
+    file.write_bytes(data("dl", [{}]))
+    enable_watch(client, root, require_preview=True)
+    watch_tick(client, 0)
+    watch_tick(client, 1)
+    assert wait_watch(client)["outcome"] == "awaiting_review"
+    assert client.post("/api/v1/ingestion-runs/1/discard").status_code == 200
+    watch_tick(client, 61)
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT count(*) FROM ingestion_runs").fetchone()[0] == 1
+        second = create_user(
+            db,
+            email="other@example.com",
+            display_name="Other",
+            role_id=2,
+            password_hash="unused",
+            now=stamp(WATCH_NOW),
+        )
+    other = client.app.state.watch_poller.status(second.user_id)
+    assert other["dl"]["last_pickup"] is None and other["dl"]["awaiting_review"] == []
+    file.write_bytes(data("dl", [{"JD": "Changed SQL"}]))
+    watch_tick(client, 62)
+    with database(client.app.state.settings) as db:
+        assert db.execute("SELECT count(*) FROM ingestion_runs").fetchone()[0] == 1
+    watch_tick(client, 121)
+    watch_tick(client, 122)
+    assert wait_watch(client) == {"run_id": 2, "outcome": "awaiting_review"}
+    state = client.get("/api/v1/settings/me/watch-status").json()["dl"]
+    assert state["last_pickup"]["run_id"] == 2
+    assert [run["run_id"] for run in state["awaiting_review"]] == [2]
 
 
 def configure_resume_root(client: TestClient, root: Path, scope: str = "system") -> None:
@@ -76,6 +367,8 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
         argon_memory_cost=1024,
         argon_time_cost=1,
         argon_parallelism=1,
+        watch_tick_seconds=3600,
+        watch_settle_seconds=1,
     )
     with TestClient(create_app(settings)) as client:
         response = client.post(
@@ -161,7 +454,7 @@ def test_dl_embedding_trigger_only_changed_versions_and_titles(
         calls.append(set(owners))
         return 999
 
-    monkeypatch.setattr("pfc.api.routers.ingestion.submit_incremental_embed", submit)
+    monkeypatch.setattr("pfc.services.ingestion.service.submit_incremental_embed", submit)
     commit(client, upload(client, "dl", [{}, {"Code Requisition": "T21234"}]))
     with database(client.app.state.settings) as db:
         old = dict(db.execute("SELECT code_requisition,current_version_id FROM demands"))
@@ -286,7 +579,7 @@ def test_dl_replacement_cleans_and_restores_requirement_items(
         jobs.append(job_id)
         return job_id
 
-    monkeypatch.setattr("pfc.api.routers.ingestion.submit_incremental_embed", submit)
+    monkeypatch.setattr("pfc.services.ingestion.service.submit_incremental_embed", submit)
     monkeypatch.setattr(
         "pfc.services.embeddings.incremental.create_embedder",
         lambda settings, *, embedding_model_id: embedder,
@@ -369,9 +662,9 @@ def test_dl_commit_survives_embedding_trigger_failure(
         if failure != "inactive":
             raise RuntimeError("Submission unavailable")
 
-    monkeypatch.setattr("pfc.api.routers.ingestion.submit_incremental_embed", submit)
+    monkeypatch.setattr("pfc.services.ingestion.service.submit_incremental_embed", submit)
     if failure == "snapshot":
-        monkeypatch.setattr("pfc.api.routers.ingestion._current_versions", submit)
+        monkeypatch.setattr("pfc.services.ingestion.service._current_versions", submit)
     result = commit(client, upload(client, "dl", [{}]))
     assert result["status"] == "committed"
     assert any(

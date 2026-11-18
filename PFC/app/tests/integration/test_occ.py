@@ -1211,8 +1211,20 @@ def test_personal_settings(client: TestClient) -> None:
     baseline = client.get("/api/v1/settings/me").json()
     assert baseline["resume_root_path"] is None and baseline["active_model_id"] is None
     assert baseline["watch"] == {
-        "dl": {"enabled": False, "path": None, "pattern": "DL_*.xlsx"},
-        "ct": {"enabled": False, "path": None, "pattern": "CT_*.xlsx"},
+        "dl": {
+            "enabled": False,
+            "path": None,
+            "pattern": "DL_*.xlsx",
+            "poll_minutes": 5,
+            "require_preview": False,
+        },
+        "ct": {
+            "enabled": False,
+            "path": None,
+            "pattern": "CT_*.xlsx",
+            "poll_minutes": 5,
+            "require_preview": False,
+        },
     }
     del client.headers["X-CSRF-Token"]
     assert client.put("/api/v1/settings/me", json={"page_size": 50}).status_code == 403
@@ -1231,8 +1243,8 @@ def test_personal_settings(client: TestClient) -> None:
     assert saved.json()["default_landing"] == "demands"
     assert client.put("/api/v1/settings/me", json={}).json() == saved.json()
     for body, code in [
-        ({"watch": {"dl": {"enabled": True}}}, "PHASE_2_FEATURE"),
-        ({"watch": {"ct": {"enabled": True}}}, "PHASE_2_FEATURE"),
+        ({"watch": {"dl": {"enabled": True}}}, "WATCH_PATH_INVALID"),
+        ({"watch": {"ct": {"enabled": True}}}, "WATCH_PATH_INVALID"),
         ({"active_model_id": 1}, "MODEL_NOT_APPROVED"),
         ({"page_size": 0}, "VALIDATION_ERROR"),
         ({"density": "tiny"}, "VALIDATION_ERROR"),

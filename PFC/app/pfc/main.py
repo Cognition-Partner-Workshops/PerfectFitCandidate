@@ -34,6 +34,7 @@ from pfc.db.users import count_admins
 from pfc.jobs.cleanup import session_cleanup
 from pfc.jobs.router import router as jobs_router
 from pfc.jobs.runner import JobRunner
+from pfc.jobs.watch import WatchPoller
 from pfc.security.credentials import encrypt_legacy_credentials
 from pfc.security.middleware import install_middleware
 from pfc.security.passwords import hasher
@@ -84,6 +85,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception:
             logger.error("Package inbox scan failed; startup continues")
         app.state.job_runner = JobRunner(settings)
+        app.state.watch_poller = WatchPoller(settings, app.state.job_runner, app.state.clock)
+        watch_task = asyncio.create_task(app.state.watch_poller.run())
         supervisor = LlamaServerSupervisor(
             settings, app_state=app.state if not hasattr(app.state, "llm_provider") else None
         )
@@ -100,6 +103,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            app.state.watch_poller.stop()
+            await watch_task
             await supervisor.stop()
             cleanup.cancel()
             with suppress(asyncio.CancelledError):

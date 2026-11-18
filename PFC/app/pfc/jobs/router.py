@@ -76,6 +76,27 @@ def presentation(job: Job) -> tuple[str, str | None]:
         params = {}
     if not isinstance(params, dict):
         params = {}
+    if job.kind == "watch_pickup":
+        target = "Demand List" if params.get("kind") == "DL" else "Candidate Tracker"
+        name = params.get("file_name")
+        name = (
+            "".join(c for c in name if c.isprintable())[:80]
+            if isinstance(name, str)
+            else "workbook"
+        )
+        suffix = ""
+        if job.status == "completed":
+            try:
+                outcome = json.loads(job.message or "null")
+            except (ValueError, TypeError):
+                outcome = None
+            if isinstance(outcome, dict):
+                suffix = {
+                    "committed": " — committed",
+                    "awaiting_review": " — awaiting review",
+                    "no_op": " — no changes",
+                }.get(str(outcome.get("outcome")), "")
+        return f"Auto-pickup {target}: {name}{suffix}", "/#/settings/data"
     if job.kind == "cv_sync":
         ids = params.get("resource_ids")
         count = len(ids) if isinstance(ids, list) else 0

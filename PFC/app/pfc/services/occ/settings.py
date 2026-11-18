@@ -1,5 +1,7 @@
 import json
+import os
 import sqlite3
+from pathlib import Path
 from typing import Any
 
 from pfc.adapters.sources.cv_converter import converter_available
@@ -75,8 +77,25 @@ def _put_personal(
             for kind in ("dl", "ct")
         }
     after = PersonalSettings.model_validate(merged)
-    if after.watch.dl.enabled or after.watch.ct.enabled:
-        raise Problem(422, "PHASE_2_FEATURE", "Watch folders are available in Phase 2")
+    for source in (after.watch.dl, after.watch.ct):
+        if not source.enabled:
+            continue
+        if any(
+            part in source.pattern for part in ("/", "\\", "..")
+        ) or not source.pattern.lower().endswith(".xlsx"):
+            raise Problem(
+                422, "WATCH_PATTERN_INVALID", "Watch pattern must be a workbook filename glob"
+            )
+        try:
+            path = Path(source.path or "")
+            if not source.path or not path.is_absolute() or not path.is_dir():
+                raise OSError
+            with os.scandir(path) as entries:
+                next(entries, None)
+        except OSError:
+            raise Problem(
+                422, "WATCH_PATH_INVALID", "Watch folder is not an accessible directory"
+            ) from None
     if "active_model_id" in changes:
         llm.select(db, user_id, after.active_model_id)
     data = after.model_dump()
