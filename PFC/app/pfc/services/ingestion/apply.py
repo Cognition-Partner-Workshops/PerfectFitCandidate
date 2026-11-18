@@ -68,6 +68,12 @@ def _upsert(
             )
         return int(old[pk])
     values.update(first_ingestion_id=run_id, created_at=now)
+    values[pk] = db.execute(
+        f"SELECT max(entity_id)+1 FROM (SELECT coalesce(max({pk}),0) AS entity_id FROM {table} "
+        "UNION ALL SELECT coalesce(max(entity_id),0) FROM lifecycle_events WHERE entity_type=? "
+        "UNION ALL SELECT coalesce(max(entity_id),0) FROM archive_batch_items WHERE entity_type=?)",
+        (table[:-1], table[:-1]),
+    ).fetchone()[0]
     names = ", ".join(values)
     placeholders = ", ".join("?" for _ in values)
     cursor = db.execute(
