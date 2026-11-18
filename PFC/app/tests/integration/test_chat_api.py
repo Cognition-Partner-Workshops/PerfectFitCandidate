@@ -282,6 +282,22 @@ def test_chat_fails_closed(api: Api, mode: str, lookup: dict[str, Any], outcome:
         assert not stub.requests
 
 
+@pytest.mark.parametrize("name", ["ışık yılmaz", "IŞIK YILMAZ", "İşık Yılmaz"])
+def test_chat_masks_turkish_name_variants(api: Api, name: str) -> None:
+    client, _ = api
+    with database(client.app.state.settings) as db:
+        resource_id = seed_resource(db, "Işık Yılmaz")
+    stub = ChatStub()
+    stub.lookup = {"intent": "unsupported"}
+    client.app.state.llm_provider = stub
+
+    result = _answer(api, f"What is {name}'s email?")
+    masked = f"What is Resource #{resource_id}'s email?"
+    assert stub.requests[0].messages[-1]["content"] == masked
+    assert result["question"] == masked
+    assert client.get("/api/v1/chat").json()[0]["question"] == masked
+
+
 def test_chat_is_private_and_can_be_stopped(api: Api) -> None:
     client, csrf = api
     stub = ChatStub(mode="slow")
