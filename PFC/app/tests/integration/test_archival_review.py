@@ -1,16 +1,33 @@
 """Regression coverage for archival interactions with retained history and active views."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from test_ingestion_approvals import client as client
-from test_ingestion_approvals import ingest, row
+from test_ingestion_approvals import decision, ingest, queue, row
 
 from pfc.db.connection import database
 from pfc.services import archival
 from pfc.services.lifecycle import record_transition
 
 NOW = datetime(2026, 11, 18, tzinfo=UTC)
+
+
+def test_occ_revert_new_resource_sets_purgeable_archive_metadata(client):
+    ingest(client, "ct", [{}])
+    assert decision(client, queue(client)[0], "revert")["state"] == "Reverted"
+    reverted = row(client, "resource")
+    assert reverted["lifecycle"] == "archived"
+    assert reverted["end_source"] == "occ" and reverted["end_outcome"] == "reverted"
+    assert reverted["ended_at"] == reverted["archived_at"]
+    archived_at = datetime.fromisoformat(reverted["archived_at"])
+    with database(client.app.state.settings) as db:
+        preview = archival.preview(
+            db, kind="purge", user_id=1, now=archived_at + timedelta(days=400)
+        )
+    assert [(item["entity_type"], item["entity_id"]) for item in preview["items"]] == [
+        ("resource", reverted["resource_id"])
+    ]
 
 
 @pytest.mark.parametrize("kind,entity", [("dl", "demand"), ("ct", "resource")])

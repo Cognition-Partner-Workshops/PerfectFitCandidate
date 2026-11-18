@@ -369,6 +369,8 @@ def decide(
                 else {"end_source": "occ", "end_outcome": "reverted", "ended_at": now}
             )
         )
+        if lifecycle_changed == "archived":
+            metadata["archived_at"] = metadata.get("archived_at") or now
         record_transition(
             db,
             entity,
