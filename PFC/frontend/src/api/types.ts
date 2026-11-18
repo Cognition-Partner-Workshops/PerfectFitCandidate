@@ -441,6 +441,7 @@ export interface IdentityResolution {
 }
 
 export interface EmailDraft {
+  followUp?: { status: 'pending' | 'created' | 'failed' | 'handoff'; dueAt: string; transport: string; lastError: string | null } | null
   emailId: number
   resultId: number
   demandId: number
@@ -731,6 +732,9 @@ export interface AuditQuery {
 
 /** Admin settings (§16.14). Defaults per TDD §9.2 / GQ-03 / O-07. */
 export interface AdminSettings {
+  followUpEnabled: boolean
+  followUpTime: string
+  followUpHolidays: string[]
   analystMinPasswordLength: number
   adminMinPasswordLength: number
   lockoutAttempts: number

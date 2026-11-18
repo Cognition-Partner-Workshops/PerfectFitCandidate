@@ -117,6 +117,9 @@ export const GRADE_SEED: Grade[] = ['A3', 'A4', 'B1', 'B2', 'C1', 'C2', 'D1', 'D
 
 /** Admin settings defaults: TDD.md §9.2 password floors and lockout, GQ-03 idle timeout, REQ-OUT-03 masking, O-07 top 4 of 5. */
 export const ADMIN_SETTINGS: AdminSettings = {
+  followUpEnabled: true,
+  followUpTime: '09:00',
+  followUpHolidays: [],
   analystMinPasswordLength: 10,
   adminMinPasswordLength: 14,
   lockoutAttempts: 5,

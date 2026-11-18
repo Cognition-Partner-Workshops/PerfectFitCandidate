@@ -30,16 +30,200 @@ from pfc.config import Settings
 from pfc.db import audit, users
 from pfc.db.connection import database
 from pfc.db.migrate import migrate
+from pfc.jobs.runner import JobRunner
 from pfc.security.middleware import install_middleware
 from pfc.security.passwords import hasher
 from pfc.security.problems import Problem, install_handlers
 from pfc.security.setup import code_path, generate_setup_code
 from pfc.services.email import EmailService
 from pfc.services.email.service import TEMPLATE_PATH
+from pfc.services.occ.admin import settings_put
 from pfc.services.occ.templates import PLACEHOLDER_SAMPLES, PLACEHOLDERS
 
 NOW = "2026-01-01T00:00:00Z"
 ANALYST_PASSWORD = "AnalystStrong123"
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_follow_up_schedule_job_retry_resend(client: TestClient, enabled: bool) -> None:
+    run_id, _ = seed_matches(client)
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf}
+    settings = client.app.state.settings
+    with database(settings) as db:
+        db.execute(
+            "INSERT INTO settings(scope,key,value_json,updated_at) "
+            "VALUES ('system','email.follow_up.enabled',?,?)",
+            (json.dumps(enabled), NOW),
+        )
+        assert db.execute("SELECT 1 FROM schema_migrations WHERE version='0016'").fetchone()
+    draft = create_drafts(client, csrf, run_id).json()["drafts"][0]
+    message_id = draft["message_id"]
+    assert client.post(f"/api/v1/emails/{message_id}/approve", headers=headers).status_code == 200
+    assert client.post(f"/api/v1/emails/{message_id}/send", headers=headers).status_code == 200
+    result = client.get(f"/api/v1/emails/{message_id}").json()
+    if not enabled:
+        assert result["follow_up"] is None
+        with database(settings) as db:
+            assert not db.execute(
+                "SELECT 1 FROM audit_log WHERE action='EMAIL_FOLLOW_UP_SCHEDULED'"
+            ).fetchone()
+        return
+    assert result["follow_up"]["status"] == "pending"
+    transport = client.app.state.email_transport
+    original = transport.create_follow_up
+
+    def fail(*args: object) -> str:
+        with database(settings) as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute("UPDATE follow_ups SET last_error=NULL WHERE message_id=?", (message_id,))
+        raise RuntimeError("secret@example.test")
+
+    transport.create_follow_up = fail
+    runner = JobRunner(settings)
+    client.app.state.job_runner = runner
+    try:
+        assert (
+            client.post(f"/api/v1/emails/{message_id}/follow-up/retry", headers=headers).status_code
+            == 200
+        )
+        for future, _ in list(runner._tasks.values()):
+            future.result(timeout=10)
+    finally:
+        runner.shutdown()
+    failed = client.get(f"/api/v1/emails/{message_id}").json()["follow_up"]
+    assert failed["status"] == "failed"
+    assert "secret" not in failed["last_error"]
+    transport.create_follow_up = original
+    runner = JobRunner(settings)
+    client.app.state.job_runner = runner
+    try:
+        assert (
+            client.post(f"/api/v1/emails/{message_id}/follow-up/retry", headers=headers).status_code
+            == 200
+        )
+        for future, _ in list(runner._tasks.values()):
+            future.result(timeout=10)
+    finally:
+        runner.shutdown()
+    assert client.get(f"/api/v1/emails/{message_id}").json()["follow_up"]["status"] == "created"
+    assert (
+        client.post(f"/api/v1/emails/{message_id}/follow-up/retry", headers=headers).status_code
+        == 409
+    )
+    del client.app.state.job_runner
+    resend = client.post(f"/api/v1/emails/{message_id}/resend", headers=headers)
+    assert resend.status_code == 200, resend.text
+    second_id = resend.json()["message_id"]
+    client.post(f"/api/v1/emails/{second_id}/approve", headers=headers)
+    assert client.post(f"/api/v1/emails/{second_id}/send", headers=headers).status_code == 200
+    with database(settings) as db:
+        assert db.execute("SELECT count(*) FROM follow_ups").fetchone()[0] == 2
+        assert (
+            db.execute(
+                "SELECT count(*) FROM audit_log WHERE action='EMAIL_FOLLOW_UP_SCHEDULED'"
+            ).fetchone()[0]
+            == 2
+        )
+        row = db.execute(
+            "SELECT outlook_ref,job_id FROM follow_ups WHERE message_id=?", (message_id,)
+        ).fetchone()
+        assert row["outlook_ref"] and row["job_id"]
+
+
+def test_follow_up_handoff_calendar(client: TestClient) -> None:
+    run_id, _ = seed_matches(client)
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf}
+    client.app.state.email_transport = EmlHandoffTransport()
+    draft = create_drafts(client, csrf, run_id).json()["drafts"][0]
+    message_id = draft["message_id"]
+    assert client.get(f"/api/v1/emails/{message_id}/follow-up.ics").status_code == 404
+    client.post(f"/api/v1/emails/{message_id}/approve", headers=headers)
+    assert client.post(f"/api/v1/emails/{message_id}/handoff", headers=headers).status_code == 200
+    result = client.post(
+        f"/api/v1/emails/{message_id}/handoff/confirm", headers=headers, json={"sent": True}
+    )
+    assert result.status_code == 200, result.text
+    assert result.json()["follow_up"]["status"] == "handoff"
+    calendar = client.get(f"/api/v1/emails/{message_id}/follow-up.ics")
+    assert calendar.status_code == 200
+    assert "BEGIN:VEVENT\r\n" in calendar.text
+    assert "PFC follow-up:" in calendar.text
+    assert "candidate-1@example.test" not in calendar.text
+    with database(client.app.state.settings) as db:
+        assert db.execute(
+            "SELECT 1 FROM audit_log WHERE action='EMAIL_FOLLOW_UP_ICS_DOWNLOADED'"
+        ).fetchone()
+
+
+def test_follow_up_settings_validation(client: TestClient) -> None:
+    settings = client.app.state.settings
+    with database(settings) as db:
+        admin_id = db.execute(
+            "SELECT user_id FROM users WHERE email='admin@example.test'"
+        ).fetchone()[0]
+        for values in (
+            {"email.follow_up.time": "25:00"},
+            {"email.follow_up.enabled": "true"},
+            {"email.follow_up.holidays": ["2026-02-30"]},
+        ):
+            with pytest.raises(Problem) as error:
+                settings_put(db, admin_id, values, settings)
+            assert error.value.status == 422
+        saved = settings_put(
+            db,
+            admin_id,
+            {
+                "email.follow_up.time": "10:30",
+                "email.follow_up.holidays": ["2026-01-02"],
+                "email.follow_up.enabled": True,
+            },
+            settings,
+        )
+        assert saved["email.follow_up.time"] == "10:30"
+
+
+def test_transport_without_follow_up_support_is_skipped(client: TestClient) -> None:
+    class BasicTransport:
+        def __init__(self) -> None:
+            self.fake = FakeTransport()
+
+        def create_draft(self, message: EmailMessage, *, display: bool = False) -> DeliveryResult:
+            return self.fake.create_draft(message, display=display)
+
+        def send(self, message: EmailMessage) -> DeliveryResult:
+            return self.fake.send(message)
+
+        def reconcile(self, key: str) -> DeliveryResult:
+            return self.fake.reconcile(key)
+
+    run_id, _ = seed_matches(client)
+    client.app.state.email_transport = BasicTransport()
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf}
+    draft = create_drafts(client, csrf, run_id).json()["drafts"][0]
+    message_id = draft["message_id"]
+    client.post(f"/api/v1/emails/{message_id}/approve", headers=headers)
+    assert client.post(f"/api/v1/emails/{message_id}/send", headers=headers).status_code == 200
+    assert client.get(f"/api/v1/emails/{message_id}").json()["follow_up"] is None
+
+
+def test_previous_com_confirmation_schedules_after_transport_switch(client: TestClient) -> None:
+    csrf, draft = create_approved_draft(client)
+    message_id = draft["message_id"]
+    client.app.state.email_transport = EmlHandoffTransport()
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "UPDATE email_messages SET status='Failed',transport='outlook_com' WHERE message_id=?",
+            (message_id,),
+        )
+    response = client.post(
+        f"/api/v1/emails/{message_id}/previous-send/confirm", headers={"X-CSRF-Token": csrf}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["follow_up"]["transport"] == "outlook_com"
+    assert response.json()["follow_up"]["status"] == "pending"
 
 
 @pytest.fixture

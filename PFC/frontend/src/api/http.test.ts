@@ -52,6 +52,30 @@ afterEach(() => {
   setUnauthorizedHandler(null)
 })
 
+it('downloads follow-up calendars and maps follow-up settings payloads', async () => {
+  const api = new HttpApiClient('/api/v1')
+  fetchMock.mockResolvedValueOnce(new Response('BEGIN:VCALENDAR', { headers: { 'Content-Disposition': 'attachment; filename="reminder.ics"' } }))
+  const file = await api.downloadEmailFollowUp(7)
+  expect(file.fileName).toBe('reminder.ics')
+  expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/emails/7/follow-up.ics')
+  expect(fetchMock.mock.calls[0][1]).toMatchObject({ credentials: 'same-origin' })
+  fetchMock.mockResolvedValueOnce(json({}))
+  const settings = await api.getAdminSettings()
+  expect(settings.followUpEnabled).toBe(true)
+  expect(settings.followUpTime).toBe('09:00')
+  fetchMock.mockResolvedValueOnce(json({ 'email.follow_up.enabled': false, 'email.follow_up.time': '10:30', 'email.follow_up.holidays': ['2026-12-25'] }))
+  await api.saveAdminSettings({ ...settings, followUpEnabled: false, followUpTime: '10:30', followUpHolidays: ['2026-12-25'] })
+  expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toMatchObject({ 'email.follow_up.enabled': false, 'email.follow_up.time': '10:30', 'email.follow_up.holidays': ['2026-12-25'], 'email.transport': 'eml_handoff' })
+})
+
+it('retries a follow-up and maps its status', async () => {
+  const api = new HttpApiClient('/api/v1')
+  fetchMock.mockResolvedValueOnce(json({ message_id: 7, cc: [], to_address: 'x@example.test', follow_up: { status: 'pending', due_at: '2026-11-23T09:00:00Z', transport: 'outlook_com', last_error: null } }))
+  expect((await api.retryEmailFollowUp(7)).followUp).toMatchObject({ status: 'pending', dueAt: '2026-11-23T09:00:00Z' })
+  expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/emails/7/follow-up/retry')
+  expect(fetchMock.mock.calls[0][1].method).toBe('POST')
+})
+
 it('maps email transport and handoff timestamps from the backend', async () => {
   const api = new HttpApiClient('/api/v1')
   const draft = {

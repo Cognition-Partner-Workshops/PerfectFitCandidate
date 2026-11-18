@@ -25,8 +25,10 @@ from pfc.adapters.llm.providers import LLMProvider, PromptRequest
 from pfc.config import Settings
 from pfc.db import audit
 from pfc.db.connection import database
+from pfc.jobs.runner import JobContext, JobRunner
 from pfc.security.problems import Problem
 from pfc.security.sessions import stamp
+from pfc.services.email.follow_up import DEFAULTS, build_ics, follow_up_key, next_business_day
 from pfc.services.pii import mask_emails_in
 
 logger = logging.getLogger(__name__)
@@ -51,7 +53,9 @@ SHORTLIST_POSITION_SQL = (
     "(earlier.rank=mr.rank AND earlier.result_id<mr.result_id))) END"
 )
 DRAFT_SELECT_SQL = (
-    "SELECT em.*, mr.run_id AS result_run_id, mr.rank AS result_rank, "
+    "SELECT em.*, fu.status AS follow_up_status, fu.due_at AS follow_up_due_at, "
+    "fu.transport AS follow_up_transport, fu.last_error AS follow_up_error, "
+    "mr.run_id AS result_run_id, mr.rank AS result_rank, "
     f"{SHORTLIST_POSITION_SQL} AS shortlist_position, "
     "d.code_requisition AS code_requisition, d.account_name AS account_name, "
     "d.demand_request_name AS demand_request_name, "
@@ -62,7 +66,8 @@ DRAFT_SELECT_SQL = (
     "mr.band) AS effective_band "
 )
 DRAFT_FROM_SQL = (
-    "FROM email_messages em LEFT JOIN match_results mr ON mr.result_id=em.result_id "
+    "FROM email_messages em LEFT JOIN follow_ups fu ON fu.message_id=em.message_id "
+    "LEFT JOIN match_results mr ON mr.result_id=em.result_id "
     "LEFT JOIN demands d ON d.demand_id=em.demand_id "
     "LEFT JOIN resources r ON r.resource_id=em.resource_id "
     "LEFT JOIN candidates c ON c.candidate_id=COALESCE(mr.candidate_id,r.candidate_id) "
@@ -96,6 +101,7 @@ class EmailDraft:
     handoff_at: str | None
     last_error: str | None
     attachment_name: str | None
+    follow_up: dict[str, str | None] | None
 
 
 @dataclass(frozen=True)
@@ -228,6 +234,16 @@ def _draft_from_row(row: sqlite3.Row) -> EmailDraft:
     run_value = row["result_run_id"]
     attachment = row["jd_attachment_path"]
     return EmailDraft(
+        follow_up=(
+            {
+                "status": row["follow_up_status"],
+                "due_at": row["follow_up_due_at"],
+                "transport": row["follow_up_transport"],
+                "last_error": row["follow_up_error"],
+            }
+            if row["follow_up_status"]
+            else None
+        ),
         message_id=int(row["message_id"]),
         demand_id=int(row["demand_id"]),
         code_requisition=row["code_requisition"],
@@ -263,11 +279,181 @@ class EmailService:
         transport: EmailTransport,
         llm_provider: LLMProvider | None,
         clock: Callable[[], datetime],
+        runner: JobRunner | None = None,
     ) -> None:
         self.settings = settings
         self.transport = transport
         self.llm_provider = llm_provider
         self.clock = clock
+        self.runner = runner
+
+    def follow_up_settings(self) -> dict[str, Any]:
+        with database(self.settings) as db:
+            return self._follow_up_settings(db)
+
+    def _follow_up_settings(self, db: sqlite3.Connection) -> dict[str, Any]:
+        values = dict(DEFAULTS)
+        for row in db.execute(
+            "SELECT key,value_json FROM settings WHERE scope='system' AND user_id IS NULL "
+            "AND key LIKE 'email.follow_up.%'"
+        ):
+            values[row["key"]] = json.loads(row["value_json"])
+        return values
+
+    def _schedule_follow_up(
+        self,
+        db: sqlite3.Connection,
+        message_id: int,
+        user_id: int,
+        now: str,
+        *,
+        handoff: bool = False,
+    ) -> None:
+        values = self._follow_up_settings(db)
+        if not values["email.follow_up.enabled"]:
+            return
+        if not handoff and not callable(getattr(self.transport, "create_follow_up", None)):
+            message = db.execute(
+                "SELECT transport FROM email_messages WHERE message_id=?", (message_id,)
+            ).fetchone()
+            if message is None or message["transport"] != "outlook_com":
+                return
+        due = stamp(
+            next_business_day(
+                datetime.fromisoformat(now),
+                reminder_time=values["email.follow_up.time"],
+                holidays=values["email.follow_up.holidays"],
+            )
+        )
+        transport = "eml_handoff" if handoff else "outlook_com"
+        status = "handoff" if handoff else "pending"
+        cursor = db.execute(
+            "INSERT OR IGNORE INTO follow_ups(message_id,transport,due_at,status,created_by,"
+            "created_at,updated_at) VALUES (?,?,?,?,?,?,?)",
+            (message_id, transport, due, status, user_id, now, now),
+        )
+        if cursor.rowcount:
+            audit.append_audit(
+                db,
+                ts=now,
+                user_id=user_id,
+                action="EMAIL_FOLLOW_UP_SCHEDULED",
+                entity_type="email_message",
+                entity_id=str(message_id),
+                details={"due_at": due, "transport": transport, "status": status},
+            )
+
+    def queue_follow_ups(self, user_id: int, message_ids: list[int] | None = None) -> None:
+        if self.runner is None or not callable(getattr(self.transport, "create_follow_up", None)):
+            return
+        with database(self.settings) as db:
+            ids = [
+                int(r[0])
+                for r in db.execute(
+                    "SELECT message_id FROM follow_ups WHERE status='pending' "
+                    "AND transport='outlook_com'"
+                )
+                if message_ids is None or r[0] in message_ids
+            ]
+        if not ids:
+            return
+
+        def run(context: JobContext) -> None:
+            for message_id in ids:
+                context.raise_if_cancelled()
+                with database(self.settings) as db:
+                    row = db.execute(
+                        "SELECT * FROM follow_ups WHERE message_id=?", (message_id,)
+                    ).fetchone()
+                    if row is None or row["status"] != "pending":
+                        continue
+                    draft = self._get_draft_row(db, message_id)
+                    assert draft is not None
+                    subject, body = self._follow_up_text(draft)
+                ref, error = None, None
+                try:
+                    ref = cast(Any, self.transport).create_follow_up(
+                        follow_up_key(message_id),
+                        subject,
+                        body,
+                        datetime.fromisoformat(row["due_at"]),
+                    )
+                except Exception:
+                    error = "Outlook follow-up creation failed; retry after checking Outlook"
+                status = "failed" if error else "created"
+                now = stamp(self.clock())
+                with database(self.settings) as db:
+                    db.execute("BEGIN IMMEDIATE")
+                    cursor = db.execute(
+                        "UPDATE follow_ups SET status=?,outlook_ref=?,last_error=?,"
+                        "job_id=?,updated_at=? WHERE message_id=? AND status='pending'",
+                        (status, ref, error, context.job_id, now, message_id),
+                    )
+                    if not cursor.rowcount:
+                        continue
+                    audit.append_audit(
+                        db,
+                        ts=now,
+                        user_id=user_id,
+                        action="EMAIL_FOLLOW_UP_FAILED" if error else "EMAIL_FOLLOW_UP_CREATED",
+                        entity_type="email_message",
+                        entity_id=str(message_id),
+                        details={"status": status},
+                    )
+
+        self.runner.submit("email_follow_up", run, params={"message_ids": ids}, created_by=user_id)
+
+    @staticmethod
+    def _follow_up_text(row: sqlite3.Row) -> tuple[str, str]:
+        subject = (
+            f"PFC follow-up: {row['code_requisition'] or row['demand_id']} – "
+            f"{row['candidate_name'] or 'Candidate'}"
+        )
+        return mask_emails_in(subject), "Review the candidate submission and follow up as needed."
+
+    def retry_follow_up(self, message_id: int, user_id: int) -> EmailDraft:
+        with database(self.settings) as db:
+            db.execute("BEGIN IMMEDIATE")
+            cursor = db.execute(
+                "UPDATE follow_ups SET status='pending',last_error=NULL,updated_at=? "
+                "WHERE message_id=? AND transport='outlook_com' AND status IN ('failed','pending')",
+                (stamp(self.clock()), message_id),
+            )
+            if not cursor.rowcount:
+                raise Problem(409, "EMAIL_FOLLOW_UP_NOT_RETRYABLE", "Follow-up cannot be retried")
+        self.queue_follow_ups(user_id, [message_id])
+        return self.get_draft(message_id)
+
+    def follow_up_ics(self, message_id: int, user_id: int) -> bytes:
+        with database(self.settings) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT * FROM follow_ups WHERE message_id=?", (message_id,)
+            ).fetchone()
+            if row is None:
+                raise Problem(404, "EMAIL_FOLLOW_UP_NOT_FOUND", "Follow-up not found")
+            if row["transport"] != "eml_handoff":
+                raise Problem(409, "EMAIL_FOLLOW_UP_NOT_HANDOFF", "Follow-up is automated")
+            draft = self._get_draft_row(db, message_id)
+            assert draft is not None
+            subject, body = self._follow_up_text(draft)
+            content = build_ics(
+                follow_up_key(message_id),
+                subject,
+                body,
+                datetime.fromisoformat(row["due_at"]),
+                self.clock(),
+            )
+            audit.append_audit(
+                db,
+                ts=stamp(self.clock()),
+                user_id=user_id,
+                action="EMAIL_FOLLOW_UP_ICS_DOWNLOADED",
+                entity_type="email_message",
+                entity_id=str(message_id),
+                details={},
+            )
+        return content
 
     def list_drafts(
         self, *, status: str | None, demand_id: int | None, limit: int
@@ -792,12 +978,14 @@ class EmailService:
                 )
 
             if sent:
-                db.execute(
+                cursor = db.execute(
                     "UPDATE email_messages SET status='Sent', sent_by=?, sent_at=?, "
                     "last_error=NULL, updated_at=? WHERE message_id=? AND status='Sending' "
                     "AND handoff_at IS NOT NULL",
                     (user_id, now, now, message_id),
                 )
+                if cursor.rowcount:
+                    self._schedule_follow_up(db, message_id, user_id, now, handoff=True)
                 action = "EMAIL_SENT"
                 details = {
                     "status": "Sent",
@@ -859,6 +1047,7 @@ class EmailService:
                     "EMAIL_NO_UNCERTAIN_SEND",
                     "Email has no unresolved Outlook COM send attempt",
                 )
+            self._schedule_follow_up(db, message_id, user_id, now)
             audit.append_audit(
                 db,
                 ts=now,
@@ -1302,11 +1491,13 @@ class EmailService:
         now = stamp(self.clock())
         with database(self.settings) as db:
             if failed is None:
-                db.execute(
+                cursor = db.execute(
                     "UPDATE email_messages SET status='Sent', sent_by=?, sent_at=?, "
                     "last_error=NULL, updated_at=? WHERE message_id=? AND status='Sending'",
                     (user_id, now, now, message_id),
                 )
+                if cursor.rowcount:
+                    self._schedule_follow_up(db, message_id, user_id, now)
                 action = "EMAIL_SENT"
                 details = {"status": "Sent"}
             else:
@@ -1351,11 +1542,13 @@ class EmailService:
         now = stamp(self.clock())
         with database(self.settings) as db:
             if result.status == "sent":
-                db.execute(
+                cursor = db.execute(
                     "UPDATE email_messages SET status='Sent', sent_by=?, sent_at=?, "
                     "last_error=NULL, updated_at=? WHERE message_id=? AND status='Sending'",
                     (user_id, now, now, message_id),
                 )
+                if cursor.rowcount:
+                    self._schedule_follow_up(db, message_id, user_id, now)
                 action = "EMAIL_SENT"
                 detail = "Previous send was confirmed"
                 audit_details = {"status": "Sent", "reconciled": True}
@@ -1384,11 +1577,13 @@ class EmailService:
     def _finish_reconciled_send(self, message_id: int, user_id: int) -> None:
         now = stamp(self.clock())
         with database(self.settings) as db:
-            db.execute(
+            cursor = db.execute(
                 "UPDATE email_messages SET status='Sent', sent_by=?, sent_at=?, "
                 "last_error=NULL, updated_at=? WHERE message_id=? AND status='Failed'",
                 (user_id, now, now, message_id),
             )
+            if cursor.rowcount:
+                self._schedule_follow_up(db, message_id, user_id, now)
             audit.append_audit(
                 db,
                 ts=now,

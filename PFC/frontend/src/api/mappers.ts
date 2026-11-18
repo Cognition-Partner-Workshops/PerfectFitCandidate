@@ -336,9 +336,11 @@ export interface EmailRow {
   created_at: string
   sent_at: string | null
   handoff_at?: string | null
+  follow_up?: { status: NonNullable<EmailDraft['followUp']>['status']; due_at: string; transport: string; last_error: string | null } | null
   last_error: string | null
 }
 export const toEmailDraft = (e: EmailRow): EmailDraft => ({
+  followUp: e.follow_up ? { status: e.follow_up.status, dueAt: e.follow_up.due_at, transport: e.follow_up.transport, lastError: e.follow_up.last_error } : null,
   emailId: e.message_id,
   resultId: e.result_id ?? 0,
   demandId: e.demand_id,
@@ -386,6 +388,9 @@ export const toAuditEvent = (a: AuditRow, users: Map<number, OccUser>): AuditEve
 
 /** `/occ/settings` stores dotted keys; unset keys fall back to the TDD §9.2 defaults. */
 export const ADMIN_SETTING_KEYS: Record<keyof AdminSettings, string> = {
+  followUpEnabled: 'email.follow_up.enabled',
+  followUpTime: 'email.follow_up.time',
+  followUpHolidays: 'email.follow_up.holidays',
   analystMinPasswordLength: 'auth.analyst_min_password_length',
   adminMinPasswordLength: 'auth.admin_min_password_length',
   lockoutAttempts: 'auth.lockout_attempts',

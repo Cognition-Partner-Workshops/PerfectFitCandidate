@@ -33,6 +33,7 @@ def test_schema_and_pragmas(settings: Settings) -> None:
         "0010",
         "0011",
         "0012",
+        "0016",
     ]
     assert migrate(settings) == []
     assert len(list((settings.data_dir / "backups").glob("*-pre-0002.db"))) == 1
@@ -226,6 +227,7 @@ def test_classification_migration_preserves_existing_override(
         "0010",
         "0011",
         "0012",
+        "0016",
     ]
     with database(settings) as db:
         row = db.execute("SELECT * FROM candidates").fetchone()
@@ -247,7 +249,7 @@ def test_backup_restore(settings: Settings, tmp_path: Path) -> None:
     backups = list((settings.data_dir / "backups").glob("pfc-*-pre-0011.db"))
     assert len(backups) == 1
     with database(settings) as db:
-        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 12
+        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 13
         assert (
             db.execute("SELECT 1 FROM sqlite_master WHERE name='should_rollback'").fetchone()
             is None
@@ -294,6 +296,7 @@ def test_item_ancestry_upgrade(settings: Settings, tmp_path: Path) -> None:
         "0010",
         "0011",
         "0012",
+        "0016",
     ]
     assert migrate(settings) == []
     with database(settings) as db:
@@ -338,6 +341,7 @@ def test_synonym_upgrade_after_published_jd_migration(settings: Settings, tmp_pa
         "0010",
         "0011",
         "0012",
+        "0016",
     ]
     assert migrate(settings) == []
     with database(settings) as db:
@@ -387,7 +391,7 @@ def test_email_handoff_migration_adds_column_to_existing_database(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='email_messages'"
         ).fetchone()[0]
 
-    assert migrate(settings) == ["0009", "0010", "0011", "0012"]
+    assert migrate(settings) == ["0009", "0010", "0011", "0012", "0016"]
 
     with database(settings) as db:
         after = [row["name"] for row in db.execute("PRAGMA table_info(email_messages)")]

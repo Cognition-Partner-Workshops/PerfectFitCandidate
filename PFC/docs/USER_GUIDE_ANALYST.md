@@ -205,6 +205,31 @@ Add a reason and choose **Save override**. Overrides are recorded in the audit l
 
 Recipients come from the OCC resource-team list; "No resource-team recipients" means the Admin has not set it up. Outlook COM is an Admin-selectable alternative for classic Outlook only. Replies are not tracked. Approvals, handoffs and analyst confirmations are recorded in the audit log.
 
+### Follow-up reminders
+
+When enabled by OCC, marking an approved email Sent schedules a follow-up for the next
+business day at the configured local time (default **09:00**). Saturdays, Sundays and
+OCC-listed holidays are skipped. The Email Approval list shows **Follow-up** with the
+due date/time in your local timezone. Disabled reminders do not show new controls.
+
+| Badge | Meaning / action |
+| --- | --- |
+| **Creating reminder…** | The COM reminder is pending. PFC refreshes the list while it is pending. |
+| **Reminder in Outlook** | Outlook COM saved the appointment in your default calendar. |
+| **Reminder failed** | Read the safe error message, check classic Outlook, then choose **Retry reminder**. This retries the reminder, not the email. |
+| **Calendar reminder** | With the Outlook draft file transport, choose **Add to Outlook calendar** to download the `.ics`, then open it in Outlook and save it. |
+
+Classic Outlook COM creates a **15-minute, free appointment**, with a reminder at its
+start, in the analyst's own default calendar. It is **not a flag on the sent email**,
+not a meeting, and has no recipients. New Outlook (`eml_handoff`) cannot be automated:
+PFC records the due date and offers the `.ics`, but cannot verify that you opened or
+saved it. Downloading alone does not add it to Outlook.
+
+Reminders are only created while PFC is running; leave it open until creation finishes.
+Re-sending creates a separate email/reminder and does not remove earlier reminders.
+PFC does not track replies or automatically cancel reminders after a reply. Real
+Outlook integration is not verified in CI; CI uses simulated COM and calendar downloads.
+
 ## 11. Dashboard
 
 The Dashboard is the landing page. It uses the latest completed scoring run; the run date and template version are shown in the header.

@@ -6,6 +6,7 @@ import { ApiError } from '../api/client'
 import type { EmailDraft, EmailTransportStatus } from '../api/types'
 import { mock } from '../test/utils'
 import { EmailApprovalPage } from './EmailApprovalPage'
+import * as downloads from '../lib/download'
 
 const draft = (handoffAt?: string): EmailDraft => ({
   emailId: 1,
@@ -28,8 +29,8 @@ const draft = (handoffAt?: string): EmailDraft => ({
   handoffAt,
 })
 
-function renderPage(email: EmailDraft, transport: EmailTransportStatus) {
-  vi.spyOn(mock, 'listEmails').mockResolvedValue({ items: [email], transport })
+function renderPage(email: EmailDraft, transport: EmailTransportStatus, followUpEnabled = true) {
+  vi.spyOn(mock, 'listEmails').mockResolvedValue({ items: [email], transport, followUpEnabled })
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
@@ -41,6 +42,40 @@ function renderPage(email: EmailDraft, transport: EmailTransportStatus) {
 afterEach(() => vi.restoreAllMocks())
 
 describe('EmailApprovalPage transport handoff', () => {
+  it.each([['created', 'Reminder in Outlook'], ['pending', 'Creating reminder…'], ['failed', 'Reminder failed'], ['handoff', 'Calendar reminder']] as const)('shows %s follow-up', async (status, label) => {
+    renderPage({ ...draft(), followUp: { status, dueAt: '2026-11-23T09:00:00Z', transport: 'outlook_com', lastError: status === 'failed' ? 'Check Outlook' : null } }, { transport: 'Outlook COM', outlookDetected: true })
+    await userEvent.click(await screen.findByRole('tab', { name: 'Approved (1)' }))
+    expect(screen.getByText(label)).toBeTruthy()
+    expect(screen.getByText(/^Follow-up /)).toBeTruthy()
+  })
+
+  it('retries failed reminders', async () => {
+    const email = { ...draft(), followUp: { status: 'failed' as const, dueAt: '2026-11-23T09:00:00Z', transport: 'outlook_com', lastError: 'Check Outlook' } }
+    const retry = vi.spyOn(mock, 'retryEmailFollowUp').mockResolvedValue(email)
+    renderPage(email, { transport: 'Outlook COM', outlookDetected: true })
+    await userEvent.click(await screen.findByRole('tab', { name: 'Approved (1)' }))
+    expect(screen.getByText('Check Outlook')).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Retry reminder' }))
+    await waitFor(() => expect(retry).toHaveBeenCalledWith(email.emailId))
+  })
+
+  it('downloads the handoff calendar with the authenticated client', async () => {
+    const file = { blob: new Blob(['calendar']), fileName: 'reminder.ics' }
+    const download = vi.spyOn(mock, 'downloadEmailFollowUp').mockResolvedValue(file)
+    const save = vi.spyOn(downloads, 'downloadBlob').mockImplementation(() => {})
+    renderPage({ ...draft(), followUp: { status: 'handoff', dueAt: '2026-11-23T09:00:00Z', transport: 'eml_handoff', lastError: null } }, { transport: 'Outlook draft file', outlookDetected: false })
+    await userEvent.click(await screen.findByRole('tab', { name: 'Approved (1)' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add to Outlook calendar' }))
+    await waitFor(() => expect(download).toHaveBeenCalledWith(1))
+    expect(save).toHaveBeenCalledWith(file.blob, file.fileName)
+    expect(screen.getByText(/can't set reminders in new Outlook/)).toBeTruthy()
+  })
+
+  it('hides reminders when disabled', async () => {
+    renderPage({ ...draft(), followUp: { status: 'created', dueAt: '2026-11-23T09:00:00Z', transport: 'outlook_com', lastError: null } }, { transport: 'Outlook COM', outlookDetected: true }, false)
+    await userEvent.click(await screen.findByRole('tab', { name: 'Approved (1)' }))
+    expect(screen.queryByText('Reminder in Outlook')).toBeNull()
+  })
   it('offers Open in Outlook for draft files', async () => {
     const user = userEvent.setup()
     const fileDraft = draft()

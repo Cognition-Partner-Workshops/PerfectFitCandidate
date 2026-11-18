@@ -298,10 +298,12 @@ export class HttpApiClient implements ApiClient {
     const r = await this.request<{
       drafts: EmailRow[]
       transport: 'outlook_com' | 'eml_handoff' | 'other'
+      follow_up_enabled?: boolean
     }>('GET', '/emails?limit=500')
     const transport = r.transport === 'eml_handoff' ? 'Outlook draft file' : 'Outlook COM'
     return {
       items: r.drafts.map(toEmailDraft),
+      followUpEnabled: r.follow_up_enabled ?? true,
       transport: { transport, outlookDetected: transport === 'Outlook COM' },
     }
   }
@@ -323,6 +325,13 @@ export class HttpApiClient implements ApiClient {
     const fileName =
       /filename="([^"]+)"/.exec(response.headers.get('Content-Disposition') ?? '')?.[1] ??
       `PFC-email-${id}.eml`
+    return { blob: await response.blob(), fileName }
+  }
+  retryEmailFollowUp: ApiClient['retryEmailFollowUp'] = async (id) =>
+    toEmailDraft(await this.request('POST', `/emails/${id}/follow-up/retry`))
+  downloadEmailFollowUp: ApiClient['downloadEmailFollowUp'] = async (id) => {
+    const response = await this.request<Response>('GET', `/emails/${id}/follow-up.ics`, undefined, true)
+    const fileName = /filename="([^"]+)"/.exec(response.headers.get('Content-Disposition') ?? '')?.[1] ?? `PFC-follow-up-${id}.ics`
     return { blob: await response.blob(), fileName }
   }
   confirmEmailHandoff: ApiClient['confirmEmailHandoff'] = async (id, sent) =>

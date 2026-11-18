@@ -10,6 +10,7 @@ import sys
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import datetime
 from email.message import EmailMessage as MIMEEmailMessage
 from html.parser import HTMLParser
 from pathlib import Path
@@ -23,6 +24,7 @@ IDEMPOTENCY_PROPERTY = (
     "http://schemas.microsoft.com/mapi/string/"
     "{00020329-0000-0000-C000-000000000046}/PFC-IdempotencyKey"
 )
+FOLLOW_UP_PROPERTY = IDEMPOTENCY_PROPERTY.replace("PFC-IdempotencyKey", "PFC-FollowUpKey")
 
 
 @dataclass(frozen=True)
@@ -171,10 +173,16 @@ class FakeTransport:
     """Records exact messages; one send per key (REQ-EML-05/06)."""
 
     def __init__(self) -> None:
+        self.follow_ups: dict[str, tuple[str, str, datetime]] = {}
         self.messages: list[EmailMessage] = []
         self.drafts: dict[str, EmailMessage] = {}
         self._sent: set[str] = set()
         self._lock = Lock()
+
+    def create_follow_up(self, key: str, subject: str, body: str, due: datetime) -> str:
+        with self._lock:
+            self.follow_ups.setdefault(key, (subject, body, due))
+        return key
 
     def create_draft(self, message: EmailMessage, *, display: bool = False) -> DeliveryResult:
         validate(message)
@@ -316,6 +324,34 @@ class OutlookComTransport:
             return DeliveryResult(idempotency_key, "sent" if sent else "missing")
 
         return self._call(action)
+
+    def create_follow_up(self, key: str, subject: str, body: str, due: datetime) -> str:
+        def action() -> str:
+            app = self._application()
+            escaped = key.replace("'", "''")
+            items = (
+                app.GetNamespace("MAPI")
+                .GetDefaultFolder(9)
+                .Items.Restrict(f"@SQL=\"{FOLLOW_UP_PROPERTY}\" = '{escaped}'")
+            )
+            if items.Count:
+                return str(items.Item(1).EntryID)
+            item = app.CreateItem(1)
+            item.Subject = subject
+            item.Body = body
+            item.Start = due.astimezone().replace(tzinfo=None)
+            item.Duration = 15
+            item.BusyStatus = 0
+            item.ReminderSet = True
+            item.ReminderMinutesBeforeStart = 0
+            item.PropertyAccessor.SetProperty(FOLLOW_UP_PROPERTY, key)
+            item.Save()
+            return str(item.EntryID)
+
+        try:
+            return self._executor.submit(action).result()
+        except Exception as exc:
+            raise EmailTransportError("Outlook follow-up creation failed") from exc
 
     def close(self) -> None:
         def cleanup() -> None:
