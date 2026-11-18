@@ -99,11 +99,15 @@ def version_basis(
     version: sqlite3.Row,
     canonical_ids: dict[str, int],
     selected: list[int] | None = None,
+    *,
+    include_archived: bool = False,
 ) -> SkillBasis:
     """One CV version's skill basis, exactly as matching builds it (REQ-IN-24)."""
     resource_lifecycle = "lifecycle='active'"
     resource_params: tuple[int, ...] = ()
-    if selected:
+    if include_archived:
+        resource_lifecycle = "1=1"
+    elif selected:
         placeholders = ",".join("?" for _ in selected)
         resource_lifecycle = (
             f"(lifecycle='active' OR resource_id IN ({placeholders})) AND lifecycle!='archived'"

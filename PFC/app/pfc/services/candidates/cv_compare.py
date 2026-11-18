@@ -325,14 +325,10 @@ def compare(settings: Settings, candidate_id: int, left: int, right: int) -> dic
         left_row, right_row = _pair(db, candidate_id, left, right)
         config = occ_domain_config(db)
         canonical = canonical_skill_ids(db)
-        resource_ids = [
-            row[0]
-            for row in db.execute(
-                "SELECT resource_id FROM resources WHERE candidate_id=?", (candidate_id,)
-            )
-        ]
         bases = [
-            None if _removed(row) else version_basis(db, config, row, canonical, resource_ids)
+            None
+            if _removed(row)
+            else version_basis(db, config, row, canonical, include_archived=True)
             for row in (left_row, right_row)
         ]
         texts = ["" if _removed(row) else row["text_norm"] or "" for row in (left_row, right_row)]
