@@ -12,7 +12,7 @@ from test_analytics_export import populated as populated
 from test_analytics_extended import extended as extended
 from test_matching_api import Api
 from test_matching_api import api as api
-from test_matching_service import NOW, wait_done
+from test_matching_service import NOW, seed_resource, wait_done
 
 from pfc.api.schemas.reports import PdfRequest
 from pfc.db.audit import verify_chain
@@ -196,24 +196,38 @@ def test_p2_ex04_equivalence_and_audit(extended: tuple[Api, dict[str, Any]], sco
         api, {"report": "match_results", "scope": scope, "resultFilters": RESULT_FILTERS}
     )
     positions = []
-    for row in rows:
-        heading = normalize(
-            mask_emails_in(f"{row['codeRequisition']} · Rank {row['rank']} · {row['personName']}")
-        )
-        positions.append(results_text.index(heading))
+    grouped = [
+        row
+        for req in dict.fromkeys(r["codeRequisition"] for r in rows)
+        for row in rows
+        if row["codeRequisition"] == req
+    ]
+    for row in grouped:
+        cells = [
+            row["codeRequisition"],
+            row["rank"],
+            row["personName"],
+            row["personEmailMasked"],
+            row["demandGrade"],
+            row["personGrade"],
+            row["personLocation"],
+            f"{int(row['score'] + 0.5)} %",
+            row["effectiveBand"],
+            row["locationAssessment"],
+        ]
+        expected = normalize(" ".join(formatted(v) for v in cells))
+        positions.append(results_text.index(expected))
         for label, key in [
             ("Account", "accountName"),
             ("Role", "demandRequestName"),
             ("Region", "region"),
-            ("Email", "personEmailMasked"),
-            ("Demand grade", "demandGrade"),
-            ("Person grade", "personGrade"),
-            ("Person location", "personLocation"),
-            ("Band", "effectiveBand"),
-            ("Location assessment", "locationAssessment"),
         ]:
             assert_row(results_text, label, row[key])
-        assert_row(results_text, "Match %", f"{int(row['score'] + 0.5)} %")
+        assert_row(
+            results_text,
+            "Start date",
+            date.fromisoformat(row["positionStartDate"]).strftime("%d %b %Y"),
+        )
         for key in ("matchingEvidence", "gapsChecks", "eligibilityEvidence"):
             for part in row[key]:
                 assert normalize(part) in results_text
@@ -234,10 +248,28 @@ def test_p2_ex04_equivalence_and_audit(extended: tuple[Api, dict[str, Any]], sco
     card = next(item for item in listing if item["jobId"] == job_id)
     assert card["label"] == "PDF report" and card["link"] == f"{URL}/{job_id}/file"
     assert not list((client.app.state.settings.data_dir / "reports").glob("*.part"))
-    if output := os.environ.get("PFC_PDF_SAMPLE_DIR"):
+    if (output := os.environ.get("PFC_PDF_SAMPLE_DIR")) and scope == "all":
         folder = Path(output)
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "dashboard.pdf").write_bytes(dashboard_pdf)
+        with database(client.app.state.settings) as db:
+            for number in range(40):
+                resource = seed_resource(
+                    db,
+                    f"Sample candidate {number + 1:02d}",
+                    email=f"sample{number + 1:02d}@example.com",
+                )
+                db.execute(
+                    "INSERT INTO match_results(run_id,demand_id,demand_version_id,jd_req_id,"
+                    "resource_id,score,band,rank,shortlisted,grade_relation,location_assessment,"
+                    "matching_evidence,gaps_checks,eligibility_evidence) "
+                    "SELECT run_id,demand_id,demand_version_id,jd_req_id,?,score,band,?,"
+                    "shortlisted,grade_relation,location_assessment,matching_evidence,"
+                    "gaps_checks,eligibility_evidence "
+                    "FROM match_results WHERE result_id=?",
+                    (resource, number + 7, ids["results"][0]),
+                )
+        _, results_pdf, _ = generate(api, {"report": "match_results", "scope": "all"})
         (folder / "match_results.pdf").write_bytes(results_pdf)
 
 

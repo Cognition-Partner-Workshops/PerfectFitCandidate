@@ -18,10 +18,15 @@ under `<data>/reports/` and cannot be downloaded before job completion.
 
 `data.collect` calls precisely the dashboard summary/demand/bench/match/extended
 services and the current-results `matching.list_results` service with the existing
-filter models. Current-results pagination and ordering are preserved; an absent
-limit is capped at 5000, with a visible truncation note. Section selection affects
-presentation, not the filter population. Chart previews show the first 20 numeric
-values, followed by complete values tables. The API and PDF share the definitions
+filter models. Current-results pagination is preserved; an absent limit is capped
+at 5000, with a visible truncation note. Results default to landscape and group
+by requisition, preserving first-seen requisition order and query order within
+each group. Explicit portrait orientation remains supported. Compact tables repeat
+column headers on every page and place wrapped evidence beneath each result.
+Section selection affects presentation, not the filter population. Summary KPIs
+and single values use tiles, not bars. Chart previews compare only common-unit
+series and show the first 20 numeric values, followed by complete values tables.
+The API and PDF share the definitions
 in `services/analytics/README.md`, including confirmation proxies and email scope.
 Source provenance lists available committed DL/CT uploads; the database does not
 retain an exact historical CT-upload-to-match-run association.

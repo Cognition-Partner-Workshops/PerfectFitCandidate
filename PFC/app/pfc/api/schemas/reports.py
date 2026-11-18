@@ -39,6 +39,8 @@ class PdfRequest(WireModel):
 
     @model_validator(mode="after")
     def valid_sections(self) -> Self:
+        if self.report == "match_results" and "orientation" not in self.model_fields_set:
+            self.orientation = "landscape"
         allowed = DASHBOARD_SECTIONS if self.report == "dashboard" else ("cover", "match-results")
         if not self.sections:
             self.sections = list(allowed)

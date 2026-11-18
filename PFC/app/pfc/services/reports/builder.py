@@ -339,31 +339,73 @@ class NumberedCanvas(Canvas):
         Canvas.save(self)
 
 
+class ReportParagraph(Paragraph):
+    _wrapped_width: float | None = None
+
+    def wrap(self, availWidth: float, availHeight: float) -> tuple[float, float]:
+        if self._wrapped_width == availWidth and hasattr(self, "blPara"):
+            return float(self.width), float(self.height)
+        width, height = super().wrap(availWidth, availHeight)
+        self._wrapped_width = availWidth
+        return float(width), float(height)
+
+
 def drawing(item: Chart, width: float) -> Drawing | None:
-    points: list[tuple[str, float]] = []
+    if item.title.startswith("DB-01") or len(item.rows) < 2:
+        return None
+    points: list[tuple[str, int, float]] = []
     selected = {
+        "DB-02": [2],
+        "DB-03": [1],
+        "DB-04": [1],
+        "DB-05": [1],
+        "DB-06": [1],
+        "DB-07": [1, 2],
+        "DB-08": [2],
+        "DB-09": [1],
+        "DB-10": [1],
+        "DB-12": [1],
+        "DB-13": [1],
         "DB-14": [2],
+        "DB-15": [1, 2, 3],
         "DB-16": [2, 3],
+        "DB-17": [1],
+        "DB-18": [],
         "DB-19": [2],
+        "DB-20": [2],
+        "DB-21": [2],
+        "DB-22": [2],
+        "DB-23": [],
+        "DB-24": [4],
         "DB-25": [4, 5],
-    }.get(item.title.split()[0])
+        "DB-26": [1],
+        "DB-27": [1],
+        "DB-28": [2],
+        "DB-29": [1],
+        "DB-30": [3],
+        "DB-31": [1],
+    }.get(item.title.split()[0], [])
+    if item.title.startswith("DB-30 Override actions"):
+        selected = [2]
     for row in item.rows:
-        indices = selected if selected is not None else range(1 if len(row) > 1 else 0, len(row))
-        for index in indices:
+        for index in selected:
             value = row[index]
             try:
                 number = float(value.removesuffix(" %"))
             except ValueError:
                 continue
             label = " · ".join(row[:2] if item.columns[0] in {"Row", "Demand grade"} else row[:1])
-            points.append((f"{label} · {item.columns[index]}", number))
-    if not points:
+            points.append((label, index, number))
+    if len(points) < 2:
         return None
+    series = {index for _, index, _ in points}
     points = points[:20]
     height = 18 * len(points) + 20
     result = Drawing(width, height)
-    maximum = max(1, max(n for _, n in points))
-    for i, (label, plotted) in enumerate(points):
+    maximum = max(1, max(n for _, _, n in points))
+    for i, (label, index, plotted) in enumerate(points):
+        if len(series) > 1:
+            label += " · " + item.columns[index]
         y = height - 20 - i * 18
         result.add(String(0, y + 3, display(label)[:43], fontName="PFC", fontSize=7))
         result.add(
@@ -403,10 +445,22 @@ def build_pdf(data: ReportData) -> bytes:
     small = ParagraphStyle(
         "values", fontName="PFC", fontSize=7, leading=10, spaceAfter=2, splitLongWords=True
     )
+    kpi_value = ParagraphStyle("kpi-value", fontName="PFC-Bold", fontSize=16, leading=20)
+    result_style = ParagraphStyle(
+        "result", fontName="PFC", fontSize=6.5, leading=8, splitLongWords=True
+    )
+    evidence_style = ParagraphStyle(
+        "evidence",
+        fontName="PFC",
+        fontSize=6,
+        leading=7.5,
+        splitLongWords=True,
+        textColor=colors.HexColor("#475467"),
+    )
     story: list[Flowable] = []
 
     def paragraph(text: Any, style: Any = small) -> Paragraph:
-        return Paragraph(escape(display(text)).replace("\n", "<br/>"), style)
+        return ReportParagraph(escape(display(text)).replace("\n", "<br/>"), style)
 
     def table(columns: list[str], rows: list[list[str]]) -> None:
         if not rows:
@@ -427,6 +481,33 @@ def build_pdf(data: ReportData) -> bytes:
             )
         )
         story.append(t)
+
+    def tiles(item: Chart) -> None:
+        cells = [
+            [paragraph(row[0]), paragraph(row[1], kpi_value)]
+            if len(row) > 1
+            else [paragraph(item.columns[0]), paragraph(row[0], kpi_value)]
+            for row in item.rows
+        ]
+        columns = 3 if len(cells) > 1 else 1
+        values = [
+            cells[i : i + columns] + [""] * (columns - len(cells[i : i + columns]))
+            for i in range(0, len(cells), columns)
+        ]
+        grid = LongTable(values, colWidths=[doc.width / columns] * columns, hAlign="LEFT")
+        grid.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#e8f1f5")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("BOX", (0, 0), (-1, -1), 0.5, colors.white),
+                    ("INNERGRID", (0, 0), (-1, -1), 3, colors.white),
+                    ("TOPPADDING", (0, 0), (-1, -1), 8),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+                ]
+            )
+        )
+        story.append(grid)
 
     title = (
         "Dashboard analytics report"
@@ -490,6 +571,10 @@ def build_pdf(data: ReportData) -> bytes:
         story.append(paragraph(section.replace("-", " ").title(), styles["Heading1"]))
         for item in sections[section]:
             story.append(paragraph(item.title, styles["Heading2"]))
+            if item.title.startswith("DB-01") or len(item.rows) == 1 and len(item.columns) <= 2:
+                tiles(item)
+                story.append(Spacer(1, 12))
+                continue
             if (graphic := drawing(item, doc.width)) is not None:
                 story.append(graphic)
                 story.append(
@@ -520,42 +605,120 @@ def build_pdf(data: ReportData) -> bytes:
                     styles["Heading2"],
                 )
             )
+        groups: dict[str, list[dict[str, Any]]] = {}
         for row in data.results:
-            story.append(
-                paragraph(
-                    f"{row['requisition']} · Rank {row['rank']} · "
-                    f"{display(row['potential_person'])}",
-                    styles["Heading2"],
+            groups.setdefault(row["requisition"], []).append(row)
+        columns = [
+            "Requisition",
+            "Rank",
+            "Name",
+            "Email (masked)",
+            "Demand grade",
+            "Person grade",
+            "Location",
+            "Match %",
+            "Band",
+            "Location assessment",
+        ]
+        proportions = [0.1, 0.045, 0.13, 0.16, 0.065, 0.065, 0.13, 0.07, 0.09, 0.145]
+        for requisition, rows in groups.items():
+            first = rows[0]
+            region = (
+                display(first["role_location"])
+                if str(first["role_location"] or "").strip()
+                else "Unspecified"
+            )
+            heading = (
+                f"Requisition {requisition} · Account {display(first['account'])} "
+                f"· Role {display(first['role'])}"
+            )
+            metadata = paragraph(f"Start date {date_text(first['start_date'])} · Region {region}")
+            values: list[list[Any]] = [
+                [paragraph(heading, styles["Heading2"])] + [""] * 9,
+                [metadata] + [""] * 9,
+                [paragraph(c, result_style) for c in columns],
+            ]
+            commands: list[tuple[Any, ...]] = [
+                ("SPAN", (0, 0), (-1, 0)),
+                ("SPAN", (0, 1), (-1, 1)),
+                ("NOSPLIT", (0, 0), (-1, 3)),
+                ("BACKGROUND", (0, 2), (-1, 2), colors.HexColor("#e8f1f5")),
+                ("FONTNAME", (0, 0), (-1, -1), "PFC"),
+                ("FONTSIZE", (0, 0), (-1, -1), result_style.fontSize),
+                ("LEADING", (0, 0), (-1, -1), result_style.leading),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ]
+            for row in rows:
+                fields = [
+                    row["requisition"],
+                    row["rank"],
+                    row["potential_person"],
+                    row["person_email"],
+                    row["demand_grade"],
+                    row["person_grade"],
+                    row["person_location"],
+                    match_pct(row["score"]),
+                    band_label(row["effective_band"]),
+                    row["location_assessment"],
+                ]
+                cells: list[Any] = []
+                for value, proportion in zip(fields, proportions, strict=True):
+                    text = display(value)
+                    width = doc.width * proportion - 6
+                    if (
+                        "\n" not in text
+                        and pdfmetrics.stringWidth(text, "PFC", result_style.fontSize) <= width
+                    ):
+                        cells.append(text)
+                    else:
+                        cells.append(paragraph(text, result_style))
+                values.append(cells)
+                evidence_text = "\n".join(
+                    label + ": " + "; ".join(evidence_parts(row[key]))
+                    for key, label in (
+                        ("matching_evidence", "Matching evidence"),
+                        ("gaps_checks", "Gaps / Checks"),
+                        ("eligibility_evidence", "Eligibility evidence"),
+                    )
                 )
-            )
-            table(
-                ["Field", "Value"],
-                [
-                    ["Account", display(row["account"])],
-                    ["Role", display(row["role"])],
-                    ["Start date", date_text(row["start_date"])],
+                evidence_row = len(values)
+                evidence_cell = paragraph(evidence_text, evidence_style)
+                row_height = max(
+                    cell.wrap(doc.width * p - 6, doc.height)[1]
+                    if isinstance(cell, Paragraph)
+                    else result_style.leading
+                    for cell, p in zip(values[-1], proportions, strict=True)
+                )
+                evidence_height = evidence_cell.wrap(doc.width - 6, doc.height)[1]
+                values.append([evidence_cell] + [""] * 9)
+                commands.extend(
                     [
-                        "Region",
-                        display(row["role_location"])
-                        if str(row["role_location"] or "").strip()
-                        else "Unspecified",
-                    ],
-                    ["Email", display(row["person_email"])],
-                    ["Demand grade", display(row["demand_grade"])],
-                    ["Person grade", display(row["person_grade"])],
-                    ["Person location", display(row["person_location"])],
-                    ["Match %", match_pct(row["score"])],
-                    ["Band", band_label(row["effective_band"])],
-                    ["Location assessment", display(row["location_assessment"])],
-                ],
+                        ("SPAN", (0, evidence_row), (-1, evidence_row)),
+                        (
+                            "LINEBELOW",
+                            (0, evidence_row),
+                            (-1, evidence_row),
+                            0.25,
+                            colors.HexColor("#d0d5dd"),
+                        ),
+                    ]
+                )
+                if row_height + evidence_height < doc.height - 60:
+                    commands.append(("NOSPLIT", (0, evidence_row - 1), (-1, evidence_row)))
+            results_table = LongTable(
+                values,
+                colWidths=[doc.width * p for p in proportions],
+                repeatRows=[2],
+                hAlign="LEFT",
+                splitInRow=1,
             )
-            for key, label in (
-                ("matching_evidence", "Matching evidence"),
-                ("gaps_checks", "Gaps / Checks"),
-                ("eligibility_evidence", "Eligibility evidence"),
-            ):
-                story.append(paragraph(label + ": " + "; ".join(evidence_parts(row[key]))))
-            story.append(Spacer(1, 12))
+            results_table.setStyle(TableStyle(commands))
+            story.append(results_table)
+            story.append(Spacer(1, 8))
         if not data.results:
             story.append(paragraph("No results for this selection."))
     while story and isinstance(story[-1], PageBreak):
