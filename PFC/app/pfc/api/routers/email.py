@@ -66,6 +66,7 @@ def get_email_service(request: Request) -> EmailService:
         transport=cast(EmailTransport, transport),
         llm_provider=cast(LLMProvider | None, provider),
         clock=cast(Callable[[], datetime], clock),
+        runner=getattr(state, "job_runner", None),
     )
 
 
@@ -117,6 +118,7 @@ def list_drafts(
         status_counts=status_counts,
         sent_count=sent_count,
         transport=_transport_name(service.transport),
+        follow_up_enabled=service.follow_up_settings()["email.follow_up.enabled"],
     )
 
 
@@ -165,7 +167,9 @@ def confirm_handoff(
 def confirm_previous_send(
     message_id: int, principal: PrincipalDependency, service: EmailServiceDependency
 ) -> EmailDraftView:
-    return _view(service.mark_previous_send_sent(message_id, user_id=principal.user.user_id))
+    draft = service.mark_previous_send_sent(message_id, user_id=principal.user.user_id)
+    service.queue_follow_ups(principal.user.user_id, [message_id])
+    return _view(draft)
 
 
 @router.put("/{message_id}", response_model=EmailDraftView)
@@ -216,6 +220,7 @@ def send_one(
         user_id=principal.user.user_id,
         message_ids=[message_id],
     )
+    service.queue_follow_ups(principal.user.user_id, [message_id])
     return EmailSendResponse(
         outcomes=[EmailSendOutcomeView(**asdict(outcome)) for outcome in outcomes],
         sent_count=sum(outcome.status == "sent" for outcome in outcomes),
@@ -234,9 +239,28 @@ def send_approved(
         user_id=principal.user.user_id,
         message_ids=body.draft_ids if body is not None else None,
     )
+    service.queue_follow_ups(principal.user.user_id)
     return EmailSendResponse(
         outcomes=[EmailSendOutcomeView(**asdict(outcome)) for outcome in outcomes],
         sent_count=sum(outcome.status == "sent" for outcome in outcomes),
         failed_count=sum(outcome.status == "failed" for outcome in outcomes),
         skipped_count=sum(outcome.status == "skipped" for outcome in outcomes),
+    )
+
+
+@router.post("/{message_id}/follow-up/retry", response_model=EmailDraftView)
+def retry_follow_up(
+    message_id: int, principal: PrincipalDependency, service: EmailServiceDependency
+) -> EmailDraftView:
+    return _view(service.retry_follow_up(message_id, principal.user.user_id))
+
+
+@router.get("/{message_id}/follow-up.ics")
+def download_follow_up(
+    message_id: int, principal: PrincipalDependency, service: EmailServiceDependency
+) -> Response:
+    return Response(
+        content=service.follow_up_ics(message_id, principal.user.user_id),
+        media_type="text/calendar",
+        headers={"Content-Disposition": f'attachment; filename="PFC-follow-up-{message_id}.ics"'},
     )

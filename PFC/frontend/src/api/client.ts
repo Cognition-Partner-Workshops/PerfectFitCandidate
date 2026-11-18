@@ -98,6 +98,7 @@ export interface ExportedFile {
 }
 
 export interface EmailList {
+  followUpEnabled?: boolean
   items: EmailDraft[]
   transport: EmailTransportStatus
 }
@@ -226,6 +227,8 @@ export interface ApiClient {
   ): Promise<{ draft: EmailDraft; opened: boolean }>
   /** GET /emails/{id}/handoff.eml */
   downloadEmailDraft(emailId: number): Promise<ExportedFile>
+  downloadEmailFollowUp(emailId: number): Promise<ExportedFile>
+  retryEmailFollowUp(emailId: number): Promise<EmailDraft>
   /** POST /emails/{id}/handoff/confirm */
   confirmEmailHandoff(emailId: number, sent: boolean): Promise<EmailDraft>
   /** POST /emails/{id}/previous-send/confirm */

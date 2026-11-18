@@ -20,7 +20,9 @@ function statusTone(s: EmailStatus) {
  */
 export function EmailApprovalPage() {
   const qc = useQueryClient()
-  const list = useQuery({ queryKey: ['emails'], queryFn: () => api.listEmails() })
+  const list = useQuery({ queryKey: ['emails'], queryFn: () => api.listEmails(),
+    refetchInterval: (query) => query.state.data?.followUpEnabled !== false && query.state.data?.items.some((e) => e.followUp?.status === 'pending') ? 3000 : false,
+  })
   const [tab, setTab] = useState<EmailStatus | 'All'>('Draft')
   const [activeId, setActiveId] = useState<number | null>(null)
   const [checked, setChecked] = useState<Set<number> | null>(null)
@@ -58,6 +60,11 @@ export function EmailApprovalPage() {
     },
   })
   const send = useMutation({ mutationFn: (id: number) => api.sendEmail(id), onSuccess: () => void refresh(), onError: onErr })
+  const retryReminder = useMutation({ mutationFn: (id: number) => api.retryEmailFollowUp(id), onSuccess: () => void refresh(), onError: onErr })
+  const calendar = useMutation({ mutationFn: async (id: number) => {
+    const file = await api.downloadEmailFollowUp(id)
+    downloadBlob(file.blob, file.fileName)
+  }, onSuccess: () => void refresh(), onError: onErr })
   const handoff = useMutation({
     mutationFn: async ({ id, confirmUncertain }: { id: number; confirmUncertain?: boolean }) => {
       const result = await api.openEmailInOutlook(id, confirmUncertain)
@@ -174,7 +181,22 @@ export function EmailApprovalPage() {
                           }}
                         />
                         <span className="num">#{e.rank}</span>
-                        <span style={{ flex: 1 }}>{e.candidateName ?? 'Not recorded'}</span>
+                        <span style={{ flex: 1, minWidth: 0 }}>{e.candidateName ?? 'Not recorded'}
+                          {list.data?.followUpEnabled !== false && e.followUp && <span className="stack small">
+                            <span>Follow-up {new Date(e.followUp.dueAt).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                            <Chip tone={e.followUp.status === 'failed' ? 'danger' : e.followUp.status === 'created' ? 'success' : 'info'}>
+                              {e.followUp.status === 'created' ? 'Reminder in Outlook' : e.followUp.status === 'pending' ? 'Creating reminder…' : e.followUp.status === 'failed' ? 'Reminder failed' : 'Calendar reminder'}
+                            </Chip>
+                            {(e.followUp.status === 'failed' || e.followUp.status === 'pending') && <>
+                              <span>{e.followUp.lastError}</span>
+                              <button className="btn" disabled={retryReminder.isPending} onClick={(event) => { event.stopPropagation(); retryReminder.mutate(e.emailId) }}>Retry reminder</button>
+                            </>}
+                            {(e.followUp.status === 'handoff' || e.followUp.status === 'failed' || (e.followUp.status === 'pending' && draftFileTransport)) && <>
+                              <button className="btn" style={{ whiteSpace: 'normal' }} disabled={calendar.isPending} onClick={(event) => { event.stopPropagation(); calendar.mutate(e.emailId) }}>Add to Outlook calendar</button>
+                              <span className="muted">PFC can't set reminders in new Outlook automatically.</span>
+                            </>}
+                          </span>}
+                        </span>
                         <span className="num small">{Math.round(e.score)} %</span>
                         <Chip tone={statusTone(e.status)}>
                           {e.status === 'Approved' && e.handoffAt

@@ -1,4 +1,5 @@
 import re
+import shutil
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -17,6 +18,30 @@ LATER = "2026-01-01T01:00:00Z"
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     return Settings(data_dir=tmp_path)
+
+
+@pytest.mark.parametrize("upgrade", [False, True])
+def test_follow_up_chat_and_cv_comparison_migrations_apply_in_order(
+    settings: Settings, tmp_path: Path, upgrade: bool
+) -> None:
+    if upgrade:
+        old = tmp_path / "old-migrations"
+        old.mkdir()
+        for path in Path("pfc/db/migrations").glob("*.sql"):
+            if path.name.split("_", 1)[0] <= "0012":
+                shutil.copyfile(path, old / path.name)
+        assert migrate(settings, old)[-1] == "0012"
+    applied = migrate(settings)
+    assert [version for version in applied if version in {"0016", "0017", "0018"}] == [
+        "0016",
+        "0017",
+        "0018",
+    ]
+    with database(settings) as db:
+        assert db.execute("SELECT count(*) FROM follow_ups").fetchone()[0] == 0
+        assert db.execute("SELECT count(*) FROM chat_questions").fetchone()[0] == 0
+        assert db.execute("SELECT count(*) FROM cv_comparisons").fetchone()[0] == 0
+        assert db.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
 def test_schema_and_pragmas(settings: Settings) -> None:

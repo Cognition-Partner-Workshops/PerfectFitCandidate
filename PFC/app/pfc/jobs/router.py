@@ -104,6 +104,12 @@ def presentation(job: Job) -> tuple[str, str | None]:
         count = len(ids) if isinstance(ids, list) else 0
         target = f"{count} profile{'s' if count != 1 else ''}" if count else "all profiles"
         return f"CV Sync for {target}", "/#/bench"
+    if job.kind == "email_follow_up":
+        ids = params.get("message_ids")
+        count = len(ids) if isinstance(ids, list) else 0
+        return (
+            f"Outlook follow-up reminders ({count})" if count > 1 else "Outlook follow-up reminder"
+        ), "/#/email"
     if job.kind == "match_run":
         run_id = params.get("run_id")
         if type(run_id) is int and run_id > 0:
