@@ -2,6 +2,8 @@
 
 import json
 import os
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -279,6 +281,53 @@ def test_archive_job_and_expired_preview(client, kind):
     assert job.kind == ("archive" if kind == "archive" else "archive_purge")
     assert job.status == "completed"
     assert '"demand": 3' in job.message
+
+
+@pytest.mark.parametrize("kind", ["archive", "purge"])
+def test_cancel_during_atomic_batch_finishes_with_committed_status(client, monkeypatch, kind):
+    settings = seed(client)
+    if kind == "purge":
+        with database(settings) as db:
+            archive = archival.preview(db, kind="archive", user_id=1, now=NOW)
+        execute(settings, archive)
+        with database(settings) as db:
+            for table in ("demands", "resources"):
+                db.execute(f"UPDATE {table} SET archived_at='2024-01-01'")
+    with database(settings) as db:
+        preview = archival.preview(db, kind=kind, user_id=1, now=NOW)
+    entered, release = threading.Event(), threading.Event()
+    original = archival.execute_batch
+
+    def blocked(*args):
+        entered.set()
+        assert release.wait(5)
+        return original(*args)
+
+    monkeypatch.setattr(archival, "execute_batch", blocked)
+    runner = JobRunner(settings)
+    try:
+        job_id = archival.submit(
+            settings, runner, preview["batch_id"], preview["preview_hash"], 1, NOW, kind=kind
+        )
+        assert entered.wait(5)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            cancellation = executor.submit(runner.cancel, job_id)
+            try:
+                with pytest.raises(TimeoutError):
+                    cancellation.result(timeout=0.05)
+            finally:
+                release.set()
+            assert cancellation.result(timeout=5).status == "completed"
+        runner._executor.shutdown(wait=True)
+        assert runner.get(job_id).status == "completed"
+        with database(settings) as db:
+            assert archival.batch(db, preview["batch_id"])["status"] == "completed"
+            assert db.execute("SELECT count(*) FROM demands").fetchone()[0] == (
+                0 if kind == "purge" else 3
+            )
+    finally:
+        release.set()
+        runner.shutdown()
 
 
 def test_housekeeping_job_result_message(client):

@@ -302,14 +302,16 @@ def submit(
         db.execute("UPDATE archive_batches SET status='running' WHERE batch_id=?", (batch_id,))
 
     def run(context: JobContext) -> None:
-        counts = execute_batch(settings, batch_id, user_id, now)
+        with context.runner._lock:
+            context.raise_if_cancelled()
+            counts = execute_batch(settings, batch_id, user_id, now)
 
-        def persist(db: sqlite3.Connection) -> None:
-            db.execute(
-                "UPDATE jobs SET message=? WHERE job_id=?", (json.dumps(counts), context.job_id)
-            )
+            def persist(db: sqlite3.Connection) -> None:
+                db.execute(
+                    "UPDATE jobs SET message=? WHERE job_id=?", (json.dumps(counts), context.job_id)
+                )
 
-        context.complete(persist)
+            context.complete(persist)
 
     try:
         job_id = runner.submit(
