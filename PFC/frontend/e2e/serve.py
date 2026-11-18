@@ -60,8 +60,8 @@ SUMMARY_REPLY = {
 }
 
 
-class SummaryStub(FakeProvider):
-    """The backend's offline FakeProvider, answering summaries only; other LLM paths fall back."""
+class LocalModelStub(FakeProvider):
+    """Offline fixtures for the summary and chat flows."""
 
     def __init__(self) -> None:
         super().__init__(json.dumps(SUMMARY_REPLY))
@@ -74,9 +74,13 @@ class SummaryStub(FakeProvider):
     async def generate(
         self, request: PromptRequest, *, api_version: str | None = None
     ) -> GenerateResult:
-        if request.purpose != "summary":
-            raise ProviderError("The e2e stub answers summaries only")
-        return await super().generate(request, api_version=api_version)
+        if request.purpose == "summary":
+            return await super().generate(request, api_version=api_version)
+        if request.purpose == "chat_lookup":
+            question = request.messages[-1]["content"]
+            intent = "demand_count" if question == "How many open demands are there?" else "unsupported"
+            return GenerateResult(json.dumps({"intent": intent}), "fake", "offline-e2e")
+        raise ProviderError("No e2e fixture for this LLM request")
 
 
 def cv(path: Path, lines: list[str]) -> None:
@@ -177,7 +181,7 @@ def main() -> None:
     embedding_model(Settings())
     port = int(os.environ.get("PFC_PORT", "8799"))
     app = create_app()
-    app.state.llm_provider = SummaryStub()
+    app.state.llm_provider = LocalModelStub()
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 

@@ -20,7 +20,7 @@ export const appVersion = '1.0.0'
 
 /** Phase-gated features (GUI_OCC_DESIGN.md §6.2, §18). Phase-2/3 tabs are hidden, not disabled. */
 export const featureFlags = {
-  chat: false,
+  chat: true,
   pdfReport: false,
   smtp: false,
   externalLlm: false,
