@@ -199,3 +199,100 @@ class MatchAnalytics(WireModel):
     band_distribution: list[CountItem]
     email_status_counts: list[CountItem]
     validation: list[ValidationCheck]
+
+
+class MatrixCell(WireModel):
+    row: str
+    column: str
+    count: int
+
+
+class GradeCell(MatrixCell):
+    demand_count: int
+    bench_count: int
+    relation: Literal["exact", "adjacent", "outside"]
+
+
+class ScoreBin(WireModel):
+    lower: int
+    upper: int
+    all_pairs: int
+    top5: int
+
+
+class ScoreHistogram(WireModel):
+    thresholds: list[int]
+    bins: list[ScoreBin]
+
+
+class UnmatchedDemand(WireModel):
+    demand_id: int
+    code_requisition: str
+    position_start_date: str | None
+    reason_codes: list[str]
+
+
+class EmailWeek(WireModel):
+    week: str
+    sent_count: int
+    median_hours: float
+    within24h_pct: float = Field(alias="within24hPct")
+
+
+class AnalyticsPerson(WireModel):
+    resource_id: int
+    candidate_id: int
+    name: str | None
+    email_masked: str | None
+
+
+class UpskillingPerson(AnalyticsPerson):
+    matched_skills: list[str]
+    missing_skills: list[str]
+    best_score: float | None
+
+
+class AccuracyRun(WireModel):
+    run_id: int
+    confirmed_demands: int
+    confirmed_pairs: int
+    hits: int
+    hit_rate_at5: float | None = Field(alias="hitRateAt5")
+    precision_at5: float | None = Field(alias="precisionAt5")
+
+
+class ContentionPerson(AnalyticsPerson):
+    demand_count: int
+    requisitions: list[str]
+
+
+class DemandAging(WireModel):
+    buckets: list[CountItem]
+    unknown_start: int
+    past_start_without_match: int
+
+
+class OverrideRun(WireModel):
+    run_id: int
+    pair_count: int
+    overridden_pairs: int
+    rate_pct: float
+    by_type: list[CountItem]
+
+
+class ExtendedAnalytics(WireModel):
+    grade_matrix: list[GradeCell]
+    score_histogram: ScoreHistogram
+    shortlist_funnel: list[CountItem]
+    unmatched_demands: list[UnmatchedDemand]
+    email_trend: list[EmailWeek]
+    readiness_status: list[MatrixCell]
+    location_matrix: list[MatrixCell]
+    skill_cooccurrence: list[MatrixCell]
+    upskilling: list[UpskillingPerson]
+    accuracy: list[AccuracyRun]
+    exclusion_reasons: list[CountItem]
+    candidate_types: list[CountItem]
+    contention: list[ContentionPerson]
+    demand_aging: DemandAging
+    override_rates: list[OverrideRun]

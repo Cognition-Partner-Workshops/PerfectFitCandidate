@@ -181,7 +181,9 @@ class Population:
             f"THEN json_extract(b.inputs_json,'{path}') ELSE {fallback} END"
         )
 
-    def _match_rows(self, *, validation: bool = False) -> Iterator[dict[str, Any]]:
+    def _match_rows(
+        self, *, validation: bool = False, include_excluded: bool = False
+    ) -> Iterator[dict[str, Any]]:
         if self.run is None:
             return
         fields = {
@@ -268,7 +270,7 @@ class Population:
                 continue
             if not validation or self.overrides:
                 apply_overrides(row, self.overrides.get(row["result_id"], []))
-                if row["effective_excluded"]:
+                if row["effective_excluded"] and not include_excluded:
                     continue
             if self.has_match_filters and not validation:
                 row = {**dict.fromkeys(fields), **row}

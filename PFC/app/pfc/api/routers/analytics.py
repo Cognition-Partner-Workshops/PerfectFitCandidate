@@ -9,11 +9,12 @@ from pfc.api.schemas.analytics import (
     BenchAnalytics,
     DashboardFilters,
     DemandAnalytics,
+    ExtendedAnalytics,
     MatchAnalytics,
 )
 from pfc.db.connection import database
 from pfc.security.dependencies import require_role
-from pfc.services.analytics import dashboard
+from pfc.services.analytics import dashboard, extended
 from pfc.services.analytics.population import Population
 
 router = APIRouter(prefix="/analytics", dependencies=[Depends(require_role("Analyst"))])
@@ -46,3 +47,10 @@ def match(request: Request, filters: Filters) -> MatchAnalytics:
     with database(request.app.state.settings) as db:
         population = Population(db, filters, request.app.state.clock().date())
         return MatchAnalytics(**dashboard.match(population))
+
+
+@router.get("/extended", response_model=ExtendedAnalytics)
+def extended_analytics(request: Request, filters: Filters) -> ExtendedAnalytics:
+    with database(request.app.state.settings) as db:
+        population = Population(db, filters, request.app.state.clock().date())
+        return ExtendedAnalytics(**extended.build(population))
