@@ -43,7 +43,7 @@
 |---|---|---|---|
 | 0 | Feasibility spike | Corporate-laptop checks per [FEASIBILITY.md](FEASIBILITY.md): approved `.bat` / `.cmd` launcher, localhost, AV/EDR, Outlook COM, OneDrive sync folder, hardware and model benchmark smoke test | 2–3 weeks |
 | 1 | MVP | Manual DL/CT upload, CV sync, eligibility + grade + location rules, seeded editable status map, Analyze JD → Confirm & Start, hybrid matching and 70/10/5/5/5/5 scores, bands, top-five unique-profile shortlist, email drafting + per-profile approval via Outlook COM, dashboard, OCC, authentication, audit, internal-domain allowlist, signed settings-package export/import, model add-on, portable ZIP | 12–14 weeks (incl. UAT and pilot) |
-| 2 | Automation and reporting | Synced-folder auto-pickup of DL/CT, Outlook calendar follow-ups, PDF reports, chat-with-data, manual archival + housekeeping, internal/external classification, CV version comparison, SMTP | 8–10 weeks |
+| 2 | Automation and reporting | Synced-folder auto-pickup of DL/CT, Outlook calendar follow-ups, PDF reports, chat-with-data, manual archival + housekeeping, internal/external classification, CV version comparison | 8–10 weeks |
 | 3 | Extensions | External LLM providers with PII masking/encryption, compatible API-version retries and direct local fallback, advanced OCC (scoring templates, model benchmark lab), archival automation, licensing (per-user ZIP + signed device licence), OneDrive metadata sync replacing or augmenting manual settings packages | 10–12 weeks |
 
 ## 3. Phase dependencies
@@ -68,7 +68,7 @@ Key cross-phase dependencies:
 |---|---|---|---|
 | Portable runtime proven on target laptop | Phase 0 | Phase 1 build | Embedded Python, llama.cpp, localhost binding (REQ-PKG-01..05) |
 | Local model and embedding model shortlisted | Phase 0 smoke test | Phase 1 (final choice O-05) | Benchmarked further in Phase 1 |
-| Outlook COM confirmed | Phase 0 | Phase 1 email agent | Fallback: copy draft / SMTP in Phase 2 |
+| Outlook COM confirmed | Phase 0 | Phase 1 email agent | Phase 1 draft-copy / `.eml` fallback remains; SMTP was descoped by the product owner (2026-11-19) |
 | Corporate approvals for CV processing, Outlook automation and external LLM use (O-06) | Granted | Not a delivery gate | No candidate privacy notice is required |
 | Plugin interfaces (ingestion, LLM provider, email transport — NFR-07) | Phase 1 | Phase 2 / 3 | Phase 2 and 3 features plug into Phase 1 interfaces |
 | Scoring template versioning (REQ-SCR-01, REQ-MAT-08) | Phase 1 | Phase 3 advanced templates | |
@@ -111,7 +111,7 @@ Confirm, on a **real corporate Windows 11 Pro laptop** with standard (non-admin)
 | P0-EX-01 | Portable bundle starts without admin rights and without being blocked or quarantined, or an IT-approved workaround is agreed. |
 | P0-EX-02 | Local server reachable only on `127.0.0.1` from the default browser. |
 | P0-EX-03 | A candidate local model runs within the NFR-03 footprint and completes a sample JD extraction in an acceptable time (threshold agreed in [FEASIBILITY.md](FEASIBILITY.md)). |
-| P0-EX-04 | Outlook COM can create a draft, or the fallback (copy-to-clipboard / SMTP later) is accepted by the business. |
+| P0-EX-04 | Outlook COM can create a draft, or the draft-copy / `.eml` fallback is accepted by the business. SMTP was later descoped by the product owner (2026-11-19). |
 | P0-EX-05 | Sample DL and CT files parse with the expected header detection. |
 | P0-EX-06 | Go / no-go decision recorded by Leadership with IT/Security input; granted corporate approvals are not additional pilot gates. |
 
@@ -125,7 +125,7 @@ Access to a representative corporate laptop; sample DL/CT/CV files; IT/Security 
 |---|---|
 | Unsigned executables blocked | Test early; request allow-listing or code signing; evaluate script-only launcher |
 | CPU inference too slow | Smaller quantized model; keep LLM off the per-pair path (NFR-01); rely on deterministic scoring |
-| Outlook COM blocked or new Outlook client in use | Accept draft-copy fallback for Phase 1; SMTP in Phase 2 |
+| Outlook COM blocked or new Outlook client in use | Use the Phase 1 draft-copy / `.eml` fallback; SMTP was descoped by the product owner (2026-11-19) |
 | Endpoint policy blocks a runtime component | Validate on the target laptop in Phase 0 and resolve through IT-supported policy controls |
 
 ## 5. Phase 1 — MVP
@@ -229,14 +229,14 @@ Reduce repetitive effort and broaden reporting once the MVP loop is trusted: aut
 | PDF reports | PDF download of dashboards / analytics and match results | REQ-OUT-09 |
 | Extended analytics | Further charts per [DASHBOARD_RESEARCH.md](DASHBOARD_RESEARCH.md) | REQ-OUT-07 |
 | Chat-with-data | Local-LLM Q&A over demands, bench and results | REQ-LLM-02 |
-| Manual archival + housekeeping | OCC-triggered archival with preview of closed demands and off-bench resources; archived records searchable/exportable; purge temp/logs/orphan vectors; vacuum/backup; retention setting | REQ-ARC-01, REQ-ARC-02, REQ-ARC-03 |
+| Manual archival + housekeeping | OCC-triggered archival with preview of closed demands and off-bench resources; archived records searchable/exportable; purge temp/logs/orphan vectors; vacuum/backup; 12-month default archive retention configurable by the OCC Admin | REQ-ARC-01, REQ-ARC-02, REQ-ARC-03 |
+| Manual end-of-cycle actions and lifecycle history | OCC-managed manual end-of-cycle actions and lifecycle history (Plan 3, moved from Phase 1) | REQ-ARC-01, REQ-ARC-02, REQ-AUTH-05 |
 | CV version comparison | Side-by-side comparison of a candidate's CV versions and scores | REQ-IN-24 |
-| SMTP transport | Optional SMTP alongside Outlook COM | REQ-EML-04 |
-| Security completion (carried from Phase 1) | Application-level encryption at rest for the database, CV cache and uploads; enterprise SonarQube SAST scan and fixes | REQ-AUTH-06 |
+| Security completion (carried from Phase 1) | Enterprise SonarQube SAST scan and fixes | REQ-AUTH-06 |
 
 ### 6.3 Deliverables
 
-Phase 2 ZIP release (in-place upgrade preserving the data folder, REQ-PKG-04); updated user/admin guides; retention setting agreed with data governance; Phase 2 test report.
+Phase 2 ZIP release (in-place upgrade preserving the data folder, REQ-PKG-04); updated user/admin guides; archive retention defaults to 12 months and is configurable by the OCC Admin; Phase 2 test report.
 
 ### 6.4 Exit / acceptance criteria
 
@@ -249,11 +249,11 @@ Phase 2 ZIP release (in-place upgrade preserving the data folder, REQ-PKG-04); u
 | P2-EX-05 | Chat-with-data answers a defined set of reference questions correctly offline. |
 | P2-EX-06 | Upgrade from Phase 1 retains all data, results and audit history. |
 | P2-EX-07 | KPI-01 re-measured; no regression versus Phase 1 baseline. |
-| P2-EX-08 | REQ-AUTH-06 encryption-at-rest clauses implemented and tested; SonarQube SAST scan run with no open Blocker/Critical findings; both complete before Phase 3 starts. |
+| P2-EX-08 | REQ-AUTH-06 remaining at-rest clauses closed as accepted risk (BitLocker required on all PFC laptops); enterprise SonarQube SAST scan run with no open Blocker/Critical findings before Phase 3 starts. |
 
 ### 6.5 Dependencies
 
-Phase 1 pilot go decision; OneDrive / mapped folder access for DL/CT; SMTP server details (if used); OCC Admin sets the configurable retention value.
+Phase 1 pilot go decision; OneDrive / mapped folder access for DL/CT; archive retention defaults to 12 months and is configurable by the OCC Admin. The REQ-EML-04 SMTP clause was descoped by the product owner (2026-11-19); Phase 1's draft-copy and `.eml` fallback remain, with no SMTP server dependency.
 
 ### 6.6 Risks
 
@@ -262,7 +262,7 @@ Phase 1 pilot go decision; OneDrive / mapped folder access for DL/CT; SMTP serve
 | Partially synced or locked files picked up | Stable-file detection (size/time settle), hash check, preview before commit where configured |
 | Chat answers hallucinate | Ground answers in queried data; show source rows; scoring unaffected (REQ-LLM-02) |
 | Archival removes data still needed | Preview, manual trigger only, archive (not delete) semantics |
-| SMTP not permitted | Keep Outlook COM as primary |
+| SMTP transport removed from scope | Product owner descoped the REQ-EML-04 SMTP clause (2026-11-19); Phase 1's Outlook draft-copy and `.eml` fallback remain |
 
 ## 7. Phase 3 — Extensions, external LLMs and licensing
 
@@ -383,7 +383,7 @@ gantt
     Pilot with about 5 users          :p1p, after p1g, 3w
     MVP go decision                   :milestone, m1, after p1p, 0d
     section Phase 2
-    Auto-pickup and SMTP              :p2a, after p1p, 3w
+    Auto-pickup                       :p2a, after p1p, 3w
     PDF reports and extended charts   :p2b, after p1p, 3w
     Archival and classification       :p2c, after p2a, 3w
     Chat-with-data and CV comparison  :p2d, after p2b, 3w
@@ -466,7 +466,7 @@ Every REQ ID in [REQUIREMENTS_BASELINE.md](REQUIREMENTS_BASELINE.md) maps to **e
 | REQ-EML-01 | Per-profile Approve; top 4 suggested | M | 1 | 1 | |
 | REQ-EML-02 | Rich, editable LLM email body | M | 1 | 1 | |
 | REQ-EML-03 | Editable default template in ZIP | M | 1 | 1 | |
-| REQ-EML-04 | Outlook COM primary; SMTP optional | M (COM) / S (SMTP) | 1 / 2 | 2 | Phase 1: Outlook COM |
+| REQ-EML-04 | Outlook COM and draft-file handoff; SMTP clause descoped by product owner (2026-11-19) | M | 1 | 1 | Outlook-only transport; Phase 1 draft-copy and `.eml` fallback remain |
 | REQ-EML-05 | Candidate To; resource-team CC | M | 1 | 1 | |
 | REQ-EML-06 | Sent-flag tracking; no reply parsing | M | 1 | 1 | |
 | REQ-EML-07 | 24 h turnaround KPI | S | 1 | 1 | |
@@ -483,7 +483,7 @@ Every REQ ID in [REQUIREMENTS_BASELINE.md](REQUIREMENTS_BASELINE.md) maps to **e
 | REQ-AUTH-03 | Strong admin password; first-run setup | M | 1 | 1 | |
 | REQ-AUTH-04 | Salted slow hashes; five attempts, 15-minute lockout, 60-minute idle timeout | M | 1 | 1 | |
 | REQ-AUTH-05 | Audit log | M | 1 | 1 | |
-| REQ-AUTH-06 | Encryption at rest where feasible | S | 1 | 1 | Phase 1: BitLocker plus field-level encryption (TDD Q-11); profile data dir with user-only ACL, legacy credential migration, BitLocker status on `/health` and OCC (SECURITY_REVIEW S4/S6). Provider tokens (S5) deferred to Phase 3. Remaining at-rest clauses deferred to Phase 2 (2026-11-18). |
+| REQ-AUTH-06 | Encryption at rest where feasible | S | 1 | 1 | Phase 1: credential encryption; profile data dir with user-only ACL, legacy credential migration, and informational BitLocker status on `/health` and OCC (SECURITY_REVIEW S4/S6). Application-level encryption of the DB, CV cache and uploads will not be built; the product owner closed the remaining at-rest clauses as accepted risk (BitLocker required on all PFC laptops, 2026-11-19). Enterprise SonarQube SAST scan and fixes remain a P2-EX-08 gate before Phase 3. Provider tokens (S5) remain deferred to Phase 3. |
 | REQ-AUTH-07 | Bind to 127.0.0.1 only | M | 1 | 1 | |
 | REQ-AUTH-08 | Licensing (per-user ZIP, signed device licence) | S | 3 | 3 | |
 | REQ-CLS-01 | Default internal-domain allowlist ships in initial ZIP | S | 1 | 1 | |
