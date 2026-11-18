@@ -353,7 +353,9 @@ def result_detail(db: sqlite3.Connection, result_id: int) -> dict[str, Any] | No
     run = db.execute("SELECT run_id FROM match_results WHERE result_id=?", (result_id,)).fetchone()
     if run is None:
         return None
-    result = next(row for row in _rows(db, run[0]) if row["result_id"] == result_id)
+    result = next((row for row in _rows(db, run[0]) if row["result_id"] == result_id), None)
+    if result is None:
+        return None
     result["breakdown"] = [
         {**dict(row), "inputs": mask_emails_in_json(json.loads(row["inputs_json"]))}
         for row in db.execute(

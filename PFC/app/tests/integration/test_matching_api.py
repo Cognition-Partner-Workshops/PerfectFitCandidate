@@ -571,6 +571,21 @@ def test_req_mat_02_bulk_llm_and_unavailable_are_atomic(api: Api) -> None:
     assert fallback.status_code == 200 and fallback.json()["extractedBy"] == "rule_based"
 
 
+@pytest.mark.parametrize("entity", ["demand", "resource"])
+def test_archived_result_detail_returns_not_found(api: Api, entity: str) -> None:
+    client, headers = api
+    with database(client.app.state.settings) as db:
+        seed_demand(db)
+        seed_resource(db)
+    run_id = finish(client, client.post("/api/v1/match-runs", headers=headers, json={}))
+    result = client.get(f"/api/v1/match-runs/{run_id}/results").json()[0]
+    endpoint = f"/api/v1/match-results/{result['resultId']}"
+    assert client.get(endpoint).status_code == 200
+    with database(client.app.state.settings) as db:
+        db.execute(f"UPDATE {entity}s SET lifecycle='archived'")
+    problem(client.get(endpoint), 404)
+
+
 def test_results_default_page_and_candidate_defaults(api: Api) -> None:
     client, headers = api
     with database(client.app.state.settings) as db:
