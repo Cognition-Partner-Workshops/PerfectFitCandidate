@@ -343,6 +343,35 @@ test('summary cards: grounded evidence, stale source, provider unavailable, no r
   await expect(stale).toBeVisible()
   await card.getByRole('button', { name: 'Regenerate' }).click()
   await expect(card.getByRole('button', { name: 'Regenerate' })).toBeEnabled()
+
+  // CV version comparison (REQ-IN-24 / FR-ING-52): read-only, side by side, PII masked.
+  await page.getByRole('tab', { name: /CV versions/ }).click()
+  const boxes = page.getByRole('checkbox', { name: /for comparison$/ })
+  await expect(boxes).toHaveCount(2)
+  await boxes.nth(0).check()
+  await boxes.nth(1).check()
+  await page.getByRole('button', { name: 'Compare selected (2/2)' }).click()
+  const comparison = page.getByRole('region', { name: 'CV version comparison' })
+  await expect(comparison.getByText('Read-only', { exact: true })).toBeVisible()
+  const textDiff = comparison.getByRole('region', { name: 'Text differences' })
+  await expect(textDiff.locator('td.diff-new').filter({ hasText: 'Led a move to cloud warehouses.' })).toBeVisible()
+  await expect(comparison.getByRole('region', { name: 'Score differences' })).toBeVisible()
+  for (const raw of [CV_EMAIL, CV_PHONE, CV_PHONE.replace(' ', '')]) await expect(body).not.toContainText(raw)
+  const shots = process.env.PFC_SCREENSHOT_DIR
+  if (shots) {
+    await page.setViewportSize({ width: 1400, height: 3600 })
+    await comparison.screenshot({ path: `${shots}/cv-compare.png` })
+    const score = comparison.getByRole('button', { name: 'Score both versions' })
+    if (await score.isEnabled()) {
+      await score.click()
+      await expect(comparison.getByRole('table', { name: 'What-if scores' })).toBeVisible({ timeout: 30_000 })
+      await comparison.getByText('Score breakdown').first().click()
+      await comparison.getByRole('region', { name: 'Score differences' }).screenshot({ path: `${shots}/cv-compare-scores.png` })
+    }
+    await page.setViewportSize({ width: 1280, height: 720 })
+  }
+  await comparison.getByRole('button', { name: 'Close comparison' }).click()
+  await expect(comparison).toBeHidden()
   await expect(stale).toHaveCount(0)
   await expectEvidence(card, 3)
   await expectRedactedContact()
