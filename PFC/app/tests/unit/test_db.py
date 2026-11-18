@@ -21,7 +21,7 @@ def settings(tmp_path: Path) -> Settings:
 
 
 @pytest.mark.parametrize("upgrade", [False, True])
-def test_follow_up_and_chat_migrations_apply_in_order(
+def test_follow_up_chat_and_cv_comparison_migrations_apply_in_order(
     settings: Settings, tmp_path: Path, upgrade: bool
 ) -> None:
     if upgrade:
@@ -32,10 +32,15 @@ def test_follow_up_and_chat_migrations_apply_in_order(
                 shutil.copyfile(path, old / path.name)
         assert migrate(settings, old)[-1] == "0012"
     applied = migrate(settings)
-    assert [version for version in applied if version in {"0016", "0017"}] == ["0016", "0017"]
+    assert [version for version in applied if version in {"0016", "0017", "0018"}] == [
+        "0016",
+        "0017",
+        "0018",
+    ]
     with database(settings) as db:
         assert db.execute("SELECT count(*) FROM follow_ups").fetchone()[0] == 0
         assert db.execute("SELECT count(*) FROM chat_questions").fetchone()[0] == 0
+        assert db.execute("SELECT count(*) FROM cv_comparisons").fetchone()[0] == 0
         assert db.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
