@@ -72,6 +72,37 @@ def test_symlink_stat_never_read(tmp_path: Path) -> None:
     assert source.pending == {}
 
 
+@pytest.mark.parametrize("tag", [0x9000001A, 0x9000101A, 0x9000F01A])
+@pytest.mark.parametrize("unsynced", [0, 0x1000, 0x40000, 0x400000])
+def test_cloud_reparse_requires_hydration(tmp_path: Path, tag: int, unsynced: int) -> None:
+    file = tmp_path / "DL.xlsx"
+    file.write_bytes(b"data")
+    info = SimpleNamespace(
+        st_mode=stat.S_IFREG,
+        st_size=4,
+        st_mtime_ns=1,
+        st_file_attributes=0x400 | unsynced,
+        st_reparse_tag=tag,
+    )
+    source = WatchFolderSource(tmp_path, "*.xlsx", stat_file=lambda p: info)
+    assert source.scan(0) == []
+    assert source.scan(10) == ([] if unsynced else [(file.name, b"data")])
+    assert source.pending == ({file.name: "not synced"} if unsynced else {})
+
+
+@pytest.mark.parametrize("tag", [0, 0xA000000C, 0xA0000003, 0x80000017])
+def test_noncloud_reparse_never_read(tmp_path: Path, tag: int) -> None:
+    (tmp_path / "DL.xlsx").touch()
+    info = SimpleNamespace(st_mode=stat.S_IFREG, st_file_attributes=0x400, st_reparse_tag=tag)
+    source = WatchFolderSource(
+        tmp_path,
+        "*.xlsx",
+        stat_file=lambda p: info,
+        read_file=lambda p: pytest.fail("Must not read a non-cloud reparse point"),
+    )
+    assert source.scan(0) == source.scan(10) == []
+
+
 def test_unreadable_and_partial_read_retry(tmp_path: Path) -> None:
     file = tmp_path / "DL.xlsx"
     file.write_bytes(b"data")

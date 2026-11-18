@@ -11,6 +11,13 @@ NOT_SYNCED = 0x1000 | 0x40000 | 0x400000
 REPARSE_POINT = 0x400
 
 
+def unsupported_reparse(info: os.stat_result) -> bool:
+    return bool(
+        getattr(info, "st_file_attributes", 0) & REPARSE_POINT
+        and getattr(info, "st_reparse_tag", 0) & 0xFFFF0FFF != 0x9000001A
+    )
+
+
 class WatchFolderSource:
     def __init__(
         self,
@@ -51,7 +58,7 @@ class WatchFolderSource:
             try:
                 before = self.stat_file(path)
                 attributes = getattr(before, "st_file_attributes", 0)
-                if not stat.S_ISREG(before.st_mode) or attributes & REPARSE_POINT:
+                if not stat.S_ISREG(before.st_mode) or unsupported_reparse(before):
                     self.observed.pop(name, None)
                     continue
                 if attributes & NOT_SYNCED:
@@ -79,8 +86,10 @@ class WatchFolderSource:
                     self.observed[name] = (after.st_size, after.st_mtime_ns, now)
                     pending[name] = "settling"
                     continue
-                if not stat.S_ISREG(after.st_mode) or getattr(after, "st_file_attributes", 0) & (
-                    NOT_SYNCED | REPARSE_POINT
+                if (
+                    not stat.S_ISREG(after.st_mode)
+                    or unsupported_reparse(after)
+                    or getattr(after, "st_file_attributes", 0) & NOT_SYNCED
                 ):
                     self.observed.pop(name, None)
                     pending[name] = "not synced"
