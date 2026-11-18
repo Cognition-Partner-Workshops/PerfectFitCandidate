@@ -143,7 +143,11 @@ def preview(
                 ):
                     continue
                 entity_id = row[f"{entity}_id"]
-                label = f"{entity.capitalize()} {entity_id}"
+                label = (
+                    row["code_requisition"]
+                    if entity == "demand" and row["id_format_ok"]
+                    else f"{entity.capitalize()} {entity_id}"
+                )
                 db.execute(
                     "INSERT INTO archive_batch_items(batch_id,entity_type,entity_id,label,reason,"
                     "fingerprint) VALUES (?,?,?,?,?,?)",
@@ -288,6 +292,8 @@ def submit(
     def run(context: JobContext) -> None:
         counts = execute_batch(settings, batch_id, user_id, now)
         context.report_progress(1, json.dumps(counts))
+        context.raise_if_cancelled()
+        context.runner._finish(context.job_id, "completed", json.dumps(counts))
 
     try:
         job_id = runner.submit(

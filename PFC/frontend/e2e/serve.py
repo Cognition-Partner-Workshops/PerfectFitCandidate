@@ -140,6 +140,42 @@ def fixtures(root: Path) -> None:
         ],
     )
     workbook(root / "ct.xlsx", CT_HEADERS, [smoke_alex("SQL"), SMOKE_TAYLOR])
+    for retry in range(2):
+        workbook(
+            root / f"dl-lifecycle-{retry}.xlsx",
+            list(DL),
+            [
+                {
+                    "Code Requisition": f"T19{retry}01",
+                    "Code Local Grade": "B1",
+                    "Account Name": "Meridian Demo",
+                    "Demand Request Name": "Data delivery consultant",
+                    "JD": "SQL, Python",
+                },
+                {
+                    "Code Requisition": f"T19{retry}02",
+                    "Code Local Grade": "B1",
+                    "Account Name": "Northstar Demo",
+                    "JD": "Python",
+                },
+            ],
+        )
+        workbook(
+            root / f"ct-lifecycle-{retry}.xlsx",
+            CT_HEADERS,
+            [
+                {
+                    **smoke_alex("SQL, Python"),
+                    "ShortName": f"DemoMorgan{retry}",
+                    "Email Address": f"demo.morgan{retry}@example.test",
+                },
+                {
+                    **SMOKE_TAYLOR,
+                    "ShortName": f"DemoJordan{retry}",
+                    "Email Address": f"demo.jordan{retry}@example.test",
+                },
+            ],
+        )
     # Committed after the match run, so the run is flagged "DL/CT committed".
     workbook(root / "ct-update.xlsx", CT_HEADERS, [smoke_alex("SQL, Python"), SMOKE_TAYLOR])
     cv(root / "resumes" / "taylor@example.com.docx", CV_LINES)

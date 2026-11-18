@@ -8,6 +8,7 @@ import { SummaryCard } from '../components/SummaryCard'
 import { eligibilityReasonLabel, eligibilityReasonTitle } from '../lib/excluded'
 import { formatDate, formatDateTime, initials, orNotRecorded } from '../lib/format'
 import { CandidateClassificationCard } from './CandidateClassificationCard'
+import { LifecycleControls } from '../components/Lifecycle'
 
 type Tab = 'overview' | 'cv' | 'skills' | 'matches' | 'activity'
 
@@ -172,6 +173,8 @@ export function CandidateProfilePage() {
   const { candidateId } = useParams()
   const id = Number(candidateId)
   const detail = useQuery({ queryKey: ['candidate', id], queryFn: () => api.getCandidate(id), enabled: Number.isFinite(id) && id > 0 })
+  const resourceId = detail.data?.resource.resourceId
+  const lifecycle = useQuery({ queryKey: ['lifecycle', 'resource', resourceId], queryFn: () => api.maintenance.detail('resource', resourceId!), enabled: Boolean(resourceId) })
   const [tab, setTab] = useState<Tab>('overview')
   const [prompt, setPrompt] = useState<boolean | null>(null)
   if (!candidateId) return <Picker />
@@ -179,6 +182,8 @@ export function CandidateProfilePage() {
   if (detail.isError || !detail.data) return <div className="page"><ErrorState error={detail.error} onRetry={() => void detail.refetch()} /></div>
   const d = detail.data
   const r = d.resource
+  const archived = lifecycle.data?.lifecycle === 'archived'
+  const readOnly = archived || lifecycle.isPending || lifecycle.isError
   const incomplete = d.identityStatus === 'ambiguous' || d.identityStatus === 'incomplete'
   const showPrompt = prompt ?? incomplete
   const phoneWarning = d.cvVersions[0]?.facts?.warnings.find((warning) => warning.code === 'PHONE_NOT_FOUND')
@@ -200,7 +205,7 @@ export function CandidateProfilePage() {
           <div className="row small">
             <EligibilityBadge eligibility={r.eligibility} reasons={r.exclusionReasons} unrecognisedSkills={r.unrecognisedSkills} /> · {r.benchStatus} · {r.groupName} (Owner: {r.groupOwner}) ·{' '}
             <span className="mono">{d.internalRef}</span>
-            {incomplete && (
+            {incomplete && !readOnly && (
               <button className="btn btn-sm" onClick={() => setPrompt(true)}>
                 Resolve identity
               </button>
@@ -211,7 +216,8 @@ export function CandidateProfilePage() {
           Open in Match Results
         </Link>
       </div>
-      <SummaryCard kind="candidate" id={id} />
+      <LifecycleControls entity="resource" id={r.resourceId} />
+      <SummaryCard kind="candidate" id={id} readOnly={readOnly} />
       {r.eligibility === 'excluded' && <Banner tone="danger">Excluded — {r.exclusionReasons.map((reason) => eligibilityReasonLabel(reason, r.unrecognisedSkills)).join('; ')}. Not compared with JDs.</Banner>}
       <div className="tabs" role="tablist">
         {(
@@ -230,7 +236,7 @@ export function CandidateProfilePage() {
       </div>
       {tab === 'overview' && (
         <div className="grid-12">
-          <div className="span-12"><CandidateClassificationCard key={d.candidateId} classification={d.classification} /></div>
+          <div className="span-12"><fieldset disabled={readOnly} style={{ border: 0, padding: 0, margin: 0 }}><CandidateClassificationCard key={d.candidateId} classification={d.classification} /></fieldset></div>
           <section className="card span-8">
             <h3>CT data (as uploaded)</h3>
             <table className="data">
@@ -375,7 +381,7 @@ export function CandidateProfilePage() {
           )}
         </section>
       )}
-      {showPrompt && incomplete && <IncompleteIdentityDialog detail={d} onClose={() => setPrompt(false)} />}
+      {showPrompt && incomplete && !readOnly && <IncompleteIdentityDialog detail={d} onClose={() => setPrompt(false)} />}
     </div>
   )
 }

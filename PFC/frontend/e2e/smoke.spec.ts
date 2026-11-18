@@ -1,4 +1,4 @@
-import { copyFileSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test } from '@playwright/test'
 
@@ -45,15 +45,18 @@ async function waitForCompletedRun(page: import('@playwright/test').Page) {
 
 test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({ page }) => {
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'Create the OCC administrator account' })).toBeVisible()
-  await page.getByLabel('Setup code').fill(readFileSync(`${data}run/setup-code.txt`, 'utf8').trim())
-  await page.getByLabel('Full name').fill('Test Owner')
-  await page.getByLabel('Corporate email').fill(EMAIL)
-  await page.getByLabel('Password', { exact: true }).fill(PASSWORD)
-  await page.getByLabel('Confirm password').fill(PASSWORD)
-  await page.getByRole('button', { name: 'Create admin' }).click()
-  await page.getByRole('button', { name: 'Next' }).click()
-  await page.getByRole('button', { name: 'Go to sign in' }).click()
+  const setup = await (await page.request.get('/api/v1/setup/status')).json() as { admin_exists: boolean }
+  if (!setup.admin_exists) {
+    await expect(page.getByRole('heading', { name: 'Create the OCC administrator account' })).toBeVisible()
+    await page.getByLabel('Setup code').fill(readFileSync(`${data}run/setup-code.txt`, 'utf8').trim())
+    await page.getByLabel('Full name').fill('Test Owner')
+    await page.getByLabel('Corporate email').fill(EMAIL)
+    await page.getByLabel('Password', { exact: true }).fill(PASSWORD)
+    await page.getByLabel('Confirm password').fill(PASSWORD)
+    await page.getByRole('button', { name: 'Create admin' }).click()
+    await page.getByRole('button', { name: 'Next' }).click()
+    await page.getByRole('button', { name: 'Go to sign in' }).click()
+  }
 
   await signIn(page)
   // Dashboard reads the four /analytics/* endpoints; on an empty data dir it must load without an error.
@@ -282,4 +285,93 @@ test('summary cards: grounded evidence, stale source, provider unavailable, no r
   } finally {
     rmSync(`${data}llm-down`, { force: true })
   }
+})
+
+test('lifecycle end/reopen, exact archive selection, masked archive search and CSV export', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1100 })
+  const retry = testInfo.retry
+  const requisition = `T19${retry}01`
+  const resource = `DemoMorgan${retry}`
+  const screenshots = process.env.PFC_SCREEN_DIR
+  const capture = async (name: string) => {
+    if (screenshots) {
+      const minimize = page.getByRole('button', { name: 'Minimize tasks' })
+      if (await page.getByRole('dialog').count() === 0 && await minimize.isVisible()) await minimize.click()
+      mkdirSync(screenshots, { recursive: true })
+      await page.screenshot({ path: `${screenshots}/${name}.png`, fullPage: true })
+    }
+  }
+  await page.goto('/')
+  await signIn(page)
+  await page.goto('/#/demands')
+  await upload(page, 'Upload DL', 'Demand List workbook', `dl-lifecycle-${retry}.xlsx`)
+  const demandRow = page.getByRole('row', { name: new RegExp(requisition) })
+  await demandRow.getByRole('button', { name: 'End of cycle…' }).click()
+  const end = page.getByRole('dialog', { name: 'End of cycle…' })
+  await expect(end.getByLabel('Reason (required)').locator('option')).not.toHaveCount(1)
+  await end.getByLabel('Reason (required)').selectOption({ index: 1 })
+  await end.getByLabel(/^Comment/).fill('Meridian demo engagement completed; approved for archival.')
+  await capture('end-of-cycle-dialog')
+  await end.getByRole('button', { name: 'End cycle' }).click()
+  await expect(demandRow).toBeHidden()
+
+  await page.goto('/#/bench')
+  await upload(page, 'Upload CT', 'Candidate Tracker workbook', `ct-lifecycle-${retry}.xlsx`)
+  await page.getByRole('tab', { name: /^All \(/ }).click()
+  const resourceRow = page.getByRole('row', { name: new RegExp(resource) })
+  await resourceRow.getByRole('button', { name: 'End of cycle…' }).click()
+  await expect(end.getByLabel('Reason (required)').locator('option')).not.toHaveCount(1)
+  await end.getByLabel('Reason (required)').selectOption({ index: 1 })
+  await end.getByLabel(/^Comment/).fill('Demo resource engagement completed.')
+  await end.getByRole('button', { name: 'End cycle' }).click()
+  await expect(resourceRow).toBeHidden()
+  await page.getByRole('button', { name: 'Ended resources' }).click()
+  const endedResource = page.locator('.row').filter({ has: page.locator('strong', { hasText: resource }) })
+  await endedResource.getByRole('button', { name: 'Lifecycle history', exact: true }).click()
+  await expect(page.getByRole('region', { name: 'Lifecycle history' })).toContainText('Off bench')
+  await page.getByRole('region', { name: 'Lifecycle history' }).scrollIntoViewIfNeeded()
+  await capture('lifecycle-history')
+  await endedResource.getByRole('button', { name: 'Reopen', exact: true }).click()
+  const reopen = page.getByRole('dialog', { name: 'Reopen record' })
+  await expect(reopen.getByLabel('Reason (required)').locator('option')).not.toHaveCount(1)
+  await reopen.getByLabel('Reason (required)').selectOption({ index: 1 })
+  await reopen.getByLabel(/^Comment/).fill('Demo resource available for a new engagement.')
+  await reopen.getByRole('button', { name: 'Reopen', exact: true }).click()
+  await expect(resourceRow).toBeVisible()
+
+  await page.goto('/#/occ/archival')
+  await page.getByRole('button', { name: 'Build archive preview' }).click()
+  const preview = page.getByRole('region', { name: 'Archive preview' })
+  await expect(preview.getByRole('checkbox', { name: `Include ${requisition}`, exact: true })).toBeVisible()
+  for (const checkbox of await preview.getByRole('checkbox').all()) {
+    if (await checkbox.getAttribute('aria-label') !== `Include ${requisition}`) await checkbox.uncheck()
+  }
+  await preview.getByRole('tab', { name: /^Resources/ }).click()
+  for (const checkbox of await preview.getByRole('checkbox').all()) await checkbox.uncheck()
+  await preview.getByRole('tab', { name: /^Demands/ }).click()
+  await capture('occ-archival-preview')
+  await page.getByRole('region', { name: 'Housekeeping', exact: true }).scrollIntoViewIfNeeded()
+  await capture('housekeeping')
+  await preview.getByRole('button', { name: 'Archive 1 records' }).click()
+  const confirm = page.getByRole('dialog', { name: 'Confirm archive' })
+  await expect(confirm).toContainText('Archive exactly 1 demands and 0 resources')
+  await confirm.getByRole('button', { name: 'Confirm archive' }).click()
+  await expect(preview.getByText('Archive completed. 1 demands and 0 resources processed.')).toBeVisible()
+  const showTasks = page.getByRole('button', { name: /^Show tasks/ })
+  if (await showTasks.isVisible()) await showTasks.click()
+  await expect(page.getByRole('region', { name: 'Task status' })).toContainText('Archive records')
+
+  await page.getByRole('link', { name: 'Archive', exact: true }).click()
+  await page.getByLabel('Search archive').fill(requisition)
+  await expect(page.getByRole('table', { name: 'Archived records' })).toContainText(requisition)
+  await capture('archive-page')
+  await page.getByRole('button', { name: 'Read-only detail' }).click()
+  await expect(page.getByRole('dialog')).toContainText('Read-only')
+  await expect(page.getByRole('region', { name: 'Lifecycle history' })).toContainText('Archived')
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
+  const downloaded = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export CSV' }).click()
+  const csv = await downloaded
+  expect(csv.suggestedFilename()).toBe('archived-demands.csv')
+  expect(readFileSync((await csv.path())!, 'utf8')).toContain(requisition)
 })

@@ -167,6 +167,8 @@ def housekeeping_run(body: Housekeeping, request: Request, admin: Admin) -> dict
             request.app.state.clock(),
         )
         context.report_progress(1, json.dumps(counts))
+        context.raise_if_cancelled()
+        context.runner._finish(context.job_id, "completed", json.dumps(counts))
 
     return {
         "job_id": request.app.state.job_runner.submit(

@@ -10,6 +10,7 @@ import { SetupPage } from './pages/auth/SetupPage'
 import { ForcedPasswordChange } from './pages/auth/ForcedPasswordChange'
 import { DemandListPage } from './pages/DemandListPage'
 import { BenchListPage } from './pages/BenchListPage'
+import { ArchivePage } from './pages/ArchivePage'
 import { MatchResultsPage } from './pages/MatchResultsPage'
 import { CandidateProfilePage } from './pages/CandidateProfilePage'
 import { EmailApprovalPage } from './pages/EmailApprovalPage'
@@ -53,6 +54,7 @@ export function AppRoutes() {
           />
           <Route path="/demands" element={<DemandListPage />} />
           <Route path="/bench" element={<BenchListPage />} />
+          <Route path="/archive" element={<ArchivePage />} />
           <Route path="/matches" element={<MatchResultsPage />} />
           <Route path="/candidates" element={<CandidateProfilePage />} />
           <Route path="/candidates/:candidateId" element={<CandidateProfilePage />} />

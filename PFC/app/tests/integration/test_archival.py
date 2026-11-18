@@ -1,5 +1,6 @@
 """Archive selection, atomic drift protection, retention and maintenance contracts."""
 
+import json
 import os
 from datetime import UTC, datetime, timedelta
 
@@ -197,23 +198,44 @@ def test_settings_ranges_and_audit(client, key, valid, invalid):
         assert verify_chain(db)
 
 
-def test_archive_job_and_expired_preview(client):
+@pytest.mark.parametrize("kind", ["archive", "purge"])
+def test_archive_job_and_expired_preview(client, kind):
     settings = seed(client)
+    if kind == "purge":
+        with database(settings) as db:
+            archived = archival.preview(db, kind="archive", user_id=1, now=NOW)
+        execute(settings, archived)
+        with database(settings) as db:
+            for table in ("demands", "resources"):
+                db.execute(
+                    f"UPDATE {table} SET archived_at=?", ((NOW - timedelta(days=400)).isoformat(),)
+                )
     with database(settings) as db:
-        old = archival.preview(db, kind="archive", user_id=1, now=NOW)
-        batch = archival.preview(db, kind="archive", user_id=1, now=NOW)
+        old = archival.preview(db, kind=kind, user_id=1, now=NOW)
+        batch = archival.preview(db, kind=kind, user_id=1, now=NOW)
         assert archival.batch(db, old["batch_id"])["status"] == "expired"
     runner = JobRunner(settings)
     try:
         job_id = archival.submit(
-            settings, runner, batch["batch_id"], batch["preview_hash"], 1, NOW, kind="archive"
+            settings, runner, batch["batch_id"], batch["preview_hash"], 1, NOW, kind=kind
         )
         runner._executor.shutdown(wait=True)
     finally:
         runner.shutdown()
     job = runner.get(job_id)
-    assert job.kind == "archive" and job.status == "completed"
+    assert job.kind == ("archive" if kind == "archive" else "archive_purge")
+    assert job.status == "completed"
     assert '"demand": 3' in job.message
+
+
+def test_housekeeping_job_result_message(client):
+    response = client.post("/api/v1/occ/housekeeping", json={"backup": True})
+    assert response.status_code == 202
+    runner = client.app.state.job_runner
+    runner._executor.shutdown(wait=True)
+    job = runner.get(response.json()["job_id"])
+    assert job.kind == "housekeeping" and job.status == "completed"
+    assert json.loads(job.message) == {"purge_temp": 0, "purge_logs": 0, "backup": 1}
 
 
 def test_housekeeping_orphans_retains_archived_embeddings(client):

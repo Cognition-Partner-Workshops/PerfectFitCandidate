@@ -16,7 +16,7 @@ from pfc.config import Settings
 from pfc.db.audit import append_audit, verify_chain
 from pfc.db.connection import database
 from pfc.db.migrate import migrate
-from pfc.services.lifecycle import events, record_transition
+from pfc.services.lifecycle import REASONS, events, record_transition
 from pfc.services.occ.seed import seed_reference_data
 
 
@@ -45,6 +45,12 @@ def change(client: TestClient, entity: str, outcome: str, **extra: object):
             **extra,
         },
     )
+
+
+def test_reason_metadata(client: TestClient) -> None:
+    response = client.get("/api/v1/lifecycle/reasons")
+    assert response.status_code == 200
+    assert response.json() == {outcome: sorted(codes) for outcome, codes in REASONS.items()}
 
 
 @pytest.mark.parametrize(

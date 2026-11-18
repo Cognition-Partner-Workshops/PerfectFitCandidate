@@ -12,6 +12,11 @@ router = APIRouter(prefix="/lifecycle", dependencies=[Depends(require_role("Anal
 User = Annotated[Principal, Depends(require_role("Analyst"))]
 
 
+@router.get("/reasons")
+def reasons() -> dict[str, list[str]]:
+    return {outcome: sorted(codes) for outcome, codes in lifecycle.REASONS.items()}
+
+
 class Change(BaseModel):
     outcome: Literal["filled", "cancelled", "closed", "off_bench", "released"]
     reason_code: str

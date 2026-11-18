@@ -9,6 +9,7 @@ import { UploadDialog } from '../components/UploadDialog'
 import { eligibilityReasonLabel, eligibilityReasonTitle } from '../lib/excluded'
 import { formatDate, orNotRecorded } from '../lib/format'
 import { useTasks } from '../lib/tasks'
+import { EndedRecords, LifecycleControls } from '../components/Lifecycle'
 
 type View = 'eligible' | 'excluded' | 'all'
 
@@ -148,6 +149,7 @@ export function BenchListPage() {
                     <button className="btn btn-sm" onClick={() => sync.mutate([r.resourceId])} disabled={sync.isPending}>
                       <RefreshCw size={12} /> Sync
                     </button>
+                    <LifecycleControls entity="resource" id={r.resourceId} defer />
                   </td>
                 </tr>
               ))}
@@ -155,6 +157,7 @@ export function BenchListPage() {
           </table>
         </div>
       )}
+      <EndedRecords entity="resource" />
       {confirm && (
         <Modal
           title={`Sync ${selected.size} candidate(s)?`}

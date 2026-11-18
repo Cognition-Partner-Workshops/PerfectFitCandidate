@@ -104,7 +104,7 @@ describe('role-visibility matrix (GUI_OCC_DESIGN.md §5)', () => {
   it('hides OCC from Analysts and Chat in Phase 1', () => {
     const analyst = visibleNav('Analyst').map((n) => n.label)
     const admin = visibleNav('Admin').map((n) => n.label)
-    expect(analyst).toEqual(['Dashboard', 'Demand List', 'Bench List', 'Match Results', 'Candidate Profile', 'Email Approval', 'Settings'])
+    expect(analyst).toEqual(['Dashboard', 'Demand List', 'Bench List', 'Match Results', 'Candidate Profile', 'Email Approval', 'Archive', 'Settings'])
     expect(admin).toContain('OCC')
     expect(admin).not.toContain('Chat')
   })

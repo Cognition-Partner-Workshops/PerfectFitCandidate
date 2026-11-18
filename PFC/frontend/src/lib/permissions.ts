@@ -20,6 +20,7 @@ export type Capability =
   | 'scoringTemplateVersion'
   | 'occ'
   | 'auditLog'
+  | 'archive'
 
 export const ROLE_MATRIX: Record<Capability, Record<Role, Access>> = {
   dashboard: { Analyst: 'F', Admin: 'F' },
@@ -37,6 +38,7 @@ export const ROLE_MATRIX: Record<Capability, Record<Role, Access>> = {
   scoringTemplateVersion: { Analyst: 'R', Admin: 'F' },
   occ: { Analyst: '-', Admin: 'F' },
   auditLog: { Analyst: '-', Admin: 'F' },
+  archive: { Analyst: 'R', Admin: 'R' },
 }
 
 export function access(role: Role, capability: Capability): Access {
@@ -68,12 +70,14 @@ export const NAV_ITEMS: NavItem[] = [
   { id: 'matches', label: 'Match Results', path: '/matches', capability: 'matchResults', phase: 1 },
   { id: 'candidates', label: 'Candidate Profile', path: '/candidates', capability: 'candidateProfile', phase: 1 },
   { id: 'email', label: 'Email Approval', path: '/email', capability: 'emailApproval', phase: 1 },
+  { id: 'archive', label: 'Archive', path: '/archive', capability: 'archive', phase: 2 },
   { id: 'chat', label: 'Chat', path: '/chat', capability: 'chat', phase: 2 },
   { id: 'settings', label: 'Settings', path: '/settings', capability: 'settings', phase: 1 },
   { id: 'occ', label: 'OCC', path: '/occ', capability: 'occ', phase: 1, adminSection: true },
 ]
 
 function phaseEnabled(item: NavItem): boolean {
+  if (item.id === 'archive') return true
   if (item.id === 'chat') return featureFlags.chat
   return item.phase === 1
 }

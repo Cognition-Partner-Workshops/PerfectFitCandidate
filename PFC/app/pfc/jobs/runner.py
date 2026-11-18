@@ -110,11 +110,10 @@ class JobRunner:
     def _finish(self, job_id: int, status: str, message: str | None) -> None:
         with database(self.settings) as db:
             db.execute(
-                "UPDATE jobs SET status=?, message=CASE WHEN ?='completed' AND ? IS NULL "
-                "THEN message ELSE ? END, finished_at=?, "
+                "UPDATE jobs SET status=?, message=?, finished_at=?, "
                 "progress=CASE WHEN ?='completed' THEN 1 ELSE progress END "
                 "WHERE job_id=? AND status NOT IN ('completed','failed','cancelled')",
-                (status, status, message, message, stamp(datetime.now(UTC)), status, job_id),
+                (status, message, stamp(datetime.now(UTC)), status, job_id),
             )
 
     def _run(
