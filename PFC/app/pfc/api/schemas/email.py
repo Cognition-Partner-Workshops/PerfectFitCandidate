@@ -57,6 +57,7 @@ class EmailHandoffRequest(BaseModel):
 
 
 class EmailDraftView(BaseModel):
+    follow_up: dict[str, str | None] | None = None
     message_id: int
     demand_id: int
     code_requisition: str | None
@@ -102,6 +103,7 @@ class EmailDraftCreateResponse(BaseModel):
 
 
 class EmailDraftListResponse(BaseModel):
+    follow_up_enabled: bool = True
     drafts: list[EmailDraftView]
     status_counts: dict[str, int]
     sent_count: int

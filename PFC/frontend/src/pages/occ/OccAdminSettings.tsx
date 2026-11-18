@@ -22,17 +22,21 @@ export function OccAdminSettings() {
   const qc = useQueryClient()
   const q = useQuery({ queryKey: ['occ', 'admin-settings'], queryFn: () => api.getAdminSettings() })
   const [draft, setDraft] = useState<AdminSettings | null>(null)
+  const [holidaysText, setHolidaysText] = useState<string | null>(null)
   const save = useMutation({
     mutationFn: (s: AdminSettings) => api.saveAdminSettings(s),
     onSuccess: (s) => {
       qc.setQueryData(['occ', 'admin-settings'], s)
       setDraft(null)
+      setHolidaysText(null)
     },
   })
   if (q.isLoading) return <Spinner />
   if (q.isError || !q.data) return <ErrorState error={q.error} />
   const s = draft ?? q.data
   const invalid = NUMBERS.filter(([k, , min, max]) => !Number.isInteger(s[k]) || s[k] < min || s[k] > Math.min(max, k === 'emailsPreselected' ? s.topN : max)).map(([, label]) => label)
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(s.followUpTime)) invalid.push('Reminder time must be HH:MM')
+  if (s.followUpHolidays.some((day) => !/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isFinite(Date.parse(day)) || new Date(day).toISOString().slice(0, 10) !== day)) invalid.push('Holidays must be valid ISO dates (YYYY-MM-DD)')
   return (
     <section className="card stack" aria-label="Admin settings">
       <h2>Admin settings</h2>
@@ -62,6 +66,20 @@ export function OccAdminSettings() {
           </select>
         </label>
       </div>
+      <section className="stack" aria-label="Outlook follow-up reminder">
+        <h3>Outlook follow-up reminder</h3>
+        <label className="row" style={{ gap: 6 }}>
+          <input type="checkbox" checked={s.followUpEnabled} onChange={(e) => setDraft({ ...s, followUpEnabled: e.target.checked })} />
+          Enable Outlook follow-up reminder
+        </label>
+        <label className="field">Reminder time
+          <input type="time" value={s.followUpTime} onChange={(e) => setDraft({ ...s, followUpTime: e.target.value })} />
+        </label>
+        <label className="field">Holidays (ISO dates, separated by commas or lines)
+          <textarea value={holidaysText ?? s.followUpHolidays.join(', ')} onChange={(e) => { setHolidaysText(e.target.value); setDraft({ ...s, followUpHolidays: e.target.value.split(/[,\n]/).map((day) => day.trim()).filter(Boolean) }) }} />
+        </label>
+        <p className="muted small">One business day after sending; Saturdays, Sundays and listed holidays are skipped.</p>
+      </section>
       <label className="row" style={{ gap: 6 }}>
         <input type="checkbox" checked={s.analystsMayUnmask} onChange={(e) => setDraft({ ...s, analystsMayUnmask: e.target.checked })} />
         Analysts may unmask emails and phone numbers (every unmask is audit-logged)
@@ -77,7 +95,7 @@ export function OccAdminSettings() {
         <button className="btn btn-primary" disabled={!draft || invalid.length > 0} onClick={() => draft && save.mutate(draft)}>
           Save admin settings
         </button>
-        <button className="btn" disabled={!draft} onClick={() => setDraft(null)}>
+        <button className="btn" disabled={!draft} onClick={() => { setDraft(null); setHolidaysText(null) }}>
           Discard changes
         </button>
       </div>

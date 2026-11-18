@@ -276,6 +276,34 @@ or additional system fonts. The existing packaging build downloads verified
 Windows wheels from `PFC/packaging/requirements.lock` and vendors them into the
 embedded Python runtime; all three entries travel in the ZIP.
 
+### Outlook follow-up reminder
+
+Beside **Email transport**, the **Outlook follow-up reminder** section controls:
+
+- **Enable Outlook follow-up reminder:** on by default. Turning it off prevents new
+  follow-ups; it does not remove existing appointments.
+- **Reminder time:** local 24-hour `HH:MM`, default **09:00**.
+- **Holidays:** ISO dates (`YYYY-MM-DD`), separated by commas or lines; default empty.
+  Invalid times/dates prevent saving; server validation errors are shown inline.
+
+Choose **Save admin settings** to save these with the transport. A newly Sent approved
+email gets a due date one business day after its local sent date at the configured
+time. Saturdays, Sundays and listed holidays are skipped, including consecutive holidays.
+Settings changes apply to new schedules, not to reminders already scheduled.
+
+**Transport limits:** classic Outlook COM creates a 15-minute free appointment with a
+reminder at its start in the analyst's own default calendar. It is not a flag on the
+sent mail, is not a meeting, and has no recipients. New Outlook / **Outlook draft file**
+(`eml_handoff`) cannot be automated: after the analyst confirms Sent, PFC records the
+due date and offers **Add to Outlook calendar**. The analyst must download, open and
+save the `.ics`; PFC cannot verify it was added.
+
+Reminders are only created while PFC is running. Failed COM reminders can be retried
+from Email Approval without re-sending the email. Re-sending creates a separate
+reminder and never removes the earlier one; replies do not cancel appointments.
+Real Outlook is not verified in CI: automated coverage uses a fake COM application
+and real-backend `.ics` downloads, not an installed Outlook profile.
+
 ### DL/CT auto-pickup operations and troubleshooting
 
 Watch-folder configuration is **per user**, under personal **Settings → Data

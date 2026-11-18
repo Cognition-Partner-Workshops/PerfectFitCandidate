@@ -239,6 +239,61 @@ test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({
   await expect(page.getByText('Data changed since this run')).toHaveCount(0)
 })
 
+test('follow-up settings and Outlook draft calendar handoff (REQ-EML-08)', async ({ page }) => {
+  await page.goto('/')
+  await signIn(page)
+  await page.goto('/#/occ/admin-settings')
+  await page.getByLabel('Enable Outlook follow-up reminder').check()
+  await page.getByLabel('Reminder time').fill('10:31')
+  await page.getByLabel('Reminder time').fill('10:30')
+  await page.getByRole('combobox', { name: 'Email transport', exact: true }).selectOption('eml_handoff')
+  await page.getByRole('button', { name: 'Save admin settings' }).click()
+  await expect(page.getByText('Admin settings saved.')).toBeVisible()
+  await page.reload()
+  await expect(page.getByLabel('Reminder time')).toHaveValue('10:30')
+
+  // Reuse the draft on a retry rather than re-creating the administrator or re-sending mail.
+  const auth = await (await page.request.get('/api/v1/auth/me')).json()
+  let emails = (await (await page.request.get('/api/v1/emails')).json()).drafts
+  if (!emails.length) {
+    const runs = await (await page.request.get('/api/v1/match-runs')).json()
+    const created = await page.request.post('/api/v1/emails/drafts', {
+      headers: { 'X-CSRF-Token': auth.csrf_token }, data: { run_id: runs[0].runId },
+    })
+    expect(created.ok()).toBeTruthy()
+    emails = (await created.json()).drafts
+  }
+  expect(emails.length).toBeGreaterThan(0)
+  const email = emails[0]
+  await page.goto('/#/email')
+  await page.reload()
+  if (email.status === 'Draft') {
+    await page.getByRole('button', { name: /^Approve email to / }).click()
+  }
+  if (email.status !== 'Sent') {
+    await page.getByRole('tab', { name: /^Approved \(/ }).click()
+    if (!email.handoff_at) {
+      const draftDownload = page.waitForEvent('download')
+      await page.getByRole('button', { name: 'Open in Outlook', exact: true }).click()
+      expect((await draftDownload).suggestedFilename()).toMatch(/\.eml$/)
+    }
+    await page.getByRole('button', { name: 'Mark as sent', exact: true }).click()
+  }
+  await page.getByRole('tab', { name: /^Sent \(/ }).click()
+  const reminder = page.getByRole('listitem').filter({ has: page.getByRole('button', { name: 'Add to Outlook calendar' }) }).first()
+  await expect(reminder.getByText(/^Follow-up /)).toContainText('10:30')
+  const download = page.waitForEvent('download')
+  await reminder.getByRole('button', { name: 'Add to Outlook calendar' }).click()
+  const calendar = await download
+  expect(await calendar.failure()).toBeNull()
+  expect(calendar.suggestedFilename()).toMatch(/\.ics$/)
+  const calendarPath = await calendar.path()
+  const ics = readFileSync(calendarPath!, 'utf8')
+  expect(ics).toContain('BEGIN:VEVENT\r\n')
+  expect(ics).toContain('TRIGGER:PT0M\r\n')
+  expect(ics).toContain('TRANSP:TRANSPARENT\r\n')
+})
+
 test('chat answers offline with source records and keeps history (P2-EX-05)', async ({ page }) => {
   // Reuse the admin and demands set up by the first smoke test.
   await page.goto('/')

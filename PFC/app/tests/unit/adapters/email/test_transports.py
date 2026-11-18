@@ -6,6 +6,7 @@ import threading
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from datetime import UTC, datetime
 from email import message_from_bytes
 from email.policy import default
 from pathlib import Path
@@ -91,6 +92,47 @@ class Application:
 
     def GetDefaultFolder(self, id: int) -> SimpleNamespace:
         return self.folders[id]
+
+
+def test_com_follow_up_is_idempotent_on_sta() -> None:
+    class CalendarApplication(Application):
+        def __init__(self) -> None:
+            super().__init__()
+            self.folders[9] = SimpleNamespace(Items=Items())
+
+        def CreateItem(self, kind: int) -> Mail:
+            assert kind == 1
+            self.threads.add(threading.get_ident())
+            mail = Mail(self)
+            mail.EntryID = "calendar-entry"
+
+            def set_property(name: str, value: str) -> None:
+                assert name == transports.FOLLOW_UP_PROPERTY
+                mail.key = value
+
+            def save() -> None:
+                self.folders[9].Items.mails.append(mail)
+
+            mail.PropertyAccessor.SetProperty = set_property
+            mail.Save = save
+            self.created.append(mail)
+            return mail
+
+    app = CalendarApplication()
+    transport = transports.OutlookComTransport(com_factory=lambda: app)
+    try:
+        due = datetime(2026, 1, 5, 9, tzinfo=UTC)
+        assert transport.create_follow_up("key'1", "Subject", "Body", due) == "calendar-entry"
+        assert transport.create_follow_up("key'1", "Subject", "Body", due) == "calendar-entry"
+        assert len(app.created) == 1
+        item = app.created[0]
+        assert item.Duration == 15 and item.BusyStatus == 0
+        assert item.ReminderSet and item.ReminderMinutesBeforeStart == 0
+        assert item.Start == due.astimezone().replace(tzinfo=None)
+        assert not hasattr(item, "To")
+        assert threading.get_ident() not in app.threads
+    finally:
+        transport.close()
 
 
 @pytest.fixture

@@ -1284,6 +1284,7 @@ export class MockApiClient implements ApiClient {
         : 'Outlook COM'
     return this.done({
       items: this.state.emails,
+      followUpEnabled: this.state.adminSettings.followUpEnabled,
       transport: { transport, outlookDetected: transport === 'Outlook COM' },
     })
   }
@@ -1312,6 +1313,22 @@ export class MockApiClient implements ApiClient {
       blob: new Blob(['PFC Outlook draft'], { type: 'message/rfc822' }),
       fileName: `PFC-email-${id}.eml`,
     })
+  }
+
+  async retryEmailFollowUp(id: number) {
+    this.currentUser()
+    const email = this.email(id)
+    if (!email.followUp || !['pending', 'failed'].includes(email.followUp.status) || email.followUp.transport !== 'outlook_com') fail(409, 'Follow-up cannot be retried', 'EMAIL_FOLLOW_UP_NOT_RETRYABLE')
+    email.followUp = { ...email.followUp!, status: 'pending', lastError: null }
+    return this.done(email)
+  }
+
+  async downloadEmailFollowUp(id: number) {
+    this.currentUser()
+    const email = this.email(id)
+    if (!email.followUp || !(email.followUp.status === 'handoff' || (email.followUp.transport === 'outlook_com' && ['pending', 'failed'].includes(email.followUp.status)))) fail(409, 'Follow-up is automated', 'EMAIL_FOLLOW_UP_NOT_HANDOFF')
+    email.followUp = { ...email.followUp!, status: 'handoff', transport: 'eml_handoff', lastError: null }
+    return this.done({ blob: new Blob(['BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n'], { type: 'text/calendar' }), fileName: `PFC-follow-up-${id}.ics` })
   }
 
   async confirmEmailHandoff(id: number, sent: boolean) {
