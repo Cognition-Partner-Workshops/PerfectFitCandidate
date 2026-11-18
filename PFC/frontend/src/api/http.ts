@@ -267,6 +267,9 @@ export class HttpApiClient implements ApiClient {
 
   getCandidate: ApiClient['getCandidate'] = (id) => this.request('GET', `/candidates/${id}`)
   setClassification: ApiClient['setClassification'] = (id, body) => this.request('PUT', `/candidates/${id}/classification`, body)
+  compareCvVersions: ApiClient['compareCvVersions'] = (id, left, right) => this.request('GET', `/candidates/${id}/cv-versions/compare?left=${left}&right=${right}`)
+  startCvComparison: ApiClient['startCvComparison'] = (id, left, right) => this.request('POST', `/candidates/${id}/cv-comparisons`, { leftCvVersionId: left, rightCvVersionId: right })
+  getLatestCvComparison: ApiClient['getLatestCvComparison'] = (id, left, right) => this.request('GET', `/candidates/${id}/cv-comparisons/latest?left=${left}&right=${right}`)
   listCvExtractions: ApiClient['listCvExtractions'] = (id) => this.request('GET', `/occ/candidates/${id}/cv-extractions`)
   clearCandidateExtractions: ApiClient['clearCandidateExtractions'] = (id) => this.request('DELETE', `/occ/candidates/${id}/cv-extractions`)
   clearAllExtractions: ApiClient['clearAllExtractions'] = () => this.request('DELETE', '/occ/cv-extractions')

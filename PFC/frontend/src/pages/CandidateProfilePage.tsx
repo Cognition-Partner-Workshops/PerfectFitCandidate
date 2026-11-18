@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, ApiError } from '../api'
 import type { CandidateDetail, CvFact, CvFacts, CvVersion, IdentityResolution, SkillFact } from '../api/types'
@@ -9,6 +9,7 @@ import { eligibilityReasonLabel, eligibilityReasonTitle } from '../lib/excluded'
 import { formatDate, formatDateTime, initials, orNotRecorded } from '../lib/format'
 import { CandidateClassificationCard } from './CandidateClassificationCard'
 import { LifecycleControls } from '../components/Lifecycle'
+import { CvComparePanel } from './CvComparePanel'
 
 type Tab = 'overview' | 'cv' | 'skills' | 'matches' | 'activity'
 
@@ -175,7 +176,18 @@ export function CandidateProfilePage() {
   const detail = useQuery({ queryKey: ['candidate', id], queryFn: () => api.getCandidate(id), enabled: Number.isFinite(id) && id > 0 })
   const resourceId = detail.data?.resource.resourceId
   const lifecycle = useQuery({ queryKey: ['lifecycle', 'resource', resourceId], queryFn: () => api.maintenance.detail('resource', resourceId!), enabled: Boolean(resourceId) })
-  const [tab, setTab] = useState<Tab>('overview')
+  const [params, setParams] = useSearchParams()
+  const linked = /^(\d+),(\d+)$/.exec(params.get('compare') ?? '')
+  const compare = linked ? [Number(linked[1]), Number(linked[2])] as const : null
+  const [selected, setSelected] = useState<number[]>([])
+  const [tab, setTab] = useState<Tab>(compare ? 'cv' : 'overview')
+  const view = `${id}|${params.get('compare') ?? ''}`
+  const [shownView, setShownView] = useState(view)
+  if (shownView !== view) {
+    setShownView(view)
+    if (!shownView.startsWith(`${id}|`)) setSelected([])
+    if (compare) setTab('cv')
+  }
   const [prompt, setPrompt] = useState<boolean | null>(null)
   if (!candidateId) return <Picker />
   if (detail.isLoading) return <div className="page"><Spinner /></div>
@@ -287,6 +299,7 @@ export function CandidateProfilePage() {
             <table className="data">
               <thead>
                 <tr>
+                  {d.cvVersions.length > 1 && <th>Compare</th>}
                   <th>File</th>
                   <th>Folder</th>
                   <th>Modified</th>
@@ -298,6 +311,17 @@ export function CandidateProfilePage() {
               <tbody>
                 {d.cvVersions.map((c) => (
                   <tr key={c.cvVersionId}>
+                    {d.cvVersions.length > 1 && (
+                      <td>
+                        <input
+                          type="checkbox"
+                          aria-label={`Select CV-${c.cvVersionId} for comparison`}
+                          checked={selected.includes(c.cvVersionId)}
+                          disabled={selected.length >= 2 && !selected.includes(c.cvVersionId)}
+                          onChange={(e) => setSelected((s) => (e.target.checked ? [...s, c.cvVersionId] : s.filter((v) => v !== c.cvVersionId)))}
+                        />
+                      </td>
+                    )}
                     <td>{c.fileName}</td>
                     <td className="small mono">{c.folderPath}</td>
                     <td>{formatDate(c.modifiedAt)}</td>
@@ -309,9 +333,29 @@ export function CandidateProfilePage() {
               </tbody>
             </table>
           )}
+          {d.cvVersions.length > 1 && (
+            <div className="row">
+              <button
+                className="btn btn-primary"
+                disabled={selected.length !== 2}
+                title={selected.length === 2 ? undefined : 'Select two CV versions'}
+                onClick={() => {
+                  const order = (v: number) => -d.cvVersions.findIndex((c) => c.cvVersionId === v)
+                  const [older, newer] = [...selected].sort((a, b) => order(a) - order(b))
+                  setParams({ compare: `${older},${newer}` })
+                }}
+              >
+                Compare selected ({selected.length}/2)
+              </button>
+              <span className="small muted">Side-by-side facts, text differences and scores. Read-only; PII stays masked.</span>
+            </div>
+          )}
         </section>
       )}
-      {tab === 'cv' &&
+      {tab === 'cv' && compare && (
+        <CvComparePanel key={compare.join(',')} candidateId={id} left={compare[0]} right={compare[1]} onClose={() => setParams({})} />
+      )}
+      {tab === 'cv' && !compare &&
         d.cvVersions.map((c) =>
           c.facts ? (
             <CvFactsCard key={c.cvVersionId} cv={c} facts={c.facts} />

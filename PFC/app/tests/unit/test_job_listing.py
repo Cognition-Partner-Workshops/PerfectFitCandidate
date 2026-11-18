@@ -115,6 +115,13 @@ def test_scope_window_order(client: TestClient, role: str) -> None:
         ("match_run", {"run_id": 12}, "Matching run #12", "/#/matches"),
         ("embed", {}, "Re-indexing CVs", None),
         ("embed", {"model_type": "llm"}, "Model check", None),
+        (
+            "cv_compare",
+            {"candidate_id": 4, "left_cv_version_id": 7, "right_cv_version_id": 9},
+            "CV comparison scoring CV-7 vs CV-9",
+            "/#/candidates/4?compare=7,9",
+        ),
+        ("cv_compare", {"candidate_id": "4<script>"}, "CV comparison scoring", None),
         ("other_task", [], "Other task", None),
         (
             "watch_pickup",
