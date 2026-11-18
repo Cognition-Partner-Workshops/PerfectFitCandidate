@@ -403,6 +403,21 @@ def _outcome(run: MatchRun, resource: Resource, demand: Demand) -> dict[str, Any
         for row in (*result.rows, *result.insufficient_data):
             if row.resource.resource_id == resource.resource_id:
                 return _scored(row.best, demand)
+        if result.flags:
+            return {
+                "score": None,
+                "band": None,
+                "basis": None,
+                "components": [],
+                "items": [],
+                "mandatory_missing": 0,
+                "gaps": [],
+                "excluded": True,
+                "reasons": [
+                    {"code": "DEMAND_NOT_SCORABLE", "detail": mask_evidence(flag)}
+                    for flag in result.flags
+                ],
+            }
     raise ValueError("Scored pair missing from engine output")
 
 
@@ -609,17 +624,27 @@ def latest_scoring(
     with database(settings) as db:
         _pair(db, candidate_id, left, right)
         row = db.execute(
-            "SELECT * FROM cv_comparisons WHERE candidate_id=? AND left_cv_version_id=? "
-            "AND right_cv_version_id=? ORDER BY comparison_id DESC LIMIT 1",
+            "SELECT c.*, j.status AS job_status FROM cv_comparisons c "
+            "LEFT JOIN jobs j ON j.job_id=c.job_id WHERE c.candidate_id=? "
+            "AND c.left_cv_version_id=? AND c.right_cv_version_id=? "
+            "ORDER BY c.comparison_id DESC LIMIT 1",
             (candidate_id, left, right),
         ).fetchone()
     if row is None:
         return None
     result = json.loads(row["result_json"]) if row["result_json"] else None
+    status = row["status"]
+    # A job cancelled while queued or interrupted by a restart never reaches the worker.
+    if status in ("queued", "running") and row["job_status"] in (
+        "failed",
+        "cancelled",
+        "completed",
+    ):
+        status = "cancelled" if row["job_status"] == "cancelled" else "failed"
     return {
         "comparison_id": row["comparison_id"],
         "job_id": row["job_id"],
-        "status": row["status"],
+        "status": status,
         "created_at": row["created_at"],
         "finished_at": row["finished_at"],
         "result": result,

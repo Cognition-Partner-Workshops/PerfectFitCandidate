@@ -169,6 +169,41 @@ def test_what_if_scoring_is_audited_and_never_changes_results(
     assert json.loads(job["params_json"])["comparison_id"] == comparison_id
 
 
+def test_unscorable_demand_is_reported_not_fatal(settings: Settings, runner: JobRunner) -> None:
+    candidate, old, new = seeded(settings, runner)
+    with database(settings) as db:
+        db.execute("UPDATE demands SET code_local_grade=NULL")
+    _, job_id = cv_compare.start_scoring(
+        settings, runner, MatchingPorts(FakeEmbedder()), candidate, old, new, clock=lambda: NOW
+    )
+    assert wait_done(runner, job_id).status == "completed"
+    latest = cv_compare.latest_scoring(settings, candidate, old, new)
+    assert latest is not None and latest["status"] == "completed"
+    row = latest["result"]["demands"][0]
+    assert row["delta"] is None
+    for side in ("left", "right"):
+        assert row[side]["excluded"] is True
+        assert row[side]["reasons"][0]["code"] == "DEMAND_NOT_SCORABLE"
+
+
+@pytest.mark.parametrize(
+    ("job_status", "expected"), [("failed", "failed"), ("cancelled", "cancelled")]
+)
+def test_interrupted_job_ends_a_pending_comparison(
+    settings: Settings, runner: JobRunner, job_status: str, expected: str
+) -> None:
+    candidate, old, new = seeded(settings, runner)
+    _, job_id = cv_compare.start_scoring(
+        settings, runner, MatchingPorts(FakeEmbedder()), candidate, old, new, clock=lambda: NOW
+    )
+    wait_done(runner, job_id)
+    with database(settings) as db:
+        db.execute("UPDATE cv_comparisons SET status='queued', result_json=NULL")
+        db.execute("UPDATE jobs SET status=? WHERE job_id=?", (job_status, job_id))
+    latest = cv_compare.latest_scoring(settings, candidate, old, new)
+    assert latest is not None and latest["status"] == expected
+
+
 def test_removed_extraction_is_compared_but_never_scored(
     settings: Settings, runner: JobRunner
 ) -> None:
