@@ -225,12 +225,12 @@ table.data tr.selected td { background: var(--color-primary-subtle); }
 .filter-bar .multi-select-popover label { flex-direction: row; align-items: center; gap: 8px; white-space: nowrap; }
 .filter-bar .multi-select-popover input { min-height: auto; }
 
-/* CV version comparison (REQ-IN-24). */
+/* CV version comparison (REQ-IN-24); selectors outrank the table.data zebra rows. */
 .compare-table td:first-child { font-weight: 600; white-space: nowrap; }
-.compare-added td:nth-child(3) { background: var(--color-success-tint); }
-.compare-removed td:nth-child(2) { background: var(--color-danger-tint); }
-.compare-changed td:nth-child(2), .compare-changed td:nth-child(3) { background: var(--color-warning-tint); }
+table.data.compare-table tbody tr.compare-added td:nth-child(3) { background: var(--color-success-tint); }
+table.data.compare-table tbody tr.compare-removed td:nth-child(2) { background: var(--color-danger-tint); }
+table.data.compare-table tbody tr.compare-changed td:nth-child(2), table.data.compare-table tbody tr.compare-changed td:nth-child(3) { background: var(--color-warning-tint); }
 .diff-table td { width: 50%; white-space: pre-wrap; word-break: break-word; font-family: var(--font-mono, monospace); font-size: 12px; }
-.diff-table td.diff-old { background: var(--color-danger-tint); }
-.diff-table td.diff-new { background: var(--color-success-tint); }
-.diff-skip td { text-align: center; background: var(--color-bg-subtle); }
+table.data.diff-table tbody tr td.diff-old { background: var(--color-danger-tint); }
+table.data.diff-table tbody tr td.diff-new { background: var(--color-success-tint); }
+table.data.diff-table tbody tr.diff-skip td { text-align: center; background: var(--color-bg-subtle); }
