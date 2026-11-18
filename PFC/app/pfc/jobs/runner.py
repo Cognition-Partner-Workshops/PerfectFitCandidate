@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from pfc.config import Settings
-from pfc.db.connection import database
+from pfc.db.connection import Connection, database
 from pfc.security.sessions import stamp
 
 logger = logging.getLogger(__name__)
@@ -47,6 +47,12 @@ class JobContext:
         if self.is_cancelled():
             raise JobCancelled()
 
+    def complete(self, persist: Callable[[Connection], None]) -> None:
+        """Commit a job's result and completed status together, unless cancelled."""
+        with self.runner._lock:
+            self.raise_if_cancelled()
+            self.runner._finish(self.job_id, "completed", None, persist=persist)
+
     def report_progress(self, fraction: float, message: str = "") -> None:
         if not 0 <= fraction <= 1:
             raise ValueError("progress must be between 0 and 1")
@@ -80,6 +86,8 @@ class JobRunner:
         fn: Callable[[JobContext], None],
         params: dict[str, Any] | None = None,
         created_by: int | None = None,
+        *,
+        before_dispatch: Callable[[Connection, int], None] | None = None,
     ) -> int:
         """Persist before dispatch; params are metadata, callable receives JobContext."""
         with self._lock:
@@ -97,6 +105,8 @@ class JobRunner:
                     ),
                 )
                 job_id = int(cursor.lastrowid or 0)
+                if before_dispatch is not None:
+                    before_dispatch(db, job_id)
             cancelled = threading.Event()
             future = self._executor.submit(self._run, job_id, fn, cancelled)
             self._tasks[job_id] = (future, cancelled)
@@ -107,14 +117,23 @@ class JobRunner:
         with self._lock:
             self._tasks.pop(job_id, None)
 
-    def _finish(self, job_id: int, status: str, message: str | None) -> None:
+    def _finish(
+        self,
+        job_id: int,
+        status: str,
+        message: str | None,
+        *,
+        persist: Callable[[Connection], None] | None = None,
+    ) -> None:
         with database(self.settings) as db:
-            db.execute(
+            cursor = db.execute(
                 "UPDATE jobs SET status=?, message=?, finished_at=?, "
                 "progress=CASE WHEN ?='completed' THEN 1 ELSE progress END "
                 "WHERE job_id=? AND status NOT IN ('completed','failed','cancelled')",
                 (status, message, stamp(datetime.now(UTC)), status, job_id),
             )
+            if cursor.rowcount and persist is not None:
+                persist(db)
 
     def _run(
         self, job_id: int, fn: Callable[[JobContext], None], cancelled: threading.Event

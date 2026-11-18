@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Upload, X } from 'lucide-react'
 import { api, ApiError } from '../api'
@@ -234,6 +234,8 @@ function JdReview({ demand, onClose }: { demand: Demand; onClose: () => void }) 
 
 /** Demand List (REQ-ING-01..03, REQ-MAT-02, GUI_OCC_DESIGN.md §9). */
 export function DemandListPage() {
+  const [params, setParams] = useSearchParams()
+  const linkedDemand = params.get('demand')
   const qc = useQueryClient()
   const { trackTask } = useTasks()
   const demands = useQuery({ queryKey: ['demands'], queryFn: () => api.listDemands() })
@@ -260,9 +262,10 @@ export function DemandListPage() {
           bestBand: currentMatches.get(d.demandId)?.bestBand ?? null,
         }))
         .filter((d) =>
+          (!linkedDemand || String(d.demandId) === linkedDemand) &&
           [d.codeRequisition, d.accountName, d.demandRequestName, d.bu, d.region].some((v) => (v ?? '').toLowerCase().includes(search.toLowerCase())),
         ),
-    [currentMatches, demands.data, search],
+    [currentMatches, demands.data, linkedDemand, search],
   )
   const currentResultsUnavailable = currentResults.isLoading || currentResults.isError
   const newOnes = (demands.data ?? []).filter((d) => needsAnalysis(d.jdStatus))
@@ -283,7 +286,9 @@ export function DemandListPage() {
         </button>
       </div>
       <div className="card">
-        <input aria-label="Search demands" placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        {linkedDemand
+          ? <button className="btn" onClick={() => setParams({})}>Show all demands</button>
+          : <input aria-label="Search demands" placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} />}
       </div>
       {currentResults.isError && (
         <Banner tone="warning">

@@ -62,7 +62,7 @@ import {
   type ScoringTemplateRow,
 } from './mappers'
 import type { ApprovalEntry, BenchStatus, CurrentUser, InternalDomain, JobItem, MatchResult, PersonalSettings, ProblemDetails, ResourceTeamMember, StatusMapEntry,
-  VolumeEncryption,
+  VolumeEncryption, ChatDetail, ChatEntry,
 } from './types'
 
 type Method = 'GET' | 'POST' | 'PUT' | 'DELETE'
@@ -257,6 +257,11 @@ export class HttpApiClient implements ApiClient {
     (await this.allPages<ResourceItem>((page) => this.request('GET', `/resources/excluded?page=${page}&page_size=200`))).map(toResource)
   syncCvs: ApiClient['syncCvs'] = (ids) => this.request('POST', '/resources/cv-sync', { resource_ids: ids })
   listJobs: ApiClient['listJobs'] = async (limit = 20) => (await this.request<JobItem[]>('GET', `/jobs?limit=${limit}`)).map(toJob)
+  cancelJob: ApiClient['cancelJob'] = async (id) => { await this.request('POST', `/jobs/${id}/cancel`) }
+  chatStatus: ApiClient['chatStatus'] = () => this.request<{ available: boolean }>('GET', '/chat/status')
+  chatHistory: ApiClient['chatHistory'] = () => this.request<ChatEntry[]>('GET', '/chat')
+  chatDetail: ApiClient['chatDetail'] = (id) => this.request<ChatDetail>('GET', `/chat/${id}`)
+  askChat: ApiClient['askChat'] = (question) => this.request<ChatEntry>('POST', '/chat', { question })
 
   getCandidate: ApiClient['getCandidate'] = (id) => this.request('GET', `/candidates/${id}`)
   setClassification: ApiClient['setClassification'] = (id, body) => this.request('PUT', `/candidates/${id}/classification`, body)

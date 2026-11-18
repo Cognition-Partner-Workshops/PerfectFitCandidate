@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from pfc.api.schemas.match import WireModel
+from pfc.db.audit import append_audit
 from pfc.db.connection import database
 from pfc.jobs.runner import Job, JobRunner
 from pfc.security.dependencies import Principal, current_user, require_role
@@ -23,6 +24,7 @@ def get_runner(request: Request) -> JobRunner:
 
 Runner = Annotated[JobRunner, Depends(get_runner)]
 JobStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
+JobUser = Annotated[Principal, Depends(current_user)]
 
 
 class SkippedFile(BaseModel):
@@ -107,6 +109,8 @@ def presentation(job: Job) -> tuple[str, str | None]:
         if type(run_id) is int and run_id > 0:
             return f"Matching run #{run_id}", "/#/matches"
         return "Matching run", "/#/matches"
+    if job.kind == "chat":
+        return "Chat question", f"/#/chat?job={job.job_id}"
     if job.kind == "embed":
         return ("Model check" if params.get("model_type") == "llm" else "Re-indexing CVs"), None
     # Kinds are internal identifiers, never arbitrary display text.
@@ -163,21 +167,21 @@ def list_jobs(
     return result
 
 
-def find(runner: JobRunner, job_id: int) -> Job:
+def find(runner: JobRunner, job_id: int, principal: Principal) -> Job:
     job = runner.get(job_id)
-    if job is None:
+    if job is None or (job.kind == "chat" and job.created_by != principal.user.user_id):
         raise Problem(404, "JOB_NOT_FOUND", "Job not found")
     return job
 
 
 @router.get("/{job_id}")
-def get_job(job_id: int, runner: Runner) -> Job:
-    return find(runner, job_id)
+def get_job(job_id: int, runner: Runner, principal: JobUser) -> Job:
+    return find(runner, job_id, principal)
 
 
 @router.get("/{job_id}/events")
-def events(job_id: int, runner: Runner) -> StreamingResponse:
-    find(runner, job_id)
+def events(job_id: int, runner: Runner, principal: JobUser) -> StreamingResponse:
+    find(runner, job_id, principal)
     return StreamingResponse(
         runner.events(job_id),
         media_type="text/event-stream",
@@ -186,7 +190,16 @@ def events(job_id: int, runner: Runner) -> StreamingResponse:
 
 
 @router.post("/{job_id}/cancel")
-def cancel(job_id: int, runner: Runner) -> Job:
-    find(runner, job_id)
-    runner.cancel(job_id)
-    return find(runner, job_id)
+def cancel(job_id: int, request: Request, runner: Runner, principal: JobUser) -> Job:
+    job = find(runner, job_id, principal)
+    if job.kind == "chat" and job.status in {"queued", "running"}:
+        with database(runner.settings) as db:
+            append_audit(
+                db,
+                ts=stamp(request.app.state.clock()),
+                action="CHAT_CANCEL_REQUESTED",
+                user_id=principal.user.user_id,
+                entity_type="chat",
+                entity_id=str(job_id),
+            )
+    return runner.cancel(job_id) or job
