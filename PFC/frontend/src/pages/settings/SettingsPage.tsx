@@ -10,6 +10,8 @@ import { SettingsPackagePanel } from './SettingsPackagePanel'
 import { CvFileFormats } from './CvFileFormats'
 import { EMAIL_PLACEHOLDERS, unknownPlaceholders } from '../../lib/emailTemplate'
 import { access } from '../../lib/permissions'
+import { featureFlags } from '../../config'
+import { WatchSources } from './WatchSources'
 
 const SECTIONS = [
   ['account', 'Account'],
@@ -30,6 +32,7 @@ function useSettingsForm() {
     mutationFn: (s: PersonalSettings) => api.saveMySettings(s),
     onSuccess: (s) => {
       qc.setQueryData(['settings'], s)
+      void qc.invalidateQueries({ queryKey: ['watch-status'] })
       setForm(null)
     },
   })
@@ -58,7 +61,7 @@ function FormSection({ section }: { section: 'data' | 'llm' | 'email' | 'templat
   if (q.isError) return <ErrorState error={q.error} />
   const dirty = JSON.stringify(form) !== JSON.stringify(q.data)
   const set = (patch: Partial<PersonalSettings>) => setForm({ ...form, ...patch })
-  const invalid = form.resumeFileTypes.length === 0
+  const invalid = form.resumeFileTypes.length === 0 || [form.autoSyncDl, form.autoSyncCt].some((source) => !Number.isInteger(source.pollMinutes) || source.pollMinutes < 1 || source.pollMinutes > 1440)
   const footer = <Footer dirty={dirty} invalid={invalid} saved={save.isSuccess} onDiscard={() => setForm(null)} onSave={() => { if (!invalid) save.mutate(form) }} />
   const unknown = unknownPlaceholders(form.emailTemplate)
   return (
@@ -72,22 +75,7 @@ function FormSection({ section }: { section: 'data' | 'llm' | 'email' | 'templat
             <input value={form.resumeFolderPath} onChange={(e) => set({ resumeFolderPath: e.target.value })} />
           </label>
           <CvFileFormats value={form.resumeFileTypes} converterAvailable={form.resumeConverterAvailable} onChange={(resumeFileTypes) => set({ resumeFileTypes })} />
-          {(['autoSyncDl', 'autoSyncCt'] as const).map((k) => (
-            <fieldset key={k} className="stack" style={{ border: '1px solid var(--color-border)', borderRadius: 8 }}>
-              <legend>Auto-sync — {k === 'autoSyncDl' ? 'Demand List' : 'Candidate Tracker'} (placeholder, Phase 2)</legend>
-              <label className="row small">
-                <input type="checkbox" checked={false} disabled /> Enabled (disabled in this version)
-              </label>
-              <label className="field">
-                Watch path
-                <input value={form[k].watchPath} onChange={(e) => set({ [k]: { ...form[k], watchPath: e.target.value } })} />
-              </label>
-              <label className="field">
-                File pattern
-                <input value={form[k].pattern} onChange={(e) => set({ [k]: { ...form[k], pattern: e.target.value } })} />
-              </label>
-            </fieldset>
-          ))}
+          {featureFlags.autoSync && <WatchSources form={form} onChange={set} />}
         </>
       )}
       {section === 'llm' && (

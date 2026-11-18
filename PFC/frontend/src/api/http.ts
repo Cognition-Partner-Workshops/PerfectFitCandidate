@@ -18,6 +18,8 @@ import {
   toMember,
   toOccUser,
   toPersonal,
+  toWatchStatus,
+  type WatchStatusRow,
   toPreview,
   toSynonym,
   toSkillSuggestion,
@@ -215,6 +217,18 @@ export class HttpApiClient implements ApiClient {
   confirmRequirements: ApiClient['confirmRequirements'] = (id) =>
     this.request('POST', `/demands/${id}/requirements/confirm`)
   uploadWorkbook: ApiClient['uploadWorkbook'] = async (kind, file) => toUploadPreview(await this.upload<IngestionRunRow>(`/uploads/${kind}`, file))
+  getIngestionPreview: ApiClient['getIngestionPreview'] = async (id) => {
+    const row = await this.request<IngestionRunRow>('GET', `/ingestion-runs/${id}`)
+    const issues: NonNullable<IngestionRunRow['issues']> = []
+    let total: number
+    do {
+      const page = await this.request<{ items: typeof issues; total: number }>('GET', `/ingestion-runs/${id}/issues?limit=100&offset=${issues.length}`)
+      issues.push(...page.items)
+      total = page.total
+      if (page.items.length === 0) break
+    } while (issues.length < total)
+    return toUploadPreview({ ...row, issues })
+  }
   commitIngestion: ApiClient['commitIngestion'] = (id) => this.request('POST', `/ingestion-runs/${id}/commit`)
   discardIngestion: ApiClient['discardIngestion'] = (id) => this.request('POST', `/ingestion-runs/${id}/discard`)
 
@@ -358,7 +372,7 @@ export class HttpApiClient implements ApiClient {
   private personalKey = () => `pfc.personal.local.${this.userId ?? 'anon'}`
   /** Fields the backend does not store yet (SPOCs, personal email template) are kept locally, per user. */
   private localPersonal(): PersonalSettings {
-    const empty = { enabled: false, watchPath: '', pattern: '' }
+    const empty = { enabled: false, watchPath: '', pattern: '', pollMinutes: 5, requirePreview: false }
     const base: PersonalSettings = { resumeFolderPath: '', resumeFileTypes: ['.docx', '.pdf'], resumeConverterAvailable: false, autoSyncDl: empty, autoSyncCt: empty, activeModel: '', spoc1: '', spoc2: '', emailTemplate: '', density: 'Comfortable' }
     try {
       return { ...base, ...(JSON.parse(localStorage.getItem(this.personalKey()) ?? '{}') as Partial<PersonalSettings>) }
@@ -368,6 +382,7 @@ export class HttpApiClient implements ApiClient {
   }
   getMySettings: ApiClient['getMySettings'] = async () =>
     toPersonal(await this.request<PersonalRow>('GET', '/settings/me'), this.localPersonal())
+  getWatchStatus: ApiClient['getWatchStatus'] = async () => toWatchStatus(await this.request<WatchStatusRow>('GET', '/settings/me/watch-status'))
   saveMySettings: ApiClient['saveMySettings'] = async (s) => {
     const saved = await this.request<PersonalRow>('PUT', '/settings/me', fromPersonal(s))
     localStorage.setItem(this.personalKey(), JSON.stringify({ spoc1: s.spoc1, spoc2: s.spoc2, emailTemplate: s.emailTemplate }))

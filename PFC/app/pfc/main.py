@@ -36,6 +36,7 @@ from pfc.db.users import count_admins
 from pfc.jobs.cleanup import session_cleanup
 from pfc.jobs.router import router as jobs_router
 from pfc.jobs.runner import JobRunner
+from pfc.jobs.watch import WatchPoller
 from pfc.security.credentials import encrypt_legacy_credentials
 from pfc.security.middleware import install_middleware
 from pfc.security.passwords import hasher
@@ -90,6 +91,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             get_email_service(Request({"type": "http", "app": app})).queue_follow_ups()
         except Exception:
             logger.error("Pending email reminder recovery failed; startup continues")
+        app.state.watch_poller = WatchPoller(settings, app.state.job_runner, app.state.clock)
+        watch_task = asyncio.create_task(app.state.watch_poller.run())
         supervisor = LlamaServerSupervisor(
             settings, app_state=app.state if not hasattr(app.state, "llm_provider") else None
         )
@@ -106,6 +109,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            app.state.watch_poller.stop()
+            try:
+                await watch_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.error("Watch folder task failed; shutdown continues")
             await supervisor.stop()
             cleanup.cancel()
             with suppress(asyncio.CancelledError):

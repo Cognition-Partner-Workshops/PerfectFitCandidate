@@ -68,6 +68,12 @@ Emails are masked in the list; Admins can reveal them.
 
 Demand List and Candidate Tracker tabs show Pending upload changes with **Approve**, **Modify** (comment and corrected values required), and **Revert** actions.
 
+DL/CT auto-pickup does not change OCC approvals. A watch-folder commit uses the
+same ingestion and downstream processing as a manual commit and creates the
+same Pending approval entries. The analyst's **Hold for my review before
+committing** switch controls the ingestion preview, not OCC approval: releasing
+that preview does not approve the resulting OCC entries.
+
 Enable **Show decided** to review history. Admins can **Re-open** only the latest decided entry for a demand or resource, providing a non-blank audit comment. This creates a new Pending entry labelled **Re-opened from #N**; the original decision remains unchanged. A newer entry or an existing Pending review blocks re-opening (409). Approving a re-opened entry restores the original uploaded values, including values previously modified or reverted; Modify and Revert remain available as usual. Re-opening and subsequent decisions flag existing match runs as having newer data; rerun matching to use the current data. Comments in the audit log redact email addresses.
 
 ## 5. Status list and mapping
@@ -194,6 +200,19 @@ Settings packages are signed with an Ed25519 key. There is no separate key scree
 
 The append-only log of sign-ins, OCC changes, uploads, overrides, approvals and sends, with timestamp, user, role, action, entity and summary. Filter by **From** / **To** date, **User**, **Action** and **Entity** (**Clear** resets) and **Export CSV (N)** downloads the filtered rows, with formula-character protection.
 
+For DL/CT watch-folder pickup, ingestion audit details include
+`source=watch_folder`, the run ID and kind. Actions are **UPLOAD_PREVIEW**,
+**INGEST_COMMIT**, **INGEST_DISCARD**, **INGEST_NO_OP** (identical committed
+content), and **INGEST_FAILED** for a failed watch import, including an oversized
+or unparseable workbook. Settings changes retain the normal settings audit.
+Already-seen watch content is skipped without creating another ingestion run.
+
+For ingestion-history diagnostics, the stored `ingestion_runs.source` column
+distinguishes `watch_folder` from `manual_upload` (and `resume_folder` where
+applicable). Do not infer the source from a filename. The Settings pickup status
+shows the current user's latest watch run and outstanding previews; it is not a
+complete ingestion-history table or a replacement for the audit log.
+
 Filter by entity `chat` for `CHAT_QUESTION`, `CHAT_ANSWER` and
 `CHAT_CANCEL_REQUESTED`. The audit stores hashes for the question and answer,
 plus the answer outcome and source IDs. The masked conversation is held in the
@@ -230,6 +249,46 @@ from Email Approval without re-sending the email. Re-sending creates a separate
 reminder and never removes the earlier one; replies do not cancel appointments.
 Real Outlook is not verified in CI: automated coverage uses a fake COM application
 and real-backend `.ics` downloads, not an installed Outlook profile.
+
+### DL/CT auto-pickup operations and troubleshooting
+
+Watch-folder configuration is **per user**, under personal **Settings → Data
+sources**, not an OCC-wide folder setting. DL and CT each have an enable switch,
+absolute path, filename glob, polling interval (**1–1440 minutes**, default **5**)
+and hold-for-review switch. Only enabled sources belonging to active Analyst or
+Admin users are scanned. Pickup runs locally **only while PFC is running**;
+closing PFC stops it. Use the analyst guide's
+[DL/CT auto-pickup instructions](USER_GUIDE_ANALYST.md#dlct-auto-pickup) for setup
+and review actions.
+
+- **Folder not accessible / WATCH_PATH_INVALID:** verify that the folder exists,
+  is a directory and is listable by the OS account running PFC. Check mapped-drive
+  availability and permissions in that account, or restore the local synced
+  folder. Runtime reachability errors are shown in pickup status and retried at
+  the next polling interval; there is no cloud fallback.
+- **WATCH_PATTERN_INVALID:** use a bare filename glob ending in `.xlsx`
+  (case-insensitive), with no `/`, `\` or `..`. Scans are non-recursive.
+- **No pickup:** confirm PFC is running, the correct user's source is enabled,
+  and the file matches its pattern. Check last scan, pending reasons and last
+  pickup in Settings. OneDrive folders/files must be **Always keep on this
+  device**: online-only files stay **not synced**, without forced downloads.
+  Close Excel to remove its sibling `~$<filename>` lock. Let partially synced or
+  changing files finish syncing and settle unchanged for about **10 seconds**.
+- **No new run for the same file:** content already seen by that user's watcher
+  for that kind is not re-picked, even if the previous run failed or was
+  discarded. Correct and save changed workbook content; renaming alone is not
+  enough. Content identical to an existing committed import is a no-op.
+- **Awaiting review instead of committed:** the hold-for-review switch is on,
+  or the preview has error-severity rows. Open **Review** in that source's
+  **Awaiting review** list; OCC approvals still follow any subsequent commit.
+
+Deployment timing knobs are environment-backed `Settings` fields in
+`pfc/config.py`: **PFC_WATCH_TICK_SECONDS** (default **15**, must be greater than
+zero) and **PFC_WATCH_SETTLE_SECONDS** (default **10**, may be zero). Set them
+before starting PFC and restart to apply. These are not OCC UI settings. The
+tick controls internal checks, including settling files; it does not replace
+each user's polling interval. Short values such as one second are useful for
+tests, not a requirement for normal operation.
 
 ### CV formats and offline conversion
 

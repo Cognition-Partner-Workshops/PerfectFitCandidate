@@ -1,15 +1,17 @@
 import { useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import type { UploadPreview } from '../api/types'
 import { Banner, ErrorState, Modal } from './ui'
 import { useTasks } from '../lib/tasks'
 
 /** Upload → preview/validation → Commit (REQ-ING-01..03/06, GUI_OCC_DESIGN.md §9.1, §10.1). */
-export function UploadDialog({ kind, onClose }: { kind: 'dl' | 'ct'; onClose: () => void }) {
+export function UploadDialog({ kind, onClose, existingRunId }: { kind: 'dl' | 'ct'; onClose: () => void; existingRunId?: number }) {
   const qc = useQueryClient()
   const { trackTask } = useTasks()
-  const [preview, setPreview] = useState<UploadPreview | null>(null)
+  const [uploaded, setPreview] = useState<UploadPreview | null>(null)
+  const review = useQuery({ queryKey: ['ingestion-preview', existingRunId], queryFn: () => api.getIngestionPreview(existingRunId!), enabled: existingRunId !== undefined })
+  const preview = uploaded ?? review.data ?? null
   const label = kind === 'dl' ? 'Demand List' : 'Candidate Tracker'
   const upload = useMutation({ mutationFn: (f: File) => trackTask(`${kind.toUpperCase()} upload: ${f.name}`, api.uploadWorkbook(kind, f)), onMutate: () => setPreview(null), onSuccess: setPreview })
   const commit = useMutation({
@@ -19,28 +21,34 @@ export function UploadDialog({ kind, onClose }: { kind: 'dl' | 'ct'; onClose: ()
       onClose()
     },
   })
+  const discardReview = useMutation({
+    mutationFn: () => trackTask(`${kind.toUpperCase()} discard`, api.discardIngestion(existingRunId!)),
+    onSuccess: () => { void qc.invalidateQueries(); onClose() },
+  })
   const discard = () => {
+    if (existingRunId !== undefined) { onClose(); return }
     if (preview) void trackTask(`${kind.toUpperCase()} discard`, api.discardIngestion(preview.ingestionRunId)).catch(() => {})
     onClose()
   }
   return (
     <Modal
-      title={`Upload ${label} — preview`}
+      title={`${existingRunId !== undefined ? 'Review' : 'Upload'} ${label} — preview`}
       onClose={discard}
       actions={
         <>
           <button className="btn" onClick={discard}>
-            Cancel
+            {existingRunId !== undefined ? 'Close' : 'Cancel'}
           </button>
+          {existingRunId !== undefined && preview && <button className="btn" disabled={discardReview.isPending || commit.isPending} onClick={() => discardReview.mutate()}>Discard</button>}
           {preview && !preview.alreadyImported && (
-            <button className="btn btn-primary" disabled={commit.isPending} onClick={() => commit.mutate(preview.ingestionRunId)}>
+            <button className="btn btn-primary" disabled={commit.isPending || discardReview.isPending} onClick={() => commit.mutate(preview.ingestionRunId)}>
               Commit {preview.rowsRead - preview.rejected} rows
             </button>
           )}
         </>
       }
     >
-      <label className="field">
+      {existingRunId === undefined && <label className="field">
         Workbook (.xlsx)
         <input
           type="file"
@@ -51,7 +59,9 @@ export function UploadDialog({ kind, onClose }: { kind: 'dl' | 'ct'; onClose: ()
             if (f) upload.mutate(f)
           }}
         />
-      </label>
+      </label>}
+      {existingRunId !== undefined && review.isPending && <span className="muted">Loading preview…</span>}
+      {review.isError && <ErrorState error={review.error} onRetry={() => { void review.refetch() }} />}
       {upload.isPending && <span className="muted">Reading workbook…</span>}
       {upload.isError && <ErrorState error={upload.error} />}
       {preview && (
@@ -74,6 +84,7 @@ export function UploadDialog({ kind, onClose }: { kind: 'dl' | 'ct'; onClose: ()
         </div>
       )}
       {commit.isError && <ErrorState error={commit.error} />}
+      {discardReview.isError && <ErrorState error={discardReview.error} />}
     </Modal>
   )
 }
