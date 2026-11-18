@@ -10,7 +10,7 @@ import pytest
 from pfc.config import Settings
 from pfc.db.connection import database
 from pfc.db.migrate import migrate
-from pfc.jobs.runner import TERMINAL, JobContext, JobRunner
+from pfc.jobs.runner import TERMINAL, JobContext, JobFailed, JobRunner
 
 
 @pytest.fixture
@@ -61,6 +61,17 @@ def test_complete_and_fail(runner: JobRunner) -> None:
     assert runner.get(failed).message == "Job failed"
     assert runner.get(99999) is None
     assert runner.cancel(99999) is None
+
+
+def test_expected_job_failure_has_explicit_public_message(runner: JobRunner) -> None:
+    def fail(_: JobContext) -> None:
+        raise JobFailed("2 of 3 Outlook reminders failed; retry from Email Approval")
+
+    job_id = runner.submit("email_follow_up", fail)
+    wait_done(runner, job_id)
+    job = runner.get(job_id)
+    assert job.status == "failed"
+    assert job.message == "2 of 3 Outlook reminders failed; retry from Email Approval"
 
 
 @pytest.mark.parametrize("metadata", ["snapshot", "missing", "none"])

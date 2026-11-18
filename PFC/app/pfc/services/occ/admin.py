@@ -23,6 +23,7 @@ from pfc.security.secrets_store import (
 )
 from pfc.services.candidates import classification
 from pfc.services.candidates.classification import normalize_domain
+from pfc.services.email.follow_up import validate_settings
 from pfc.services.occ.common import audit_write, get_row, now
 from pfc.services.occ.seed import RELATED_SEED_MARKER
 
@@ -270,6 +271,10 @@ def settings_put(
             raise Problem(
                 422, "VALIDATION_ERROR", f"{key} must be an integer from {minimum} to {maximum}"
             )
+    try:
+        validate_settings(values)
+    except ValueError as exc:
+        raise Problem(422, "VALIDATION_ERROR", str(exc)) from exc
     for key in values:
         if key in {"location.aliases", RELATED_SEED_MARKER} or not re.fullmatch(
             r"[a-z][a-z0-9_]*(\.[a-z0-9_]+)+", key
