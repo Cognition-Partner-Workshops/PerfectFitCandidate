@@ -22,6 +22,14 @@ class JobCancelled(Exception):
     pass
 
 
+class JobFailed(Exception):
+    """Expected failure with an explicitly safe, user-facing message."""
+
+    def __init__(self, public_message: str) -> None:
+        super().__init__()
+        self.public_message = public_message
+
+
 @dataclass(frozen=True)
 class Job:
     job_id: int
@@ -135,6 +143,8 @@ class JobRunner:
             self._finish(job_id, "completed", None)
         except JobCancelled:
             self._finish(job_id, "cancelled", "cancelled")
+        except JobFailed as exc:
+            self._finish(job_id, "failed", exc.public_message)
         except Exception as exc:
             exception_type = type(exc).__qualname__
             if isinstance(exc, sqlite3.Error):

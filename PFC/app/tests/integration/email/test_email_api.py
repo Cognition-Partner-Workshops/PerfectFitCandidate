@@ -132,6 +132,55 @@ def test_follow_up_schedule_job_retry_resend(client: TestClient, enabled: bool) 
         assert row["outlook_ref"] and row["job_id"]
 
 
+def test_follow_up_job_reports_partial_failure_safely(
+    client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    run_id, _ = seed_matches(client)
+    csrf = login(client)
+    headers = {"X-CSRF-Token": csrf}
+    drafts = create_drafts(client, csrf, run_id).json()["drafts"][:2]
+    for draft in drafts:
+        message_id = draft["message_id"]
+        client.post(f"/api/v1/emails/{message_id}/approve", headers=headers)
+        client.post(f"/api/v1/emails/{message_id}/send", headers=headers)
+    transport = client.app.state.email_transport
+    original = transport.create_follow_up
+
+    def create(key: str, subject: str, body: str, due: datetime) -> str:
+        if key == f"pfc-email-follow-up-{drafts[0]['message_id']}":
+            raise RuntimeError("private-reminder-job-payload")
+        return cast(str, original(key, subject, body, due))
+
+    transport.create_follow_up = create
+    runner = JobRunner(client.app.state.settings)
+    try:
+        service = EmailService(
+            settings=client.app.state.settings,
+            transport=transport,
+            llm_provider=None,
+            clock=client.app.state.clock,
+            runner=runner,
+        )
+        service.queue_follow_ups()
+        for future, _ in list(runner._tasks.values()):
+            future.result(timeout=10)
+        with database(client.app.state.settings) as db:
+            job = db.execute(
+                "SELECT status,message FROM jobs WHERE kind='email_follow_up'"
+            ).fetchone()
+            statuses = [
+                row[0] for row in db.execute("SELECT status FROM follow_ups ORDER BY message_id")
+            ]
+        assert tuple(job) == (
+            "failed",
+            "1 of 2 Outlook reminders failed; retry from Email Approval",
+        )
+        assert statuses == ["failed", "created"]
+        assert "private-reminder-job-payload" not in caplog.text
+    finally:
+        runner.shutdown()
+
+
 @pytest.mark.parametrize("status", ["pending", "failed", "created", "absent"])
 @pytest.mark.parametrize("com", [True, False])
 def test_startup_recovers_only_pending_com_reminders(

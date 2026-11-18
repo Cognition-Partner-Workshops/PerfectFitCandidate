@@ -25,7 +25,7 @@ from pfc.adapters.llm.providers import LLMProvider, PromptRequest
 from pfc.config import Settings
 from pfc.db import audit
 from pfc.db.connection import database
-from pfc.jobs.runner import JobContext, JobRunner
+from pfc.jobs.runner import JobContext, JobFailed, JobRunner
 from pfc.security.problems import Problem
 from pfc.security.sessions import stamp
 from pfc.services.email.follow_up import DEFAULTS, build_ics, follow_up_key, next_business_day
@@ -361,6 +361,7 @@ class EmailService:
             return
 
         def run(context: JobContext) -> None:
+            processed, failed = 0, 0
             for message_id in ids:
                 context.raise_if_cancelled()
                 with database(self.settings) as db:
@@ -393,6 +394,8 @@ class EmailService:
                     )
                     if not cursor.rowcount:
                         continue
+                    processed += 1
+                    failed += int(error is not None)
                     audit.append_audit(
                         db,
                         ts=now,
@@ -402,6 +405,10 @@ class EmailService:
                         entity_id=str(message_id),
                         details={"status": status},
                     )
+            if failed:
+                raise JobFailed(
+                    f"{failed} of {processed} Outlook reminders failed; retry from Email Approval"
+                )
 
         self.runner.submit("email_follow_up", run, params={"message_ids": ids}, created_by=user_id)
 
