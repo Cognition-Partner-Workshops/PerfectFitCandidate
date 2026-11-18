@@ -142,9 +142,7 @@ class ChatMask:
                 aliases[key] = {None}
         self.aliases = aliases
         alternatives = "|".join(re.escape(name) for name in sorted(aliases, key=len, reverse=True))
-        self.names = (
-            re.compile(r"(?<!\w)(?:" + alternatives + r")(?!\w)", re.I) if alternatives else None
-        )
+        self.names = re.compile(r"(?<!\w)(?:" + alternatives + r")(?!\w)") if alternatives else None
 
     @staticmethod
     def _normalise(value: str) -> str:
@@ -153,13 +151,22 @@ class ChatMask:
     def mask(self, value: str, *, identify: bool = False) -> str:
         text = EMAIL.sub("[email masked]", self._normalise(value))
         if self.names:
-
-            def replace(match: re.Match[str]) -> str:
-                ids = self.aliases.get(match[0].casefold(), set())
+            # Case folding can expand characters such as ß. Map folded matches back
+            # to the original text so the rest of the question retains its case.
+            offsets = [index for index, char in enumerate(text) for _ in char.casefold()]
+            parts: list[str] = []
+            end = 0
+            for match in self.names.finditer(text.casefold()):
+                start = offsets[match.start()]
+                parts.append(text[end:start])
+                ids = self.aliases[match[0]]
                 resource_id = next(iter(ids)) if len(ids) == 1 else None
-                return f"Resource #{resource_id}" if identify and resource_id else "[name masked]"
-
-            text = self.names.sub(replace, text)
+                parts.append(
+                    f"Resource #{resource_id}" if identify and resource_id else "[name masked]"
+                )
+                end = offsets[match.end() - 1] + 1
+            parts.append(text[end:])
+            text = "".join(parts)
         return MASK_PHONE.sub(
             lambda match: (
                 "[number masked]" if sum(c.isdecimal() for c in match[0]) >= 7 else match[0]

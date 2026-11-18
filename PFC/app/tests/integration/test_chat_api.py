@@ -92,7 +92,7 @@ def _seed(api: Api) -> None:
         db.execute("UPDATE demands SET account_name='Acme' WHERE demand_id=?", (demand,))
         candidate = seed_candidate(db)
         db.execute(
-            "UPDATE candidates SET display_name='Bea Sample' WHERE candidate_id=?", (candidate,)
+            "UPDATE candidates SET display_name='Bea Weiß' WHERE candidate_id=?", (candidate,)
         )
         first = seed_resource(
             db, "BeaS", grade="C1", skills="DBX", candidate=candidate, email="bea@example.test"
@@ -202,11 +202,11 @@ def test_offline_reference_questions(api: Api) -> None:
         (
             "Who on the bench has PySpark?",
             {"intent": "bench_skill", "skill": "PySpark"},
-            "Eligible active bench resources with PySpark: 1.",
+            "Eligible active bench resources with Spark: 1.",
             ["Resource #2"],
         ),
         (
-            "Why is Bea Sample ranked #2 for T10001? bea@example.test 07700 900123",
+            "Why is Bea Weiß ranked #2 for T10001? bea@example.test 07700 900123",
             {"intent": "match_rank", "requisition": "T10001", "rank": 2, "resource_id": 1},
             "In completed run #2, Resource #1 was ranked #2 for T10001 with a score of 84.5/100 "
             "(Potential). The stored scoring components are shown in the source.",
@@ -233,11 +233,11 @@ def test_offline_reference_questions(api: Api) -> None:
         assert answer["outcome"] == ("answered" if sources else "no_data")
         assert stub.requests[-1].purpose == "chat_lookup"
         assert stub.requests[-1].json_schema == Lookup.model_json_schema()
-    assert "Bea Sample" not in str(stub.requests)
+    assert "Bea Weiß" not in str(stub.requests)
     assert "bea@example.test" not in str(stub.requests)
     assert "07700" not in str(stub.requests)
     assert "sensitive evidence" not in str(stub.requests)
-    assert "Bea Sample" not in client.get("/api/v1/chat").text
+    assert "Bea Weiß" not in client.get("/api/v1/chat").text
     assert "bea@example.test" not in client.get("/api/v1/chat").text
     jobs = [job for job in client.get("/api/v1/jobs").json() if job["kind"] == "chat"]
     assert len(jobs) == len(references)
