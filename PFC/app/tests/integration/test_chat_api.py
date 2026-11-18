@@ -105,16 +105,17 @@ def _seed(api: Api) -> None:
         second = seed_resource(db, "CaseyS", grade="C2", skills="SQL", candidate=second_candidate)
         old = seed_cv(db, second, second_candidate, skills=("Databricks", "OldSkill"))
         db.execute("UPDATE cv_versions SET is_latest=0 WHERE cv_version_id=?", (old,))
-        db.execute(
+        latest = db.execute(
             "INSERT INTO cv_versions(resume_id,candidate_id,version_no,text_sha256,text_norm,"
             "extracted_by,is_latest,extracted_at) SELECT resume_id,candidate_id,2,'current',"
-            "'Databricks','test',1,extracted_at FROM cv_versions WHERE cv_version_id=?",
+            "'Built pipelines with Databricks.','test',1,extracted_at "
+            "FROM cv_versions WHERE cv_version_id=?",
             (old,),
-        )
+        ).lastrowid
         db.execute(
             "INSERT INTO resource_skills(resource_id,cv_version_id,source,skill_raw,skill_norm) "
-            "VALUES (?,?,'CV','Databricks','databricks')",
-            (second, old + 1),
+            "VALUES (?,?,'CV','PySpark','pyspark')",
+            (second, latest),
         )
         outside = seed_resource(db, "OutsideRange", grade="B2", skills="Databricks")
         archived = seed_resource(db, "Archived", skills="Databricks")
@@ -199,6 +200,12 @@ def test_offline_reference_questions(api: Api) -> None:
             ["Resource #1", "Resource #2"],
         ),
         (
+            "Who on the bench has PySpark?",
+            {"intent": "bench_skill", "skill": "PySpark"},
+            "Eligible active bench resources with PySpark: 1.",
+            ["Resource #2"],
+        ),
+        (
             "Why is Bea Sample ranked #2 for T10001? bea@example.test 07700 900123",
             {"intent": "match_rank", "requisition": "T10001", "rank": 2, "resource_id": 1},
             "In completed run #2, Resource #1 was ranked #2 for T10001 with a score of 84.5/100 "
@@ -218,6 +225,11 @@ def test_offline_reference_questions(api: Api) -> None:
         answer = entry["answer"]
         assert answer["text"] == text
         assert [source["label"] for source in answer["sources"]] == sources
+        if lookup.get("skill") == "Databricks":
+            assert [source["values"]["Evidence"] for source in answer["sources"]] == [
+                "CT",
+                "CV v2 (#2, text)",
+            ]
         assert answer["outcome"] == ("answered" if sources else "no_data")
         assert stub.requests[-1].purpose == "chat_lookup"
         assert stub.requests[-1].json_schema == Lookup.model_json_schema()

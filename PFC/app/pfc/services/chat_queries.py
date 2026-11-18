@@ -6,8 +6,10 @@ from datetime import date
 from urllib.parse import urlencode
 
 from pfc.api.schemas.chat import ChatAnswer, ChatSource
+from pfc.domain.cv_profile import skill_hits
 from pfc.domain.normalise import normalise_term, tokenise_skills
 from pfc.services.chat_intent import ChatMask, Lookup
+from pfc.services.ingestion.masking import mask_evidence
 from pfc.services.matching.current import read_current_runs
 from pfc.services.occ.synonyms import valid_synonym_table
 
@@ -168,6 +170,24 @@ def _bench_skill(db: sqlite3.Connection, lookup: Lookup, mask: ChatMask) -> Chat
                 resource_id = row["resource_id"]
                 seen[resource_id] = row
                 evidence[resource_id].add(f"CV v{row['version_no']} (#{row['cv_version_id']})")
+        if synonyms.resolve(lookup.skill):
+            for row in db.execute(
+                "SELECT r.resource_id,r.candidate_id,r.grade,r.bench_status_code,"
+                "v.cv_version_id,v.version_no,v.text_norm "
+                "FROM resources r JOIN cv_versions v USING(candidate_id) "
+                "LEFT JOIN grades g ON g.code=r.grade "
+                "WHERE r.lifecycle='active' AND r.eligibility IN ('eligible','eligible_caveat') "
+                "AND (? IS NULL OR g.ordinal BETWEEN ? AND ?) "
+                "AND v.is_latest=1 AND v.extraction_removed_at IS NULL",
+                (low, low, high),
+            ):
+                hits = skill_hits(mask_evidence(row["text_norm"] or ""), synonyms)
+                if any(normalise_term(canonical) == key for _, canonical, _ in hits):
+                    resource_id = row["resource_id"]
+                    seen[resource_id] = row
+                    evidence[resource_id].add(
+                        f"CV v{row['version_no']} (#{row['cv_version_id']}, text)"
+                    )
     skill = mask.mask(name)
     if not seen:
         return ChatAnswer(
