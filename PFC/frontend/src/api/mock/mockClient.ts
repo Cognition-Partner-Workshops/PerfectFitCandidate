@@ -766,6 +766,12 @@ export class MockApiClient implements ApiClient {
     return this.done(this.resources().filter((r) => r.eligibility === 'excluded' || r.eligibility === 'insufficient'))
   }
 
+  chatStatus: ApiClient['chatStatus'] = () => this.done({ available: false })
+  chatHistory: ApiClient['chatHistory'] = () => this.done([])
+  chatDetail: ApiClient['chatDetail'] = async () => { throw new ApiError({ status: 404, title: 'Chat question not found' }) }
+  askChat: ApiClient['askChat'] = async () => { throw new ApiError({ status: 503, title: 'The local model is unavailable' }) }
+  cancelJob: ApiClient['cancelJob'] = () => this.done(undefined)
+
   async listJobs(limit = 20): Promise<JobItem[]> {
     this.currentUser()
     const now = new Date().toISOString()

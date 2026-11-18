@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from datetime import date
 from typing import Annotated, Any, Literal
 
@@ -166,9 +167,12 @@ def housekeeping_run(body: Housekeeping, request: Request, admin: Admin) -> dict
             admin.user.user_id,
             request.app.state.clock(),
         )
-        context.report_progress(1, json.dumps(counts))
-        context.raise_if_cancelled()
-        context.runner._finish(context.job_id, "completed", json.dumps(counts))
+        def persist(db: sqlite3.Connection) -> None:
+            db.execute(
+                "UPDATE jobs SET message=? WHERE job_id=?", (json.dumps(counts), context.job_id)
+            )
+
+        context.complete(persist)
 
     return {
         "job_id": request.app.state.job_runner.submit(

@@ -14,6 +14,7 @@ import { ArchivePage } from './pages/ArchivePage'
 import { MatchResultsPage } from './pages/MatchResultsPage'
 import { CandidateProfilePage } from './pages/CandidateProfilePage'
 import { EmailApprovalPage } from './pages/EmailApprovalPage'
+import { ChatPage } from './pages/ChatPage'
 import { SettingsPage } from './pages/settings/SettingsPage'
 import { OccPage } from './pages/occ/OccPage'
 import { Spinner } from './components/ui'
@@ -59,6 +60,7 @@ export function AppRoutes() {
           <Route path="/candidates" element={<CandidateProfilePage />} />
           <Route path="/candidates/:candidateId" element={<CandidateProfilePage />} />
           <Route path="/email" element={<EmailApprovalPage />} />
+          <Route path="/chat" element={<ChatPage />} />
           <Route path="/settings/*" element={<SettingsPage />} />
           <Route
             path="/occ/*"

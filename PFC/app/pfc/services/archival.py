@@ -291,9 +291,12 @@ def submit(
 
     def run(context: JobContext) -> None:
         counts = execute_batch(settings, batch_id, user_id, now)
-        context.report_progress(1, json.dumps(counts))
-        context.raise_if_cancelled()
-        context.runner._finish(context.job_id, "completed", json.dumps(counts))
+        def persist(db: sqlite3.Connection) -> None:
+            db.execute(
+                "UPDATE jobs SET message=? WHERE job_id=?", (json.dumps(counts), context.job_id)
+            )
+
+        context.complete(persist)
 
     try:
         job_id = runner.submit(

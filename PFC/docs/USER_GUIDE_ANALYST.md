@@ -37,6 +37,7 @@ for everyone on the next scoring run; historical results remain unchanged.
 12. [Export](#12-export)
 13. [Your settings](#13-your-settings)
 14. [Pending in this build](#14-pending-in-this-build)
+15. [Chat with PFC data](#15-chat-with-pfc-data)
 
 ## 1. Daily flow
 
@@ -52,12 +53,12 @@ flowchart LR
     H --> I[Send]
 ```
 
-The left panel has Dashboard, Demand List, Bench List, Match Results, Candidate Profile, Email Approval and Settings. OCC Admin is shown to Admins only. Chat is Phase 2 and is not shown.
+The left panel has Dashboard, Demand List, Bench List, Match Results, Candidate Profile, Email Approval, Chat and Settings. OCC Admin is shown to Admins only.
 
 ### Task status popups
 
 Bottom-right task cards follow DL/CT uploads, commits and discards, JD analysis,
-CV sync and matching across page navigation. Each shows **Started**, **In Progress**
+CV sync, matching and Chat questions across page navigation. Each shows **Started**, **In Progress**
 (with a percentage when available), **Completed**, **Failed** or **Cancelled**.
 Completed cards disappear after about ten seconds. Failed cards keep a safe,
 short reason until you close them; retry the action or contact your administrator.
@@ -241,5 +242,26 @@ PDF report download is Phase 2 (REQ-OUT-09).
 | Area | Status |
 |---|---|
 | PDF export | Phase 2 |
-| DL/CT auto-sync, SMTP, Chat | Phase 2 |
+| DL/CT auto-sync | Phase 2 |
 | Lockout countdown on sign-in | Pending: the backend answers a locked account with 401 invalid credentials. The sign-in screen shows the lockout message on a 423, with a countdown when the reply carries `Retry-After` |
+
+## 15. Chat with PFC data
+
+Open **Chat** and wait for **Local model ready**. Pick a suggested question or type your
+own, then select **Ask**. **Recent questions** shows your last 50 questions. You can
+return to a running question from the **Chat question** task card, or choose **Stop**
+on the question to cancel it.
+
+| Example | How PFC answers |
+|---|---|
+| How many open demands are there? | Counts open demand records. You can specify a business unit or account by name. |
+| Top 5 skills in demand for INS this month | Counts mandatory and preferred skills once per open demand with a confirmed JD, using its position start date for this month's filter. |
+| Who on the bench has Databricks and is C1–C2? | Lists masked resource IDs for active, eligible bench records with the skill in the CT or latest available CV, using the configured grade order. |
+| Why is Resource #42 ranked #2 for T10001? | Shows the score, band and stored component points in the latest completed assessment for that open requisition. Use the actual resource ID, requisition and rank. |
+
+Open the links in **Sources** to check the records used. Chat shows masked resource
+IDs and strips recognized names and contact details. Use requisition codes and
+resource IDs and keep personal information out of your questions. Questions and
+answers are recorded locally. If PFC has no matching data, the answer says so.
+Use **Check again** after restoring the local model in **Settings**. Chat is
+read-only. Use the usual matching and approval screens for staffing and outreach.

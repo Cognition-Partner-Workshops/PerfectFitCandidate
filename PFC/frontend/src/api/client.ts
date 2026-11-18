@@ -2,6 +2,8 @@ import type { MaintenanceApi } from './maintenance'
 import type {
   BulkAnalysis,
   JobItem,
+  ChatDetail,
+  ChatEntry,
   DocumentSummary,
   ExcludedEntry,
   AdminSettings,
@@ -158,6 +160,12 @@ export interface ApiClient {
   syncCvs(resourceIds: number[]): Promise<{ jobId: number }>
   /** GET /jobs — caller-owned and system jobs, including recently finished jobs. */
   listJobs(limit?: number): Promise<JobItem[]>
+  cancelJob(jobId: number): Promise<void>
+
+  chatStatus(): Promise<{ available: boolean }>
+  chatHistory(): Promise<ChatEntry[]>
+  chatDetail(jobId: number): Promise<ChatDetail>
+  askChat(question: string): Promise<ChatEntry>
 
   /** GET /candidates/{id} */
   getCandidate(candidateId: number): Promise<CandidateDetail>

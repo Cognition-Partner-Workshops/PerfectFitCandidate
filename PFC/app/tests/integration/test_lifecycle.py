@@ -199,7 +199,7 @@ def test_p2_ex_06_upgrade_preserves_phase1(tmp_path: Path):
                 "audit_log",
             )
         }
-    assert migrate(settings) == ["0014"]
+    assert migrate(settings) == ["0014", "0017"]
     with database(settings) as db:
         for name, rows in before.items():
             actual = [dict(r) for r in db.execute(f"SELECT * FROM {name}")]
