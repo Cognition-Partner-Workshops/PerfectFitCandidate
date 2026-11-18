@@ -31,6 +31,8 @@ import type { CvCompareScoring, CvComparison,
   PackageSource,
   PendingPackage,
   PersonalSettings,
+  UploadPreview,
+  WatchStatus,
   ProblemDetails,
   Resource,
   ResourceTeamMember,
@@ -110,6 +112,7 @@ interface MockAuditEntry {
 }
 
 interface MockState {
+  ingestionPreviews?: Record<number, UploadPreview>
   summaries?: Record<string, DocumentSummary>
   classificationOverrides?: Record<number, CandidateClassification>
   removedExtractions?: number[]
@@ -221,8 +224,8 @@ function initialState(): MockState {
       resumeFolderPath: 'C:\\Users\\analyst\\OneDrive\\Bench CVs',
       resumeFileTypes: ['.docx', '.pdf'],
       resumeConverterAvailable: true,
-      autoSyncDl: { enabled: false, watchPath: '', pattern: 'DL_*.xlsx' },
-      autoSyncCt: { enabled: false, watchPath: '', pattern: 'CT_*.xlsx' },
+      autoSyncDl: { enabled: false, watchPath: '', pattern: 'DL_*.xlsx', pollMinutes: 5, requirePreview: false },
+      autoSyncCt: { enabled: false, watchPath: '', pattern: 'CT_*.xlsx', pollMinutes: 5, requirePreview: false },
       activeModel: 'qwen3-4b',
       spoc1: 'SPOC-1',
       spoc2: 'SPOC-2',
@@ -711,7 +714,7 @@ export class MockApiClient implements ApiClient {
     if (!file.name.toLowerCase().endsWith('.xlsx'))
       fail(422, 'Not an .xlsx file. Choose the workbook exported from Excel.', 'INGEST_NOT_XLSX')
     const dl = kind === 'dl'
-    return this.done({
+    const preview: UploadPreview = {
       ingestionRunId: this.nextId(),
       kind,
       fileName: file.name,
@@ -725,19 +728,31 @@ export class MockApiClient implements ApiClient {
         ? ['Row 17  Code Requisition "ABCD123" not in T1/T2XXXX format', 'Row 40  JD contains mis-encoded bullets (normalised)']
         : ['Row 9  Bench End Date "Wed 31/13/2026" unparseable — stays eligible, pending review', 'Row 22  Email Address missing'],
       alreadyImported: false,
-    })
+    }
+    this.state.ingestionPreviews ??= {}
+    this.state.ingestionPreviews[preview.ingestionRunId] = preview
+    return this.done(preview)
+  }
+
+  async getIngestionPreview(id: number) {
+    this.currentUser()
+    const preview = this.state.ingestionPreviews?.[id]
+    if (!preview) fail(404, 'Ingestion run not found', 'INGESTION_NOT_FOUND')
+    return this.done(preview)
   }
 
   async commitIngestion(id: number) {
     this.currentUser()
     this.audit(`Ingestion run ${id} committed`)
     this.noteDataChange('DL/CT committed')
+    delete this.state.ingestionPreviews?.[id]
     return this.done(undefined)
   }
 
   async discardIngestion(id: number) {
     this.currentUser()
     this.audit(`Ingestion run ${id} discarded`)
+    delete this.state.ingestionPreviews?.[id]
     return this.done(undefined)
   }
 
@@ -1336,14 +1351,27 @@ export class MockApiClient implements ApiClient {
   // ---- Settings -------------------------------------------------------------------------
   async getMySettings() {
     this.currentUser()
-    return this.done({ ...this.state.settings, resumeFileTypes: this.state.settings.resumeFileTypes ?? ['.docx', '.pdf'], resumeConverterAvailable: this.state.settings.resumeConverterAvailable ?? true })
+    const source = (s: PersonalSettings['autoSyncDl']) => ({ ...s, pollMinutes: s.pollMinutes ?? 5, requirePreview: s.requirePreview ?? false })
+    return this.done({ ...this.state.settings, autoSyncDl: source(this.state.settings.autoSyncDl), autoSyncCt: source(this.state.settings.autoSyncCt), resumeFileTypes: this.state.settings.resumeFileTypes ?? ['.docx', '.pdf'], resumeConverterAvailable: this.state.settings.resumeConverterAvailable ?? true })
+  }
+
+  async getWatchStatus(): Promise<WatchStatus> {
+    this.currentUser()
+    const source = (enabled: boolean) => ({ enabled, reachable: null, lastScanAt: null, pending: [], lastError: null, lastPickup: null, awaitingReview: [] })
+    return this.done({ dl: source(this.state.settings.autoSyncDl.enabled), ct: source(this.state.settings.autoSyncCt.enabled) })
   }
 
   async saveMySettings(s: PersonalSettings) {
     this.currentUser()
     const model = this.state.models.find((m) => m.id === s.activeModel)
     if (!model?.approved) fail(422, 'Choose a model from the approved list', 'MODEL_NOT_APPROVED')
-    this.state.settings = { ...s, autoSyncDl: { ...s.autoSyncDl, enabled: false }, autoSyncCt: { ...s.autoSyncCt, enabled: false } }
+    for (const source of [s.autoSyncDl, s.autoSyncCt]) {
+      if (!Number.isInteger(source.pollMinutes) || source.pollMinutes < 1 || source.pollMinutes > 1440) fail(422, 'Poll interval must be between 1 and 1440 minutes', 'VALIDATION_ERROR')
+      if (!source.enabled) continue
+      if (/[/\\]|\.\./.test(source.pattern) || !source.pattern.toLowerCase().endsWith('.xlsx')) fail(422, 'Watch pattern must be a workbook filename glob', 'WATCH_PATTERN_INVALID')
+      if (!/^(\/|[A-Za-z]:[\\/]|\\\\)/.test(source.watchPath.trim())) fail(422, 'Watch folder is not an accessible directory', 'WATCH_PATH_INVALID')
+    }
+    this.state.settings = { ...s }
     this.audit('Personal settings saved')
     return this.done(this.state.settings)
   }

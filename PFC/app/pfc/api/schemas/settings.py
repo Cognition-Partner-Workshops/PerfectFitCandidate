@@ -8,6 +8,8 @@ from pfc.cv_formats import ALLOWED_CV_EXTENSIONS, DEFAULT_CV_EXTENSIONS
 class WatchSource(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool = False
+    poll_minutes: int = Field(default=5, ge=1, le=1440)
+    require_preview: bool = False
     path: str | None = Field(default=None, max_length=4096)
     pattern: str = Field(default="DL_*.xlsx", min_length=1, max_length=255)
 

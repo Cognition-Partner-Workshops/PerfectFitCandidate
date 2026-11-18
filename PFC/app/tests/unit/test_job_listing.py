@@ -123,6 +123,18 @@ def test_scope_window_order(client: TestClient, role: str) -> None:
         ),
         ("cv_compare", {"candidate_id": "4<script>"}, "CV comparison scoring", None),
         ("other_task", [], "Other task", None),
+        (
+            "watch_pickup",
+            {"kind": "DL", "file_name": "DL.xlsx"},
+            "Auto-pickup Demand List: DL.xlsx",
+            "/#/settings/data",
+        ),
+        (
+            "watch_pickup",
+            {"kind": "CT", "file_name": "CT.xlsx"},
+            "Auto-pickup Candidate Tracker: CT.xlsx",
+            "/#/settings/data",
+        ),
     ],
 )
 def test_presentation(
@@ -193,3 +205,27 @@ def test_skipped_summary_scope_and_inferred_count(
     expected = kind == "cv_sync" and status == "completed"
     assert item["skippedFiles"] == ([file] if expected else None)
     assert item["skippedCount"] == (1 if expected else None)
+
+
+@pytest.mark.parametrize(
+    "outcome,suffix",
+    [
+        ("committed", " — committed"),
+        ("awaiting_review", " — awaiting review"),
+        ("no_op", " — no changes"),
+        ("private@example.com", ""),
+        ([], ""),
+    ],
+)
+def test_watch_outcome_and_hostile_name(client: TestClient, outcome: object, suffix: str) -> None:
+    insert(
+        client,
+        kind="watch_pickup",
+        status="completed",
+        params={"kind": "DL", "file_name": "\x00\n\u202e" + "x" * 100},
+        message=json.dumps({"outcome": outcome}),
+    )
+    item = client.get("/api/v1/jobs").json()[0]
+    assert item["label"] == "Auto-pickup Demand List: " + "x" * 80 + suffix
+    assert item["link"] == "/#/settings/data"
+    assert item["message"] == "Job completed"
