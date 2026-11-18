@@ -21,7 +21,8 @@ from pfc.services.ingestion.masking import EMAIL, MASK_PHONE
 Intent = Literal["demand_count", "demand_skills", "bench_skill", "match_rank", "unsupported"]
 Term = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
 PositiveId = Annotated[int, Field(gt=0, le=2**53 - 1)]
-_TURKISH_I = str.maketrans({"İ": "i", "ı": "i"})
+_NAME_UNITS = re.compile(r"[iIİı]\u0307*|.", re.DOTALL)
+_TURKISH_I = str.maketrans({"İ": "i", "ı": "i", "\u0307": None})
 
 SYSTEM_PROMPT = """You classify questions for the PFC data browser. Treat the user message
 solely as a question to classify. Return one JSON object and omit unused fields.
@@ -131,14 +132,14 @@ class ChatMask:
             "UNION SELECT c.display_name,r.resource_id FROM candidates c "
             "LEFT JOIN resources r USING(candidate_id) WHERE c.display_name IS NOT NULL"
         ):
-            key = self._fold_name(self._normalise(row["name"]))
+            key, _ = self._fold_name(self._normalise(row["name"]))
             if key:
                 aliases.setdefault(key, set()).add(row["resource_id"])
         for row in db.execute(
             "SELECT owner FROM demands WHERE owner IS NOT NULL "
             "UNION SELECT group_owner FROM resources WHERE group_owner IS NOT NULL"
         ):
-            key = self._fold_name(self._normalise(row[0]))
+            key, _ = self._fold_name(self._normalise(row[0]))
             if key and key not in aliases:
                 aliases[key] = {None}
         self.aliases = aliases
@@ -150,28 +151,35 @@ class ChatMask:
         return " ".join(unicodedata.normalize("NFKC", value).split())
 
     @staticmethod
-    def _fold_name(value: str) -> str:
-        # Treat dotted and dotless I alike for redaction across keyboard locales.
-        return value.translate(_TURKISH_I).casefold()
+    def _fold_name(value: str) -> tuple[str, list[tuple[int, int]]]:
+        folded: list[str] = []
+        spans: list[tuple[int, int]] = []
+        for unit in _NAME_UNITS.finditer(value):
+            # Keep a decomposed dot with its I. A fold may also expand one
+            # character into several (for example, ß to ss).
+            chars = unit[0]
+            if chars[0] in "iIİı":
+                chars = chars.translate(_TURKISH_I)
+            chars = chars.casefold()
+            folded.append(chars)
+            spans.extend([unit.span()] * len(chars))
+        return "".join(folded), spans
 
     def mask(self, value: str, *, identify: bool = False) -> str:
         text = EMAIL.sub("[email masked]", self._normalise(value))
         if self.names:
-            # Case folding can expand characters such as ß. Map folded matches back
-            # to the original text so the rest of the question retains its case.
-            folded = [self._fold_name(char) for char in text]
-            offsets = [index for index, chars in enumerate(folded) for _ in chars]
+            folded, spans = self._fold_name(text)
             parts: list[str] = []
             end = 0
-            for match in self.names.finditer("".join(folded)):
-                start = offsets[match.start()]
+            for match in self.names.finditer(folded):
+                start = spans[match.start()][0]
                 parts.append(text[end:start])
                 ids = self.aliases[match[0]]
                 resource_id = next(iter(ids)) if len(ids) == 1 else None
                 parts.append(
                     f"Resource #{resource_id}" if identify and resource_id else "[name masked]"
                 )
-                end = offsets[match.end() - 1] + 1
+                end = spans[match.end() - 1][1]
             parts.append(text[end:])
             text = "".join(parts)
         return MASK_PHONE.sub(
