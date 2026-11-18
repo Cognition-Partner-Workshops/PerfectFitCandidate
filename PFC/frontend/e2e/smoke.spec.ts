@@ -274,7 +274,19 @@ test('summary cards: grounded evidence, stale source, provider unavailable, no r
   await expect(textDiff.locator('td.diff-new').filter({ hasText: 'Led a move to cloud warehouses.' })).toBeVisible()
   await expect(comparison.getByRole('region', { name: 'Score differences' })).toBeVisible()
   for (const raw of [CV_EMAIL, CV_PHONE, CV_PHONE.replace(' ', '')]) await expect(body).not.toContainText(raw)
-  if (process.env.PFC_SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.PFC_SCREENSHOT_DIR}/cv-compare.png`, fullPage: true })
+  const shots = process.env.PFC_SCREENSHOT_DIR
+  if (shots) {
+    await page.setViewportSize({ width: 1400, height: 3600 })
+    await comparison.screenshot({ path: `${shots}/cv-compare.png` })
+    const score = comparison.getByRole('button', { name: 'Score both versions' })
+    if (await score.isEnabled()) {
+      await score.click()
+      await expect(comparison.getByRole('table', { name: 'What-if scores' })).toBeVisible({ timeout: 30_000 })
+      await comparison.getByText('Score breakdown').first().click()
+      await comparison.getByRole('region', { name: 'Score differences' }).screenshot({ path: `${shots}/cv-compare-scores.png` })
+    }
+    await page.setViewportSize({ width: 1280, height: 720 })
+  }
   await comparison.getByRole('button', { name: 'Close comparison' }).click()
   await expect(comparison).toBeHidden()
   await expect(stale).toHaveCount(0)
