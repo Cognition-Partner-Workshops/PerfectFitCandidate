@@ -64,7 +64,7 @@ export function EmailApprovalPage() {
   const calendar = useMutation({ mutationFn: async (id: number) => {
     const file = await api.downloadEmailFollowUp(id)
     downloadBlob(file.blob, file.fileName)
-  }, onError: onErr })
+  }, onSuccess: () => void refresh(), onError: onErr })
   const handoff = useMutation({
     mutationFn: async ({ id, confirmUncertain }: { id: number; confirmUncertain?: boolean }) => {
       const result = await api.openEmailInOutlook(id, confirmUncertain)

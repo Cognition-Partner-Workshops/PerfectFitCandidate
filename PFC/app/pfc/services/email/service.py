@@ -462,6 +462,21 @@ class EmailService:
                 datetime.fromisoformat(row["due_at"]),
                 self.clock(),
             )
+            if row["transport"] == "outlook_com":
+                db.execute(
+                    "UPDATE follow_ups SET status='handoff',transport='eml_handoff',"
+                    "last_error=NULL,updated_at=? WHERE message_id=?",
+                    (stamp(self.clock()), message_id),
+                )
+                audit.append_audit(
+                    db,
+                    ts=stamp(self.clock()),
+                    user_id=user_id,
+                    action="EMAIL_FOLLOW_UP_HANDOFF",
+                    entity_type="email_message",
+                    entity_id=str(message_id),
+                    details={"status": "handoff", "transport": "eml_handoff"},
+                )
             audit.append_audit(
                 db,
                 ts=stamp(self.clock()),

@@ -245,7 +245,43 @@ def test_com_follow_up_calendar_fallback_after_transport_switch(
     retry = client.post(f"/api/v1/emails/{message_id}/follow-up/retry", headers=headers)
     assert retry.status_code == 409
     assert "Switch Email transport back to Outlook COM" in retry.json()["detail"]
-    assert client.get(f"/api/v1/emails/{message_id}").json()["follow_up"]["status"] == status
+    follow_up = client.get(f"/api/v1/emails/{message_id}").json()["follow_up"]
+    assert follow_up["status"] == ("created" if status == "created" else "handoff")
+    assert follow_up["transport"] == ("outlook_com" if status == "created" else "eml_handoff")
+    if status == "created":
+        return
+    assert follow_up["last_error"] is None
+    assert client.get(f"/api/v1/emails/{message_id}/follow-up.ics").status_code == 200
+    transport = FakeTransport()
+    client.app.state.email_transport = transport
+    runner = JobRunner(client.app.state.settings)
+    try:
+        service = EmailService(
+            settings=client.app.state.settings,
+            transport=transport,
+            llm_provider=None,
+            clock=client.app.state.clock,
+            runner=runner,
+        )
+        service.queue_follow_ups()
+        for future, _ in list(runner._tasks.values()):
+            future.result(timeout=10)
+        assert transport.follow_ups == {}
+        assert (
+            client.post(f"/api/v1/emails/{message_id}/follow-up/retry", headers=headers).status_code
+            == 409
+        )
+        with database(client.app.state.settings) as db:
+            entries = db.execute(
+                "SELECT details_json FROM audit_log WHERE action='EMAIL_FOLLOW_UP_HANDOFF' "
+                "AND entity_id=?",
+                (str(message_id),),
+            ).fetchall()
+        assert [json.loads(row[0]) for row in entries] == [
+            {"status": "handoff", "transport": "eml_handoff"}
+        ]
+    finally:
+        runner.shutdown()
 
 
 def test_follow_up_handoff_calendar(client: TestClient) -> None:

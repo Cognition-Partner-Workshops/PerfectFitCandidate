@@ -82,6 +82,31 @@ describe('EmailApprovalPage transport handoff', () => {
     expect(screen.getByText(/can't set reminders in new Outlook/)).toBeTruthy()
   })
 
+  it.each(['pending', 'failed'] as const)('refreshes a %s COM reminder as a handoff after calendar download', async (status) => {
+    const transport = { transport: 'Outlook draft file', outlookDetected: false } as const
+    const email: EmailDraft = { ...draft(), followUp: { status, dueAt: '2026-11-23T09:00:00Z', transport: 'outlook_com', lastError: 'Check Outlook' } }
+    vi.spyOn(mock, 'downloadEmailFollowUp').mockResolvedValue({ blob: new Blob(['calendar']), fileName: 'reminder.ics' })
+    vi.spyOn(downloads, 'downloadBlob').mockImplementation(() => {})
+    renderPage(email, transport)
+    await userEvent.click(await screen.findByRole('tab', { name: 'Approved (1)' }))
+    vi.mocked(mock.listEmails).mockResolvedValue({ items: [{ ...email, followUp: { ...email.followUp!, status: 'handoff', transport: 'eml_handoff', lastError: null } }], transport, followUpEnabled: true })
+    await userEvent.click(screen.getByRole('button', { name: 'Add to Outlook calendar' }))
+    expect(await screen.findByText('Calendar reminder')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Retry reminder' })).toBeNull()
+    expect(screen.queryByText('Check Outlook')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Add to Outlook calendar' })).toBeTruthy()
+  })
+
+  it('keeps the failed reminder visible when calendar download fails', async () => {
+    vi.spyOn(mock, 'downloadEmailFollowUp').mockRejectedValue(new Error('Calendar unavailable'))
+    renderPage({ ...draft(), followUp: { status: 'failed', dueAt: '2026-11-23T09:00:00Z', transport: 'outlook_com', lastError: 'Check Outlook' } }, { transport: 'Outlook COM', outlookDetected: true })
+    await userEvent.click(await screen.findByRole('tab', { name: 'Approved (1)' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add to Outlook calendar' }))
+    expect(await screen.findByText('Calendar unavailable')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Retry reminder' })).toBeTruthy()
+    expect(screen.getByText('Reminder failed')).toBeTruthy()
+  })
+
   it('hides reminders when disabled', async () => {
     renderPage({ ...draft(), followUp: { status: 'created', dueAt: '2026-11-23T09:00:00Z', transport: 'outlook_com', lastError: null } }, { transport: 'Outlook COM', outlookDetected: true }, false)
     await userEvent.click(await screen.findByRole('tab', { name: 'Approved (1)' }))
