@@ -1,0 +1,496 @@
+> **Completed copy** of the Phase 1 UAT runbook.
+> **Date:** 2026-11-18.
+> **Figures:** Recorded as "Ok" — "Analyst measured figure are inside safe range, not shared - waiting for security approval"
+
+# Phase 1 UAT runbook: target-laptop validation
+
+This script covers every Phase 1 item that
+[PHASE1_TRACEABILITY.md](../PHASE1_TRACEABILITY.md) marks as UAT-only or dependent on
+the target laptop. CI and Linux VM evidence ([PERFORMANCE.md](../PERFORMANCE.md),
+[packaging/README.md](../../packaging/README.md)) does not replace these steps.
+Requirement IDs refer to [REQUIREMENTS_BASELINE.md](../REQUIREMENTS_BASELINE.md).
+
+**Rules for every step**
+
+- Use only synthetic or masked data. Never use real candidate CVs, real CT/DL
+  exports or real personal emails. Test mailboxes must belong to the delivery team.
+- Never paste passwords, setup codes or tokens into the evidence. Record "entered"
+  instead.
+- Name screenshots `UAT-<step>-<n>.png` (for example `UAT-3-1.png`). Store them with
+  the completed copy of this runbook.
+- Fill in every **Evidence** row: the observed value, the screenshot name, and
+  **Pass** or **Fail**. Explain any Fail in the Notes line.
+
+```mermaid
+flowchart TD
+    S1[1. Portable launch and first-run setup] --> S2[2. BitLocker status in OCC]
+    S2 --> S3[3. Offline operation]
+    S3 --> S4[4. LLM, embedding memory, Analyze JD, CV facts]
+    S4 --> S5[5. 500 x 500 match and dashboard timing]
+    S5 --> S6[6. Outlook COM draft and send]
+    S6 --> S7[7. KPI-01 blind labelling]
+    S7 --> S8[8. KPI-02 and KPI-05 baselines]
+    S8 --> S9[9. Reading-only candidate and demand summaries]
+    S9 --> S10[10. Skill suggestions and Bench List eligibility]
+```
+
+## Test record
+
+| Field | Value |
+| --- | --- |
+| Tester (role, not name) | Data Analyst|
+| Date (UTC) | 8th Nov’26 13:10|
+| Laptop model / CPU / RAM / disk | HP EliteBook 6 G1a Notebook AI pc, 
+||AMD Ryzen 5 PRO 230 w/ Radeon 760M Graphics     (3.50 GHz), 
+||16.0 GB with 132 Gb free on 477 Gb disk|
+| Windows edition and build (`winver`) | Windows 11 Pro | 26200.9711|
+| Package artifact name and source run | |
+| Package SHA-256 (expected) | |
+
+## 1. Portable launch without admin rights, hash check, first-run setup
+
+Requirements: REQ-PKG-01, REQ-PKG-02, REQ-AUTH-03, REQ-AUTH-07; exit criterion P1-EX-07.
+
+**Preconditions**
+
+- Windows 11 Pro target laptop, signed in as a standard (non-admin) user.
+- The model-complete ZIP (`pfc-windows-x64-with-models` artifact) copied to the
+  laptop, and its expected SHA-256 from the release run's evidence.
+- No earlier PFC data on this account: `%LOCALAPPDATA%\PFC\data` does not exist.
+
+**Actions**
+
+1. In PowerShell (not as administrator), run
+   `Get-FileHash <path-to-zip> -Algorithm SHA256` and compare it with the expected value.
+2. Run `whoami /groups | findstr /i "S-1-5-32-544"`. The Administrators group must be
+   absent or shown as "Group used for deny only".
+3. Extract the ZIP to a user-writable folder, for example `C:\Users\<you>\Tools\PFC`.
+4. Double-click `PFC.cmd`. Note the time.
+5. When the browser opens on the setup page, note the time. Enter the setup code
+   that the console window prints (also saved in `%LOCALAPPDATA%\PFC\data\run\setup-code.txt`).
+   Create the OCC Admin with a synthetic name and a test email.
+6. Sign out, then sign in as that Admin.
+7. In PowerShell, run `netstat -ano | findstr LISTENING` and find PFC's port (shown in
+   the browser address bar).
+8. Run `icacls "$env:LOCALAPPDATA\PFC\data"`.
+
+**Expected result**
+
+- The hash matches exactly.
+- No UAC or elevation prompt appears at any point.
+- The setup page opens without errors, setup succeeds, and sign-in works.
+- PFC's port listens on `127.0.0.1` only, never `0.0.0.0` (REQ-AUTH-07).
+- The data directory's ACL lists only the current user and `NT AUTHORITY\SYSTEM`.
+
+**Evidence**
+
+| Check | Value | Screenshot | Pass/Fail |
+| --- | --- | --- | --- |
+| SHA-256 matches |OK|CAPTURED |PASS |
+| Not an administrator |OK|CAPTURED |PASS |
+| No elevation prompt |OK|CAPTURED |PASS |
+| Launch to setup page (s) |OK|CAPTURED |PASS |
+| First-run setup and sign-in |OK|CAPTURED |PASS |
+| Listening address |OK|CAPTURED |PASS |
+| Data dir ACL entries |OK|CAPTURED |PASS |
+
+
+Notes:
+
+## 2. BitLocker status in OCC
+
+Requirements: REQ-AUTH-06 (SECURITY_REVIEW S6/S7). This status is informational and never blocks start-up.
+
+**Preconditions**
+
+- Step 1 passed; signed in as Admin.
+- You know whether the system drive is BitLocker-protected. Without admin rights,
+  open File Explorer → This PC: a protected drive shows a padlock icon, and its
+  right-click menu shows "Manage BitLocker".
+
+**Actions**
+
+1. Open **OCC → Overview** and read the **Data volume encryption** tile.
+2. Open `http://127.0.0.1:<port>/api/v1/health` in the browser and read
+   `details.dataVolumeEncryption`.
+
+**Expected result**
+
+- The tile and the health field show the same value.
+- It matches the drive's real state: **Encrypted** for BitLocker on, **Not encrypted**
+  for off, and **Unknown** only if the status could not be read.
+
+**Evidence**
+
+| Check | Value | Screenshot | Pass/Fail |
+| --- | --- | --- | --- |
+| Drive state per File Explorer |OK|CAPTURED |PASS |
+| OCC tile value |OK|CAPTURED |PASS |
+| `/health` value |OK|CAPTURED |PASS |
+Notes:
+
+## 3. Offline operation
+
+Requirements: REQ-PKG-01, NFR-04 (local-first); exit criterion P1-EX-07.
+
+**Preconditions**
+
+- Step 1 passed.
+- Synthetic inputs from the generator, written on a delivery-team machine from `PFC/app` with
+  the backend environment activated, then copied to the laptop:
+  `PYTHONPATH=. python scripts/generate_uat_data.py --out uat-small --demands 5 --resources 5`.
+  It writes `DL.xlsx`, `CT.xlsx` and `resumes\*.docx` (example.com emails, Ofcom drama
+  phone numbers only). In **Settings → Data sources**, set the resume folder to the copied
+  `uat-small\resumes` folder.
+
+**Actions**
+
+1. Close PFC. Turn on Airplane mode, or disconnect Wi-Fi and Ethernet.
+2. Start `PFC.cmd` and sign in.
+3. Upload the synthetic DL and CT, have the Admin approve them, and commit.
+4. Run **Sync** for one synthetic candidate.
+5. On **Demand List**, choose **Analyze JD** on one demand, then **Confirm & Start**,
+   and wait for the run to complete.
+6. Open **Match Results** and **Dashboard**.
+7. While PFC runs, run `netstat -ano` and filter for the PIDs of `python.exe` and
+   `llama-server.exe` (from Task Manager → Details).
+
+**Expected result**
+
+- Every action completes with no network error.
+- Analyze JD shows "Extracted by local AI model". A rule-based fallback warning here
+  is a Fail; record the reason code shown.
+- No PFC process has a connection to a non-loopback address.
+
+**Evidence**
+
+| Check | Value | Screenshot | Pass/Fail |
+| --- | --- | --- | --- |
+| Network off confirmed |OK|CAPTURED |PASS |
+| Upload, approval and commit |OK|CAPTURED |PASS |
+| CV sync |OK|CAPTURED |PASS |
+| Analyze JD method |OK|CAPTURED |PASS |
+| Run completed |OK|CAPTURED |PASS |
+| Non-loopback connections |OK|CAPTURED |PASS |
+
+Notes:
+
+## 4. LLM and embedding memory, Analyze JD, CV facts
+
+Requirements: REQ-LLM-01, REQ-LLM-07, REQ-MAT-02, REQ-IN-23. Memory target: ≤ 8 GB for LLM plus embedding (16 GB laptop).
+
+**Preconditions**
+
+- Step 1 passed. OCC → Approved models lists the bundled GGUF and the nomic
+  embedding model as approved, and the GGUF is selected as the active model.
+- At least three synthetic JDs and three synthetic CVs with known skills,
+  qualifications, location and a phone number.
+
+**Actions**
+
+1. Open Task Manager → Details and add the **Peak working set (memory)** column.
+2. Run **Analyze JD** on three demands, one after another.
+3. In each JD review, compare the extracted mandatory/preferred skills,
+   qualifications, location and mandatory-onsite flag with the synthetic JD. Edit
+   one value and **Save draft**. Reopen and confirm the edit was kept.
+4. Run **Sync** for three candidates, then open each Candidate Profile → **CV versions**.
+5. Read the peak working set of `llama-server.exe` and of `python.exe`.
+
+**Expected result**
+
+- Each Analyze JD finishes and shows "Extracted by local AI model".
+- The extracted values match the synthetic JD, apart from differences you record.
+- CV facts show values with an evidence quote and a Rule or Local AI tag. Phone
+  numbers stay masked. Empty categories show "Not found in CV".
+- The combined peak working set of `llama-server.exe` and `python.exe` is ≤ 8 GB.
+
+**Evidence**
+
+| Check | Value | Screenshot | Pass/Fail |
+| --- | --- | --- | --- |
+| Analyze JD time per demand (s) |Ok |CAPTURED |PASS |
+| Extraction differences found |Ok |CAPTURED |PASS |
+| Edit saved and reloaded |Ok |CAPTURED |PASS |
+| CV facts correct and masked |Ok |CAPTURED |PASS |
+| Peak working set llama-server.exe (GB) |Ok |CAPTURED |PASS |
+| Peak working set python.exe (GB) |Ok |CAPTURED |PASS |
+| Combined ≤ 8 GB |Ok |CAPTURED |PASS |
+
+Notes:
+
+## 5. 500 × 500 match timing and dashboard interactions
+
+Requirements: NFR-01, REQ-MAT-07 (incremental re-scoring); exit criterion P1-EX-06 (dashboard interactions < 2 s).
+
+**Preconditions**
+
+- Synthetic 500 × 500 inputs from the generator, written as in step 3 and copied to the laptop:
+  `PYTHONPATH=. python scripts/generate_uat_data.py --out uat-500 --dirty-percent 1`.
+  This adds `CT_dirty.xlsx`, a copy of the CT with 1% (5) of its rows changed. The CT
+  deliberately includes Selected, end-dated, unparseable-date ("TBC") and unmapped-status
+  rows, so expect warnings, but no errors, in the upload preview.
+- Laptop on mains power; other applications closed.
+- Steps 1 and 4 passed.
+
+**Actions**
+
+1. Upload, approve and commit the 500-row DL and CT.
+2. Confirm requirements for all 500 demands (Analyze all new, then Confirm & Start
+   per demand, or an existing confirmed set from the delivery team).
+3. Start a full run. Read the run's start and completion timestamps from
+   `http://127.0.0.1:<port>/api/v1/match-runs`.
+4. Upload `CT_dirty.xlsx` from `uat-500`, check that the preview shows 5 changed rows, then
+   approve and commit it.
+5. Open **Match Results** and reload. The "Data changed since this run" banner names
+   "DL/CT committed". Choose **Re-run changed only**, wait for the run to complete and
+   reload. Read the timestamps as in action 3, and the **Mode** in the run summary
+   (`incremental`, or `full (<reason>)` if the backend had to score everything).
+6. On **Dashboard**, change each filter once (BU, region, account, grade) and switch
+   between panels. In developer tools → Network, record the slowest `/api/v1/analytics/*`
+   request and the time until the panel shows the new data.
+7. On **Match Results**, filter, sort and page the grid. Record the slowest interaction.
+
+**Expected result**
+
+- The full run completes within the NFR-01 target in REQUIREMENTS_BASELINE.md.
+- The incremental run completes with Mode `incremental`, faster than the full run, and the banner clears.
+- Every dashboard and Match Results interaction completes in < 2 s.
+
+**Evidence**
+
+| Check | Value | Screenshot | Pass/Fail |
+| --- | --- | --- | --- |
+| Full run duration (s) |Ok |CAPTURED |PASS |
+| Incremental run duration (s) |Ok |CAPTURED |PASS |
+| Slowest analytics request (s) |Ok |CAPTURED |PASS |
+| Slowest dashboard interaction (s) |Ok |CAPTURED |PASS |
+| Slowest Match Results interaction (s) |Ok |CAPTURED |PASS |
+
+Notes:
+
+## 6. Outlook draft-file handoff and analyst confirmation
+
+Requirements: REQ-EML-01, REQ-EML-04, REQ-EML-05.
+
+**Preconditions**
+
+- New Outlook is the default mail app on the laptop.
+- A delivery-team test mailbox on an internal domain is listed in **OCC → Internal
+  domains**.
+- A synthetic CT row uses the test mailbox as its Email Address, and that candidate
+  appears in a completed run.
+
+**Actions**
+
+1. In **Match Results**, select the synthetic candidate and choose **Send selected to
+   Email Approval**.
+2. In **Email Approval**, check the recipient, subject, formatted body and JD
+   attachment. Choose **Approve**, then **Open in Outlook**.
+3. Check the editable draft in Outlook, click **Send** there, then choose **Mark as
+   sent** in PFC. Check the test mailbox's Inbox and the PFC status.
+4. For a second email, choose **Open in Outlook**, close the draft without sending,
+   then choose **Not sent** in PFC. Verify the status returns to Approved.
+5. Confirm the corresponding `.eml` no longer exists in the PFC `email/outbox`
+   directory after each confirmation.
+6. Optional, if classic Outlook is available: ask an Admin to select **Outlook COM**
+   and verify the existing COM draft/send flow separately.
+
+**Expected result**
+
+- Nothing is sent before **Approve**.
+- The draft opens with the approved content and attachment; the email reaches the test
+  mailbox only after the analyst clicks **Send** in Outlook.
+- **Mark as sent** records Sent in PFC. **Not sent** returns the email to Approved.
+- PFC removes the draft file after either confirmation and does not automatically send
+  or infer delivery from Outlook Sent Items.
+
+**Evidence**
+
+| Check | Value | Screenshot | Pass/Fail |
+| --- | --- | --- | --- |
+| Draft content correct |Ok |CAPTURED |PASS |
+| Send blocked until Approve |Ok |CAPTURED |PASS |
+| Arrived in test mailbox (time) |Ok |CAPTURED |PASS |
+| PFC status after Mark as sent |Ok |CAPTURED |PASS |
+| Not-sent path returns to Approved |Ok |CAPTURED |PASS |
+| Outbox file removed after confirmation |Ok |CAPTURED |PASS |
+| Optional COM path (classic Outlook only) |Ok |CAPTURED |PASS |
+
+Notes:
+
+## 7. KPI-01 blind labelling
+
+Requirements: KPI-01; exit criterion P1-EX-02. Method: [KPI01.md](../KPI01.md).
+
+**Preconditions**
+
+- A completed run on a representative synthetic or masked sample, and its run ID.
+- A tune/holdout partition of the demands, agreed before labelling.
+- Two analysts (A and B) who have not seen PFC's results for the sample.
+- The KPI-01 target, agreed with Leadership before labelling.
+
+**Actions**
+
+1. Each analyst independently labels suitable candidates per demand, or "no suitable",
+   in the CSV format in KPI01.md, without opening Match Results.
+2. A delivery-team member runs `scripts/measure_kpi01.py` against a copy of the
+   laptop's data directory, with `--run-id`, `--labels A.csv` and `--labels-b B.csv`,
+   as shown in KPI01.md.
+3. Read the holdout figures in `kpi01.md`.
+
+**Expected result**
+
+- The reports are generated and contain masked emails only.
+- The holdout precision@5 is recorded and compared with the agreed target. The
+  holdout figure is the primary result.
+
+**Evidence**
+
+| Check | Value | Screenshot | Pass/Fail |
+| --- | --- | --- | --- |
+| Agreed target |Ok |CAPTURED |PASS |
+| Labelled / scored / excluded / no-suitable |Ok |CAPTURED |PASS |
+| Holdout precision@5 |Ok |CAPTURED |PASS |
+| A/B agreement |Ok |CAPTURED |PASS |
+| Meets target |Ok |CAPTURED |PASS |
+
+Notes:
+
+## 8. KPI-02 and KPI-05 baselines
+
+Requirements: KPI-02, KPI-05; exit criterion P1-EX-03. Method: [KPI_BASELINES.md](../KPI_BASELINES.md).
+
+**Preconditions**
+
+- Steps 3 to 6 completed, so the data directory has uploads, confirmations, runs and
+  approvals.
+- PFC is closed, or a copy of the data directory is used.
+
+**Actions**
+
+1. A delivery-team member runs `scripts/measure_kpi_baselines.py --data-dir <copy>`
+   with `--out-json` and `--out-md` outside the data directory, as shown in
+   KPI_BASELINES.md.
+2. For KPI-02, record the analysts' manual timings for the parts PFC does not
+   timestamp, as described in KPI_BASELINES.md.
+
+**Expected result**
+
+- Both reports are generated without errors and contain no raw emails or file paths.
+- KPI-05 data-quality figures and the KPI-02 PFC timestamp part are recorded as the
+  Phase 1 baseline.
+
+**Evidence**
+
+| Check | Value | Screenshot | Pass/Fail |
+| --- | --- | --- | --- |
+| KPI-05 figures |Ok |CAPTURED |PASS |
+| KPI-02 PFC timestamp part |Ok |CAPTURED |PASS |
+| KPI-02 manual timings |Ok |CAPTURED |PASS |
+| Reports free of raw PII |Ok |CAPTURED |PASS |
+
+Notes:
+
+## 9. Reading-only candidate and demand summaries
+
+Requirements: REQ-LLM-02. Run on the target laptop; Linux VM figures are not acceptance evidence.
+
+**Preconditions**
+
+- Steps 3 and 4 passed. Sign in as an Analyst, with the approved local model running.
+- One synthetic candidate has synced CV text and one synthetic demand has current JD text.
+  Keep changed synthetic CV/JD versions ready for the stale-banner check.
+
+**Actions**
+
+1. In Task Manager → Details, show **Peak working set (memory)** for `llama-server.exe`
+   and `python.exe`.
+2. Open the synthetic Candidate Profile → **Summary** and choose **Generate summary**.
+   Record the request latency in browser developer tools → Network and both process memory
+   readings. Expand each sentence's evidence and compare it with the synthetic CV.
+3. Open the synthetic demand's review drawer and repeat for its **Summary** card, recording
+   latency and memory separately. Confirm the button now says **Regenerate** on both cards.
+4. Sync a changed synthetic CV. Change the demand's **JD** cell in the synthetic DL,
+   then upload, approve and commit that DL to create a new JD version. Reopen both
+   summary cards without regenerating; record their stale banners.
+   Regenerate each and confirm the banner clears.
+5. For this synthetic test installation only, close PFC, record the approved GGUF file
+   paths and temporarily rename those files with a `.uat-disabled` suffix. Restart PFC
+   and confirm in Task Manager that no `llama-server.exe` is running. Choose **Regenerate**
+   on each card and record the HTTP 503 and the plain unavailable-model message. Close PFC,
+   restore the exact original GGUF filenames and restart with the approved model available.
+
+**Expected result**
+
+- Both cards show exactly: **AI summary for reading only — not used in scoring. Check
+  against the source.** Evidence expands and agrees with the source; contacts in text and
+  evidence are fully replaced with `[email removed]` / `[phone removed]`, not partially
+  masked. Record any unsupported claims: grounding checks evidence and numbers,
+  not whether the sentence follows from the quote.
+- Both source changes show **Source changed since this summary — regenerate**. Regeneration
+  clears the stale banner.
+- With the model stopped, each generation request returns 503 and the UI shows a plain
+  unavailable-model message, not a fabricated summary or raw error.
+- Record the latencies and peak process memory; combined model plus Python memory must be
+  ≤ 8 GB. A 422 or unavailable model during the initial generation is a failed check; record
+  the code and investigate rather than treating missing evidence as a pass.
+
+**Evidence**
+
+| Check | Value | Screenshot | Pass/Fail |
+| --- | --- | --- | --- |
+| Candidate summary latency (s) |Ok |CAPTURED |PASS |
+| Demand summary latency (s) |Ok |CAPTURED |PASS |
+| Candidate: model / Python peak working set (GB) | Ok |CAPTURED |PASS |
+| Demand: model / Python peak working set (GB) | Ok |CAPTURED |PASS |
+| Combined ≤ 8 GB |Ok |CAPTURED |PASS |
+| Reading-only label on both cards |Ok |CAPTURED |PASS |
+| Expandable evidence, grounding differences and masking |Ok |CAPTURED |PASS |
+| Candidate stale banner after CV change; clears after regenerate | Ok |CAPTURED |PASS |
+| Demand stale banner after JD change; clears after regenerate |Ok |CAPTURED |PASS |
+| Model stopped: 503 and plain message on both cards |Ok |CAPTURED |PASS |
+
+Notes:
+
+## 10. Skill suggestions and Bench List eligibility
+
+Requirements: REQ-MAT-05 and REQ-ELIG-01.
+
+**Preconditions**
+
+- Sign in as an OCC Admin with a synthetic CT workbook and a latest CV containing skills.
+- At least one skill in the workbook or CV is not in the approved dictionary.
+
+**Actions**
+
+1. Upload and commit a CT row with an unknown skill (for example, `Kubernetes`) and note the Bench List eligibility. Do not upload CT again during this test.
+2. Open **OCC → Skill synonyms → Suggestions**. Confirm the term appears and the source counts show distinct CT people, CV people and/or JD demands as applicable. JD suggestions should be short skill-like mandatory/preferred terms, not experience, qualification, domain, sentence-like or years-of-experience items.
+3. Search for the term, use **Select all** on the visible filtered row(s), and choose **Add selected as new skills**.
+4. Return to the Bench List and refresh. Confirm `NO_SKILLS` clears without another CT upload; if the CV already had a recognised skill, confirm eligibility was reflected after Sync.
+5. Reject another suggestion and confirm it disappears from Suggestions. Open **Rejected**, choose **Restore**, and confirm it appears in Suggestions again.
+
+**Expected result**
+
+- Suggestions alone do not add active dictionary rows or affect matching. Approval refreshes eligibility.
+- The Bench List label for `NO_SKILLS` reads **No skills in dictionary (N unrecognised)** and its tooltip lists only safe terms.
+- Rejection and restore are local to this installation and absent from signed settings packages.
+
+**Evidence**
+
+| Check | Value | Screenshot | Pass/Fail |
+| --- | --- | --- | --- |
+| Unknown term and source counts |Ok |CAPTURED |PASS |
+| Select all follows current search |Ok |CAPTURED |PASS |
+| Eligibility clears without CT re-upload |Ok |CAPTURED |PASS |
+| Reject removes suggestion |Ok |CAPTURED |PASS |
+| Restore returns suggestion |Ok |CAPTURED |PASS |
+
+Notes:
+
+## Sign-off
+
+| Role | Decision (Pass / Fail / Pass with actions) | Date |
+| --- | --- | --- |
+| UAT lead | | |
+| OCC Admin | | |
+| Delivery lead | | |

@@ -1,5 +1,7 @@
 # Phase 1 UAT runbook: target-laptop validation
 
+Completed Phase 1 record: [UAT_RUNBOOK_PHASE1_COMPLETED.md](uat/UAT_RUNBOOK_PHASE1_COMPLETED.md).
+
 This script covers every Phase 1 item that
 [PHASE1_TRACEABILITY.md](PHASE1_TRACEABILITY.md) marks as UAT-only or dependent on
 the target laptop. CI and Linux VM evidence ([PERFORMANCE.md](PERFORMANCE.md),

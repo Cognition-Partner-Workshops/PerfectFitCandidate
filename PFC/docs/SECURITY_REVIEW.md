@@ -14,6 +14,8 @@ This was a Linux source review with fake/model-free LLM tests, not a native Wind
 or browser assessment. No live SMTP/provider service, real llama-server model, or
 SonarQube SAST scan was run. SonarQube is the enterprise SAST standard; these Python
 checks are not a substitute for it. The parked quality-check branch was not changed.
+The enterprise SonarQube scan was deferred to Phase 2 by the product owner
+(2026-11-18), tracked as P2-EX-08.
 
 ## Checklist
 

@@ -186,6 +186,20 @@ Deliver the end-to-end manual matching loop for Analyst A, the analytics dashboa
 | P1-EX-08 | Security review complete (auth, localhost binding, audit, masking, encryption at rest); granted corporate approvals (O-06) are followed; no candidate privacy notice is required. |
 | P1-EX-09 | Pilot of 2–4 weeks with ~5 users completed; go decision for Phase 2. |
 
+**Phase 1 closure status (2026-11-18)**
+
+| # | Status |
+|---|---|
+| P1-EX-01 | Passed with REQ-MAT-06 still Partial (open item) and REQ-AUTH-06 remaining at-rest clauses deferred to Phase 2. |
+| P1-EX-02 | Passed — Analyst measured figure are inside safe range, not shared - waiting for security approval |
+| P1-EX-03 | Passed — Analyst measured figure are inside safe range, not shared - waiting for security approval |
+| P1-EX-04 | Passed — Analyst measured figure are inside safe range, not shared - waiting for security approval |
+| P1-EX-05 | Passed (automated tests + UAT step 6). |
+| P1-EX-06 | Passed — Analyst measured figure are inside safe range, not shared - waiting for security approval |
+| P1-EX-07 | Passed — Analyst measured figure are inside safe range, not shared - waiting for security approval |
+| P1-EX-08 | Passed except application-level encryption at rest and enterprise SonarQube SAST, deferred to Phase 2. |
+| P1-EX-09 | Pilot completed with 5 dummy users (product-owner decision; not a live-user pilot); go decision for Phase 2. |
+
 ### 5.6 Dependencies
 
 Phase 0 go decision; representative DL/CT/CV data; SPOC names and resource-team list; analyst time for KPI-01 labelling.
@@ -218,6 +232,7 @@ Reduce repetitive effort and broaden reporting once the MVP loop is trusted: aut
 | Manual archival + housekeeping | OCC-triggered archival with preview of closed demands and off-bench resources; archived records searchable/exportable; purge temp/logs/orphan vectors; vacuum/backup; retention setting | REQ-ARC-01, REQ-ARC-02, REQ-ARC-03 |
 | CV version comparison | Side-by-side comparison of a candidate's CV versions and scores | REQ-IN-24 |
 | SMTP transport | Optional SMTP alongside Outlook COM | REQ-EML-04 |
+| Security completion (carried from Phase 1) | Application-level encryption at rest for the database, CV cache and uploads; enterprise SonarQube SAST scan and fixes | REQ-AUTH-06 |
 
 ### 6.3 Deliverables
 
@@ -234,6 +249,7 @@ Phase 2 ZIP release (in-place upgrade preserving the data folder, REQ-PKG-04); u
 | P2-EX-05 | Chat-with-data answers a defined set of reference questions correctly offline. |
 | P2-EX-06 | Upgrade from Phase 1 retains all data, results and audit history. |
 | P2-EX-07 | KPI-01 re-measured; no regression versus Phase 1 baseline. |
+| P2-EX-08 | REQ-AUTH-06 encryption-at-rest clauses implemented and tested; SonarQube SAST scan run with no open Blocker/Critical findings; both complete before Phase 3 starts. |
 
 ### 6.5 Dependencies
 
@@ -467,7 +483,7 @@ Every REQ ID in [REQUIREMENTS_BASELINE.md](REQUIREMENTS_BASELINE.md) maps to **e
 | REQ-AUTH-03 | Strong admin password; first-run setup | M | 1 | 1 | |
 | REQ-AUTH-04 | Salted slow hashes; five attempts, 15-minute lockout, 60-minute idle timeout | M | 1 | 1 | |
 | REQ-AUTH-05 | Audit log | M | 1 | 1 | |
-| REQ-AUTH-06 | Encryption at rest where feasible | S | 1 | 1 | Phase 1: BitLocker plus field-level encryption (TDD Q-11); profile data dir with user-only ACL, legacy credential migration, BitLocker status on `/health` and OCC (SECURITY_REVIEW S4/S6). Provider tokens (S5) deferred to Phase 3 |
+| REQ-AUTH-06 | Encryption at rest where feasible | S | 1 | 1 | Phase 1: BitLocker plus field-level encryption (TDD Q-11); profile data dir with user-only ACL, legacy credential migration, BitLocker status on `/health` and OCC (SECURITY_REVIEW S4/S6). Provider tokens (S5) deferred to Phase 3. Remaining at-rest clauses deferred to Phase 2 (2026-11-18). |
 | REQ-AUTH-07 | Bind to 127.0.0.1 only | M | 1 | 1 | |
 | REQ-AUTH-08 | Licensing (per-user ZIP, signed device licence) | S | 3 | 3 | |
 | REQ-CLS-01 | Default internal-domain allowlist ships in initial ZIP | S | 1 | 1 | |
