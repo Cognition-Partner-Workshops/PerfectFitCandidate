@@ -1,5 +1,6 @@
 """REQ-ING-01..03/06: real sessions, SQLite transactions and synthetic workbooks."""
 
+import hashlib
 import json
 import os
 import threading
@@ -8,6 +9,7 @@ from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from docx import Document
@@ -74,6 +76,43 @@ def wait_watch(client: TestClient, expected: str = "completed") -> dict:
             return json.loads(row["message"]) if expected == "completed" else dict(row)
         time.sleep(0.01)
     pytest.fail("Watch job did not finish")
+
+
+def test_watch_serializes_oldest_snapshot_first(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "watch"
+    root.mkdir()
+    newer = root / "a-new.xlsx"
+    older = root / "z-old.xlsx"
+    older.write_bytes(b"old")
+    newer.write_bytes(b"new")
+    os.utime(older, ns=(1_000_000_000, 1_000_000_000))
+    os.utime(newer, ns=(2_000_000_000, 2_000_000_000))
+    enable_watch(client, root)
+    poller = client.app.state.watch_poller
+    submitted = []
+
+    def submit(kind, body, params, **kwargs):
+        submitted.append(params["file_name"])
+        return len(submitted)
+
+    monkeypatch.setattr(poller.job_runner, "submit", submit)
+    monkeypatch.setattr(poller.job_runner, "get", lambda job_id: SimpleNamespace(status="running"))
+    watch_tick(client, 0)
+    watch_tick(client, 1)
+    assert submitted == [older.name]
+    watch_tick(client, 2)
+    assert submitted == [older.name]
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "INSERT INTO ingestion_runs(kind,source,file_name,file_sha256,file_size,"
+            "status,uploaded_by,started_at) VALUES ('DL','watch_folder',?,?,3,'failed',1,?)",
+            (older.name, hashlib.sha256(b"old").hexdigest(), stamp(WATCH_NOW)),
+        )
+    poller._inflight.clear()
+    watch_tick(client, 3)
+    assert submitted == [older.name, newer.name]
 
 
 @pytest.mark.parametrize("kind", ["dl", "ct"])
