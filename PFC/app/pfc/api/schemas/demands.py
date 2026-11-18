@@ -1,6 +1,6 @@
 """REQ-OUT-01: demand browsing contracts."""
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -43,6 +43,10 @@ class DemandVersion(BaseModel):
 
 
 class DemandDetail(DemandItem):
+    updated_at: str
+    end_source: str | None
+    end_outcome: str | None
+    lifecycle_events: list[dict[str, Any]]
     current_version_id: int | None
     versions: list[DemandVersion]
 

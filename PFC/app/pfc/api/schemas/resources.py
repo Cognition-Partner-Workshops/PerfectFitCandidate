@@ -1,5 +1,7 @@
 """REQ-OUT-03 / REQ-ELIG-08: masked resource browsing contracts."""
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -46,6 +48,10 @@ class CVSummary(BaseModel):
 
 
 class ResourceDetail(ResourceItem):
+    updated_at: str
+    end_source: str | None
+    end_outcome: str | None
+    lifecycle_events: list[dict[str, Any]]
     latest_cv: CVSummary | None
 
 

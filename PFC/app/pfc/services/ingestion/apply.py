@@ -12,6 +12,7 @@ from pfc.domain.scoring.engine import build_ct_basis, eligibility
 from pfc.domain.scoring.models import Resource
 from pfc.security.problems import Problem
 from pfc.services.candidates.classification import reclassify_all
+from pfc.services.lifecycle import METADATA, record_transition
 
 from .approvals import record_changes, snapshot
 from .eligibility import refresh_resource_eligibility
@@ -31,6 +32,14 @@ def _upsert(
 ) -> int:
     where = " AND ".join(f"{k}=?" for k in keys)
     old = db.execute(f"SELECT * FROM {table} WHERE {where}", tuple(keys.values())).fetchone()
+    target = values["lifecycle"]
+    if (
+        old
+        and old["row_hash"] == values["row_hash"]
+        and (old["end_source"] == "manual" or old["lifecycle"] == "archived")
+    ):
+        target = old["lifecycle"]
+        values["lifecycle"] = target
     if old and (
         table == "demands"
         and old["row_hash"] == values["row_hash"]
@@ -42,8 +51,21 @@ def _upsert(
         last_ingestion_id=run_id, updated_at=now, occ_reviewed_by=None, occ_reviewed_at=None
     )
     if old:
+        values.pop("lifecycle")
         assignments = ", ".join(f"{k}=?" for k in values)
         db.execute(f"UPDATE {table} SET {assignments} WHERE {pk}=?", (*values.values(), old[pk]))
+        if old["lifecycle"] != target:
+            record_transition(
+                db,
+                table[:-1],
+                old[pk],
+                old["lifecycle"],
+                target,
+                "restore" if old["lifecycle"] == "archived" else "upload",
+                now=now,
+                ingestion_run_id=run_id,
+                metadata=dict.fromkeys(METADATA),
+            )
         return int(old[pk])
     values.update(first_ingestion_id=run_id, created_at=now)
     names = ", ".join(values)
@@ -52,6 +74,9 @@ def _upsert(
         f"INSERT INTO {table} ({names}) VALUES ({placeholders})", tuple(values.values())
     )
     assert cursor.lastrowid is not None
+    record_transition(
+        db, table[:-1], cursor.lastrowid, None, target, "upload", now=now, ingestion_run_id=run_id
+    )
     return cursor.lastrowid
 
 
@@ -119,7 +144,11 @@ def _resource(
         "SELECT * FROM resources WHERE short_name_key=? AND email_key=?",
         (f["short_name_key"], f["email_key"]),
     ).fetchone()
-    unchanged = old is not None and old["row_hash"] == row.row_hash and old["lifecycle"] == "active"
+    unchanged = (
+        old is not None
+        and old["row_hash"] == row.row_hash
+        and (old["lifecycle"] in {"active", "archived"} or old["end_source"] == "manual")
+    )
     if unchanged:
         values = {field: old[field] for field in values}
     if not db.execute("SELECT 1 FROM grades WHERE code=?", (values["grade"],)).fetchone():
@@ -210,9 +239,25 @@ def apply_preview(db: sqlite3.Connection, preview: Preview, run_id: int, now: st
         ).fetchall():
             if record["code_requisition"] not in present:
                 db.execute(
-                    "UPDATE demands SET lifecycle='closed', updated_at=?, last_ingestion_id=?, "
+                    "UPDATE demands SET updated_at=?, last_ingestion_id=?, "
                     "occ_reviewed_by=NULL, occ_reviewed_at=NULL WHERE demand_id=?",
                     (now, run_id, record[0]),
+                )
+                record_transition(
+                    db,
+                    "demand",
+                    record[0],
+                    "open",
+                    "closed",
+                    "upload",
+                    now=now,
+                    ingestion_run_id=run_id,
+                    outcome="not_in_latest_dl",
+                    metadata={
+                        "end_source": "upload",
+                        "end_outcome": "not_in_latest_dl",
+                        "ended_at": now,
+                    },
                 )
     else:
         for record in db.execute(
@@ -221,10 +266,26 @@ def apply_preview(db: sqlite3.Connection, preview: Preview, run_id: int, now: st
         ).fetchall():
             if (record["short_name_key"], record["email_key"]) not in present:
                 db.execute(
-                    "UPDATE resources SET lifecycle='off_bench', updated_at=?, "
+                    "UPDATE resources SET updated_at=?, "
                     "last_ingestion_id=?, "
                     "occ_reviewed_by=NULL, occ_reviewed_at=NULL WHERE resource_id=?",
                     (now, run_id, record[0]),
+                )
+                record_transition(
+                    db,
+                    "resource",
+                    record[0],
+                    "active",
+                    "off_bench",
+                    "upload",
+                    now=now,
+                    ingestion_run_id=run_id,
+                    outcome="not_in_latest_ct",
+                    metadata={
+                        "end_source": "upload",
+                        "end_outcome": "not_in_latest_ct",
+                        "ended_at": now,
+                    },
                 )
     record_changes(db, entity, before, run_id, now)
     if preview.kind == "CT":

@@ -18,6 +18,7 @@ from pfc.api.routers.demands import router as demands_router
 from pfc.api.routers.email import router as email_router
 from pfc.api.routers.health import router as health_router
 from pfc.api.routers.ingestion import router as ingestion_router
+from pfc.api.routers.lifecycle import router as lifecycle_router
 from pfc.api.routers.llm import router as llm_router
 from pfc.api.routers.match import router as match_router
 from pfc.api.routers.occ import router as occ_router
@@ -125,6 +126,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     install_handlers(app)
     install_middleware(app)
     app.include_router(health_router, prefix="/api/v1")
+    app.include_router(lifecycle_router, prefix="/api/v1")
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(email_router, prefix="/api/v1")
     app.include_router(jobs_router, prefix="/api/v1")

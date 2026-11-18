@@ -11,6 +11,7 @@ from pydantic.alias_generators import to_camel
 from pfc.api.schemas.occ_approvals import ApprovalDecision, ApprovalEntry, ApprovalField
 from pfc.db.audit import append_audit
 from pfc.security.problems import Problem
+from pfc.services.lifecycle import METADATA, record_transition
 from pfc.services.matching.common import atomic
 
 from .browse import _mask
@@ -61,7 +62,7 @@ def _review_state(values: dict[str, Any]) -> dict[str, Any]:
         "occ_reviewed_at",
         "row_hash",
     }
-    return {k: v for k, v in values.items() if k not in metadata}
+    return {k: v for k, v in values.items() if k not in metadata | METADATA}
 
 
 def snapshot(db: sqlite3.Connection, entity: str) -> dict[int, dict[str, Any]]:
@@ -355,6 +356,30 @@ def decide(
         state = "Approved"
     values.update(occ_reviewed_by=user_id, occ_reviewed_at=now, updated_at=now)
     changed = {k: v for k, v in values.items() if v != current[k]}
+    lifecycle_changed = changed.pop("lifecycle", None)
+    for field in METADATA:
+        changed.pop(field, None)
+    if lifecycle_changed is not None:
+        metadata = (
+            dict.fromkeys(METADATA)
+            if lifecycle_changed in {"open", "active"}
+            else (
+                {field: values.get(field) for field in METADATA}
+                if values.get("end_source")
+                else {"end_source": "occ", "end_outcome": "reverted", "ended_at": now}
+            )
+        )
+        record_transition(
+            db,
+            entity,
+            entity_id,
+            current["lifecycle"],
+            lifecycle_changed,
+            "occ_approval",
+            now=now,
+            user_id=user_id,
+            metadata=metadata,
+        )
     if changed:
         assignments = ",".join(f"{k}=?" for k in changed)
         db.execute(
@@ -376,6 +401,8 @@ def decide(
     audit_before = current
     audit_after = values
     audit_fields = set(changed)
+    if lifecycle_changed is not None:
+        audit_fields.add("lifecycle")
     if decision.action == "approve":
         audit_before = json.loads(row["before_json"]) if row["before_json"] else {}
         audit_after = json.loads(row["after_json"])

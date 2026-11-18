@@ -1264,7 +1264,7 @@ def test_personal_settings(client: TestClient) -> None:
         ]
         assert {"before": None, "after": {"value": 50}} in entries
         assert {"before": None, "after": {"value": values["resume_root_path"].strip()}} in entries
-        assert db.execute("SELECT count(*) FROM settings WHERE scope='system'").fetchone()[0] == 0
+        assert db.execute("SELECT count(*) FROM settings WHERE scope='system'").fetchone()[0] == 4
 
 
 @pytest.mark.parametrize("present", [True, False])
