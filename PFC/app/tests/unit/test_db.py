@@ -224,7 +224,7 @@ def test_classification_migration_preserves_existing_override(
 
 
 def test_backup_restore(settings: Settings, tmp_path: Path) -> None:
-    migrate(settings)
+    applied = migrate(settings)
     directory = tmp_path / "migrations"
     directory.mkdir()
     (directory / "9999_bad.sql").write_text(
@@ -235,7 +235,10 @@ def test_backup_restore(settings: Settings, tmp_path: Path) -> None:
     backups = list((settings.data_dir / "backups").glob("pfc-*-pre-0011.db"))
     assert len(backups) == 1
     with database(settings) as db:
-        assert db.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 12
+        assert [
+            row["version"]
+            for row in db.execute("SELECT version FROM schema_migrations ORDER BY version")
+        ] == applied
         assert (
             db.execute("SELECT 1 FROM sqlite_master WHERE name='should_rollback'").fetchone()
             is None
