@@ -78,7 +78,7 @@ function phaseEnabled(item: NavItem): boolean {
   return item.phase === 1
 }
 
-/** Tabs a role sees: OCC is not rendered for Analysts (REQ-ROLE-03); Chat is hidden by flag in Phase 1. */
+/** Tabs a role sees, including feature-gated views and Admin-only OCC (REQ-ROLE-03). */
 export function visibleNav(role: Role): NavItem[] {
   return NAV_ITEMS.filter((item) => canView(role, item.capability) && phaseEnabled(item))
 }

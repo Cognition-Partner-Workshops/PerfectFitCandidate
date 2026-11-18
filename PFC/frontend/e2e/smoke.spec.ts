@@ -240,9 +240,38 @@ test('follow-up settings and Outlook draft calendar handoff (REQ-EML-08)', async
   expect(ics).toContain('TRANSP:TRANSPARENT\r\n')
 })
 
-// REQ-LLM-02 summary cards. Runs after the smoke test above, on its admin, DL/CT and confirmed JD.
+test('chat answers offline with source records and keeps history (P2-EX-05)', async ({ page }) => {
+  // Reuse the admin and demands set up by the first smoke test.
+  await page.goto('/')
+  await signIn(page)
+  await page.getByRole('link', { name: 'Chat', exact: true }).click()
+  await expect(page.getByText('Local model ready')).toBeVisible()
+
+  const question = 'How many open demands are there?'
+  await page.getByRole('button', { name: question }).click()
+  await expect(page.getByRole('textbox', { name: 'Question' })).toHaveValue(question)
+  await page.getByRole('button', { name: 'Ask', exact: true }).click()
+  await expect(page.getByText('Count of open demands: 2.')).toBeVisible()
+  const sources = page.getByRole('region', { name: 'Sources (2)' })
+  await expect(sources.getByRole('link', { name: 'T10001' })).toBeVisible()
+  await expect(sources.getByRole('link', { name: 'T10002' })).toBeVisible()
+  const task = page.getByRole('link', { name: 'Chat question' })
+  await expect(task).toHaveAttribute('href', /#\/chat\?job=\d+$/)
+
+  await sources.getByRole('link', { name: 'T10001' }).click()
+  await expect(page.getByRole('heading', { name: 'Demand List' })).toBeVisible()
+  await expect(page.getByRole('row', { name: /T10001/ })).toBeVisible()
+  await expect(page.getByRole('row', { name: /T10002/ })).toHaveCount(0)
+  await task.click()
+  await page.reload()
+  await expect(page.getByText('Count of open demands: 2.')).toBeVisible()
+  await expect(page.getByRole('button', { name: /How many open demands/ }))
+    .toHaveAttribute('aria-current', 'true')
+})
+
+// REQ-LLM-02 summary cards. Runs after the first smoke test, on its admin, DL/CT and confirmed JD.
 // Uses SmokeTaylor (C1, listed under All), who has no match results.
-// `serve.py` injects the backend's FakeProvider as a summaries-only stub, with one reply for every
+// `serve.py` injects the backend's FakeProvider with one summary reply for every
 // source: the backend keeps only the sentences whose evidence is in that source.
 const LABEL = 'AI summary for reading only — not used in scoring. Check against the source.'
 const CV_EMAIL = 'taylor.longname-consultant@example.com'

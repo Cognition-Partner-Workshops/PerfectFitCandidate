@@ -13,6 +13,7 @@ from pfc.adapters.llm.supervisor import LlamaServerSupervisor
 from pfc.api.routers.analytics import router as analytics_router
 from pfc.api.routers.auth import router as auth_router
 from pfc.api.routers.candidates import router as candidates_router
+from pfc.api.routers.chat import router as chat_router
 from pfc.api.routers.cv import router as cv_router
 from pfc.api.routers.demands import router as demands_router
 from pfc.api.routers.email import get_email_service
@@ -133,6 +134,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router, prefix="/api/v1")
     app.include_router(email_router, prefix="/api/v1")
     app.include_router(jobs_router, prefix="/api/v1")
+    app.include_router(chat_router, prefix="/api/v1")
     app.include_router(ingestion_router, prefix="/api/v1")
     app.include_router(demands_router, prefix="/api/v1")
     app.include_router(resources_router, prefix="/api/v1")

@@ -9,6 +9,11 @@ from .lifecycle import reconcile_runs
 def current_runs(db: sqlite3.Connection) -> dict[int, int]:
     """Return the newest completed run that assessed each open demand."""
     reconcile_runs(db)
+    return read_current_runs(db)
+
+
+def read_current_runs(db: sqlite3.Connection) -> dict[int, int]:
+    """Read the newest completed assessment per open demand without reconciling jobs."""
     open_demands = {
         int(row[0]) for row in db.execute("SELECT demand_id FROM demands WHERE lifecycle='open'")
     }

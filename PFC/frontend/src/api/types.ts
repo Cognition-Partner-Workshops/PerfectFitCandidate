@@ -18,6 +18,31 @@ export interface JobItem {
   skippedCount?: number | null
 }
 
+export interface ChatEntry {
+  jobId: number
+  question: string
+  status: JobItem['status']
+  createdAt: string
+}
+
+export interface ChatSource {
+  kind: 'demand' | 'resource' | 'match_result'
+  recordId: number
+  label: string
+  link: string
+  values: Record<string, string>
+}
+
+export interface ChatAnswer {
+  outcome: 'answered' | 'no_data' | 'unsupported' | 'unavailable' | 'uninterpretable'
+  text: string
+  sources: ChatSource[]
+}
+
+export interface ChatDetail extends ChatEntry {
+  answer: ChatAnswer | null
+}
+
 export interface DocumentSummary {
   sentences: { text: string; evidence: string }[]
   model: string

@@ -101,12 +101,12 @@ describe('password policy (REQ-AUTH-03, TDD §9.2)', () => {
 })
 
 describe('role-visibility matrix (GUI_OCC_DESIGN.md §5)', () => {
-  it('hides OCC from Analysts and Chat in Phase 1', () => {
+  it('shows Chat to both roles and OCC only to Admins', () => {
     const analyst = visibleNav('Analyst').map((n) => n.label)
     const admin = visibleNav('Admin').map((n) => n.label)
-    expect(analyst).toEqual(['Dashboard', 'Demand List', 'Bench List', 'Match Results', 'Candidate Profile', 'Email Approval', 'Settings'])
+    expect(analyst).toEqual(['Dashboard', 'Demand List', 'Bench List', 'Match Results', 'Candidate Profile', 'Email Approval', 'Chat', 'Settings'])
     expect(admin).toContain('OCC')
-    expect(admin).not.toContain('Chat')
+    expect(admin).toContain('Chat')
   })
   it('gives Analysts partial model choice and read-only template version', () => {
     expect(canView('Analyst', 'occ')).toBe(false)
