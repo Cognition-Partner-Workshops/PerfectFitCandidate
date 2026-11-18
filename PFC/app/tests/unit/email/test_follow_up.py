@@ -4,7 +4,12 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from pfc.services.email.follow_up import build_ics, next_business_day, validate_settings
+from pfc.services.email.follow_up import (
+    FollowUpSettings,
+    build_ics,
+    next_business_day,
+    validate_settings,
+)
 
 
 @pytest.mark.parametrize(
@@ -54,14 +59,52 @@ def test_default_local_timezone_resolves_future_dst(monkeypatch: pytest.MonkeyPa
     "values",
     [
         {"email.follow_up.enabled": 1},
+        {"email.follow_up.enabled": "false"},
+        {"email.follow_up.enabled": None},
         {"email.follow_up.time": "24:00"},
         {"email.follow_up.time": "9:00"},
         {"email.follow_up.holidays": ["2026-02-30"]},
         {"email.follow_up.holidays": "2026-01-01"},
+        {"email.follow_up.holidays": ("2026-01-01",)},
+        {"email.follow_up.holidays": [datetime(2026, 1, 1)]},
+        {"email.follow_up.holidays": [20260101]},
+        {"email.follow_up.holidays": ["20260101"]},
     ],
 )
 def test_invalid_settings(values: dict[str, object]) -> None:
     with pytest.raises(ValueError):
+        validate_settings(values)
+
+
+def test_settings_model_defaults_partial_and_leap_dates() -> None:
+    assert FollowUpSettings.model_validate({}).model_dump(by_alias=True) == {
+        "email.follow_up.enabled": True,
+        "email.follow_up.time": "09:00",
+        "email.follow_up.holidays": [],
+    }
+    for values in (
+        {},
+        {"email.follow_up.holidays": []},
+        {"unrelated.setting": False},
+        {
+            "email.follow_up.enabled": False,
+            "email.follow_up.time": "23:59",
+            "email.follow_up.holidays": ["2028-02-29"],
+        },
+    ):
+        validate_settings(values)
+
+
+@pytest.mark.parametrize(
+    ("values", "message"),
+    [
+        ({"email.follow_up.enabled": "true"}, "Follow-up enabled must be a boolean"),
+        ({"email.follow_up.time": "25:00"}, "Follow-up time must be HH:MM"),
+        ({"email.follow_up.holidays": ["2026-1-1"]}, "Follow-up holidays must be ISO dates"),
+    ],
+)
+def test_settings_validation_messages(values: dict[str, object], message: str) -> None:
+    with pytest.raises(ValueError, match=message):
         validate_settings(values)
 
 

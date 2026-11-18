@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-import re
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 DEFAULTS: dict[str, object] = {
     "email.follow_up.enabled": True,
@@ -10,21 +12,38 @@ DEFAULTS: dict[str, object] = {
 }
 
 
+class FollowUpSettings(BaseModel):
+    model_config = ConfigDict(strict=True)
+
+    enabled: bool = Field(default=True, alias="email.follow_up.enabled")
+    reminder_time: str = Field(
+        default="09:00", alias="email.follow_up.time", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$"
+    )
+    holidays: list[Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")]] = Field(
+        default_factory=list, alias="email.follow_up.holidays"
+    )
+
+    @field_validator("holidays")
+    @classmethod
+    def real_dates(cls, values: list[str]) -> list[str]:
+        for value in values:
+            date.fromisoformat(value)
+        return values
+
+
 def validate_settings(values: dict[str, object]) -> None:
-    for key, value in values.items():
-        if key == "email.follow_up.enabled" and type(value) is not bool:
-            raise ValueError("Follow-up enabled must be a boolean")
-        if key == "email.follow_up.time" and (
-            not isinstance(value, str) or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value)
-        ):
-            raise ValueError("Follow-up time must be HH:MM")
-        if key == "email.follow_up.holidays":
-            if not isinstance(value, list):
-                raise ValueError("Follow-up holidays must be ISO dates")
-            for day in value:
-                if not isinstance(day, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
-                    raise ValueError("Follow-up holidays must be ISO dates")
-                date.fromisoformat(day)
+    try:
+        FollowUpSettings.model_validate(values)
+    except ValidationError as exc:
+        error = exc.errors()[0]
+        if error["type"] == "value_error":
+            raise ValueError(str(error["ctx"]["error"])) from exc
+        messages = {
+            "email.follow_up.enabled": "Follow-up enabled must be a boolean",
+            "email.follow_up.time": "Follow-up time must be HH:MM",
+            "email.follow_up.holidays": "Follow-up holidays must be ISO dates",
+        }
+        raise ValueError(messages[str(error["loc"][0])]) from exc
 
 
 def next_business_day(

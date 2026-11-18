@@ -425,7 +425,8 @@ class EmailService:
             raise Problem(
                 409,
                 "EMAIL_FOLLOW_UP_TRANSPORT_UNAVAILABLE",
-                "Switch Email transport back to Outlook COM, or add the reminder from the calendar file",
+                "Switch Email transport back to Outlook COM, "
+                "or add the reminder from the calendar file",
             )
         with database(self.settings) as db:
             db.execute("BEGIN IMMEDIATE")
