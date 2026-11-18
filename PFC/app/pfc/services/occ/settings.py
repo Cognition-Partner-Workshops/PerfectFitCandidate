@@ -77,8 +77,14 @@ def _put_personal(
             for kind in ("dl", "ct")
         }
     after = PersonalSettings.model_validate(merged)
-    for source in (after.watch.dl, after.watch.ct):
-        if not source.enabled:
+    for kind in ("dl", "ct"):
+        source = getattr(after.watch, kind)
+        previous = before["watch"][kind]
+        if not source.enabled or (
+            previous["enabled"]
+            and source.path == previous["path"]
+            and source.pattern == previous["pattern"]
+        ):
             continue
         if any(
             part in source.pattern for part in ("/", "\\", "..")

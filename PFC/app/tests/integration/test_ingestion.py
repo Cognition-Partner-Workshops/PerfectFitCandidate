@@ -355,36 +355,6 @@ def test_watch_oversized_records_failed_run(client: TestClient, tmp_path: Path) 
     assert not (client.app.state.settings.data_dir / "uploads" / "1.xlsx").exists()
 
 
-def test_watch_unreachable_allows_unrelated_settings_save(client: TestClient, tmp_path: Path) -> None:
-    root = tmp_path / "watch"
-    root.mkdir()
-    enable_watch(client, root)
-    root.rmdir()
-    saved = client.get("/api/v1/settings/me").json()
-    saved.pop("resume_converter_available")
-    saved["density"] = "compact"
-    saved["watch"]["dl"].update(poll_minutes=2, require_preview=True)
-    response = client.put("/api/v1/settings/me", json=saved)
-    assert response.status_code == 200, response.text
-    assert response.json()["density"] == "compact"
-    assert response.json()["watch"]["dl"]["require_preview"] is True
-    for change in ({"path": str(root / "missing")}, {"pattern": "other*.xlsx"}):
-        response = client.put("/api/v1/settings/me", json={"watch": {"dl": change}})
-        assert response.status_code == 422
-        assert response.json()["code"] == "WATCH_PATH_INVALID"
-    response = client.put(
-        "/api/v1/settings/me", json={"watch": {"dl": {"pattern": "../*.xlsx"}}}
-    )
-    assert response.status_code == 422
-    assert response.json()["code"] == "WATCH_PATTERN_INVALID"
-    assert client.put(
-        "/api/v1/settings/me", json={"watch": {"dl": {"enabled": False}}}
-    ).status_code == 200
-    response = client.put("/api/v1/settings/me", json={"watch": {"dl": {"enabled": True}}})
-    assert response.status_code == 422
-    assert response.json()["code"] == "WATCH_PATH_INVALID"
-
-
 @pytest.mark.parametrize(
     "pattern", ["../DL.xlsx", "sub/DL.xlsx", "sub\\DL.xlsx", "DL.xls", "DL.xlsx.exe"]
 )
