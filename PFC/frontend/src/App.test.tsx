@@ -35,7 +35,7 @@ describe('routing guards (GUI_OCC_DESIGN.md §7.4, §4.3)', () => {
     fireEvent.click(submit)
     const nav = await screen.findByRole('navigation', { name: 'Main' })
     expect(within(nav).getByText('OCC')).toBeTruthy()
-    expect(within(nav).queryByText('Chat')).toBeNull()
+    expect(within(nav).getByText('Chat')).toBeTruthy()
     expect(screen.getByTestId('role-label').textContent).toBe('Admin')
   })
 

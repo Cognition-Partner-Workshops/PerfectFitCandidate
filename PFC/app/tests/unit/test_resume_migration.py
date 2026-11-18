@@ -48,7 +48,7 @@ def test_resume_mime_upgrade_preserves_children_and_schema(tmp_path):
                 "AND type IN ('index','trigger') ORDER BY name"
             )
         ]
-    assert migrate(settings) == ["0012"]
+    assert migrate(settings)[0] == "0012"
     with database(settings) as db:
         assert tuple(db.execute("SELECT * FROM resumes").fetchone()) == before
         assert [tuple(r) for r in db.execute("SELECT * FROM cv_versions")] == children

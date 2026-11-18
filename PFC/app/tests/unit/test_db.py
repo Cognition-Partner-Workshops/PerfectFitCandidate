@@ -20,20 +20,8 @@ def settings(tmp_path: Path) -> Settings:
 
 
 def test_schema_and_pragmas(settings: Settings) -> None:
-    assert migrate(settings) == [
-        "0001",
-        "0002",
-        "0003",
-        "0004",
-        "0005",
-        "0006",
-        "0007",
-        "0008",
-        "0009",
-        "0010",
-        "0011",
-        "0012",
-    ]
+    versions = sorted(p.name.split("_", 1)[0] for p in Path("pfc/db/migrations").glob("*.sql"))
+    assert migrate(settings) == versions
     assert migrate(settings) == []
     assert len(list((settings.data_dir / "backups").glob("*-pre-0002.db"))) == 1
     sql = Path("pfc/db/migrations/0001_initial.sql").read_text()
@@ -216,7 +204,7 @@ def test_classification_migration_preserves_existing_override(
             "('PFC-C-1','complete','External','Internal',?,?)",
             (NOW, NOW),
         )
-    assert migrate(settings) == [
+    assert [version for version in migrate(settings) if version <= "0012"] == [
         "0004",
         "0005",
         "0006",
@@ -283,7 +271,7 @@ def test_item_ancestry_upgrade(settings: Settings, tmp_path: Path) -> None:
             "INSERT INTO jd_requirement_items(item_id,jd_req_id,kind,text,position) "
             "VALUES (1,1,'mandatory_skill','SQL',0)"
         )
-    assert migrate(settings) == [
+    assert [version for version in migrate(settings) if version <= "0012"] == [
         "0003",
         "0004",
         "0005",
@@ -328,7 +316,7 @@ def test_synonym_upgrade_after_published_jd_migration(settings: Settings, tmp_pa
             "(42,7,'Data','data','related',0.6,'approved',NULL,?)",
             (NOW,),
         )
-    assert migrate(settings) == [
+    assert [version for version in migrate(settings) if version <= "0012"] == [
         "0004",
         "0005",
         "0006",
@@ -387,7 +375,12 @@ def test_email_handoff_migration_adds_column_to_existing_database(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='email_messages'"
         ).fetchone()[0]
 
-    assert migrate(settings) == ["0009", "0010", "0011", "0012"]
+    assert [version for version in migrate(settings) if version <= "0012"] == [
+        "0009",
+        "0010",
+        "0011",
+        "0012",
+    ]
 
     with database(settings) as db:
         after = [row["name"] for row in db.execute("PRAGMA table_info(email_messages)")]
