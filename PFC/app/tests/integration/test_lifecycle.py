@@ -199,7 +199,9 @@ def test_p2_ex_06_upgrade_preserves_phase1(tmp_path: Path):
                 "audit_log",
             )
         }
-    assert migrate(settings) == ["0014", "0017"]
+    assert migrate(settings) == sorted(
+        path.name[:4] for path in Path("pfc/db/migrations").glob("*.sql") if path.name[:4] > "0012"
+    )
     with database(settings) as db:
         for name, rows in before.items():
             actual = [dict(r) for r in db.execute(f"SELECT * FROM {name}")]
