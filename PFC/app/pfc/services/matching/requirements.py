@@ -12,6 +12,7 @@ from pydantic.json_schema import SkipJsonSchema
 
 from pfc.domain.config_loader import DomainConfig
 from pfc.domain.normalise import normalise_term
+from pfc.security.problems import Problem
 from pfc.services.occ.domain import occ_domain_config
 
 from .common import atomic, audit, dumps, timestamp
@@ -180,6 +181,13 @@ def _fallback(text: str, config: DomainConfig) -> Requirements:
     for key, item in seen.values():
         output[key].append(item)
     return Requirements.model_validate(output)
+
+
+def _assert_writable(db: sqlite3.Connection, demand_id: int) -> None:
+    if db.execute(
+        "SELECT 1 FROM demands WHERE demand_id=? AND lifecycle='archived'", (demand_id,)
+    ).fetchone():
+        raise Problem(409, "ENTITY_ARCHIVED", "Archived demands are read-only")
 
 
 def _current(db: sqlite3.Connection, demand_id: int) -> sqlite3.Row:
@@ -368,6 +376,7 @@ def analyze_jd(
     now: datetime,
 ) -> dict[str, Any]:
     """REQ-MAT-02: extraction failure falls back; confirmed revisions are untouched."""
+    _assert_writable(db, demand_id)
     version = _current(db, demand_id)
     text = version["jd_text_norm"]
     if not text.strip():
@@ -398,6 +407,7 @@ def analyze_jd(
         )
         data = _fallback(text, config)
     with atomic(db, immediate=True):
+        _assert_writable(db, demand_id)
         if _current(db, demand_id)["demand_version_id"] != version["demand_version_id"]:
             raise ValueError("JD version changed during analysis; retry")
         req_id = _write(db, version["demand_version_id"], data, extracted_by, now, config)
@@ -478,6 +488,7 @@ def save_draft(
     data, sources = _edited_data(db, demand_id, edited_requirements)
     config = occ_domain_config(db)
     with atomic(db):
+        _assert_writable(db, demand_id)
         version = _current(db, demand_id)
         req_id = _write(
             db, version["demand_version_id"], data, "manual", now, config, source_ids=sources
@@ -496,6 +507,7 @@ def confirm_requirements(
     now: datetime,
 ) -> dict[str, Any]:
     """REQ-MAT-02: replace confirmation atomically, preserving the revision history."""
+    _assert_writable(db, demand_id)
     data, sources = (
         _edited_data(db, demand_id, edited_requirements)
         if edited_requirements is not None

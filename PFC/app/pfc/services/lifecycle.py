@@ -54,13 +54,14 @@ def record_transition(
         fields = dict(metadata or {})
         if fields.keys() - METADATA:
             raise ValueError("Unsupported lifecycle metadata")
-        fields.update(lifecycle=to_state, updated_at=now)
-        db.execute(
-            f"UPDATE {table} SET "
-            + ",".join(f"{key}=?" for key in fields)
-            + f" WHERE {entity_type}_id=?",
-            (*fields.values(), entity_id),
-        )
+        if to_state != "purged":
+            fields.update(lifecycle=to_state, updated_at=now)
+            db.execute(
+                f"UPDATE {table} SET "
+                + ",".join(f"{key}=?" for key in fields)
+                + f" WHERE {entity_type}_id=?",
+                (*fields.values(), entity_id),
+            )
         db.execute(
             "INSERT INTO lifecycle_events(entity_type,entity_id,from_state,to_state,outcome,"
             "reason_code,comment,source,ingestion_run_id,archive_batch_id,user_id,created_at) "

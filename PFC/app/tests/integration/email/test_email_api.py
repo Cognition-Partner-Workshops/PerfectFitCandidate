@@ -26,6 +26,7 @@ from pfc.adapters.llm.providers import FakeProvider
 from pfc.api.routers.auth import router as auth_router
 from pfc.api.routers.email import router as email_router
 from pfc.api.routers.occ import router as occ_router
+from pfc.api.schemas.analytics import DashboardFilters
 from pfc.config import Settings
 from pfc.db import audit, users
 from pfc.db.connection import database
@@ -34,12 +35,99 @@ from pfc.security.middleware import install_middleware
 from pfc.security.passwords import hasher
 from pfc.security.problems import Problem, install_handlers
 from pfc.security.setup import code_path, generate_setup_code
+from pfc.services import archival
+from pfc.services.analytics.population import Population
 from pfc.services.email import EmailService
 from pfc.services.email.service import TEMPLATE_PATH
+from pfc.services.lifecycle import record_transition
+from pfc.services.matching.current import current_runs
+from pfc.services.matching.cv_bases import load_resources
+from pfc.services.matching.results import list_results
+from pfc.services.occ.seed import seed_reference_data
 from pfc.services.occ.templates import PLACEHOLDER_SAMPLES, PLACEHOLDERS
 
 NOW = "2026-01-01T00:00:00Z"
 ANALYST_PASSWORD = "AnalystStrong123"
+
+
+def test_archive_active_result_analytics_exclusion_and_graph_purge(client):
+    with database(client.app.state.settings) as db:
+        seed_reference_data(db)
+    csrf, draft = create_approved_draft(client)
+    settings = client.app.state.settings
+    now = datetime(2028, 1, 2, tzinfo=UTC)
+    with database(settings) as db:
+        seed_reference_data(db)
+        assert list_results(db, draft["run_id"])["total"] == 5
+        record_transition(db, "demand", draft["demand_id"], "open", "closed", "manual", now=NOW)
+        batch = archival.preview(db, kind="archive", user_id=1, now=now)
+        db.execute(
+            "UPDATE archive_batches SET status='running' WHERE batch_id=?", (batch["batch_id"],)
+        )
+    archival.execute_batch(settings, batch["batch_id"], 1, now)
+    with database(settings) as db:
+        assert list_results(db, draft["run_id"])["total"] == 0
+        assert not current_runs(db)
+        p = Population(db, DashboardFilters(run_id=draft["run_id"]), now.date())
+        assert not p.result_counts and not p.pairs_scored and not p.email_rows
+        assert not p.assessed_demand_ids
+        db.execute("UPDATE demands SET archived_at=? WHERE demand_id=?", (NOW, draft["demand_id"]))
+        batch = archival.preview(db, kind="purge", user_id=1, now=now)
+        db.execute(
+            "UPDATE archive_batches SET status='running' WHERE batch_id=?", (batch["batch_id"],)
+        )
+    archival.execute_batch(settings, batch["batch_id"], 1, now)
+    with database(settings) as db:
+        for table in (
+            "demands",
+            "demand_versions",
+            "jd_requirements",
+            "match_results",
+            "email_messages",
+        ):
+            assert db.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
+        assert not db.execute("PRAGMA foreign_key_check").fetchall()
+        assert audit.verify_chain(db)
+        assert len(load_resources(db)) == 5
+
+
+@pytest.mark.parametrize(
+    "entity,target",
+    [
+        ("demand", "closed"),
+        ("resource", "off_bench"),
+        ("demand", "archived"),
+        ("resource", "archived"),
+    ],
+)
+def test_inactive_entities_block_approval_send_and_handoff(client, entity, target):
+    csrf, draft = create_approved_draft(client)
+    message_id = draft["message_id"]
+    with database(client.app.state.settings) as db:
+        record_transition(
+            db,
+            entity,
+            draft[f"{entity}_id"],
+            "open" if entity == "demand" else "active",
+            target,
+            "archive" if target == "archived" else "manual",
+            now=NOW,
+        )
+    headers = {"X-CSRF-Token": csrf}
+    approval = client.post(f"/api/v1/emails/{message_id}/approve", headers=headers)
+    assert approval.status_code == 409 and "EMAIL_ENTITY_INACTIVE" in approval.text
+    sent = client.post(
+        "/api/v1/emails/send-approved", json={"message_ids": [message_id]}, headers=headers
+    )
+    assert sent.status_code == 409 and "EMAIL_ENTITY_INACTIVE" in sent.text
+    client.app.state.email_transport = EmlHandoffTransport()
+    handoff = client.post(f"/api/v1/emails/{message_id}/handoff", json={}, headers=headers)
+    assert handoff.status_code == 409 and "EMAIL_ENTITY_INACTIVE" in handoff.text
+    eml = client.get(f"/api/v1/emails/{message_id}/handoff.eml")
+    assert eml.status_code == 409 and "EMAIL_ENTITY_INACTIVE" in eml.text
+    assert not client.get("/api/v1/emails").json()["drafts"] or all(
+        item["message_id"] != message_id for item in client.get("/api/v1/emails").json()["drafts"]
+    )
 
 
 @pytest.fixture

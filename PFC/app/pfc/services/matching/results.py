@@ -177,7 +177,8 @@ def _rows(
         "FROM match_results m JOIN demands d USING(demand_id) JOIN resources r USING(resource_id) "
         "LEFT JOIN candidates c ON c.candidate_id=m.candidate_id "
         "LEFT JOIN score_breakdowns b ON b.result_id=m.result_id AND b.component='skills' "
-        f"WHERE {predicate} ORDER BY m.demand_id,m.rank,m.result_id",
+        f"WHERE {predicate} AND d.lifecycle!='archived' AND r.lifecycle!='archived' "
+        "ORDER BY m.demand_id,m.rank,m.result_id",
         parameters,
     ).fetchall()
     result = []

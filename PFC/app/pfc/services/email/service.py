@@ -272,7 +272,7 @@ class EmailService:
     def list_drafts(
         self, *, status: str | None, demand_id: int | None, limit: int
     ) -> tuple[list[EmailDraft], dict[str, int], int]:
-        conditions: list[str] = []
+        conditions: list[str] = ["d.lifecycle='open'", "r.lifecycle='active'"]
         parameters: list[object] = []
         if status is not None:
             conditions.append("em.status=?")
@@ -629,6 +629,7 @@ class EmailService:
             row = self._get_draft_row(db, message_id)
             if row is None:
                 raise Problem(404, "EMAIL_DRAFT_NOT_FOUND", "Email draft not found")
+            self._assert_active(db, message_id)
             if row["status"] in {"Sent", "Sending", "Discarded"}:
                 raise Problem(409, "EMAIL_NOT_APPROVABLE", "Email cannot be approved in this state")
             if not str(row["to_address"]).strip():
@@ -680,6 +681,7 @@ class EmailService:
                 raise Problem(404, "EMAIL_DRAFT_NOT_FOUND", "Email draft not found")
 
             repeat = row["status"] == "Sending" and row["handoff_at"] is not None
+            self._assert_active(db, message_id)
             previous_com_attempt = not repeat and row["transport"] == "outlook_com"
             if not repeat:
                 if row["status"] in {"Sent", "Discarded"}:
@@ -756,6 +758,7 @@ class EmailService:
     def handoff_eml(self, message_id: int) -> bytes:
         with database(self.settings) as db:
             row = self._get_draft_row(db, message_id)
+            self._assert_active(db, message_id)
         if row is None:
             raise Problem(404, "EMAIL_DRAFT_NOT_FOUND", "Email draft not found")
         if row["status"] != "Sending" or row["handoff_at"] is None:
@@ -895,6 +898,7 @@ class EmailService:
         for message_id in requested_ids:
             with database(self.settings) as db:
                 row = self._get_draft_row(db, message_id)
+                self._assert_active(db, message_id)
             if row is None:
                 outcomes.append(EmailSendOutcome(message_id, "skipped", "Draft not found"))
                 continue
@@ -1003,6 +1007,7 @@ class EmailService:
             "LEFT JOIN candidates c ON c.candidate_id=COALESCE(mr.candidate_id,r.candidate_id) "
             "JOIN demand_versions dv ON dv.demand_version_id=mr.demand_version_id "
             "WHERE mr.run_id=? AND m.status='completed' AND mr.shortlisted=1 "
+            "AND d.lifecycle='open' AND r.lifecycle='active' "
             f"{demand_clause}"
             "), shortlist AS ("
             " SELECT *, ROW_NUMBER() OVER (PARTITION BY demand_id ORDER BY rank, result_id) "
@@ -1275,10 +1280,28 @@ class EmailService:
     def _handoff_path(self, message_id: int) -> Path:
         return self.settings.data_dir / "email" / "outbox" / f"{message_id}.eml"
 
+    @staticmethod
+    def _assert_active(db: sqlite3.Connection, message_id: int) -> None:
+        row = db.execute(
+            "SELECT d.lifecycle AS demand_lifecycle,r.lifecycle AS resource_lifecycle "
+            "FROM email_messages e JOIN demands d ON d.demand_id=e.demand_id "
+            "JOIN resources r ON r.resource_id=e.resource_id WHERE e.message_id=?",
+            (message_id,),
+        ).fetchone()
+        if row is not None and (
+            row["demand_lifecycle"] != "open" or row["resource_lifecycle"] != "active"
+        ):
+            raise Problem(
+                409,
+                "EMAIL_ENTITY_INACTIVE",
+                "Email cannot be approved or sent: its demand or person has ended or been archived",
+            )
+
     def _mark_sending(self, message_id: int, user_id: int) -> sqlite3.Row | None:
         now = stamp(self.clock())
         with database(self.settings) as db:
             db.execute("BEGIN IMMEDIATE")
+            self._assert_active(db, message_id)
             cursor = db.execute(
                 "UPDATE email_messages SET status='Sending', attempts=attempts+1, "
                 "transport=?, updated_at=? WHERE message_id=? AND status IN ('Approved','Failed') "

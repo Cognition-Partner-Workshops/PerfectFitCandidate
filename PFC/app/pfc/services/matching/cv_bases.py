@@ -23,7 +23,8 @@ def load_resources(
     else:
         placeholders = ",".join("?" for _ in selected)
         rows = db.execute(
-            f"SELECT * FROM resources WHERE resource_id IN ({placeholders}) ORDER BY resource_id",
+            f"SELECT * FROM resources WHERE resource_id IN ({placeholders}) "
+            "AND lifecycle!='archived' ORDER BY resource_id",
             selected,
         ).fetchall()
 
@@ -86,7 +87,9 @@ def load_cv_bases(
         resource_params: tuple[int, ...] = ()
         if selected:
             placeholders = ",".join("?" for _ in selected)
-            resource_lifecycle = f"(lifecycle='active' OR resource_id IN ({placeholders}))"
+            resource_lifecycle = (
+                f"(lifecycle='active' OR resource_id IN ({placeholders})) AND lifecycle!='archived'"
+            )
             resource_params = tuple(selected)
         skills = db.execute(
             "SELECT rs.*,s.name AS canonical FROM resource_skills rs "
