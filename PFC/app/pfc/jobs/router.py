@@ -88,6 +88,11 @@ def presentation(job: Job) -> tuple[str, str | None]:
         return "Matching run", "/#/matches"
     if job.kind == "embed":
         return ("Model check" if params.get("model_type") == "llm" else "Re-indexing CVs"), None
+    if job.kind == "pdf_report":
+        return (
+            "PDF report",
+            f"/api/v1/reports/{job.job_id}/file" if job.status == "completed" else None,
+        )
     # Kinds are internal identifiers, never arbitrary display text.
     label = re.sub(r"[_-]+", " ", job.kind).capitalize()
     if not re.fullmatch(r"[A-Za-z0-9 ]{1,100}", label):

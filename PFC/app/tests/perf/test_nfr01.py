@@ -17,6 +17,7 @@ from typing import Any, Literal
 import pytest
 from fastapi.testclient import TestClient
 
+from pfc.api.schemas.reports import PdfRequest
 from pfc.config import Settings
 from pfc.db.connection import database
 from pfc.domain.config_loader import load_domain_config
@@ -27,6 +28,8 @@ from pfc.services.matching import MatchingPorts
 from pfc.services.matching.ports import ChunkOwner, Task
 from pfc.services.matching.runs import _inputs
 from pfc.services.matching.semantic import VectorCache
+from pfc.services.reports.builder import build_pdf
+from pfc.services.reports.data import collect
 from scripts.generate_uat_data import LOCATIONS, SEED, SKILLS
 
 SIZE = 500
@@ -385,6 +388,20 @@ def test_nfr01_matching_and_analytics(tmp_path: Path) -> None:
             "samples_seconds": list_samples,
             "median_seconds": statistics.median(list_samples),
         }
+        pdf_timings = {}
+        for report_type in ("dashboard", "match_results"):
+            started = time.perf_counter()
+            with database(settings) as db:
+                data = collect(
+                    db, PdfRequest.model_validate({"report": report_type}), "Perf analyst", NOW
+                )
+            content = build_pdf(data)
+            elapsed = time.perf_counter() - started
+            assert content.startswith(b"%PDF-")
+            pdf_timings[report_type] = {"seconds": elapsed, "bytes": len(content)}
+            assert elapsed < 60, pdf_timings
+            if report_type == "match_results":
+                assert len(data.results) == 5000 and data.total == pairs
         report = {
             "label": "Linux CI/VM, not target laptop",
             "seed": SEED,
@@ -394,6 +411,7 @@ def test_nfr01_matching_and_analytics(tmp_path: Path) -> None:
             "match_seconds": match_seconds,
             "analytics": analytics,
             "demand_list": demand_list,
+            "pdf_generation": pdf_timings,
             "provenance": provenance(),
             "thresholds_seconds": {
                 "match": MATCH_LIMIT_SECONDS,

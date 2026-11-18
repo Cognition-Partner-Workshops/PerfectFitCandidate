@@ -24,6 +24,7 @@ from pfc.api.routers.occ import router as occ_router
 from pfc.api.routers.occ_approvals import router as occ_approvals_router
 from pfc.api.routers.packages import router as packages_router
 from pfc.api.routers.pii import router as pii_router
+from pfc.api.routers.reports import router as reports_router
 from pfc.api.routers.resources import router as resources_router
 from pfc.api.routers.results import router as results_router
 from pfc.api.routers.settings import router as settings_router
@@ -142,6 +143,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(match_router, prefix="/api/v1")
     app.include_router(results_router, prefix="/api/v1")
     app.include_router(analytics_router, prefix="/api/v1")
+    app.include_router(reports_router, prefix="/api/v1")
     frontend = settings.frontend_dir.resolve()
     if (frontend / "index.html").is_file():
         if (frontend / "assets").is_dir():
