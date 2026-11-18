@@ -117,9 +117,13 @@ def test_inactive_entities_block_approval_send_and_handoff(client, entity, targe
     approval = client.post(f"/api/v1/emails/{message_id}/approve", headers=headers)
     assert approval.status_code == 409 and "EMAIL_ENTITY_INACTIVE" in approval.text
     sent = client.post(
-        "/api/v1/emails/send-approved", json={"message_ids": [message_id]}, headers=headers
+        "/api/v1/emails/send-approved", json={"draft_ids": [message_id]}, headers=headers
     )
     assert sent.status_code == 409 and "EMAIL_ENTITY_INACTIVE" in sent.text
+    single = client.post(f"/api/v1/emails/{message_id}/send", headers=headers)
+    assert single.status_code == 409 and "EMAIL_ENTITY_INACTIVE" in single.text
+    bulk = client.post("/api/v1/emails/send-approved", json={}, headers=headers)
+    assert bulk.status_code == 200 and bulk.json()["sent_count"] == 0
     client.app.state.email_transport = EmlHandoffTransport()
     handoff = client.post(f"/api/v1/emails/{message_id}/handoff", json={}, headers=headers)
     assert handoff.status_code == 409 and "EMAIL_ENTITY_INACTIVE" in handoff.text
@@ -127,6 +131,49 @@ def test_inactive_entities_block_approval_send_and_handoff(client, entity, targe
     assert eml.status_code == 409 and "EMAIL_ENTITY_INACTIVE" in eml.text
     assert not client.get("/api/v1/emails").json()["drafts"] or all(
         item["message_id"] != message_id for item in client.get("/api/v1/emails").json()["drafts"]
+    )
+
+
+def test_bulk_send_skips_inactive_entities_without_partial_failure(client):
+    run_id, _ = seed_matches(client)
+    csrf = login(client)
+    drafts = create_drafts(client, csrf, run_id).json()["drafts"][:3]
+    headers = {"X-CSRF-Token": csrf}
+    for draft in drafts:
+        assert (
+            client.post(
+                f"/api/v1/emails/{draft['message_id']}/approve", headers=headers
+            ).status_code
+            == 200
+        )
+    with database(client.app.state.settings) as db:
+        for draft, state in zip(drafts[1:], ["off_bench", "archived"], strict=True):
+            record_transition(
+                db, "resource", draft["resource_id"], "active", state, "manual", now=NOW
+            )
+    explicit = client.post(
+        "/api/v1/emails/send-approved",
+        json={"draft_ids": [d["message_id"] for d in drafts]},
+        headers=headers,
+    )
+    assert explicit.status_code == 409 and "EMAIL_ENTITY_INACTIVE" in explicit.text
+    assert client.app.state.email_transport.messages == []
+    sent = client.post("/api/v1/emails/send-approved", json={}, headers=headers)
+    assert sent.status_code == 200, sent.text
+    assert sent.json()["sent_count"] == 1
+    assert len(client.app.state.email_transport.messages) == 1
+    with database(client.app.state.settings) as db:
+        assert [
+            tuple(r)
+            for r in db.execute(
+                "SELECT status,attempts FROM email_messages WHERE message_id IN (?,?) "
+                "ORDER BY message_id",
+                tuple(d["message_id"] for d in drafts[1:]),
+            )
+        ] == [("Approved", 0), ("Approved", 0)]
+    assert (
+        client.post("/api/v1/emails/send-approved", json={}, headers=headers).json()["sent_count"]
+        == 0
     )
 
 

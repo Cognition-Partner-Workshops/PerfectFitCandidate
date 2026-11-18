@@ -887,18 +887,28 @@ class EmailService:
         if message_ids is None:
             with database(self.settings) as db:
                 rows = db.execute(
-                    "SELECT message_id FROM email_messages "
-                    "WHERE status IN ('Approved','Failed','Sending') ORDER BY message_id"
+                    "SELECT e.message_id FROM email_messages e "
+                    "JOIN demands d ON d.demand_id=e.demand_id "
+                    "JOIN resources r ON r.resource_id=e.resource_id "
+                    "WHERE e.status IN ('Approved','Failed','Sending') "
+                    "AND d.lifecycle='open' AND r.lifecycle='active' ORDER BY e.message_id"
                 ).fetchall()
             requested_ids = [int(row["message_id"]) for row in rows]
         else:
             requested_ids = list(dict.fromkeys(message_ids))
+            with database(self.settings) as db:
+                for message_id in requested_ids:
+                    self._assert_active(db, message_id)
 
         outcomes: list[EmailSendOutcome] = []
         for message_id in requested_ids:
             with database(self.settings) as db:
                 row = self._get_draft_row(db, message_id)
-                self._assert_active(db, message_id)
+                if message_ids is None:
+                    if not self._is_active(db, message_id):
+                        continue
+                else:
+                    self._assert_active(db, message_id)
             if row is None:
                 outcomes.append(EmailSendOutcome(message_id, "skipped", "Draft not found"))
                 continue
@@ -945,7 +955,7 @@ class EmailService:
                     outcomes.append(EmailSendOutcome(message_id, "skipped", "Draft not found"))
                     continue
 
-            marked = self._mark_sending(message_id, user_id)
+            marked = self._mark_sending(message_id, user_id, skip_inactive=message_ids is None)
             if marked is None:
                 outcomes.append(
                     EmailSendOutcome(message_id, "skipped", "Email state changed before sending")
@@ -1281,26 +1291,34 @@ class EmailService:
         return self.settings.data_dir / "email" / "outbox" / f"{message_id}.eml"
 
     @staticmethod
-    def _assert_active(db: sqlite3.Connection, message_id: int) -> None:
+    def _is_active(db: sqlite3.Connection, message_id: int) -> bool:
         row = db.execute(
             "SELECT d.lifecycle AS demand_lifecycle,r.lifecycle AS resource_lifecycle "
             "FROM email_messages e JOIN demands d ON d.demand_id=e.demand_id "
             "JOIN resources r ON r.resource_id=e.resource_id WHERE e.message_id=?",
             (message_id,),
         ).fetchone()
-        if row is not None and (
-            row["demand_lifecycle"] != "open" or row["resource_lifecycle"] != "active"
-        ):
+        return row is None or (
+            row["demand_lifecycle"] == "open" and row["resource_lifecycle"] == "active"
+        )
+
+    @staticmethod
+    def _assert_active(db: sqlite3.Connection, message_id: int) -> None:
+        if not EmailService._is_active(db, message_id):
             raise Problem(
                 409,
                 "EMAIL_ENTITY_INACTIVE",
                 "Email cannot be approved or sent: its demand or person has ended or been archived",
             )
 
-    def _mark_sending(self, message_id: int, user_id: int) -> sqlite3.Row | None:
+    def _mark_sending(
+        self, message_id: int, user_id: int, *, skip_inactive: bool = False
+    ) -> sqlite3.Row | None:
         now = stamp(self.clock())
         with database(self.settings) as db:
             db.execute("BEGIN IMMEDIATE")
+            if skip_inactive and not self._is_active(db, message_id):
+                return None
             self._assert_active(db, message_id)
             cursor = db.execute(
                 "UPDATE email_messages SET status='Sending', attempts=attempts+1, "
