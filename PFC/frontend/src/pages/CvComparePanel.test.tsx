@@ -1,5 +1,9 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { AppRoutes } from '../App'
+import { createQueryClient } from '../lib/queryClient'
 import { ADMIN, mock, renderApp, seed, signIn } from '../test/utils'
 
 /** CV version comparison (REQ-IN-24 / FR-ING-52): select two versions, read-only, masked. */
@@ -51,6 +55,32 @@ describe('Candidate Profile CV version comparison', () => {
     fireEvent.click(within(table).getAllByText('Score breakdown')[0])
     expect(within(table).getAllByText('skills').length).toBeGreaterThan(0)
     expect(within(scores).getByRole('button', { name: 'Re-score both versions' })).toBeTruthy()
+  })
+
+  it('a comparison link opens the CV tab on an already open profile; another candidate clears selections', async () => {
+    let go: (path: string) => void = () => undefined
+    function Nav() {
+      go = useNavigate()
+      return null
+    }
+    render(
+      <QueryClientProvider client={createQueryClient()}>
+        <MemoryRouter initialEntries={['/candidates/1']}>
+          <AppRoutes />
+          <Nav />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    fireEvent.click(await screen.findByRole('tab', { name: /CV versions/ }, { timeout: 5000 }))
+    fireEvent.click(await screen.findByLabelText('Select CV-10 for comparison'))
+    fireEvent.click(screen.getByLabelText('Select CV-11 for comparison'))
+    fireEvent.click(screen.getByRole('tab', { name: /Overview/ }))
+    act(() => go('/candidates/1?compare=11,10'))
+    expect(await screen.findByRole('region', { name: 'CV version comparison' }, { timeout: 5000 })).toBeTruthy()
+    act(() => go('/candidates/5'))
+    fireEvent.click(await screen.findByRole('tab', { name: /CV versions/ }, { timeout: 5000 }))
+    const boxes = await screen.findAllByRole('checkbox', { name: /for comparison$/ })
+    expect(boxes.every((b) => !(b as HTMLInputElement).checked && !(b as HTMLInputElement).disabled)).toBe(true)
   })
 
   it('closing returns to the CV facts cards and same-version selection is impossible', async () => {

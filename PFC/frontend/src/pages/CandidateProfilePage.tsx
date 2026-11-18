@@ -178,6 +178,13 @@ export function CandidateProfilePage() {
   const compare = linked ? [Number(linked[1]), Number(linked[2])] as const : null
   const [selected, setSelected] = useState<number[]>([])
   const [tab, setTab] = useState<Tab>(compare ? 'cv' : 'overview')
+  const view = `${id}|${params.get('compare') ?? ''}`
+  const [shownView, setShownView] = useState(view)
+  if (shownView !== view) {
+    setShownView(view)
+    if (!shownView.startsWith(`${id}|`)) setSelected([])
+    if (compare) setTab('cv')
+  }
   const [prompt, setPrompt] = useState<boolean | null>(null)
   if (!candidateId) return <Picker />
   if (detail.isLoading) return <div className="page"><Spinner /></div>
