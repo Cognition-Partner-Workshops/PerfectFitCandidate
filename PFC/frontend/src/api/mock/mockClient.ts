@@ -1171,7 +1171,7 @@ export class MockApiClient implements ApiClient {
   async downloadEmailFollowUp(id: number) {
     this.currentUser()
     const email = this.email(id)
-    if (email.followUp?.status !== 'handoff') fail(409, 'Follow-up is not a handoff', 'EMAIL_FOLLOW_UP_NOT_HANDOFF')
+    if (!email.followUp || !(email.followUp.status === 'handoff' || (email.followUp.transport === 'outlook_com' && ['pending', 'failed'].includes(email.followUp.status)))) fail(409, 'Follow-up is automated', 'EMAIL_FOLLOW_UP_NOT_HANDOFF')
     return this.done({ blob: new Blob(['BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n'], { type: 'text/calendar' }), fileName: `PFC-follow-up-${id}.ics` })
   }
 

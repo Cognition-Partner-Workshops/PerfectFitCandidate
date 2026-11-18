@@ -412,6 +412,12 @@ class EmailService:
         return mask_emails_in(subject), "Review the candidate submission and follow up as needed."
 
     def retry_follow_up(self, message_id: int, user_id: int) -> EmailDraft:
+        if not callable(getattr(self.transport, "create_follow_up", None)):
+            raise Problem(
+                409,
+                "EMAIL_FOLLOW_UP_TRANSPORT_UNAVAILABLE",
+                "Switch Email transport back to Outlook COM, or add the reminder from the calendar file",
+            )
         with database(self.settings) as db:
             db.execute("BEGIN IMMEDIATE")
             cursor = db.execute(
@@ -432,7 +438,9 @@ class EmailService:
             ).fetchone()
             if row is None:
                 raise Problem(404, "EMAIL_FOLLOW_UP_NOT_FOUND", "Follow-up not found")
-            if row["transport"] != "eml_handoff":
+            if row["transport"] != "eml_handoff" and not (
+                row["transport"] == "outlook_com" and row["status"] in ("pending", "failed")
+            ):
                 raise Problem(409, "EMAIL_FOLLOW_UP_NOT_HANDOFF", "Follow-up is automated")
             draft = self._get_draft_row(db, message_id)
             assert draft is not None

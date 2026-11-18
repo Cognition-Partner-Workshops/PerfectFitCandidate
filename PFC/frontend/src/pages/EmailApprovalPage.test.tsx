@@ -59,6 +59,17 @@ describe('EmailApprovalPage transport handoff', () => {
     await waitFor(() => expect(retry).toHaveBeenCalledWith(email.emailId))
   })
 
+  it.each([
+    ['failed', 'Outlook COM', true],
+    ['pending', 'Outlook draft file', true],
+    ['pending', 'Outlook COM', false],
+    ['created', 'Outlook draft file', false],
+  ] as const)('calendar fallback for %s with %s is %s', async (status, transport, visible) => {
+    renderPage({ ...draft(), followUp: { status, dueAt: '2026-11-23T09:00:00Z', transport: 'outlook_com', lastError: null } }, { transport, outlookDetected: transport === 'Outlook COM' })
+    await userEvent.click(await screen.findByRole('tab', { name: 'Approved (1)' }))
+    expect(!!screen.queryByRole('button', { name: 'Add to Outlook calendar' })).toBe(visible)
+  })
+
   it('downloads the handoff calendar with the authenticated client', async () => {
     const file = { blob: new Blob(['calendar']), fileName: 'reminder.ics' }
     const download = vi.spyOn(mock, 'downloadEmailFollowUp').mockResolvedValue(file)

@@ -131,6 +131,27 @@ def test_follow_up_schedule_job_retry_resend(client: TestClient, enabled: bool) 
         assert row["outlook_ref"] and row["job_id"]
 
 
+@pytest.mark.parametrize("status", ["pending", "failed", "created"])
+def test_com_follow_up_calendar_fallback_after_transport_switch(
+    client: TestClient, status: str
+) -> None:
+    csrf, draft = create_approved_draft(client)
+    message_id = draft["message_id"]
+    headers = {"X-CSRF-Token": csrf}
+    assert client.post(f"/api/v1/emails/{message_id}/send", headers=headers).status_code == 200
+    with database(client.app.state.settings) as db:
+        db.execute("UPDATE follow_ups SET status=? WHERE message_id=?", (status, message_id))
+    client.app.state.email_transport = EmlHandoffTransport()
+    calendar = client.get(f"/api/v1/emails/{message_id}/follow-up.ics")
+    assert calendar.status_code == (409 if status == "created" else 200)
+    if status != "created":
+        assert "BEGIN:VEVENT\r\n" in calendar.text
+    retry = client.post(f"/api/v1/emails/{message_id}/follow-up/retry", headers=headers)
+    assert retry.status_code == 409
+    assert "Switch Email transport back to Outlook COM" in retry.json()["detail"]
+    assert client.get(f"/api/v1/emails/{message_id}").json()["follow_up"]["status"] == status
+
+
 def test_follow_up_handoff_calendar(client: TestClient) -> None:
     run_id, _ = seed_matches(client)
     csrf = login(client)

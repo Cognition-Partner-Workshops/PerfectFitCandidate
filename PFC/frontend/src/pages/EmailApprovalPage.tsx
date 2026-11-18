@@ -191,7 +191,7 @@ export function EmailApprovalPage() {
                               <span>{e.followUp.lastError}</span>
                               <button className="btn" disabled={retryReminder.isPending} onClick={(event) => { event.stopPropagation(); retryReminder.mutate(e.emailId) }}>Retry reminder</button>
                             </>}
-                            {e.followUp.status === 'handoff' && <>
+                            {(e.followUp.status === 'handoff' || e.followUp.status === 'failed' || (e.followUp.status === 'pending' && draftFileTransport)) && <>
                               <button className="btn" style={{ whiteSpace: 'normal' }} disabled={calendar.isPending} onClick={(event) => { event.stopPropagation(); calendar.mutate(e.emailId) }}>Add to Outlook calendar</button>
                               <span className="muted">PFC can't set reminders in new Outlook automatically.</span>
                             </>}
