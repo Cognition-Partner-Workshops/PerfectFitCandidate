@@ -1,18 +1,20 @@
 import { useEffect, useRef } from 'react'
 import * as echarts from 'echarts/core'
-import { BarChart, GaugeChart, PieChart, ScatterChart } from 'echarts/charts'
+import { BarChart, FunnelChart, GaugeChart, HeatmapChart, LineChart, PieChart, ScatterChart } from 'echarts/charts'
 import {
   AriaComponent,
   DatasetComponent,
   GridComponent,
   LegendComponent,
+  MarkLineComponent,
   TooltipComponent,
+  VisualMapComponent,
 } from 'echarts/components'
 import { SVGRenderer } from 'echarts/renderers'
 import type { EChartsCoreOption } from 'echarts/core'
 
 // Tree-shaken Apache ECharts (DASHBOARD_RESEARCH.md §7) with the SVG renderer.
-echarts.use([BarChart, PieChart, ScatterChart, GaugeChart, GridComponent, TooltipComponent, LegendComponent, DatasetComponent, AriaComponent, SVGRenderer])
+echarts.use([BarChart, PieChart, ScatterChart, GaugeChart, HeatmapChart, FunnelChart, LineChart, MarkLineComponent, VisualMapComponent, GridComponent, TooltipComponent, LegendComponent, DatasetComponent, AriaComponent, SVGRenderer])
 
 import { CHART_PALETTE } from '../lib/chartPalette'
 

@@ -1,3 +1,4 @@
+import type { ExtendedAnalytics, PdfRequest } from './reports'
 import type {
   BulkAnalysis,
   JobItem,
@@ -195,6 +196,8 @@ export interface ApiClient {
   analyticsBench(filters: DashboardFilters): Promise<BenchAnalytics>
   /** GET /analytics/match */
   analyticsMatch(filters: DashboardFilters): Promise<MatchAnalytics>
+  analyticsExtended(filters: DashboardFilters): Promise<ExtendedAnalytics>
+  generatePdf(request: PdfRequest): Promise<{ jobId: number }>
 
   /** POST /emails/drafts */
   createDrafts(resultIds: number[], runId?: number): Promise<EmailDraft[]>

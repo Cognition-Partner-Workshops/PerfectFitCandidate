@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { DataChangedBanner } from '../components/DataChangedBanner'
+import { ExtendedAnalyticsSection } from '../components/ExtendedAnalytics'
+import { PdfReportButton } from '../components/PdfReportButton'
 import { useResultFilters } from '../lib/FilterProvider'
 import { runMode } from '../lib/runMode'
 import type { EChartsCoreOption } from 'echarts/core'
@@ -12,7 +14,7 @@ import { EChart } from '../components/EChart'
 import { CHART_PALETTE } from '../lib/chartPalette'
 import { FilterBar } from '../components/FilterBar'
 import { Banner, BandChip, ChartCard, EligibilityBadge, ErrorState, KpiTile, Spinner } from '../components/ui'
-import { formatDate, formatDateTime, roleLocation } from '../lib/format'
+import { formatDate, formatDateTime, formatServicePct, roleLocation } from '../lib/format'
 import { applyResultFilters, distinct } from '../lib/filters'
 import { bandColorVar, bandLabel } from '../lib/bands'
 import type { Band } from '../api/types'
@@ -78,6 +80,7 @@ export function DashboardPage() {
   })
   const bench = useQuery({ queryKey: ['analytics', 'bench', df], queryFn: () => api.analyticsBench(df) })
   const match = useQuery({ queryKey: ['analytics', 'match', df], queryFn: () => api.analyticsMatch(df) })
+  const extended = useQuery({ queryKey: ['analytics', 'extended', df], queryFn: () => api.analyticsExtended(df) })
   // The run list is capped at the newest 50 runs, so look up the summary's run by id. Refetch on mount and focus so a
   // data change made elsewhere since the last visit shows up.
   const shownRunId = summary.data?.run?.runId
@@ -129,6 +132,7 @@ export function DashboardPage() {
       )}
       <div className="page-header">
         <h1>Dashboard</h1>
+        <PdfReportButton report="dashboard" filters={df} />
         <span className="spacer" />
         {s?.run && (
           <span className="meta">
@@ -163,8 +167,8 @@ export function DashboardPage() {
           <div className="strip">
             <span>Eligible bench <strong>{s.eligibleBench}</strong></span>
             <span>Excluded <strong>{s.excludedBench}</strong></span>
-            <span>Match coverage <strong>{s.matchCoveragePct} %</strong></span>
-            <span>Emails sent ≤ 24 h <strong>{s.emailsWithin24hPct} %</strong></span>
+            <span>Match coverage <strong>{formatServicePct(s.matchCoveragePct)}</strong></span>
+            <span>Emails sent ≤ 24 h <strong>{formatServicePct(s.emailsWithin24hPct)}</strong></span>
           </div>
         </>
       )}
@@ -269,6 +273,8 @@ export function DashboardPage() {
           </section>
         </div>
       )}
+
+      {show('demand') && <ExtendedAnalyticsSection section="demand" data={extended.data} pending={extended.isPending} error={extended.error} onRetry={() => void extended.refetch()} />}
 
       {show('bench') && bench.data && (
         <div className="grid-12" aria-label="Bench analytics">
@@ -413,6 +419,8 @@ export function DashboardPage() {
         </div>
       )}
 
+      {show('bench') && <ExtendedAnalyticsSection section="bench" data={extended.data} pending={extended.isPending} error={extended.error} onRetry={() => void extended.refetch()} />}
+
       {show('match') && match.data && (
         <div className="grid-12" aria-label="Match and communication analytics">
           <ChartCard title="Match coverage" subtitle="Demands with ≥ 1 Strong/Potential match" table={{ columns: ['Coverage %'], rows: [[match.data.coveragePct]] }}>
@@ -481,6 +489,10 @@ export function DashboardPage() {
           </ChartCard>
         </div>
       )}
+
+      {show('match') && <ExtendedAnalyticsSection section="match" data={extended.data} pending={extended.isPending} error={extended.error} onRetry={() => void extended.refetch()} />}
+
+      {show('quality') && <ExtendedAnalyticsSection section="quality" data={extended.data} pending={extended.isPending} error={extended.error} onRetry={() => void extended.refetch()} />}
 
       {show('quality') && match.data && (
         <section className="card" aria-label="Validation panel">

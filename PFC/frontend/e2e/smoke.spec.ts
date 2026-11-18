@@ -1,4 +1,5 @@
-import { copyFileSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+/// <reference lib="dom" />
+import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test } from '@playwright/test'
 
@@ -10,6 +11,45 @@ import { expect, test } from '@playwright/test'
 const data = fileURLToPath(new URL('./.data/', import.meta.url))
 const EMAIL = 'e2e.owner@example.com'
 const PASSWORD = 'Ledger-River-Passw0rd!'
+
+async function screenshot(page: import('@playwright/test').Page, name: string) {
+  if (!process.env.PFC_SCREENSHOT_DIR) return
+  mkdirSync(process.env.PFC_SCREENSHOT_DIR, { recursive: true })
+  const saved = name === 'dashboard-extended-sections' ? await page.evaluate(() => {
+    return ['html', 'body', '#root', '.shell', '.main', '.task-popups'].map((selector) => {
+      const element = document.querySelector<HTMLElement>(selector)!
+      const previous = { selector, style: element.style.cssText, scrollTop: element.scrollTop }
+      if (selector === '.task-popups') element.style.display = 'none'
+      else { element.style.height = 'auto'; element.style.overflow = 'visible'; element.scrollTop = 0 }
+      return previous
+    })
+  }) : []
+  try {
+    await page.screenshot({ path: `${process.env.PFC_SCREENSHOT_DIR}/${name}.png`, fullPage: true })
+  } finally {
+    await page.evaluate((styles) => { for (const old of styles) { const element = document.querySelector<HTMLElement>(old.selector)!; element.style.cssText = old.style; element.scrollTop = old.scrollTop } }, saved)
+  }
+}
+
+async function pdfReport(page: import('@playwright/test').Page, report: 'dashboard' | 'match_results') {
+  await page.getByRole('button', { name: 'PDF report', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'PDF report' })
+  await expect(dialog.getByLabel('Orientation')).toHaveValue(report === 'dashboard' ? 'portrait' : 'landscape')
+  await screenshot(page, `${report}-pdf-dialog`)
+  const accepted = page.waitForResponse((response) => response.url().endsWith('/api/v1/reports/pdf') && response.request().method() === 'POST')
+  await dialog.getByRole('button', { name: 'Generate', exact: true }).click()
+  const response = await accepted
+  expect(response.status()).toBe(202)
+  const { jobId } = await response.json() as { jobId: number }
+  const link = page.locator(`.task-card a[href="/api/v1/reports/${jobId}/file"]`)
+  await expect(link).toHaveText('PDF report: Completed', { timeout: 30_000 })
+  await screenshot(page, `${report}-pdf-completed`)
+  const download = page.waitForEvent('download')
+  await link.click()
+  const file = await download
+  expect(readFileSync(await file.path()).subarray(0, 4).toString()).toBe('%PDF')
+  expect(file.suggestedFilename()).toMatch(/\.pdf$/)
+}
 
 async function upload(page: import('@playwright/test').Page, button: string, label: string, file: string) {
   await page.getByRole('button', { name: button }).click()
@@ -44,6 +84,8 @@ async function waitForCompletedRun(page: import('@playwright/test').Page) {
 }
 
 test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'Create the OCC administrator account' })).toBeVisible()
   await page.getByLabel('Setup code').fill(readFileSync(`${data}run/setup-code.txt`, 'utf8').trim())
@@ -125,6 +167,16 @@ test('first-admin setup, sign in, DL/CT upload and commit, bench list', async ({
   await expect(result.locator('.chip').filter({ hasText: /^(Strong|Potential|Avg\.|Weak Match|Insufficient data)$/ })).toBeVisible()
   await expect(result).toContainText(/SmokeAlex\s*a[a-z]*\*+@example\.com/)
   await expect(result).not.toContainText('alex@example.com')
+
+  await pdfReport(page, 'match_results')
+  await page.goto('/#/dashboard')
+  await expect(page.getByRole('region', { name: 'DB-16 Match-score histogram' })).toBeAttached()
+  for (const card of await page.locator('[data-extended-card]').all()) await card.scrollIntoViewIfNeeded()
+  await expect(page.locator('[data-chart-ready="false"]')).toHaveCount(0)
+  await screenshot(page, 'dashboard-extended-sections')
+  await page.getByRole('heading', { name: 'Dashboard', exact: true }).scrollIntoViewIfNeeded()
+  await pdfReport(page, 'dashboard')
+  await page.goto('/#/matches')
 
   await result.getByRole('link', { name: 'SmokeAlex', exact: true }).click()
   await expect(page).toHaveURL(/\/candidates\/\d+$/)
