@@ -390,7 +390,8 @@ def excluded_view(db: sqlite3.Connection, run_id: int) -> list[dict[str, Any]]:
             "SELECT e.*,r.short_name,d.code_requisition AS requisition "
             "FROM eligibility_exclusions e "
             "JOIN resources r USING(resource_id) LEFT JOIN demands d USING(demand_id) "
-            "WHERE e.run_id=? ORDER BY r.short_name COLLATE NOCASE,e.resource_id,"
+            "WHERE e.run_id=? AND r.lifecycle!='archived' "
+            "ORDER BY r.short_name COLLATE NOCASE,e.resource_id,"
             "e.demand_id,e.reason_code",
             (run_id,),
         )
