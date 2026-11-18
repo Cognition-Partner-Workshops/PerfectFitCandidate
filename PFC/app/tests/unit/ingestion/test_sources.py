@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 from docx import Document
-from pydantic import ValidationError
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
@@ -220,18 +219,7 @@ def test_req_in_23_unsupported_extraction(tmp_path: Path) -> None:
         extract_text(tmp_path / "file.bin")
 
 
-def test_req_ing_04_disabled_watch(tmp_path: Path) -> None:
-    watch = WatchFolderSource(path=tmp_path)
-    assert watch.enabled is False
-    assert watch.poll() == []
-
-
-def test_req_ing_04_enabled_watch_not_implemented(tmp_path: Path) -> None:
-    with pytest.raises(NotImplementedError, match="Phase 2"):
-        WatchFolderSource(path=tmp_path, enabled=True).poll()
-
-
-@pytest.mark.parametrize("minutes", [0, -1])
-def test_req_ing_04_poll_minutes_validation(tmp_path: Path, minutes: int) -> None:
-    with pytest.raises(ValidationError):
-        WatchFolderSource(path=tmp_path, poll_minutes=minutes)
+def test_req_ing_04_empty_watch(tmp_path: Path) -> None:
+    watch = WatchFolderSource(path=tmp_path, pattern="*.xlsx")
+    assert watch.scan() == []
+    assert watch.pending == {}

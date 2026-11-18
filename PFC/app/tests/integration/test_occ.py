@@ -1211,8 +1211,20 @@ def test_personal_settings(client: TestClient) -> None:
     baseline = client.get("/api/v1/settings/me").json()
     assert baseline["resume_root_path"] is None and baseline["active_model_id"] is None
     assert baseline["watch"] == {
-        "dl": {"enabled": False, "path": None, "pattern": "DL_*.xlsx"},
-        "ct": {"enabled": False, "path": None, "pattern": "CT_*.xlsx"},
+        "dl": {
+            "enabled": False,
+            "path": None,
+            "pattern": "DL_*.xlsx",
+            "poll_minutes": 5,
+            "require_preview": False,
+        },
+        "ct": {
+            "enabled": False,
+            "path": None,
+            "pattern": "CT_*.xlsx",
+            "poll_minutes": 5,
+            "require_preview": False,
+        },
     }
     del client.headers["X-CSRF-Token"]
     assert client.put("/api/v1/settings/me", json={"page_size": 50}).status_code == 403
@@ -1231,8 +1243,8 @@ def test_personal_settings(client: TestClient) -> None:
     assert saved.json()["default_landing"] == "demands"
     assert client.put("/api/v1/settings/me", json={}).json() == saved.json()
     for body, code in [
-        ({"watch": {"dl": {"enabled": True}}}, "PHASE_2_FEATURE"),
-        ({"watch": {"ct": {"enabled": True}}}, "PHASE_2_FEATURE"),
+        ({"watch": {"dl": {"enabled": True}}}, "WATCH_PATH_INVALID"),
+        ({"watch": {"ct": {"enabled": True}}}, "WATCH_PATH_INVALID"),
         ({"active_model_id": 1}, "MODEL_NOT_APPROVED"),
         ({"page_size": 0}, "VALIDATION_ERROR"),
         ({"density": "tiny"}, "VALIDATION_ERROR"),
@@ -1432,3 +1444,39 @@ def test_internal_domains_preview_read_only(client: TestClient) -> None:
         assert db.execute("SELECT count(*) FROM audit_log").fetchone()[0] == audit_count
         assert db.execute("SELECT expires_at FROM sessions WHERE user_id=1").fetchone()[0] > expiry
         assert audit.verify_chain(db)
+
+
+def test_watch_unreachable_allows_unrelated_settings_save(
+    client: TestClient, tmp_path: Path
+) -> None:
+    root = tmp_path / "watch"
+    root.mkdir()
+    login(client)
+    response = client.put(
+        "/api/v1/settings/me",
+        json={"watch": {"dl": {"enabled": True, "path": str(root), "pattern": "*.xlsx"}}},
+    )
+    assert response.status_code == 200, response.text
+    root.rmdir()
+    saved = client.get("/api/v1/settings/me").json()
+    saved.pop("resume_converter_available")
+    saved["density"] = "compact"
+    saved["watch"]["dl"].update(poll_minutes=2, require_preview=True)
+    response = client.put("/api/v1/settings/me", json=saved)
+    assert response.status_code == 200, response.text
+    assert response.json()["density"] == "compact"
+    assert response.json()["watch"]["dl"]["require_preview"] is True
+    for change in ({"path": str(root / "missing")}, {"pattern": "other*.xlsx"}):
+        response = client.put("/api/v1/settings/me", json={"watch": {"dl": change}})
+        assert response.status_code == 422
+        assert response.json()["code"] == "WATCH_PATH_INVALID"
+    response = client.put("/api/v1/settings/me", json={"watch": {"dl": {"pattern": "../*.xlsx"}}})
+    assert response.status_code == 422
+    assert response.json()["code"] == "WATCH_PATTERN_INVALID"
+    assert (
+        client.put("/api/v1/settings/me", json={"watch": {"dl": {"enabled": False}}}).status_code
+        == 200
+    )
+    response = client.put("/api/v1/settings/me", json={"watch": {"dl": {"enabled": True}}})
+    assert response.status_code == 422
+    assert response.json()["code"] == "WATCH_PATH_INVALID"

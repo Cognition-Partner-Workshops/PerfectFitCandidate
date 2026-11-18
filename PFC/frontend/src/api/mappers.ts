@@ -16,6 +16,8 @@ import type {
   LlmModel,
   OccUser,
   PersonalSettings,
+  WatchStatus,
+  WatchRun,
   Resource,
   ResourceTeamMember,
   StatusMapEntry,
@@ -286,13 +288,36 @@ export interface PersonalRow {
   resume_root_path: string | null
   resumeFileTypes?: string[]
   resume_converter_available?: boolean
-  watch: { dl: { enabled: boolean; path: string | null; pattern: string }; ct: { enabled: boolean; path: string | null; pattern: string } }
+  watch: Record<'dl' | 'ct', { enabled: boolean; path: string | null; pattern: string; poll_minutes?: number; require_preview?: boolean }>
   active_model_id: number | null
   density: 'comfortable' | 'compact'
 }
+
+interface WatchRunRow {
+  run_id: number
+  file_name: string
+  status: WatchRun['status']
+  started_at: string
+  committed_at: string | null
+  counts: IngestionRunRow['counts']
+}
+export type WatchStatusRow = Record<'dl' | 'ct', {
+  enabled: boolean
+  reachable: boolean | null
+  last_scan_at: string | null
+  pending: { file_name: string; reason: string }[]
+  last_error: string | null
+  last_pickup: WatchRunRow | null
+  awaiting_review: WatchRunRow[]
+}>
+export function toWatchStatus(row: WatchStatusRow): WatchStatus {
+  const run = (r: WatchRunRow): WatchRun => ({ runId: r.run_id, fileName: r.file_name, status: r.status, startedAt: r.started_at, committedAt: r.committed_at, counts: { read: r.counts.rows_read, new: r.counts.rows_new, updated: r.counts.rows_updated, unchanged: r.counts.rows_unchanged, rejected: r.counts.rows_rejected, incomplete: r.counts.rows_incomplete } })
+  const source = (r: WatchStatusRow['dl']) => ({ enabled: r.enabled, reachable: r.reachable, lastScanAt: r.last_scan_at, pending: r.pending.map((p) => ({ fileName: p.file_name, reason: p.reason })), lastError: r.last_error, lastPickup: r.last_pickup ? run(r.last_pickup) : null, awaitingReview: r.awaiting_review.map(run) })
+  return { dl: source(row.dl), ct: source(row.ct) }
+}
 /** Backend-only fields (SPOCs, personal template) are not stored server-side yet; defaults are kept. */
 export function toPersonal(r: PersonalRow, fallback: PersonalSettings): PersonalSettings {
-  const w = (x: PersonalRow['watch']['dl']) => ({ enabled: x.enabled, watchPath: x.path ?? '', pattern: x.pattern })
+  const w = (x: PersonalRow['watch']['dl']) => ({ enabled: x.enabled, watchPath: x.path ?? '', pattern: x.pattern, pollMinutes: x.poll_minutes ?? 5, requirePreview: x.require_preview ?? false })
   return {
     ...fallback,
     resumeFolderPath: r.resume_root_path ?? '',
@@ -305,7 +330,7 @@ export function toPersonal(r: PersonalRow, fallback: PersonalSettings): Personal
   }
 }
 export function fromPersonal(s: PersonalSettings) {
-  const w = (x: PersonalSettings['autoSyncDl']) => ({ enabled: x.enabled, path: x.watchPath || null, pattern: x.pattern })
+  const w = (x: PersonalSettings['autoSyncDl']) => ({ enabled: x.enabled, path: x.watchPath || null, pattern: x.pattern, poll_minutes: x.pollMinutes, require_preview: x.requirePreview })
   return {
     resume_root_path: s.resumeFolderPath || null,
     resumeFileTypes: s.resumeFileTypes,
