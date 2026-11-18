@@ -235,6 +235,26 @@ def test_watch_failed_and_unreachable_retry(client: TestClient, tmp_path: Path) 
     assert client.get("/api/v1/settings/me/watch-status").json()["dl"]["reachable"] is True
 
 
+def test_watch_oversized_records_failed_run(client: TestClient, tmp_path: Path) -> None:
+    root = tmp_path / "watch"
+    root.mkdir()
+    (root / "oversized.xlsx").write_bytes(b"x" * 100)
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "INSERT INTO settings(scope,key,value_json,updated_at) "
+            "VALUES ('system','ingestion.max_upload_mb',?,'2026-01-01')",
+            (json.dumps(10 / 1024**2),),
+        )
+    enable_watch(client, root)
+    watch_tick(client, 0)
+    watch_tick(client, 1)
+    wait_watch(client, "failed")
+    with database(client.app.state.settings) as db:
+        run = db.execute("SELECT status,file_size FROM ingestion_runs").fetchone()
+        assert tuple(run) == ("failed", 11)
+    assert not (client.app.state.settings.data_dir / "uploads" / "1.xlsx").exists()
+
+
 @pytest.mark.parametrize(
     "pattern", ["../DL.xlsx", "sub/DL.xlsx", "sub\\DL.xlsx", "DL.xls", "DL.xlsx.exe"]
 )

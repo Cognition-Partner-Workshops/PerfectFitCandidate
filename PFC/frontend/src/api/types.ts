@@ -473,8 +473,8 @@ export interface PersonalSettings {
   resumeFolderPath: string
   resumeFileTypes: string[]
   resumeConverterAvailable: boolean
-  autoSyncDl: { enabled: boolean; watchPath: string; pattern: string }
-  autoSyncCt: { enabled: boolean; watchPath: string; pattern: string }
+  autoSyncDl: WatchSource
+  autoSyncCt: WatchSource
   activeModel: string
   spoc1: string
   spoc2: string
@@ -677,6 +677,35 @@ export interface UploadPreview {
   warnings: string[]
   alreadyImported: boolean
 }
+
+export interface WatchSource {
+  enabled: boolean
+  watchPath: string
+  pattern: string
+  pollMinutes: number
+  requirePreview: boolean
+}
+
+export interface WatchRun {
+  runId: number
+  fileName: string
+  status: 'preview' | 'committed' | 'discarded' | 'failed' | 'no_op'
+  startedAt: string
+  committedAt: string | null
+  counts: { read: number; new: number; updated: number; unchanged: number; rejected: number; incomplete: number }
+}
+
+export interface WatchSourceStatus {
+  enabled: boolean
+  reachable: boolean | null
+  lastScanAt: string | null
+  pending: { fileName: string; reason: string }[]
+  lastError: string | null
+  lastPickup: WatchRun | null
+  awaitingReview: WatchRun[]
+}
+
+export type WatchStatus = Record<'dl' | 'ct', WatchSourceStatus>
 
 /** DL/CT approval queue entry (GUI_OCC_DESIGN.md §16.4, REQ-ROLE-03, REQ-ING-03). */
 export interface ApprovalEntry {

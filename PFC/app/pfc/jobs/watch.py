@@ -84,6 +84,7 @@ class WatchPoller:
                     ):
                         continue
                     try:
+                        scanner.max_bytes = service.upload_limit(self.settings)
                         ready = scanner.scan(now.timestamp())
                         self._status[key] = {
                             "reachable": True,

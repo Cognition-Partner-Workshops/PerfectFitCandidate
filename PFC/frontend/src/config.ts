@@ -24,5 +24,5 @@ export const featureFlags = {
   pdfReport: false,
   smtp: false,
   externalLlm: false,
-  autoSync: false,
+  autoSync: true,
 } as const

@@ -142,6 +142,9 @@ def fixtures(root: Path) -> None:
     workbook(root / "ct.xlsx", CT_HEADERS, [smoke_alex("SQL"), SMOKE_TAYLOR])
     # Committed after the match run, so the run is flagged "DL/CT committed".
     workbook(root / "ct-update.xlsx", CT_HEADERS, [smoke_alex("SQL, Python"), SMOKE_TAYLOR])
+    for attempt in range(2):
+        workbook(root / f"dl-watch-{attempt}.xlsx", list(DL), [{"Code Requisition": f"T19{attempt:03d}", "Code Local Grade": "B1", "Account Name": "Watch Pickup", "JD": "SQL, Python"}])
+        workbook(root / f"ct-watch-{attempt}.xlsx", CT_HEADERS, [{**smoke_alex("SQL"), "ShortName": f"WatchCandidate{attempt}", "Email Address": f"watch{attempt}@example.com"}])
     cv(root / "resumes" / "taylor@example.com.docx", CV_LINES)
     # Copied over the first CV by the summary spec, so a new CV version syncs.
     cv(root / "cv-v2" / "taylor@example.com.docx", [*CV_LINES, "Led a move to cloud warehouses."])
@@ -165,6 +168,7 @@ def embedding_model(settings: Settings) -> None:
 def main() -> None:
     shutil.rmtree(DATA, ignore_errors=True)
     fixtures(DATA / "fixtures")
+    (DATA / "watch").mkdir()
     os.environ.update(
         PFC_DATA_DIR=str(DATA),
         PFC_FRONTEND_DIR=str(HERE.parent / "dist"),
@@ -173,6 +177,8 @@ def main() -> None:
         PFC_ARGON_TIME_COST="1",
         PFC_ARGON_PARALLELISM="1",
         PFC_BUNDLED_MODELS_DIR=str(DATA / "bundled-models"),
+        PFC_WATCH_TICK_SECONDS="1",
+        PFC_WATCH_SETTLE_SECONDS="1",
     )
     embedding_model(Settings())
     port = int(os.environ.get("PFC_PORT", "8799"))

@@ -19,13 +19,20 @@ class WatchFolderSource:
         settle_seconds: float = 10,
         clock: Callable[[], float] = time.monotonic,
         stat_file: Callable[[Path], os.stat_result] = lambda p: p.lstat(),
-        read_file: Callable[[Path], bytes] = lambda p: p.read_bytes(),
+        read_file: Callable[[Path], bytes] | None = None,
+        max_bytes: int = 20 * 1024 * 1024,
     ) -> None:
         self.path, self.pattern = path, pattern
         self.settle_seconds, self.clock = settle_seconds, clock
-        self.stat_file, self.read_file = stat_file, read_file
+        self.stat_file = stat_file
+        self.max_bytes = max_bytes
+        self.read_file = read_file or self._read
         self.observed: dict[str, tuple[int, int, float]] = {}
         self.pending: dict[str, str] = {}
+
+    def _read(self, path: Path) -> bytes:
+        with path.open("rb") as handle:
+            return handle.read(self.max_bytes + 1)
 
     def scan(self, now: float | None = None) -> list[tuple[str, bytes]]:
         now = self.clock() if now is None else now
@@ -66,7 +73,9 @@ class WatchFolderSource:
                     continue
                 data = self.read_file(path)
                 after = self.stat_file(path)
-                if (after.st_size, after.st_mtime_ns) != signature or len(data) != after.st_size:
+                if (after.st_size, after.st_mtime_ns) != signature or len(data) != min(
+                    after.st_size, self.max_bytes + 1
+                ):
                     self.observed[name] = (after.st_size, after.st_mtime_ns, now)
                     pending[name] = "settling"
                     continue

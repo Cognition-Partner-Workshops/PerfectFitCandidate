@@ -99,3 +99,29 @@ def test_unreadable_and_partial_read_retry(tmp_path: Path) -> None:
 def test_poll_minutes_validation(minutes: int) -> None:
     with pytest.raises(ValidationError):
         WatchSource(poll_minutes=minutes)
+
+
+def test_oversized_read_is_bounded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    file = tmp_path / "DL.xlsx"
+    file.write_bytes(b"x" * 100)
+    original = Path.open
+    reads = []
+
+    class BoundedReader:
+        def __enter__(self):
+            self.handle = original(file, "rb")
+            return self
+
+        def read(self, size):
+            reads.append(size)
+            return self.handle.read(size)
+
+        def __exit__(self, *args):
+            self.handle.close()
+
+    monkeypatch.setattr(Path, "open", lambda *args: BoundedReader())
+    source = WatchFolderSource(tmp_path, "*.xlsx", max_bytes=10)
+    assert source.scan(0) == []
+    assert source.scan(10) == [(file.name, b"x" * 11)]
+    assert reads == [11]
+    assert source.pending == {}
