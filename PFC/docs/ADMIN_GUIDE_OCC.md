@@ -148,6 +148,33 @@ The list of local models with purpose, licence, RAM / disk, **Approved** and **D
 
 **Pending:** **Make default** currently sets the signed-in Admin's own active model, not a global default; a global-default backend route is pending.
 
+### Verify local Chat (REQ-LLM-02, P2-EX-05)
+
+Use a disposable portable installation with synthetic records. In **Settings → LLM
+provider**, select an approved local model and wait for **Local model ready** in
+**Chat**. Disconnect external networking and leave the bundled llama.cpp server
+running. Use an Analyst sign-in for the following checks.
+
+1. Import a DL with two open requisitions in BU `INS` starting this month. Confirm
+   JD requirements containing SQL on both requisitions and Python on just one.
+   **How many open demands are there?** should return 2 and link both requisitions.
+   **Top 5 skills in demand for INS this month** should show SQL (2) and Python (1).
+2. Import one eligible active CT resource with Databricks at C1. Enable the C1
+   and C2 grade mappings in the test install. **Who on the bench has Databricks
+   and is C1–C2?** should return one masked resource ID with CT evidence. Ask
+   about a skill absent from CT and the latest CVs and expect a no-data answer.
+3. Complete a match run for one requisition. Use an actual rank and requisition
+   from that run in **Why is the candidate ranked #2 for T10001?**. Compare the
+   source row's run, rank, score, band and component points with **Match Results**.
+4. Ask **Who should we hire?** and expect a prompt to ask about supported data.
+   Confirm that the Chat question appears as a task and opens the saved answer.
+5. Stop the local server and choose **Check again**. Chat should report the model
+   unavailable and saved answers should remain readable. Restore the model and
+   use **Check again** to resume submitting questions.
+
+The offline automated reference tests use a stub model and fixed synthetic data.
+The manual steps exercise intent recognition with the bundled model.
+
 ## 12. Signing key
 
 Settings packages are signed with an Ed25519 key. There is no separate key screen: the first export creates the signing key, protected by the passphrase you enter, and later exports need the same passphrase. The passphrase is never stored or logged by the SPA; keep it safe.
@@ -168,6 +195,11 @@ Settings packages are signed with an Ed25519 key. There is no separate key scree
 **OCC → Audit log**
 
 The append-only log of sign-ins, OCC changes, uploads, overrides, approvals and sends, with timestamp, user, role, action, entity and summary. Filter by **From** / **To** date, **User**, **Action** and **Entity** (**Clear** resets) and **Export CSV (N)** downloads the filtered rows, with formula-character protection.
+
+Filter by entity `chat` for `CHAT_QUESTION`, `CHAT_ANSWER` and
+`CHAT_CANCEL_REQUESTED`. The audit stores hashes for the question and answer,
+plus the answer outcome and source IDs. The masked conversation is held in the
+local database (migration 0017) and is accessible in Chat to its author.
 
 ## 15. Admin settings
 

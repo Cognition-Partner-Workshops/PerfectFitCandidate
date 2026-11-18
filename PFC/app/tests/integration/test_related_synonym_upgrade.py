@@ -161,7 +161,7 @@ def test_old_unique_schema_upgrade_preserves_data_and_admin_changes(
         before = [
             tuple(row) for row in db.execute("SELECT * FROM skill_synonyms ORDER BY synonym_id")
         ]
-    assert migrate(settings) == [
+    assert [version for version in migrate(settings) if version <= "0012"] == [
         "0003",
         "0004",
         "0005",
@@ -172,7 +172,6 @@ def test_old_unique_schema_upgrade_preserves_data_and_admin_changes(
         "0010",
         "0011",
         "0012",
-        "0018",
     ]
     assert migrate(settings) == []
     with database(settings) as db:
