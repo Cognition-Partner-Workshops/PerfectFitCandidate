@@ -133,6 +133,20 @@ it('searches archived resources with masked Show conventions and empty search re
   await waitFor(() => expect(search).toHaveBeenLastCalledWith('resources', expect.objectContaining({ q: 'Morgan', page: 1 })))
 })
 
+it('opens the archived resource itself even when it shares a candidate with an active record', async () => {
+  vi.spyOn(api.maintenance, 'search').mockResolvedValue({ items: [{ resource_id: 2, candidate_id: 9, short_name: 'Historical resource', archived_at: '2026-11-18', end_outcome: 'released' }], total: 1, page: 1, page_size: 25 })
+  const load = vi.spyOn(api.maintenance, 'detail').mockResolvedValue({ ...detail, short_name: 'Historical resource', lifecycle: 'archived', lifecycle_events: [{ ...detail.lifecycle_events[0], to_state: 'archived', comment: 'History of resource 2' }] })
+  show(<ArchivePage />)
+  fireEvent.click(screen.getByRole('tab', { name: 'Resources' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Read-only detail' }))
+  const dialog = screen.getByRole('dialog', { name: 'Archived record — read-only' })
+  expect(await within(dialog).findByText('Historical resource')).toBeTruthy()
+  expect(load).toHaveBeenCalledWith('resource', 2)
+  expect(within(dialog).getByText('History of resource 2')).toBeTruthy()
+  expect(within(dialog).queryByRole('button', { name: 'End of cycle…' })).toBeNull()
+  expect(within(dialog).queryByRole('button', { name: 'Reopen' })).toBeNull()
+})
+
 it('surfaces archive search errors', async () => {
   vi.spyOn(api.maintenance, 'search').mockRejectedValue(new Error('Service unavailable'))
   show(<ArchivePage />)

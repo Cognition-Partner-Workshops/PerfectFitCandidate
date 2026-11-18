@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import type { Collection, Entity } from '../api/maintenance'
@@ -45,7 +44,7 @@ export function ArchivePage() {
           <td>{row.code_requisition ?? row.short_name}</td>
           <td>{collection === 'demands' ? <>{row.account_name}<div className="small muted">{row.demand_request_name}</div></> : <MaskedValue key={row.resource_id} masked={row.email_address ?? null} entity="resource" id={row.resource_id!} />}</td>
           <td>{row.code_local_grade ?? row.grade ?? '—'}</td><td>{row.region ?? row.location ?? '—'}</td><td>{formatDate(row.archived_at)}</td>
-          <td>{row.candidate_id ? <Link className="btn btn-sm" to={`/candidates/${row.candidate_id}`}>Read-only detail</Link> : <button className="btn btn-sm" onClick={() => setOpen({ entity: collection === 'demands' ? 'demand' : 'resource', id: (row.demand_id ?? row.resource_id)! })}>Read-only detail</button>}</td>
+          <td><button className="btn btn-sm" onClick={() => setOpen({ entity: collection === 'demands' ? 'demand' : 'resource', id: (row.demand_id ?? row.resource_id)! })}>Read-only detail</button></td>
         </tr>)}
       </tbody></table></div>
       {search.data.total === 0 && <p className="card muted">No archived records match your search.</p>}
