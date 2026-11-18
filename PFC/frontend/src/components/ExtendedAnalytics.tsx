@@ -39,8 +39,9 @@ function cards(d: ExtendedAnalytics, top5: boolean): Card[] {
   const matrix = (id: number, title: string, section: Section, rows: MatrixCell[]): Card => ({ id, title, section, columns: ['Row', 'Column', 'Count'], rows: rows.map((r) => [r.row, r.column, r.count]), option: heatmap(rows) })
   const bins = d.scoreHistogram.bins
   const histogram = bars(bins.map((b) => `${b.lower}–${b.upper}`), bins.map((b) => top5 ? b.top5 : b.allPairs))
-  histogram.xAxis = { type: 'value', min: 0, max: 100, name: 'Match %', nameLocation: 'middle', nameGap: 30 }
-  histogram.series = [{ type: 'bar', barWidth: '90%', data: bins.map((b) => [(b.lower + b.upper) / 2, top5 ? b.top5 : b.allPairs]), markLine: { symbol: 'none', data: d.scoreHistogram.thresholds.map((xAxis) => ({ xAxis, name: `${xAxis} %`, label: { formatter: `${xAxis} %` } })) } }]
+  histogram.xAxis = [{ type: 'category', data: bins.map((b) => `${b.lower}–${b.upper}`), name: 'Match %', nameLocation: 'middle', nameGap: 30, axisLabel: { rotate: 25 } }, { type: 'value', min: bins[0]?.lower ?? 0, max: bins.at(-1)?.upper ?? 100, show: false }]
+  histogram.yAxis = { type: 'value', name: 'Pairs', minInterval: 1 }
+  histogram.series = [{ type: 'bar', barWidth: '90%', data: bins.map((b) => top5 ? b.top5 : b.allPairs) }, { type: 'line', xAxisIndex: 1, data: [], silent: true, markLine: { symbol: 'none', data: d.scoreHistogram.thresholds.map((xAxis) => ({ xAxis, name: `${xAxis} %`, label: { formatter: `${xAxis} %` } })) } }]
   const groups = [...new Set(d.readinessStatus.map((r) => r.row))]
   const statuses = [...new Set(d.readinessStatus.map((r) => r.column))]
   const accuracy = d.accuracy.filter((r) => r.hitRateAt5 !== null || r.precisionAt5 !== null)

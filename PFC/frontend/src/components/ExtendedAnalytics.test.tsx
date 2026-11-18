@@ -45,12 +45,19 @@ describe('extended dashboard cards', () => {
   })
 
   it('switches the histogram population and retains threshold mark lines', () => {
-    render(<ExtendedAnalyticsSection section="match" data={fixture()} pending={false} error={null} onRetry={vi.fn()} />)
+    const data = fixture()
+    data.scoreHistogram.bins = Array.from({ length: 20 }, (_, index) => ({ lower: index * 5, upper: (index + 1) * 5, allPairs: index === 18 ? 12 : 0, top5: index === 18 ? 5 : 0 }))
+    render(<ExtendedAnalyticsSection section="match" data={data} pending={false} error={null} onRetry={vi.fn()} />)
     const histogram = () => chart.mock.calls.map(([props]) => props).filter((p) => p.ariaLabel.startsWith('DB-16')).at(-1)!.option
-    expect(histogram().series[0].data).toEqual([[92.5, 12]])
+    expect(histogram().xAxis[0].type).toBe('category')
+    expect(histogram().xAxis[0].data).toEqual(data.scoreHistogram.bins.map((bin) => `${bin.lower}–${bin.upper}`))
+    expect(histogram().yAxis.type).toBe('value')
+    expect(histogram().series[0].data).toEqual(data.scoreHistogram.bins.map((bin) => bin.allPairs))
     fireEvent.change(screen.getByLabelText('Histogram population'), { target: { value: 'top5' } })
-    expect(histogram().series[0].data).toEqual([[92.5, 5]])
-    expect(histogram().series[0].markLine.data.map((r: { xAxis: number }) => r.xAxis)).toEqual([61, 70, 90])
+    expect(histogram().series[0].data).toEqual(data.scoreHistogram.bins.map((bin) => bin.top5))
+    expect(histogram().xAxis[1]).toEqual({ type: 'value', min: 0, max: 100, show: false })
+    expect(histogram().series[1].xAxisIndex).toBe(1)
+    expect(histogram().series[1].markLine.data.map((r: { xAxis: number }) => r.xAxis)).toEqual([61, 70, 90])
   })
 
   it('handles empty data and absent confirmation without inventing accuracy', () => {
