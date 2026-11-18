@@ -343,7 +343,9 @@ class EmailService:
                 details={"due_at": due, "transport": transport, "status": status},
             )
 
-    def queue_follow_ups(self, user_id: int, message_ids: list[int] | None = None) -> None:
+    def queue_follow_ups(
+        self, user_id: int | None = None, message_ids: list[int] | None = None
+    ) -> None:
         if self.runner is None or not callable(getattr(self.transport, "create_follow_up", None)):
             return
         with database(self.settings) as db:
@@ -394,7 +396,7 @@ class EmailService:
                     audit.append_audit(
                         db,
                         ts=now,
-                        user_id=user_id,
+                        user_id=user_id if user_id is not None else row["created_by"],
                         action="EMAIL_FOLLOW_UP_FAILED" if error else "EMAIL_FOLLOW_UP_CREATED",
                         entity_type="email_message",
                         entity_id=str(message_id),

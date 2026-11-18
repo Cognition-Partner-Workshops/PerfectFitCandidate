@@ -31,6 +31,7 @@ from pfc.db import audit, users
 from pfc.db.connection import database
 from pfc.db.migrate import migrate
 from pfc.jobs.runner import JobRunner
+from pfc.main import create_app
 from pfc.security.middleware import install_middleware
 from pfc.security.passwords import hasher
 from pfc.security.problems import Problem, install_handlers
@@ -129,6 +130,52 @@ def test_follow_up_schedule_job_retry_resend(client: TestClient, enabled: bool) 
             "SELECT outlook_ref,job_id FROM follow_ups WHERE message_id=?", (message_id,)
         ).fetchone()
         assert row["outlook_ref"] and row["job_id"]
+
+
+@pytest.mark.parametrize("status", ["pending", "failed", "created", "absent"])
+@pytest.mark.parametrize("com", [True, False])
+def test_startup_recovers_only_pending_com_reminders(
+    client: TestClient, status: str, com: bool
+) -> None:
+    csrf, draft = create_approved_draft(client)
+    message_id = draft["message_id"]
+    client.post(f"/api/v1/emails/{message_id}/send", headers={"X-CSRF-Token": csrf})
+    settings = client.app.state.settings
+    settings.llm_enabled = False
+    with database(settings) as db:
+        if status == "absent":
+            db.execute("DELETE FROM follow_ups")
+        else:
+            db.execute("UPDATE follow_ups SET status=?", (status,))
+    app = create_app(settings)
+    transport = FakeTransport() if com else EmlHandoffTransport()
+    app.state.email_transport = transport
+    app.state.volume_probe = None
+    with TestClient(app):
+        for future, _ in list(app.state.job_runner._tasks.values()):
+            future.result(timeout=10)
+        with database(settings) as db:
+            row = db.execute("SELECT status FROM follow_ups").fetchone()
+        assert (row[0] if row else "absent") == (
+            "created" if com and status == "pending" else status
+        )
+
+
+def test_startup_reminder_recovery_failure_is_safe(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def fail(self: EmailService, user_id: int | None = None) -> None:
+        raise RuntimeError("private-recovery-payload")
+
+    monkeypatch.setattr(EmailService, "queue_follow_ups", fail)
+    settings = client.app.state.settings
+    settings.llm_enabled = False
+    app = create_app(settings)
+    app.state.volume_probe = None
+    with TestClient(app) as restarted:
+        assert restarted.get("/api/v1/setup/status").status_code == 200
+    assert "Pending email reminder recovery failed; startup continues" in caplog.text
+    assert "private-recovery-payload" not in caplog.text
 
 
 @pytest.mark.parametrize("status", ["pending", "failed", "created"])

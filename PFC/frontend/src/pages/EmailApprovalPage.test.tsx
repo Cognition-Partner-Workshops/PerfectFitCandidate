@@ -49,8 +49,8 @@ describe('EmailApprovalPage transport handoff', () => {
     expect(screen.getByText(/^Follow-up /)).toBeTruthy()
   })
 
-  it('retries failed reminders', async () => {
-    const email = { ...draft(), followUp: { status: 'failed' as const, dueAt: '2026-11-23T09:00:00Z', transport: 'outlook_com', lastError: 'Check Outlook' } }
+  it.each(['failed', 'pending'] as const)('retries %s reminders', async (status) => {
+    const email = { ...draft(), followUp: { status, dueAt: '2026-11-23T09:00:00Z', transport: 'outlook_com', lastError: 'Check Outlook' } }
     const retry = vi.spyOn(mock, 'retryEmailFollowUp').mockResolvedValue(email)
     renderPage(email, { transport: 'Outlook COM', outlookDetected: true })
     await userEvent.click(await screen.findByRole('tab', { name: 'Approved (1)' }))

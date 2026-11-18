@@ -187,7 +187,7 @@ export function EmailApprovalPage() {
                             <Chip tone={e.followUp.status === 'failed' ? 'danger' : e.followUp.status === 'created' ? 'success' : 'info'}>
                               {e.followUp.status === 'created' ? 'Reminder in Outlook' : e.followUp.status === 'pending' ? 'Creating reminder…' : e.followUp.status === 'failed' ? 'Reminder failed' : 'Calendar reminder'}
                             </Chip>
-                            {e.followUp.status === 'failed' && <>
+                            {(e.followUp.status === 'failed' || e.followUp.status === 'pending') && <>
                               <span>{e.followUp.lastError}</span>
                               <button className="btn" disabled={retryReminder.isPending} onClick={(event) => { event.stopPropagation(); retryReminder.mutate(e.emailId) }}>Retry reminder</button>
                             </>}

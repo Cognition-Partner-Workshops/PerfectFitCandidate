@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -15,6 +15,7 @@ from pfc.api.routers.auth import router as auth_router
 from pfc.api.routers.candidates import router as candidates_router
 from pfc.api.routers.cv import router as cv_router
 from pfc.api.routers.demands import router as demands_router
+from pfc.api.routers.email import get_email_service
 from pfc.api.routers.email import router as email_router
 from pfc.api.routers.health import router as health_router
 from pfc.api.routers.ingestion import router as ingestion_router
@@ -84,6 +85,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception:
             logger.error("Package inbox scan failed; startup continues")
         app.state.job_runner = JobRunner(settings)
+        try:
+            get_email_service(Request({"type": "http", "app": app})).queue_follow_ups()
+        except Exception:
+            logger.error("Pending email reminder recovery failed; startup continues")
         supervisor = LlamaServerSupervisor(
             settings, app_state=app.state if not hasattr(app.state, "llm_provider") else None
         )
