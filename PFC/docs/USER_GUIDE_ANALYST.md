@@ -2,6 +2,8 @@
 
 This guide covers the Phase 1 screens as built in `PFC/frontend` against the `/api/v1` backend. Anything not yet available is marked **Pending** with the reason. Scores are relative matching metrics for human review, not hiring decisions.
 
+It also covers the shipped end-of-cycle, lifecycle history and Archive workflows.
+
 Use the Summary card on Candidate Profile or in the JD review drawer to generate or regenerate a local, masked reading aid, expand each sentence’s evidence and regenerate after a source change; it is not used in scoring and must be checked against the source.
 
 Summaries fully redact emails and phones; other screens use the REQ-OUT-03 mask.
@@ -38,6 +40,7 @@ for everyone on the next scoring run; historical results remain unchanged.
 13. [Your settings](#13-your-settings)
 14. [Pending in this build](#14-pending-in-this-build)
 15. [Chat with PFC data](#15-chat-with-pfc-data)
+16. [End of cycle, reopen and Archive](#16-end-of-cycle-reopen-and-archive)
 
 ## 1. Daily flow
 
@@ -265,3 +268,53 @@ resource IDs and keep personal information out of your questions. Questions and
 answers are recorded locally. If PFC has no matching data, the answer says so.
 Use **Check again** after restoring the local model in **Settings**. Chat is
 read-only. Use the usual matching and approval screens for staffing and outreach.
+
+## 16. End of cycle, reopen and Archive
+
+### End a demand or resource
+
+Analysts and Admins can explicitly end a record's cycle. In **Demand List** or
+**Bench List**, choose the row's compact **⋯ (Lifecycle)** control, then
+**End of cycle…**. Candidate Profile also offers **End of cycle…** directly.
+
+Choose an outcome (Filled, Cancelled or Closed for a demand; Off bench or Released
+for a resource), then an allowed reason. Add a comment; a nonblank comment is
+required for **Other**. Contact details in comments are redacted before storage.
+Confirm **End cycle**. The record leaves the active list but its history is retained.
+Later uploads do not silently reopen manually ended records.
+
+### Reopen and check history
+
+Expand **Ended demands** or **Ended resources** below the corresponding active
+list; use the pagination controls if needed. A manually ended record has
+**Reopen**. Choose a reason and confirm to return it to the active list. Candidate
+Profile also offers Reopen for a manually ended resource. Archived records cannot
+be reopened through this control.
+
+Choose **Lifecycle history** from the Lifecycle control or Candidate Profile to
+see dated transitions, source, outcome, reason and retained comments. If a record
+changed while a dialog was open, reload it and review its current history before
+retrying; do not submit an old action blindly.
+
+### Search the Archive
+
+**Archive** in the main navigation is available to Analysts and Admins. Switch
+between **Demands** and **Resources**, search by requisition/account/role or
+resource short name, and filter by grade, account/group and location. Use
+**Previous** / **Next** to page through results. **Read-only detail** opens the
+retained record and its lifecycle history. Archived Candidate Profile displays
+**Archived on DD MMM YYYY** and disables editing.
+
+Contact details stay masked by default. Use the usual **Show** control for an
+audited single-field reveal, subject to the Admin's unmask policy. **Export CSV**
+downloads the filtered archived collection (not just the current page); CSV stays
+masked even if a field was revealed on screen.
+
+### Pending emails after end or archive
+
+Drafts and approved emails linked to an ended demand/resource or an archived
+record cannot be approved or sent. PFC reports that the entity is inactive. The
+same block applies to Outlook/EML handoff and later EML downloads. Existing files
+already exported from PFC cannot be recalled; check and remove any obsolete
+outreach outside PFC. Ask an Admin about archival or retention purge; neither is
+an Analyst action.

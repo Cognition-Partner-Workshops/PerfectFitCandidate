@@ -37,6 +37,59 @@ def execute(settings, batch):
     return archival.execute_batch(settings, batch["batch_id"], 1, NOW)
 
 
+@pytest.mark.parametrize(
+    "entity,outcome,source,reason",
+    [
+        ("demand", "filled", "manual", "filled_manual"),
+        ("demand", "cancelled", "manual", "cancelled_manual"),
+        ("demand", "closed", "manual", "closed_manual"),
+        ("demand", "not_in_latest_dl", "upload", "not_in_latest_dl"),
+        ("resource", "not_in_latest_ct", "upload", "not_in_latest_ct"),
+        ("resource", "off_bench", "manual", "off_bench_manual"),
+        ("resource", "released", "manual", "released_manual"),
+        ("demand", "reverted", "occ", "closed_occ"),
+        ("demand", None, None, "closed_legacy"),
+        ("resource", None, None, "off_bench_legacy"),
+    ],
+)
+def test_preview_preserves_end_reason(client, entity, outcome, source, reason):
+    settings = client.app.state.settings
+    with database(settings) as db:
+        entity_id = (
+            seed_demand(db, "T19001", confirmed=False) if entity == "demand" else seed_resource(db)
+        )
+        record_transition(
+            db,
+            entity,
+            entity_id,
+            "open" if entity == "demand" else "active",
+            "closed" if entity == "demand" else "off_bench",
+            "manual",
+            now=NOW.isoformat(),
+            metadata={"end_outcome": outcome, "end_source": source, "ended_at": NOW.isoformat()},
+        )
+        batch = archival.preview(db, kind="archive", user_id=1, now=NOW)
+    assert len(batch["items"]) == 1
+    assert batch["items"][0]["reason"] == reason
+
+
+@pytest.mark.parametrize(
+    "kwargs,reason",
+    [
+        ({"status": "Selected"}, "selected"),
+        ({"group": "Not on Bench"}, "not_on_bench"),
+        ({"end": "2026-10-31", "end_status": "valid"}, "bench_end_set"),
+    ],
+)
+def test_preview_preserves_resource_eligibility_reason(client, kwargs, reason):
+    settings = client.app.state.settings
+    with database(settings) as db:
+        seed_resource(db, **kwargs)
+        batch = archival.preview(db, kind="archive", user_id=1, now=NOW)
+    assert len(batch["items"]) == 1
+    assert batch["items"][0]["reason"] == reason
+
+
 def test_exact_selection_and_masked_search(client):
     settings = seed(client)
     response = client.post("/api/v1/occ/archive/preview", json={})

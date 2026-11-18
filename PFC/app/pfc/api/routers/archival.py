@@ -167,6 +167,7 @@ def housekeeping_run(body: Housekeeping, request: Request, admin: Admin) -> dict
             admin.user.user_id,
             request.app.state.clock(),
         )
+
         def persist(db: sqlite3.Connection) -> None:
             db.execute(
                 "UPDATE jobs SET message=? WHERE job_id=?", (json.dumps(counts), context.job_id)

@@ -124,7 +124,19 @@ def preview(
                     ):
                         reason = "retention_expired"
                 elif row["lifecycle"] == ("closed" if entity == "demand" else "off_bench"):
-                    reason = "ended"
+                    outcome, source = row["end_outcome"], row["end_source"]
+                    if outcome in {"not_in_latest_dl", "not_in_latest_ct"}:
+                        reason = outcome
+                    elif source == "manual" and outcome in {
+                        "filled",
+                        "cancelled",
+                        "closed",
+                        "off_bench",
+                        "released",
+                    }:
+                        reason = f"{outcome}_manual"
+                    else:
+                        reason = f"{row['lifecycle']}_{source or 'legacy'}"
                 elif entity == "resource" and row["lifecycle"] == "active":
                     reasons = resource_reasons.get(row["resource_id"], set())
                     status = config.bench_statuses.resolve(row["bench_status"] or "")
@@ -291,6 +303,7 @@ def submit(
 
     def run(context: JobContext) -> None:
         counts = execute_batch(settings, batch_id, user_id, now)
+
         def persist(db: sqlite3.Connection) -> None:
             db.execute(
                 "UPDATE jobs SET message=? WHERE job_id=?", (json.dumps(counts), context.job_id)

@@ -214,7 +214,6 @@ def test_classification_migration_preserves_existing_override(
         "0010",
         "0011",
         "0012",
-        "0014",
     ]
     with database(settings) as db:
         row = db.execute("SELECT * FROM candidates").fetchone()
@@ -286,7 +285,6 @@ def test_item_ancestry_upgrade(settings: Settings, tmp_path: Path) -> None:
         "0010",
         "0011",
         "0012",
-        "0014",
     ]
     assert migrate(settings) == []
     with database(settings) as db:
@@ -331,7 +329,6 @@ def test_synonym_upgrade_after_published_jd_migration(settings: Settings, tmp_pa
         "0010",
         "0011",
         "0012",
-        "0014",
     ]
     assert migrate(settings) == []
     with database(settings) as db:

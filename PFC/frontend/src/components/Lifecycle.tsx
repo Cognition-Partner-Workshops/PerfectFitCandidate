@@ -4,7 +4,15 @@ import { api } from '../api'
 import type { Entity, LifecycleDetail } from '../api/maintenance'
 import { Banner, ErrorState, Modal, Spinner } from './ui'
 import { formatDate, formatDateTime } from '../lib/format'
-import { reasonLabel } from '../lib/lifecycle'
+import { countLabel, reasonLabel } from '../lib/lifecycle'
+
+export function LifecycleMenu({ entity, id }: { entity: Entity; id: number }) {
+  const [open, setOpen] = useState(false)
+  return <>
+    <button className="icon-btn" aria-label="Lifecycle" title="Lifecycle" aria-haspopup="dialog" onClick={() => setOpen(true)}>⋯</button>
+    {open && <Modal title="Lifecycle actions" onClose={() => setOpen(false)}><LifecycleControls entity={entity} id={id} /></Modal>}
+  </>
+}
 
 export function LifecycleHistory({ detail }: { detail: LifecycleDetail }) {
   return <section className="card stack" aria-label="Lifecycle history">
@@ -89,7 +97,7 @@ export function EndedRecords({ entity }: { entity: Entity }) {
       {ended.isLoading && <Spinner />}{ended.isError && <ErrorState error={ended.error} />}
       {ended.data?.items.length === 0 && <p>No ended records.</p>}
       {ended.data?.items.map((row) => <div className="row" key={row.demand_id ?? row.resource_id}><strong>{row.code_requisition ?? row.short_name}</strong><LifecycleControls entity={entity} id={(row.demand_id ?? row.resource_id)!} /></div>)}
-      {ended.data && <div className="row"><span>{ended.data.total} ended records · Page {page}</span><button className="btn" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous ended records</button><button className="btn" disabled={page * 25 >= ended.data.total} onClick={() => setPage(page + 1)}>Next ended records</button></div>}
+      {ended.data && <div className="row"><span>{countLabel(ended.data.total, 'ended record')} · Page {page}</span><button className="btn" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous ended records</button><button className="btn" disabled={page * 25 >= ended.data.total} onClick={() => setPage(page + 1)}>Next ended records</button></div>}
     </div>}
   </section>
 }

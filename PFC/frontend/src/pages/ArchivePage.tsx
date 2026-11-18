@@ -7,6 +7,7 @@ import { ErrorState, MaskedValue, Modal, Spinner } from '../components/ui'
 import { LifecycleControls } from '../components/Lifecycle'
 import { formatDate } from '../lib/format'
 import { downloadBlob } from '../lib/download'
+import { countLabel } from '../lib/lifecycle'
 
 function ArchivedDetail({ entity, id, onClose }: { entity: Entity; id: number; onClose: () => void }) {
   const detail = useQuery({ queryKey: ['lifecycle', entity, id], queryFn: () => api.maintenance.detail(entity, id) })
@@ -48,7 +49,7 @@ export function ArchivePage() {
         </tr>)}
       </tbody></table></div>
       {search.data.total === 0 && <p className="card muted">No archived records match your search.</p>}
-      <div className="row"><span>{search.data.total} records · Page {page}</span><button className="btn" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button><button className="btn" disabled={page * 25 >= search.data.total} onClick={() => setPage(page + 1)}>Next</button></div>
+      <div className="row"><span>{countLabel(search.data.total, 'record')} · Page {page}</span><button className="btn" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button><button className="btn" disabled={page * 25 >= search.data.total} onClick={() => setPage(page + 1)}>Next</button></div>
     </>}
     {open && <ArchivedDetail {...open} onClose={() => setOpen(null)} />}
   </div>

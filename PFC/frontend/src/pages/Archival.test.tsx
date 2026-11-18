@@ -5,14 +5,15 @@ import { MemoryRouter } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { api } from '../api'
 import type { ArchiveBatch, LifecycleDetail } from '../api/maintenance'
-import { EndedRecords, LifecycleControls, LifecycleDialog, LifecycleHistory } from '../components/Lifecycle'
+import { EndedRecords, LifecycleControls, LifecycleDialog, LifecycleHistory, LifecycleMenu } from '../components/Lifecycle'
+import { archiveReasonLabel, countLabel } from '../lib/lifecycle'
 import { ArchivePage } from './ArchivePage'
 import { OccArchival } from './occ/OccArchival'
 import { ADMIN, mock, renderApp, seed, signIn } from '../test/utils'
 
 const detail: LifecycleDetail = { lifecycle: 'open', updated_at: '2026-11-18', end_source: null, end_outcome: null, lifecycle_events: [{ event_id: 4, from_state: null, to_state: 'open', source: 'upload', outcome: null, reason_code: null, comment: null, created_at: '2026-11-18' }] }
 const batch: ArchiveBatch = { batch_id: 2, kind: 'archive', status: 'previewed', preview_hash: 'hash1', preview: { demand: 1, resource: 1 }, result: null, items: [
-  { entity_type: 'demand', entity_id: 1, label: 'T10001', reason: 'ended', included: 1, outcome: null },
+  { entity_type: 'demand', entity_id: 1, label: 'T10001', reason: 'filled_manual', included: 1, outcome: null },
   { entity_type: 'resource', entity_id: 2, label: 'Resource 2', reason: 'ended', included: 1, outcome: null },
 ] }
 const show = (node: ReactNode) => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}><MemoryRouter>{node}</MemoryRouter></QueryClientProvider>)
@@ -22,6 +23,33 @@ beforeEach(() => {
   vi.spyOn(api.maintenance, 'cleanupPreview').mockResolvedValue({ temp: { count: 2, bytes: 1024 }, logs: { count: 1, bytes: 1024 }, orphan_chunks: 0, orphan_vectors: 1, db_bytes: 1024, backups: [] })
 })
 afterEach(() => vi.restoreAllMocks())
+
+it.each([
+  ['filled_manual', 'Filled — manual'], ['cancelled_manual', 'Cancelled — manual'],
+  ['not_in_latest_dl', 'Not in latest DL'], ['not_in_latest_ct', 'Off bench — not in latest CT'],
+  ['selected', 'Selected'], ['not_on_bench', 'Not on Bench'], ['bench_end_set', 'Bench end date set'],
+  ['closed_legacy', 'Closed — legacy record'], ['retention_expired', 'Retention expired'],
+])('renders archive reason %s accurately', (code, label) => {
+  expect(archiveReasonLabel(code)).toBe(label)
+})
+
+it.each([0, 1, 2])('pluralizes counts of %s consistently', (count) => {
+  for (const noun of ['record', 'demand', 'resource', 'day', 'calendar month', 'housekeeping backup']) {
+    expect(countLabel(count, noun)).toBe(`${count} ${noun}${count === 1 ? '' : 's'}`)
+  }
+})
+
+it('offers one compact row control and loads lifecycle actions on demand', async () => {
+  const load = vi.spyOn(api.maintenance, 'detail').mockResolvedValue(detail)
+  show(<LifecycleMenu entity="demand" id={1} />)
+  expect(screen.getAllByRole('button')).toHaveLength(1)
+  expect(load).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: 'Lifecycle' }))
+  const menu = screen.getByRole('dialog', { name: 'Lifecycle actions' })
+  expect(await within(menu).findByRole('button', { name: 'End of cycle…' })).toBeTruthy()
+  fireEvent.click(within(menu).getByRole('button', { name: 'Lifecycle history' }))
+  expect(within(menu).getByRole('region', { name: 'Lifecycle history' })).toBeTruthy()
+})
 
 it('requires other comment and submits lifecycle concurrency tokens', async () => {
   const change = vi.spyOn(api.maintenance, 'change').mockResolvedValue({})
@@ -119,11 +147,12 @@ it('updates inclusion hash, confirms exact archive counts, and submits selected 
   vi.spyOn(api.maintenance, 'batch').mockResolvedValue({ ...updated, status: 'completed', result: { demand: 1, resource: 0 } })
   show(<OccArchival />)
   fireEvent.click(screen.getByRole('button', { name: 'Build archive preview' }))
+  expect(await screen.findByText('Filled — manual')).toBeTruthy()
   fireEvent.click(await screen.findByRole('tab', { name: 'Resources (1)' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Include Resource 2' }))
   expect((screen.getByRole('checkbox', { name: 'Include Resource 2' }) as HTMLInputElement).checked).toBe(false)
-  fireEvent.click(await screen.findByRole('button', { name: 'Archive 1 records' }))
-  expect(screen.getByText('Archive exactly 1 demands and 0 resources from this preview?')).toBeTruthy()
+  fireEvent.click(await screen.findByRole('button', { name: 'Archive 1 record' }))
+  expect(screen.getByText('Archive exactly 1 demand and 0 resources from this preview?')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Confirm archive' }))
   await waitFor(() => expect(run).toHaveBeenCalledWith(updated))
   expect(await screen.findByText(/Archive completed/)).toBeTruthy()
