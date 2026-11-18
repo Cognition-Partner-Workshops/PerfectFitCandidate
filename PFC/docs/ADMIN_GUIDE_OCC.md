@@ -138,6 +138,8 @@ Original CV files, candidate identities and past match runs are kept. Candidate 
 
 In **Candidate Profile → Overview → Classification**, review the effective and live computed classifications, override reason, setter's user ID and time. Select Internal, External or Unknown and provide a non-blank reason to **Set override**. **Clear override** also requires a reason and immediately returns to automatic classification. Email addresses in the displayed reason are redacted. Analysts can read this information but cannot change it. Domain classification is a heuristic, not proof of employment.
 
+**CV version comparison (Phase 2, REQ-IN-24).** Analysts and Admins can compare two CV versions of one candidate from the Candidate Profile. Viewing a comparison is read-only and is not audited. **Score both versions** queues a `cv_compare` job (task pop-up label *CV comparison scoring CV-x vs CV-y*) and writes one `cv.compare_score` audit entry. The job stores its masked what-if result in the `cv_comparisons` table (migration **0018_cv_comparisons.sql**) and never changes `match_results`, `match_cv_scores` or `score_breakdowns`. Comparison rows are deleted with their CV versions or candidate. Clearing cached CV text hides that version's facts and text in comparisons and blocks scoring it.
+
 ## 11. Approved models
 
 **OCC → Approved models**

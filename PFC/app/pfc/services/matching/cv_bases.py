@@ -74,65 +74,78 @@ def load_cv_bases(
             for resource in load_resources(db, selected)
             if resource.candidate_id
         )
-    canonical_ids = {
-        normalise_term(row["name"]): row["skill_id"]
-        for row in db.execute("SELECT skill_id,name FROM skills WHERE is_active=1")
-    }
+    canonical_ids = canonical_skill_ids(db)
     for version in versions:
         candidate = f"candidate:{version['candidate_id']}"
         if candidate not in included_candidates:
             continue
-        resource_lifecycle = "lifecycle='active'"
-        resource_params: tuple[int, ...] = ()
-        if selected:
-            placeholders = ",".join("?" for _ in selected)
-            resource_lifecycle = f"(lifecycle='active' OR resource_id IN ({placeholders}))"
-            resource_params = tuple(selected)
-        skills = db.execute(
-            "SELECT rs.*,s.name AS canonical FROM resource_skills rs "
-            "LEFT JOIN skills s ON s.skill_id=rs.canonical_skill_id "
-            "WHERE rs.cv_version_id=? AND rs.source='CV' AND rs.resource_id IN "
-            f"(SELECT resource_id FROM resources WHERE candidate_id=? AND {resource_lifecycle}) "
-            "ORDER BY rs.resource_skill_id",
-            (version["cv_version_id"], version["candidate_id"], *resource_params),
-        ).fetchall()
-        evidence = tuple(
-            dict.fromkeys(
-                SkillEvidence(
-                    item["skill_raw"],
-                    normalise_term(item["skill_norm"]),
-                    config.synonyms.resolve(item["skill_raw"]),
-                    item["evidence"] or item["skill_raw"],
-                    canonical_ids.get(
-                        normalise_term(config.synonyms.resolve(item["skill_raw"]) or "")
-                    ),
-                    "CV Skills",
-                )
-                for item in skills
-            )
-        )
-        recorded = {normalise_term(item.canonical or item.normalised) for item in evidence}
-        evidence += tuple(
-            SkillEvidence(
-                raw,
-                normalise_term(raw),
-                canonical,
-                f"found in CV text: '{line}'",
-                canonical_ids.get(normalise_term(canonical)),
-                "CV text",
-            )
-            for raw, canonical, line in skill_hits(
-                mask_evidence(version["text_norm"] or ""), config.synonyms
-            )
-            if normalise_term(canonical) not in recorded
-        )
         cv_bases.setdefault(candidate, []).append(
-            SkillBasis(
-                f"CV:{version['cv_version_id']}",
-                f"CV v{version['version_no']}",
-                evidence,
-                bool(version["is_latest"]),
-                version["text_norm"] or "",
-            )
+            version_basis(db, config, version, canonical_ids, selected)
         )
     return cv_bases
+
+
+def canonical_skill_ids(db: sqlite3.Connection) -> dict[str, int]:
+    return {
+        normalise_term(row["name"]): row["skill_id"]
+        for row in db.execute("SELECT skill_id,name FROM skills WHERE is_active=1")
+    }
+
+
+def version_basis(
+    db: sqlite3.Connection,
+    config: DomainConfig,
+    version: sqlite3.Row,
+    canonical_ids: dict[str, int],
+    selected: list[int] | None = None,
+) -> SkillBasis:
+    """One CV version's skill basis, exactly as matching builds it (REQ-IN-24)."""
+    resource_lifecycle = "lifecycle='active'"
+    resource_params: tuple[int, ...] = ()
+    if selected:
+        placeholders = ",".join("?" for _ in selected)
+        resource_lifecycle = f"(lifecycle='active' OR resource_id IN ({placeholders}))"
+        resource_params = tuple(selected)
+    skills = db.execute(
+        "SELECT rs.*,s.name AS canonical FROM resource_skills rs "
+        "LEFT JOIN skills s ON s.skill_id=rs.canonical_skill_id "
+        "WHERE rs.cv_version_id=? AND rs.source='CV' AND rs.resource_id IN "
+        f"(SELECT resource_id FROM resources WHERE candidate_id=? AND {resource_lifecycle}) "
+        "ORDER BY rs.resource_skill_id",
+        (version["cv_version_id"], version["candidate_id"], *resource_params),
+    ).fetchall()
+    evidence = tuple(
+        dict.fromkeys(
+            SkillEvidence(
+                item["skill_raw"],
+                normalise_term(item["skill_norm"]),
+                config.synonyms.resolve(item["skill_raw"]),
+                item["evidence"] or item["skill_raw"],
+                canonical_ids.get(normalise_term(config.synonyms.resolve(item["skill_raw"]) or "")),
+                "CV Skills",
+            )
+            for item in skills
+        )
+    )
+    recorded = {normalise_term(item.canonical or item.normalised) for item in evidence}
+    evidence += tuple(
+        SkillEvidence(
+            raw,
+            normalise_term(raw),
+            canonical,
+            f"found in CV text: '{line}'",
+            canonical_ids.get(normalise_term(canonical)),
+            "CV text",
+        )
+        for raw, canonical, line in skill_hits(
+            mask_evidence(version["text_norm"] or ""), config.synonyms
+        )
+        if normalise_term(canonical) not in recorded
+    )
+    return SkillBasis(
+        f"CV:{version['cv_version_id']}",
+        f"CV v{version['version_no']}",
+        evidence,
+        bool(version["is_latest"]),
+        version["text_norm"] or "",
+    )

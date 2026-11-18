@@ -6,7 +6,7 @@
  */
 import { ApiError, type ApiClient, type EmailList, type StatusMapData } from '../client'
 import { applyChanges } from '../crud'
-import type {
+import type { CvCompareScoring, CvComparison,
   BulkAnalysis,
   JobItem,
   DocumentSummary,
@@ -113,6 +113,7 @@ interface MockState {
   summaries?: Record<string, DocumentSummary>
   classificationOverrides?: Record<number, CandidateClassification>
   removedExtractions?: number[]
+  cvComparisons?: Record<string, string>
   /** Reasons data changed since the mock run finished. The mock never completes a new run, so they are only cleared on reset. */
   dataChanges?: string[]
   users: MockUser[]
@@ -853,6 +854,106 @@ export class MockApiClient implements ApiClient {
     this.audit('Classification override updated', candidateId)
     this.save()
     return this.done(value)
+  }
+
+  private async comparePair(candidateId: number, left: number, right: number) {
+    const detail = await this.getCandidate(candidateId)
+    const find = (id: number) => detail.cvVersions.find((v) => v.cvVersionId === id)
+    const [a, b] = [find(left), find(right)]
+    if (left === right) fail(422, 'Choose two different CV versions', 'CV_COMPARE_SAME_VERSION')
+    if (!a || !b) fail(404, 'CV version not found for this candidate', 'CV_VERSION_NOT_FOUND')
+    return { detail, a, b }
+  }
+
+  async compareCvVersions(candidateId: number, left: number, right: number): Promise<CvComparison> {
+    const { detail, a, b } = await this.comparePair(candidateId, left, right)
+    const versionNo = (id: number) => detail.cvVersions.length - detail.cvVersions.findIndex((v) => v.cvVersionId === id)
+    const skills = detail.resource.skills
+    const has = (id: number, i: number) => versionNo(id) > 1 || i < Math.max(1, skills.length - 1)
+    const value = (text: string, evidence: string, source = 'CV Skills') => ({ value: text, evidence, source })
+    const removed = (id: number) => this.state.removedExtractions?.includes(id) ?? false
+    const meta = (v: typeof a, id: number) => ({ cvVersionId: id, versionNo: versionNo(id), fileName: v.fileName, modifiedAt: v.modifiedAt, extractedAt: v.extractedAt, isLatest: v.isBest, extractionRemoved: removed(id) })
+    const status = (l: boolean, r: boolean) => (l && r ? 'unchanged' : l ? 'removed' : 'added') as 'unchanged' | 'removed' | 'added'
+    const text = (id: number) => removed(id) ? [] : [
+      `${detail.resource.shortName} — CV v${versionNo(id)}`,
+      `Skills: ${skills.filter((_, i) => has(id, i)).join(', ')}`,
+      versionNo(id) > 1 ? '6 years delivery, 2019–2025' : '4 years delivery, 2019–2023',
+      'Contact ***@*** · Mobile ***89',
+    ]
+    const [lt, rt] = [text(left), text(right)]
+    const rows = Array.from({ length: Math.max(lt.length, rt.length) }, (_, i) => {
+      const [l, r] = [lt[i], rt[i]]
+      const op = l === r ? 'equal' : l === undefined ? 'added' : r === undefined ? 'removed' : 'changed'
+      return { op, left: l === undefined ? null : { no: i + 1, text: l }, right: r === undefined ? null : { no: i + 1, text: r } } as CvComparison['textDiff']['rows'][number]
+    })
+    const years = (id: number) => removed(id) ? null : versionNo(id) > 1 ? 6 : 4
+    const fact = (key: string, l: string | null, r: string | null, evidence: string) => ({
+      key, status: (l === r ? 'unchanged' : l === null ? 'added' : r === null ? 'removed' : 'changed') as CvComparison['facts']['summary'][number]['status'],
+      left: l === null ? null : value(l, evidence, 'rule'), right: r === null ? null : value(r, evidence, 'rule'),
+    })
+    const yl = years(left), yr = years(right)
+    return this.done({
+      candidateId,
+      left: meta(a, left),
+      right: meta(b, right),
+      facts: {
+        summary: [
+          fact('name', detail.resource.shortName, detail.resource.shortName, `Name: ${detail.resource.shortName}`),
+          fact('phone', '***89', '***89', 'Mobile ***89'),
+          fact('years_of_experience', yl === null ? null : `${yl} years`, yr === null ? null : `${yr} years`, 'Total experience read from dated CV text'),
+          fact('degree', 'Bachelor (technical)', 'Bachelor (technical)', 'B.Tech Computer Science'),
+        ],
+        yearsDelta: yl === null || yr === null ? null : yr - yl,
+        skills: skills.map((s, i) => {
+          const [l, r] = [!removed(left) && has(left, i), !removed(right) && has(right, i)]
+          return { key: s.toLowerCase(), label: s, status: status(l, r), left: l ? value(s, `Skills: ${s}`) : null, right: r ? value(s, `Skills: ${s}`) : null }
+        }).filter((row) => row.left || row.right),
+        experience: [], qualifications: [], projects: [],
+        factsExtracted: [!!a.facts, !!b.facts],
+      },
+      textDiff: { added: rows.filter((r) => r.op === 'added' || r.op === 'changed').length, removed: rows.filter((r) => r.op === 'removed' || r.op === 'changed').length, unchanged: rows.filter((r) => r.op === 'equal').length, rows, truncated: false },
+      storedScores: detail.matches.slice(0, 3).map((m, i) => ({
+        resultId: 900 + i, runId: 1, demandId: i + 1, codeRequisition: m.codeRequisition, role: m.demandRequestName, resourceId: candidateId, shortName: detail.resource.shortName,
+        score: m.score, band: m.band, bestCvVersionId: a.isBest ? left : b.isBest ? right : null,
+        left: a.isBest ? { score: m.score, band: m.band } : null, right: b.isBest ? { score: m.score, band: m.band } : null,
+      })),
+    })
+  }
+
+  async startCvComparison(candidateId: number, left: number, right: number) {
+    await this.comparePair(candidateId, left, right)
+    this.state.cvComparisons ??= {}
+    this.state.cvComparisons[`${candidateId}:${left}:${right}`] = iso()
+    this.audit(`CV comparison scoring CV-${left} vs CV-${right}`, candidateId)
+    this.save()
+    return this.done({ comparisonId: 1, jobId: 5 })
+  }
+
+  async getLatestCvComparison(candidateId: number, left: number, right: number): Promise<CvCompareScoring | null> {
+    const { detail } = await this.comparePair(candidateId, left, right)
+    const at = this.state.cvComparisons?.[`${candidateId}:${left}:${right}`]
+    if (!at) return this.done(null)
+    const compare = await this.compareCvVersions(candidateId, left, right)
+    const version = (id: number, bump: number) => ({
+      score: null as number | null, band: null as string | null, basis: `CT + CV v${detail.cvVersions.length - detail.cvVersions.findIndex((v) => v.cvVersionId === id)}`,
+      components: [{ component: 'skills', points: 30 + bump, maxPoints: 50 }, { component: 'grade', points: 20, maxPoints: 20 }, { component: 'location', points: 10, maxPoints: 10 }],
+      items: [], mandatoryMissing: bump ? 0 : 1, gaps: bump ? [] : ['Mandatory skill missing'], excluded: false, reasons: [],
+    })
+    return this.done({
+      comparisonId: 1, jobId: 5, status: 'completed', createdAt: at, finishedAt: at,
+      result: {
+        templateName: 'Default', templateVersion: 1, skippedDemandIds: [],
+        demands: compare.storedScores.map((s) => {
+          const [l, r] = [version(left, 0), version(right, 8)]
+          const total = (v: typeof l) => v.components.reduce((n, c) => n + c.points, 0)
+          return {
+            demandId: s.demandId, codeRequisition: s.codeRequisition, role: s.role, resourceId: s.resourceId, shortName: s.shortName, asOfDate: at.slice(0, 10),
+            storedScore: s.score, storedBand: s.band, storedBestCvVersionId: s.bestCvVersionId,
+            left: { ...l, score: total(l), band: 'Avg' }, right: { ...r, score: total(r), band: 'Potential' }, delta: total(r) - total(l),
+          }
+        }),
+      },
+    })
   }
 
   async listCvExtractions(candidateId: number) {
