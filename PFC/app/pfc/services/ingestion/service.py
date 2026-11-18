@@ -13,7 +13,10 @@ from pfc.api.schemas.ingestion import IngestionRun, RunPage
 from pfc.config import Settings
 from pfc.db.audit import append_audit
 from pfc.db.connection import database
+from pfc.jobs.runner import JobRunner
 from pfc.security.problems import Problem
+from pfc.services.embeddings.chunking import OwnerType
+from pfc.services.embeddings.incremental import submit_incremental_embed
 
 from . import repository as repo
 from .apply import apply_preview
@@ -23,6 +26,94 @@ from .workbook_safety import WorkbookError
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 logger = logging.getLogger(__name__)
+
+
+def commit_with_downstream(
+    settings: Settings, job_runner: JobRunner, run_id: int, user_id: int, now: str
+) -> IngestionRun:
+    before = None
+    try:
+        with database(settings) as db:
+            if repo.find_run(db, run_id)["kind"] == "DL":
+                before = _current_versions(settings)
+    except Exception:
+        logger.warning("Cannot snapshot demands for incremental embedding")
+    result = commit(settings, run_id, user_id, now)
+    # CT skills are not chunked yet, so CT commits produce no embedding owners.
+    if result.kind == "DL" and before is not None:
+        try:
+            after = _current_versions(settings)
+            owners: set[tuple[OwnerType, int]] = set()
+            for demand_id, current in after.items():
+                previous = before.get(demand_id)
+                if previous != current:
+                    version = current[0]
+                    old_version = previous[0] if previous is not None else None
+                    for id in (old_version, version):
+                        if id is not None:
+                            owners.add(("jd", id))
+                    if old_version is not None and old_version != version:
+                        owners.update(
+                            ("jd_item", id)
+                            for id in _indexed_requirement_items(settings, old_version)
+                        )
+                    if version is not None and old_version != version:
+                        owners.update(
+                            ("jd_item", id)
+                            for id in _confirmed_requirement_items(settings, version)
+                        )
+            if (
+                owners
+                and submit_incremental_embed(
+                    job_runner,
+                    settings,
+                    sorted(owners),
+                    created_by=user_id,
+                )
+                is None
+            ):
+                logger.warning("JD embedding not queued: no active embedding model")
+        except Exception:
+            logger.warning("JD embedding submission failed after ingestion commit")
+    return result
+
+
+def _current_versions(settings: Settings) -> dict[int, tuple[int | None, str | None]]:
+    with database(settings) as db:
+        return {
+            row[0]: (row[1], row[2])
+            for row in db.execute(
+                "SELECT demand_id,current_version_id,demand_request_name FROM demands"
+            )
+        }
+
+
+def _confirmed_requirement_items(settings: Settings, version_id: int) -> set[int]:
+    with database(settings) as db:
+        return {
+            row[0]
+            for row in db.execute(
+                "SELECT i.item_id FROM jd_requirement_items i "
+                "JOIN jd_requirements r ON r.jd_req_id=i.jd_req_id "
+                "WHERE r.demand_version_id=? AND r.status='confirmed'",
+                (version_id,),
+            )
+        }
+
+
+def _indexed_requirement_items(settings: Settings, version_id: int) -> set[int]:
+    with database(settings) as db:
+        return {
+            row[0]
+            for row in db.execute(
+                "SELECT DISTINCT i.item_id FROM jd_requirement_items i "
+                "JOIN jd_requirements r ON r.jd_req_id=i.jd_req_id "
+                "JOIN embedding_chunks c ON c.owner_type='jd_item' AND c.owner_id=i.item_id "
+                "JOIN embedding_models m ON m.embedding_model_id=c.embedding_model_id "
+                "WHERE r.demand_version_id=? AND m.is_active=1",
+                (version_id,),
+            )
+        }
 
 
 def upload_limit(settings: Settings) -> int:
@@ -37,7 +128,13 @@ def upload_limit(settings: Settings) -> int:
 
 
 def upload(
-    settings: Settings, kind: Literal["DL", "CT"], name: str, data: bytes, user_id: int, now: str
+    settings: Settings,
+    kind: Literal["DL", "CT"],
+    name: str,
+    data: bytes,
+    user_id: int,
+    now: str,
+    source: Literal["manual_upload", "watch_folder"] = "manual_upload",
 ) -> IngestionRun:
     if Path(name).suffix.lower() != ".xlsx":
         raise Problem(422, "INVALID_WORKBOOK", "Only .xlsx workbooks are supported")
@@ -61,9 +158,10 @@ def upload(
         )
         cursor = db.execute(
             "INSERT INTO ingestion_runs(kind, source, file_name, file_sha256, "
-            "file_size, uploaded_by, status, started_at) VALUES (?,'manual_upload',?,?,?,?,?,?)",
+            "file_size, uploaded_by, status, started_at) VALUES (?,?,?,?,?,?,?,?)",
             (
                 kind,
+                source,
                 Path(name).name,
                 digest,
                 len(data),
@@ -103,7 +201,21 @@ def upload(
                 user_id=user_id,
                 entity_type="ingestion_run",
                 entity_id=str(run_id),
-                details={"run_id": run_id, "kind": kind},
+                details={
+                    "run_id": run_id,
+                    "kind": kind,
+                    **({"source": source} if source == "watch_folder" else {}),
+                },
+            )
+        elif source == "watch_folder":
+            append_audit(
+                db,
+                ts=now,
+                action="INGEST_FAILED",
+                user_id=user_id,
+                entity_type="ingestion_run",
+                entity_id=str(run_id),
+                details={"run_id": run_id, "kind": kind, "source": source},
             )
         result = repo.run_response(db, settings, run_id)
     if failure is not None:
@@ -148,7 +260,11 @@ def commit(settings: Settings, run_id: int, user_id: int, now: str) -> Ingestion
                 user_id=user_id,
                 entity_type="ingestion_run",
                 entity_id=str(run_id),
-                details={"run_id": run_id, **snapshot.counts.model_dump()},
+                details={
+                    "run_id": run_id,
+                    **snapshot.counts.model_dump(),
+                    **({"source": "watch_folder"} if run["source"] == "watch_folder" else {}),
+                },
             )
             db.commit()
         except BaseException:
@@ -180,7 +296,10 @@ def discard(settings: Settings, run_id: int, user_id: int, now: str) -> Ingestio
             user_id=user_id,
             entity_type="ingestion_run",
             entity_id=str(run_id),
-            details={"run_id": run_id},
+            details={
+                "run_id": run_id,
+                **({"source": "watch_folder"} if run["source"] == "watch_folder" else {}),
+            },
         )
         result = repo.run_response(db, settings, run_id)
     repo.upload_path(settings, run_id).unlink(missing_ok=True)

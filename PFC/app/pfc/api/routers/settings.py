@@ -1,15 +1,22 @@
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Request
 
 from pfc.adapters.llm.supervisor import restart_selected_model
 from pfc.api.routers.occ import DB
 from pfc.api.schemas.settings import PersonalSettings, PersonalSettingsView
-from pfc.security.dependencies import Principal, current_user
+from pfc.security.dependencies import Principal, current_user, require_role
 from pfc.services.occ.settings import get_personal, put_personal
 
 router = APIRouter(prefix="/settings", dependencies=[Depends(current_user)])
 User = Annotated[Principal, Depends(current_user)]
+
+
+@router.get("/me/watch-status")
+def watch_status(
+    request: Request, user: Annotated[Principal, Depends(require_role("Analyst"))]
+) -> dict[str, Any]:
+    return request.app.state.watch_poller.status(user.user.user_id)
 
 
 @router.get("/me", response_model=PersonalSettingsView)

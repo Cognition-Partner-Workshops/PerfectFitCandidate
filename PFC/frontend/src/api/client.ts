@@ -47,6 +47,7 @@ import type {
   PackageSource,
   PendingPackage,
   PersonalSettings,
+  WatchStatus,
   ProblemDetails,
   Resource,
   ResultFilters,
@@ -144,6 +145,8 @@ export interface ApiClient {
   confirmRequirements(demandId: number): Promise<{ jobId: number }>
   /** POST /uploads/{kind} */
   uploadWorkbook(kind: 'dl' | 'ct', file: File): Promise<UploadPreview>
+  /** GET /ingestion-runs/{id} and its paginated issues */
+  getIngestionPreview(ingestionRunId: number): Promise<UploadPreview>
   /** POST /ingestion-runs/{id}/commit */
   commitIngestion(ingestionRunId: number): Promise<void>
   /** POST /ingestion-runs/{id}/discard */
@@ -232,6 +235,7 @@ export interface ApiClient {
 
   /** GET /settings/me */
   getMySettings(): Promise<PersonalSettings>
+  getWatchStatus(): Promise<WatchStatus>
   /** PUT /settings/me */
   saveMySettings(settings: PersonalSettings): Promise<PersonalSettings>
   /** GET /llm/models */

@@ -57,7 +57,7 @@ The left panel has Dashboard, Demand List, Bench List, Match Results, Candidate 
 
 ### Task status popups
 
-Bottom-right task cards follow DL/CT uploads, commits and discards, JD analysis,
+Bottom-right task cards follow DL/CT uploads, auto-pickup, commits and discards, JD analysis,
 CV sync, matching and Chat questions across page navigation. Each shows **Started**, **In Progress**
 (with a percentage when available), **Completed**, **Failed** or **Cancelled**.
 Completed cards disappear after about ten seconds. Failed cards keep a safe,
@@ -66,6 +66,9 @@ Use **+N more** to expand beyond three cards, or **Minimize tasks** to keep just
 the task count. Close a card with its Dismiss button, or press Escape while
 focused inside it. Dismissed server jobs do not return during this signed-in visit.
 Linked CV and matching cards open Bench List and the current Match Results view.
+Auto-pickup cards name the Demand List or Candidate Tracker file and report
+**committed**, **awaiting review** or **no changes**; their link opens
+**Settings → Data sources**.
 Polling pauses while the browser tab is hidden and resumes when it is visible.
 The header Sync dot reflects active/failed tasks, not fabricated upload times;
 the footer shows the selected local generation model, or `Local model: not loaded`.
@@ -107,6 +110,15 @@ The preview shows the file, the package version against the installed version, s
 1. Choose the `.xlsx`. PFC finds the sheet and header row by column names, so a title row above the headers is fine.
 2. Review the preview: file, detected sheet, **Rows read / New / Updated / Unchanged / Rejected**, and any row warnings (row number, column and message).
 3. Choose **Commit N rows**, or **Cancel** to discard. A file identical to the last import shows "This file was already imported — nothing to do."
+
+Alternatively, configure [DL/CT auto-pickup](#dlct-auto-pickup) in Settings.
+Auto-pickup uses the same validation and commit pipeline as manual upload, with
+identical results for the same workbook. Clean files can commit automatically;
+files held for review use the same preview, **Commit N rows** and **Discard**
+actions under **Settings → Data sources → Awaiting review**. Closing a review
+dialog leaves that run awaiting review; **Discard** explicitly discards it.
+Rows with error-severity issues always leave the file awaiting review, even
+when automatic commit is enabled. Warnings alone do not prevent automatic commit.
 
 In CT Skills cells, separate skills with commas, semicolons, or line breaks (including Excel Alt+Enter).
 
@@ -235,14 +247,56 @@ PDF report download is Phase 2 (REQ-OUT-09).
 
 ## 13. Your settings
 
-**Settings** has Data sources (resume folder path; DL/CT auto-sync is a Phase 2 placeholder), LLM provider (admin-approved local models only; external providers are Phase 3), Email (Outlook COM; SMTP is Phase 2), Email template, Display (Comfortable or Compact) and Account. Saving settings is recorded in the audit log.
+**Settings** has Data sources (resume folder path and DL/CT auto-sync), LLM provider (admin-approved local models only; external providers are Phase 3), Email (Outlook COM; SMTP is Phase 2), Email template, Display (Comfortable or Compact) and Account. Saving settings is recorded in the audit log.
+
+### DL/CT auto-pickup
+
+Configure **Auto-sync — Demand List** and **Auto-sync — Candidate Tracker**
+separately under **Settings → Data sources**:
+
+1. Tick **Enabled** and enter an absolute **Watch path**, such as
+   `Z:\Staffing\DL` on a mapped drive or a local OneDrive-synced folder. The
+   folder must exist and be accessible to the account running PFC. In OneDrive,
+   select **Always keep on this device** for the watched folder/files. Online-only
+   files are skipped as **not synced**; PFC never forces a cloud download.
+2. Set **File pattern**, for example `DL_*.xlsx` or `CT_*.xlsx`. Matching is
+   case-insensitive and applies only to files directly in the folder, not
+   subfolders. Use a bare filename glob ending in `.xlsx`, with no `/`, `\` or
+   `..`. When sharing a folder, use different patterns for DL and CT.
+3. Set **Poll every N minutes** to an integer from **1–1440** (default **5**).
+4. Tick **Hold for my review before committing** to preview every new file.
+   Leave it clear to commit clean files automatically. Files with error rows
+   still wait for review regardless of this switch.
+5. Choose **Save**. A rejected path or pattern appears as an error without
+   clearing your edits. Correct it and save again.
+
+Pickup runs **only while PFC is running**, using each user's saved settings.
+After a scan discovers a file, its size and modification time must stay unchanged
+for about **10 seconds** before pickup; PFC checks settling files on its short
+internal tick rather than waiting another full poll interval. Excel's `~$` lock
+files are ignored, and a workbook with a sibling `~$<filename>` lock waits until
+Excel releases it. Online-only, partially synced, changing or temporarily
+unreadable files are skipped and retried; shortcuts/symlinks and reparse points
+are not picked up.
+
+Identical files are skipped: a file already committed manually can produce a
+**no changes** (`no_op`) run without applying anything. The same user's watched
+content for the same source kind is not picked up again, even after a discard or
+failure; save changed workbook content to trigger a new run. Renaming unchanged
+content does not force another import.
+
+Each source shows its last scan time, folder reachability or error, pending
+filenames and reasons, and last pickup filename, status, time and counts. These
+statuses refresh about every **15 seconds** while Data sources is open. Watch
+the bottom-right task card for completion, or use the source's **Awaiting review**
+list and **Review** button to inspect, commit or discard a held run. Committed
+changes still enter the normal OCC approval workflow.
 
 ## 14. Pending in this build
 
 | Area | Status |
 |---|---|
 | PDF export | Phase 2 |
-| DL/CT auto-sync | Phase 2 |
 | Lockout countdown on sign-in | Pending: the backend answers a locked account with 401 invalid credentials. The sign-in screen shows the lockout message on a 423, with a countdown when the reply carries `Retry-After` |
 
 ## 15. Chat with PFC data
