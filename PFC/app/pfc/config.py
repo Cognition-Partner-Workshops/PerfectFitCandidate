@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     argon_parallelism: int = 4
     allowed_hosts: list[str] = []
     job_workers: int = 4
+    watch_tick_seconds: float = Field(default=15, gt=0)
+    watch_settle_seconds: float = Field(default=10, ge=0)
     llm_enabled: bool = True
     llama_dir: Path = Path(__file__).resolve().parents[2] / "llama"
     models_dir: Path = Path(__file__).resolve().parents[2] / "models"

@@ -1,4 +1,6 @@
-import { copyFileSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, test } from '@playwright/test'
 
@@ -311,4 +313,78 @@ test('summary cards: grounded evidence, stale source, provider unavailable, no r
   } finally {
     rmSync(`${data}llm-down`, { force: true })
   }
+})
+
+test('watch pickup: automatic DL task card and held CT review as an analyst', async ({ page }, info) => {
+  test.setTimeout(240_000)
+  await page.setViewportSize({ width: 1440, height: 1600 })
+  // Also works with --grep watch on a fresh server, and on retries after setup already exists.
+  const setup = await (await page.request.get('/api/v1/setup/status')).json()
+  if (!setup.admin_exists) {
+    const created = await page.request.post('/api/v1/setup/admin', { data: { setup_code: readFileSync(`${data}run/setup-code.txt`, 'utf8').trim(), email: EMAIL, display_name: 'Test Owner', password: PASSWORD } })
+    expect(created.status()).toBe(201)
+  }
+  const login = await page.request.post('/api/v1/auth/login', { data: { role: 'Admin', email: EMAIL, password: PASSWORD } })
+  expect(login.ok()).toBe(true)
+  const adminCsrf = (await login.json()).csrf_token
+  const email = `watch-${Date.now()}@example.com`
+  const created = await page.request.post('/api/v1/occ/users', { headers: { 'X-CSRF-Token': adminCsrf }, data: { email, display_name: 'Watch Analyst', role: 'Analyst', persona: 'A' } })
+  expect(created.status()).toBe(201)
+  const otp = (await created.json()).one_time_password
+  expect((await page.request.post('/api/v1/auth/logout', { headers: { 'X-CSRF-Token': adminCsrf } })).ok()).toBe(true)
+  const analyst = await page.request.post('/api/v1/auth/login', { data: { role: 'Analyst', email, password: otp } })
+  expect(analyst.ok()).toBe(true)
+  const csrf = (await analyst.json()).csrf_token
+  const password = 'Watch-Analyst-Passw0rd!'
+  expect((await page.request.post('/api/v1/auth/password', { headers: { 'X-CSRF-Token': csrf }, data: { current_password: otp, new_password: password } })).ok()).toBe(true)
+  await page.context().clearCookies()
+  await page.goto('/')
+  const form = page.getByRole('form', { name: 'Sign in' })
+  await form.getByRole('combobox').selectOption('Analyst')
+  await form.locator('input[type="email"]').fill(email)
+  await form.locator('#login-password').fill(password)
+  await form.getByRole('button', { name: 'Sign in' }).click()
+  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible()
+  await page.goto('/#/settings/data')
+  const dl = page.getByRole('group', { name: 'Auto-sync — Demand List' })
+  const ct = page.getByRole('group', { name: 'Auto-sync — Candidate Tracker' })
+  const dlName = `DL_${info.retry}.xlsx`
+  const ctName = `CT_${info.retry}.xlsx`
+  rmSync(`${data}watch/${dlName}`, { force: true })
+  rmSync(`${data}watch/${ctName}`, { force: true })
+  await dl.getByLabel('Enabled', { exact: true }).check()
+  await dl.getByLabel('Watch path').fill(`${data}watch`)
+  await dl.getByLabel('Poll every N minutes').fill('1')
+  await dl.getByLabel('Hold for my review before committing').uncheck()
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible()
+  copyFileSync(`${data}fixtures/dl-watch-${info.retry}.xlsx`, `${data}watch/${dlName}`)
+  const tasks = page.getByRole('region', { name: 'Task status' })
+  await expect(tasks.getByRole('link', { name: `Auto-pickup Demand List: ${dlName} — committed: Completed`, exact: true })).toBeVisible({ timeout: 95_000 })
+  const shots = join(homedir(), 'pfc-watch-shots')
+  mkdirSync(shots, { recursive: true })
+  await tasks.screenshot({ path: join(shots, 'task-card.png') })
+  await expect(dl.getByText('Folder reachable', { exact: true })).toBeVisible()
+  await expect(dl.getByText(new RegExp(`Last pickup: ${dlName} — committed`))).toBeVisible({ timeout: 20_000 })
+  await page.goto('/#/demands')
+  await expect(page.getByRole('row', { name: new RegExp(`T19${String(info.retry).padStart(3, '0')}`) })).toBeVisible()
+  await page.goto('/#/settings/data')
+  await ct.getByLabel('Enabled', { exact: true }).check()
+  await ct.getByLabel('Watch path').fill(`${data}watch`)
+  await ct.getByLabel('Poll every N minutes').fill('1')
+  await ct.getByLabel('Hold for my review before committing').check()
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible()
+  copyFileSync(`${data}fixtures/ct-watch-${info.retry}.xlsx`, `${data}watch/${ctName}`)
+  await expect(ct.getByRole('button', { name: 'Review', exact: true })).toBeVisible({ timeout: 95_000 })
+  await ct.getByRole('button', { name: 'Review', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Review Candidate Tracker — preview' })
+  await expect(dialog.getByText('Rows read 1', { exact: true })).toBeVisible()
+  await page.screenshot({ path: join(shots, 'review-dialog.png'), fullPage: true })
+  await dialog.getByRole('button', { name: 'Commit 1 rows', exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await expect(ct.getByText('No files awaiting review.', { exact: true })).toBeVisible()
+  await expect(ct.getByText(new RegExp(`Last pickup: ${ctName} — committed`))).toBeVisible()
+  await dl.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: join(shots, 'settings-data.png'), fullPage: true })
 })
