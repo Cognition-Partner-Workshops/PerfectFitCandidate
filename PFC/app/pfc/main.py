@@ -104,7 +104,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             yield
         finally:
             app.state.watch_poller.stop()
-            await watch_task
+            try:
+                await watch_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.error("Watch folder task failed; shutdown continues")
             await supervisor.stop()
             cleanup.cancel()
             with suppress(asyncio.CancelledError):

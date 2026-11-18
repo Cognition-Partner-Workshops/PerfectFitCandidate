@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import logging
 import threading
 from collections.abc import Callable
 from datetime import datetime
@@ -16,6 +17,8 @@ from pfc.db.connection import database
 from pfc.jobs.runner import JobContext, JobRunner
 from pfc.security.sessions import stamp
 from pfc.services.ingestion import repository, service
+
+logger = logging.getLogger(__name__)
 
 
 class WatchPoller:
@@ -31,7 +34,10 @@ class WatchPoller:
 
     async def run(self) -> None:
         while not self._stop.is_set():
-            await asyncio.to_thread(self.tick, self.clock())
+            try:
+                await asyncio.to_thread(self.tick, self.clock())
+            except Exception:
+                logger.error("Watch folder tick failed; polling continues")
             try:
                 await asyncio.wait_for(self._stop.wait(), self.settings.watch_tick_seconds)
             except TimeoutError:
@@ -62,64 +68,67 @@ class WatchPoller:
                         continue
                     key = (row["user_id"], kind)
                     active.add(key)
-                    if any(k[:2] == (row["user_id"], kind.upper()) for k in self._inflight):
-                        continue
-                    prior = self._sources.get(key)
-                    if prior is None or prior[0] != source:
-                        self._sources[key] = (
-                            source,
-                            WatchFolderSource(
-                                Path(source.path or ""),
-                                source.pattern,
-                                self.settings.watch_settle_seconds,
-                            ),
-                        )
-                        self._status.pop(key, None)
-                    scanner = self._sources[key][1]
-                    status = self._status.get(key, {})
-                    last = status.get("last_scan_at")
-                    if (
-                        last
-                        and not scanner.pending
-                        and (now - datetime.fromisoformat(last)).total_seconds()
-                        < source.poll_minutes * 60
-                    ):
-                        continue
                     try:
-                        scanner.max_bytes = service.upload_limit(self.settings)
-                        ready = scanner.scan(now.timestamp())
-                        self._status[key] = {
-                            "reachable": True,
-                            "last_scan_at": stamp(now),
-                            "pending": [
-                                {"file_name": name, "reason": reason}
-                                for name, reason in scanner.pending.items()
-                            ],
-                            "last_error": None,
-                        }
-                    except OSError:
-                        scanner.pending.clear()
-                        self._status[key] = {
-                            "reachable": False,
-                            "last_scan_at": stamp(now),
-                            "pending": [],
-                            "last_error": "Watch folder is not accessible",
-                        }
-                        continue
-                    ready.sort(key=lambda item: (scanner.observed[item[0]][1], item[0]))
-                    for index, (name, data) in enumerate(ready):
-                        if not self._submit(
-                            row["user_id"], kind.upper(), name, data, source.require_preview
+                        if any(k[:2] == (row["user_id"], kind.upper()) for k in self._inflight):
+                            continue
+                        prior = self._sources.get(key)
+                        if prior is None or prior[0] != source:
+                            self._sources[key] = (
+                                source,
+                                WatchFolderSource(
+                                    Path(source.path or ""),
+                                    source.pattern,
+                                    self.settings.watch_settle_seconds,
+                                ),
+                            )
+                            self._status.pop(key, None)
+                        scanner = self._sources[key][1]
+                        status = self._status.get(key, {})
+                        last = status.get("last_scan_at")
+                        if (
+                            last
+                            and not scanner.pending
+                            and (now - datetime.fromisoformat(last)).total_seconds()
+                            < source.poll_minutes * 60
                         ):
                             continue
-                        scanner.pending.update(
-                            dict.fromkeys((n for n, _ in ready[index + 1 :]), "queued")
-                        )
-                        self._status[key]["pending"] = [
-                            {"file_name": n, "reason": reason}
-                            for n, reason in scanner.pending.items()
-                        ]
-                        break
+                        try:
+                            scanner.max_bytes = service.upload_limit(self.settings)
+                            ready = scanner.scan(now.timestamp())
+                            self._status[key] = {
+                                "reachable": True,
+                                "last_scan_at": stamp(now),
+                                "pending": [
+                                    {"file_name": name, "reason": reason}
+                                    for name, reason in scanner.pending.items()
+                                ],
+                                "last_error": None,
+                            }
+                        except OSError:
+                            scanner.pending.clear()
+                            self._status[key] = {
+                                "reachable": False,
+                                "last_scan_at": stamp(now),
+                                "pending": [],
+                                "last_error": "Watch folder is not accessible",
+                            }
+                            continue
+                        ready.sort(key=lambda item: (scanner.observed[item[0]][1], item[0]))
+                        for index, (name, data) in enumerate(ready):
+                            if not self._submit(
+                                row["user_id"], kind.upper(), name, data, source.require_preview
+                            ):
+                                continue
+                            scanner.pending.update(
+                                dict.fromkeys((n for n, _ in ready[index + 1 :]), "queued")
+                            )
+                            self._status[key]["pending"] = [
+                                {"file_name": n, "reason": reason}
+                                for n, reason in scanner.pending.items()
+                            ]
+                            break
+                    except Exception:
+                        logger.error("Watch folder source scan failed; polling continues")
             for key in set(self._sources) - active:
                 self._sources.pop(key, None)
                 self._status.pop(key, None)

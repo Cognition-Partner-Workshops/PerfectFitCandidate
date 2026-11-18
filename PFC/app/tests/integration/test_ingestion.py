@@ -1,5 +1,6 @@
 """REQ-ING-01..03/06: real sessions, SQLite transactions and synthetic workbooks."""
 
+import asyncio
 import hashlib
 import json
 import os
@@ -25,6 +26,7 @@ from pfc.db.connection import database
 from pfc.db.migrate import migrate
 from pfc.db.users import create_user
 from pfc.jobs.runner import JobCancelled, JobContext, JobRunner
+from pfc.jobs.watch import WatchPoller
 from pfc.main import create_app
 from pfc.security.sessions import stamp
 from pfc.security.setup import code_path
@@ -113,6 +115,65 @@ def test_watch_serializes_oldest_snapshot_first(
     poller._inflight.clear()
     watch_tick(client, 3)
     assert submitted == [older.name, newer.name]
+
+
+def test_watch_loop_recovers_from_tick_exception(client: TestClient, monkeypatch) -> None:
+    poller = WatchPoller(client.app.state.settings, client.app.state.job_runner, lambda: WATCH_NOW)
+    poller.settings = poller.settings.model_copy(update={"watch_tick_seconds": 0.001})
+    calls = []
+
+    def tick(now):
+        calls.append(now)
+        if len(calls) == 1:
+            raise RuntimeError("private failure details")
+        poller.stop()
+
+    monkeypatch.setattr(poller, "tick", tick)
+    asyncio.run(asyncio.wait_for(poller.run(), timeout=2))
+    assert len(calls) == 2
+
+
+def test_watch_source_failure_does_not_block_other_source(
+    client: TestClient, tmp_path, monkeypatch
+):
+    root = tmp_path / "watch"
+    root.mkdir()
+    (root / "data.xlsx").write_bytes(b"data")
+    enable_watch(client, root, "dl")
+    enable_watch(client, root, "ct")
+    attempts = []
+
+    def submit(user_id, kind, *args):
+        attempts.append(kind)
+        if kind == "DL":
+            raise RuntimeError("private submission failure")
+        return True
+
+    monkeypatch.setattr(client.app.state.watch_poller, "_submit", submit)
+    watch_tick(client, 0)
+    watch_tick(client, 1)
+    assert attempts == ["DL", "CT"]
+
+
+def test_watch_failed_task_does_not_skip_shutdown(tmp_path: Path, monkeypatch) -> None:
+    async def failed_run(self):
+        raise RuntimeError("private task failure")
+
+    shutdown = []
+    original = JobRunner.shutdown
+
+    def close(self):
+        shutdown.append(True)
+        original(self)
+
+    monkeypatch.setattr(WatchPoller, "run", failed_run)
+    monkeypatch.setattr(JobRunner, "shutdown", close)
+    settings = Settings(
+        data_dir=tmp_path, bundled_models_dir=tmp_path / "none", allowed_hosts=["testserver"]
+    )
+    with TestClient(create_app(settings)) as session:
+        assert session.get("/api/v1/setup/status").status_code == 200
+    assert shutdown == [True]
 
 
 @pytest.mark.parametrize("kind", ["dl", "ct"])
@@ -292,6 +353,36 @@ def test_watch_oversized_records_failed_run(client: TestClient, tmp_path: Path) 
         run = db.execute("SELECT status,file_size FROM ingestion_runs").fetchone()
         assert tuple(run) == ("failed", 11)
     assert not (client.app.state.settings.data_dir / "uploads" / "1.xlsx").exists()
+
+
+def test_watch_unreachable_allows_unrelated_settings_save(client: TestClient, tmp_path: Path) -> None:
+    root = tmp_path / "watch"
+    root.mkdir()
+    enable_watch(client, root)
+    root.rmdir()
+    saved = client.get("/api/v1/settings/me").json()
+    saved.pop("resume_converter_available")
+    saved["density"] = "compact"
+    saved["watch"]["dl"].update(poll_minutes=2, require_preview=True)
+    response = client.put("/api/v1/settings/me", json=saved)
+    assert response.status_code == 200, response.text
+    assert response.json()["density"] == "compact"
+    assert response.json()["watch"]["dl"]["require_preview"] is True
+    for change in ({"path": str(root / "missing")}, {"pattern": "other*.xlsx"}):
+        response = client.put("/api/v1/settings/me", json={"watch": {"dl": change}})
+        assert response.status_code == 422
+        assert response.json()["code"] == "WATCH_PATH_INVALID"
+    response = client.put(
+        "/api/v1/settings/me", json={"watch": {"dl": {"pattern": "../*.xlsx"}}}
+    )
+    assert response.status_code == 422
+    assert response.json()["code"] == "WATCH_PATTERN_INVALID"
+    assert client.put(
+        "/api/v1/settings/me", json={"watch": {"dl": {"enabled": False}}}
+    ).status_code == 200
+    response = client.put("/api/v1/settings/me", json={"watch": {"dl": {"enabled": True}}})
+    assert response.status_code == 422
+    assert response.json()["code"] == "WATCH_PATH_INVALID"
 
 
 @pytest.mark.parametrize(
