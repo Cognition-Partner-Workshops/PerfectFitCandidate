@@ -1,11 +1,12 @@
 import { fireEvent, screen, within, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ADMIN, mock, renderApp, seed, signIn } from '../test/utils'
 import { toDashboardQuery, toResultsReportQuery } from '../api/mappers'
 import { formatMetric, formatPct, formatServicePct } from '../lib/format'
 
 const filters = { codeRequisition: ['T10001'], accountName: ['Harbour Retail'], demandGrade: ['C1'], personGrade: ['C2'], location: ['Manchester'], scoreMin: 61, scoreMax: 99, candidateType: ['Internal'] }
 
+beforeAll(async () => { await import('../pages/DashboardPage') })
 beforeEach(async () => { await seed(); await signIn('Admin', ADMIN.email, ADMIN.password) })
 afterEach(() => vi.restoreAllMocks())
 
