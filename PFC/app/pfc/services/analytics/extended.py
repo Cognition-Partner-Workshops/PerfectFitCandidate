@@ -37,19 +37,8 @@ def cells(counter: Counter[tuple[str, str]]) -> list[dict[str, Any]]:
 
 
 def result_rows(p: Population) -> list[dict[str, Any]]:
-    rows = {r["result_id"]: r for r in p._match_rows(include_excluded=True)}
-    if not rows:
-        return []
-    placeholders = ",".join("?" for _ in p.runs)
-    for source in p.db.execute(
-        "SELECT result_id,run_id,rank,shortlisted FROM match_results "
-        f"WHERE run_id IN ({placeholders})",
-        tuple(p.runs),
-    ):
-        if (row := rows.get(source["result_id"])) is not None:
-            row.update(dict(source))
     return sorted(
-        rows.values(), key=lambda r: (r["run_id"], r["demand_id"], r["rank"], r["result_id"])
+        p.match_rows, key=lambda r: (r["run_id"], r["demand_id"], r["rank"], r["result_id"])
     )
 
 

@@ -289,6 +289,7 @@ export class HttpApiClient implements ApiClient {
   analyticsBench: ApiClient['analyticsBench'] = async (f) => toBenchAnalytics(await this.request('GET', `/analytics/bench${this.qs(f)}`))
   analyticsMatch: ApiClient['analyticsMatch'] = async (f) => toMatchAnalytics(await this.request('GET', `/analytics/match${this.qs(f)}`))
   analyticsExtended: ApiClient['analyticsExtended'] = (f) => this.request('GET', `/analytics/extended${this.qs(f)}`)
+  analyticsDashboard: ApiClient['analyticsDashboard'] = (f) => this.request('GET', `/analytics/dashboard${this.qs(f)}`)
   generatePdf: ApiClient['generatePdf'] = (body) => this.request('POST', '/reports/pdf', body)
   exportResults: ApiClient['exportResults'] = async (runId, f, format, includeEmails) => {
     const res = await this.request<Response>('GET', `/match-runs/${runId}/export?${toExportQuery(f, format, includeEmails)}`, undefined, true)

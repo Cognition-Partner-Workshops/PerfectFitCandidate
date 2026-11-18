@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from pfc.api.schemas.analytics import (
     AnalyticsSummary,
     BenchAnalytics,
+    DashboardAnalytics,
     DashboardFilters,
     DemandAnalytics,
     ExtendedAnalytics,
@@ -19,6 +20,19 @@ from pfc.services.analytics.population import Population
 
 router = APIRouter(prefix="/analytics", dependencies=[Depends(require_role("Analyst"))])
 Filters = Annotated[DashboardFilters, Query()]
+
+
+@router.get("/dashboard", response_model=DashboardAnalytics)
+def dashboard_analytics(request: Request, filters: Filters) -> DashboardAnalytics:
+    with database(request.app.state.settings) as db:
+        population = Population(db, filters, request.app.state.clock().date())
+        return DashboardAnalytics(
+            summary=AnalyticsSummary(**dashboard.summary(population)),
+            demand=DemandAnalytics(**dashboard.demand(population)),
+            bench=BenchAnalytics(**dashboard.bench(population)),
+            match=MatchAnalytics(**dashboard.match(population)),
+            extended=ExtendedAnalytics(**extended.build(population)),
+        )
 
 
 @router.get("/summary", response_model=AnalyticsSummary)

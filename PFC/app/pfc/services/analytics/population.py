@@ -101,7 +101,11 @@ class Population:
 
     @cached_property
     def filtered_results(self) -> list[dict[str, Any]]:
-        return list(self._match_rows())
+        return [row for row in self.match_rows if not row["effective_excluded"]]
+
+    @cached_property
+    def match_rows(self) -> list[dict[str, Any]]:
+        return list(self._match_rows(include_excluded=True))
 
     @cached_property
     def result_counts(self) -> Counter[tuple[int, str]]:
@@ -211,6 +215,9 @@ class Population:
         columns += [f"{expression} AS {key}" for key, expression in selected.items()]
         if not validation:
             columns += [
+                "m.run_id",
+                "m.rank",
+                "m.shortlisted",
                 "COALESCE(c.classification_override,c.classification,'Unknown') AS candidate_type",
                 "COALESCE(c.identity_status!='complete',0) AS incomplete_identity",
             ]

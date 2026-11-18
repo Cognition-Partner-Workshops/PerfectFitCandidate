@@ -1,11 +1,15 @@
 import hashlib
 import hmac
+import logging
 import secrets
 import sqlite3
 from datetime import UTC, datetime, timedelta
 
 from pfc.config import Settings
 from pfc.db import sessions
+from pfc.db.connection import database
+
+logger = logging.getLogger(__name__)
 
 
 def digest(token: str) -> str:
@@ -18,6 +22,29 @@ def stamp(value: datetime) -> str:
 
 def parse(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def refresh(settings: Settings, session: sessions.Session, now: datetime) -> None:
+    absolute = parse(session.created_at) + timedelta(hours=settings.absolute_timeout_h)
+    try:
+        with database(settings) as db:
+            db.execute("PRAGMA busy_timeout=0")
+            sessions.touch_session(
+                db,
+                session.session_id,
+                stamp(now),
+                stamp(min(now + timedelta(minutes=settings.idle_timeout_min), absolute)),
+                require_active=True,
+            )
+    except sqlite3.DatabaseError as exc:
+        if getattr(exc, "sqlite_errorcode", 0) & 0xFF not in {
+            sqlite3.SQLITE_BUSY,
+            sqlite3.SQLITE_LOCKED,
+        }:
+            logger.warning(
+                "Session activity refresh failed (%s)",
+                getattr(exc, "sqlite_errorname", type(exc).__name__),
+            )
 
 
 def issue(

@@ -14,6 +14,27 @@ from pfc.db.connection import database
 URL = "/api/v1/analytics/extended"
 
 
+@pytest.mark.parametrize("filters", [{}, {"scoreMin": 61, "band": "Strong"}, {"grade": "B1"}])
+def test_dashboard_snapshot_equals_individual_panels(
+    extended: tuple[Api, dict[str, Any]], filters: dict[str, Any]
+) -> None:
+    client = extended[0][0]
+    response = client.get("/api/v1/analytics/dashboard", params=filters)
+    assert response.status_code == 200, response.text
+    for panel, data in response.json().items():
+        individual = client.get(f"/api/v1/analytics/{panel}", params=filters)
+        assert individual.status_code == 200, individual.text
+        assert data == individual.json()
+
+
+def test_dashboard_snapshot_empty_auth_and_bad_run(api: Api) -> None:
+    client = api[0]
+    assert client.get("/api/v1/analytics/dashboard").json()["extended"]["upskilling"] == []
+    assert client.get("/api/v1/analytics/dashboard", params={"runId": 999}).status_code == 404
+    client.cookies.clear()
+    assert client.get("/api/v1/analytics/dashboard").status_code == 401
+
+
 def get(client: Any, **params: Any) -> dict[str, Any]:
     response = client.get(URL, params=params)
     assert response.status_code == 200, response.text

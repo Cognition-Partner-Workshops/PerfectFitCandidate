@@ -42,6 +42,7 @@ ANALYTICS_LIMIT_SECONDS = {
     "bench": 2.0,
     "match": 2.0,
     "extended": 2.0,
+    "dashboard": 2.0,
 }
 NOW = datetime(2026, 11, 6, tzinfo=UTC)
 PASSWORD = "Strong!Random4567"
@@ -346,7 +347,8 @@ def test_nfr01_matching_and_analytics(tmp_path: Path) -> None:
             pairs = run["pairs_scored"]
             assert pairs > 50000, "Do not silently benchmark an empty or mostly excluded run"
         analytics: dict[str, Any] = {}
-        for panel in ("summary", "demand", "bench", "match", "extended"):
+        panel_values: dict[str, Any] = {}
+        for panel in ("summary", "demand", "bench", "match", "extended", "dashboard"):
             url = f"/api/v1/analytics/{panel}?runId={run_id}"
             response = client.get(url)
             assert response.status_code == 200, response.text
@@ -364,12 +366,16 @@ def test_nfr01_matching_and_analytics(tmp_path: Path) -> None:
                 assert len(payload["rows"]) == SIZE
             elif panel == "match":
                 assert sum(item["count"] for item in payload["bandDistribution"]) == pairs
+            elif panel == "dashboard":
+                assert payload == panel_values
             else:
                 assert sum(b["allPairs"] for b in payload["scoreHistogram"]["bins"]) == pairs
                 assert sum(c["count"] for c in payload["gradeMatrix"]) == SIZE * 400
                 assert sum(c["count"] for c in payload["candidateTypes"]) == SIZE
                 assert sum(c["count"] for c in payload["demandAging"]["buckets"]) == SIZE
                 assert payload["scoreHistogram"]["thresholds"] == [61, 70, 90]
+            if panel != "dashboard":
+                panel_values[panel] = payload
             analytics[panel] = {
                 "samples_seconds": samples,
                 "median_seconds": statistics.median(samples),

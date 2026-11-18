@@ -296,3 +296,11 @@ class ExtendedAnalytics(WireModel):
     contention: list[ContentionPerson]
     demand_aging: DemandAging
     override_rates: list[OverrideRun]
+
+
+class DashboardAnalytics(WireModel):
+    summary: AnalyticsSummary
+    demand: DemandAnalytics
+    bench: BenchAnalytics
+    match: MatchAnalytics
+    extended: ExtendedAnalytics

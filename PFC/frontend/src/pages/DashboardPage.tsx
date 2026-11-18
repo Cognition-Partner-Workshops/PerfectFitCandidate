@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { DataChangedBanner } from '../components/DataChangedBanner'
 import { ExtendedAnalyticsSection } from '../components/ExtendedAnalytics'
 import { PdfReportButton } from '../components/PdfReportButton'
@@ -67,8 +67,9 @@ export function DashboardPage() {
   const { filters, setFilters } = useResultFilters()
   const [section, setSection] = useState<Section>('overview')
   const df: DashboardFilters = useMemo(() => toDashboardQuery(filters), [filters])
-  const summary = useQuery({ queryKey: ['analytics', 'summary', df], queryFn: () => api.analyticsSummary(df) })
-  const demand = useQuery({ queryKey: ['analytics', 'demand', df], queryFn: () => api.analyticsDemand(df) })
+  const analytics = useQuery({ queryKey: ['analytics', 'dashboard', df], queryFn: () => api.analyticsDashboard(df), placeholderData: keepPreviousData })
+  const summary = { ...analytics, data: analytics.data?.summary }
+  const demand = { ...analytics, data: analytics.data?.demand }
   const currentResults = useQuery({
     queryKey: ['current-results', 'rows'],
     queryFn: () => api.getCurrentResults(),
@@ -78,9 +79,9 @@ export function DashboardPage() {
     queryFn: () => api.getCurrentResultsSummary(),
     enabled: df.runId === undefined,
   })
-  const bench = useQuery({ queryKey: ['analytics', 'bench', df], queryFn: () => api.analyticsBench(df) })
-  const match = useQuery({ queryKey: ['analytics', 'match', df], queryFn: () => api.analyticsMatch(df) })
-  const extended = useQuery({ queryKey: ['analytics', 'extended', df], queryFn: () => api.analyticsExtended(df) })
+  const bench = { ...analytics, data: analytics.data?.bench }
+  const match = { ...analytics, data: analytics.data?.match }
+  const extended = { ...analytics, data: analytics.data?.extended }
   // The run list is capped at the newest 50 runs, so look up the summary's run by id. Refetch on mount and focus so a
   // data change made elsewhere since the last visit shows up.
   const shownRunId = summary.data?.run?.runId
@@ -123,7 +124,7 @@ export function DashboardPage() {
   const show = (id: Section) => section === 'overview' || section === id
 
   return (
-    <div className="page">
+    <div className="page" data-analytics-updated={analytics.dataUpdatedAt}>
       {shownRun.data && (
         <DataChangedBanner
           run={shownRun.data}
@@ -144,6 +145,7 @@ export function DashboardPage() {
       <div className="card">
         <FilterBar value={filters} onChange={setFilters} options={options} />
       </div>
+      {analytics.isPlaceholderData && <Banner tone="info">Updating analytics…</Banner>}
       {!s ? (
         <Spinner />
       ) : (
@@ -199,7 +201,7 @@ export function DashboardPage() {
                     regions.map((rg) => ({
                       name: rg,
                       stack: 'r',
-                      data: bus.map((b) => demand.data.openByBuRegion.find((x) => x.bu === b && x.region === rg)?.count ?? 0),
+                      data: bus.map((b) => demand.data?.openByBuRegion.find((x) => x.bu === b && x.region === rg)?.count ?? 0),
                     })),
                   )}
                 />

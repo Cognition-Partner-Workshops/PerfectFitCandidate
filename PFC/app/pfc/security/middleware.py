@@ -4,12 +4,13 @@ from datetime import timedelta
 from uuid import uuid4
 
 from fastapi import FastAPI, Request, Response
+from starlette.concurrency import run_in_threadpool
 
 from pfc.db import sessions, users
 from pfc.db.connection import database
 from pfc.security.dependencies import Principal
 from pfc.security.problems import Problem, response
-from pfc.security.sessions import digest, parse, stamp
+from pfc.security.sessions import digest, parse, refresh
 
 
 def install_middleware(app: FastAPI) -> None:
@@ -56,16 +57,8 @@ def install_middleware(app: FastAPI) -> None:
                                     403, "PASSWORD_CHANGE_REQUIRED", "Password change required"
                                 )
                             request.state.principal = Principal(user, session)
-                            sessions.touch_session(
-                                db,
-                                session.session_id,
-                                stamp(now),
-                                stamp(
-                                    min(
-                                        now + timedelta(minutes=settings.idle_timeout_min), absolute
-                                    )
-                                ),
-                            )
+                if principal := getattr(request.state, "principal", None):
+                    await run_in_threadpool(refresh, settings, principal.session, now)
             result = await call_next(request)
         except Problem as exc:
             result = response(request, exc.status, exc.code, exc.detail)

@@ -1,4 +1,12 @@
-import type { CountItem, DashboardFilters, ResultFilters } from './types'
+import type { AnalyticsSummary, DemandAnalytics, BenchAnalytics, MatchAnalytics, CountItem, DashboardFilters, ResultFilters } from './types'
+
+export interface DashboardAnalytics {
+  summary: AnalyticsSummary
+  demand: DemandAnalytics
+  bench: BenchAnalytics
+  match: MatchAnalytics
+  extended: ExtendedAnalytics
+}
 
 export interface MatrixCell { row: string; column: string; count: number }
 export interface AnalyticsPerson { resourceId: number; candidateId: number; name: string | null; emailMasked: string | null }

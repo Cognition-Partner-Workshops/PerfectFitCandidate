@@ -4,6 +4,17 @@ import { emptyExtendedAnalytics } from './reports'
 
 afterEach(() => vi.unstubAllGlobals())
 
+it('fetches all Dashboard panels with one shared-filter request', async () => {
+  const payload = { summary: {}, demand: {}, bench: {}, match: {}, extended: emptyExtendedAnalytics() }
+  const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(payload)))
+  vi.stubGlobal('fetch', fetch)
+  expect(await new HttpApiClient('/api/v1').analyticsDashboard({ grade: ['B1'], scoreMin: 62 })).toEqual(payload)
+  expect(fetch).toHaveBeenCalledOnce()
+  const url = new URL(fetch.mock.calls[0]![0] as string, 'http://localhost')
+  expect(url.pathname).toBe('/api/v1/analytics/dashboard')
+  expect([...url.searchParams.entries()]).toEqual([['grade', 'B1'], ['scoreMin', '62']])
+})
+
 it('uses the analytics filter query and authenticated JSON report submission', async () => {
   const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(emptyExtendedAnalytics())))
   vi.stubGlobal('fetch', fetch)

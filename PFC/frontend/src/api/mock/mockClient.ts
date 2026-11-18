@@ -300,6 +300,14 @@ function mockCvFacts(shortName: string, skills: string[], phoneMasked: string | 
 const needsAnalysis = (d: { jdStatus: JdStatus }) => d.jdStatus === 'Not analysed' || d.jdStatus === 'JD changed'
 
 export class MockApiClient implements ApiClient {
+  analyticsDashboard: ApiClient['analyticsDashboard'] = async (filters) => {
+    const [summary, demand, bench, match, extended] = await Promise.all([
+      this.analyticsSummary(filters), this.analyticsDemand(filters), this.analyticsBench(filters),
+      this.analyticsMatch(filters), this.analyticsExtended(filters),
+    ])
+    return { summary, demand, bench, match, extended }
+  }
+
   private pdfJobs: JobItem[] = []
 
   generatePdf: ApiClient['generatePdf'] = async () => {
