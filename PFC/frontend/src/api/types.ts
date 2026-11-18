@@ -821,3 +821,111 @@ export interface SystemHealth {
   status: string
   dataVolumeEncryption: VolumeEncryption
 }
+
+/** REQ-IN-24 / FR-ING-52: read-only CV version comparison; every value and evidence arrives masked. */
+export type CompareStatus = 'added' | 'removed' | 'changed' | 'unchanged'
+
+export interface CompareVersion {
+  cvVersionId: number
+  versionNo: number
+  fileName: string
+  modifiedAt: string | null
+  extractedAt: string
+  isLatest: boolean
+  extractionRemoved: boolean
+}
+
+export interface CompareValue {
+  value: string
+  evidence: string
+  source?: string | null
+  raw?: string | null
+}
+
+export interface CompareFact {
+  key: string
+  status: CompareStatus
+  left: CompareValue | null
+  right: CompareValue | null
+}
+
+export interface CompareListItem extends CompareFact {
+  label: string
+}
+
+export interface CompareFacts {
+  summary: CompareFact[]
+  yearsDelta: number | null
+  skills: CompareListItem[]
+  experience: CompareListItem[]
+  qualifications: CompareListItem[]
+  projects: CompareListItem[]
+  factsExtracted: boolean[]
+}
+
+export interface DiffRow {
+  op: 'equal' | 'added' | 'removed' | 'changed' | 'skip'
+  left: { no: number; text: string } | null
+  right: { no: number; text: string } | null
+  count?: number | null
+}
+
+export interface StoredCompareScore {
+  resultId: number
+  runId: number
+  demandId: number
+  codeRequisition: string
+  role: string | null
+  resourceId: number
+  shortName: string
+  score: number
+  band: string
+  bestCvVersionId: number | null
+  left: { score: number; band: string } | null
+  right: { score: number; band: string } | null
+}
+
+export interface CvComparison {
+  candidateId: number
+  left: CompareVersion
+  right: CompareVersion
+  facts: CompareFacts
+  textDiff: { added: number; removed: number; unchanged: number; rows: DiffRow[]; truncated: boolean }
+  storedScores: StoredCompareScore[]
+}
+
+export interface CompareVersionScore {
+  score: number | null
+  band: string | null
+  basis: string | null
+  components: { component: string; points: number; maxPoints: number }[]
+  items: { itemId: string; text: string; kind: string; credit: number; method: string; evidence: string }[]
+  mandatoryMissing: number
+  gaps: string[]
+  excluded: boolean
+  reasons: { code: string; detail: string }[]
+}
+
+export interface DemandScoreDelta {
+  demandId: number
+  codeRequisition: string
+  role: string | null
+  resourceId: number
+  shortName: string
+  asOfDate: string
+  storedScore: number
+  storedBand: string
+  storedBestCvVersionId: number | null
+  left: CompareVersionScore
+  right: CompareVersionScore
+  delta: number | null
+}
+
+export interface CvCompareScoring {
+  comparisonId: number
+  jobId: number | null
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+  createdAt: string
+  finishedAt: string | null
+  result: { templateName: string; templateVersion: number; skippedDemandIds: number[]; demands: DemandScoreDelta[] } | null
+}

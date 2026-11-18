@@ -60,14 +60,13 @@ def _embedding_model(db: sqlite3.Connection, identity: dict[str, Any]) -> int:
     return int(row["embedding_model_id"])
 
 
-def _inputs(
+def load_demands(
     db: sqlite3.Connection,
     scope: str,
     demand_ids: Sequence[int],
     config: DomainConfig,
-) -> tuple[
-    list[Demand], list[Resource], dict[str, list[SkillBasis]], dict[str, dict[str, Any]], list[int]
-]:
+) -> tuple[list[Demand], dict[str, dict[str, Any]], list[int]]:
+    """Open demands with confirmed requirements, as a matching run freezes them."""
     selected = sorted(set(demand_ids))
     rows = db.execute(
         "SELECT d.*,v.jd_text_norm,q.jd_req_id,q.location_norm,q.onsite_required,"
@@ -119,6 +118,18 @@ def _inputs(
     skipped = sorted(
         set(selected if scope == "demands" else [r["demand_id"] for r in rows]) - included
     )
+    return demands, metadata, skipped
+
+
+def _inputs(
+    db: sqlite3.Connection,
+    scope: str,
+    demand_ids: Sequence[int],
+    config: DomainConfig,
+) -> tuple[
+    list[Demand], list[Resource], dict[str, list[SkillBasis]], dict[str, dict[str, Any]], list[int]
+]:
+    demands, metadata, skipped = load_demands(db, scope, demand_ids, config)
     resources = load_resources(db)
     cv_bases = load_cv_bases(db, config)
     return demands, resources, cv_bases, metadata, skipped
