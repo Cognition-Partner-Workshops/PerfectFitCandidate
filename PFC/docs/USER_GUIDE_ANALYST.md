@@ -1,6 +1,6 @@
-# PerfectFitCandidate — Analyst user guide (Phase 1)
+# PerfectFitCandidate — Analyst user guide
 
-This guide covers the Phase 1 screens as built in `PFC/frontend` against the `/api/v1` backend. Anything not yet available is marked **Pending** with the reason. Scores are relative matching metrics for human review, not hiring decisions.
+This guide covers the current screens as built in `PFC/frontend` against the `/api/v1` backend. Anything not yet available is marked **Pending** with the reason. Scores are relative matching metrics for human review, not hiring decisions.
 
 It also covers the shipped end-of-cycle, lifecycle history and Archive workflows.
 
@@ -61,7 +61,7 @@ The left panel has Dashboard, Demand List, Bench List, Match Results, Candidate 
 ### Task status popups
 
 Bottom-right task cards follow DL/CT uploads, auto-pickup, commits and discards, JD analysis,
-CV sync, matching and Chat questions across page navigation. Each shows **Started**, **In Progress**
+CV sync, matching, PDF reports and Chat questions across page navigation. Each shows **Started**, **In Progress**
 (with a percentage when available), **Completed**, **Failed** or **Cancelled**.
 Completed cards disappear after about ten seconds. Failed cards keep a safe,
 short reason until you close them; retry the action or contact your administrator.
@@ -250,16 +250,52 @@ Outlook integration is not verified in CI; CI uses simulated COM and calendar do
 
 ## 11. Dashboard
 
-The Dashboard is the landing page. It uses the latest completed scoring run; the run date and template version are shown in the header.
+The Dashboard is the landing page. Its current match population combines the latest completed scoring run per open demand; run information and the scoring template version are shown in the header.
 
-- **Filters:** the same filter bar as Match Results. The Grade filter applies to the demand's local grade, not the candidate's person grade.
+- **Filters:** the same filter bar as Match Results. Grade means demand grade in demand/result views and person grade in bench views. Filters apply to the relevant population: result-only band, mandatory-skill and score filters do not restrict independent demand/bench counts, email-status totals or the time-to-email trend. The funnel and accuracy metrics follow the selected matching pairs. Latest-ingestion quality counts are not entity-filtered.
 - **Sections:** Overview, Demand analytics, Bench analytics, Match & communication and Data quality.
 - **Overview tiles:** Requisitions assessed (of open requisitions), Role-to-person combinations, Roles with no suitable candidate and Data-quality limitations.
 - **Demand analytics:** open demand by BU and region, top skills, Grade → JD count, top accounts, start pipeline, and the DL table sorted by start date (newest first).
 - **Bench analytics:** top skills, the top-5 demanded skills against eligible bench supply split by Available Capacity Y/N (display only), grade histogram, bench timeline and aging, bench status distribution, and the CT table sorted by bench start date (newest first).
 - **Match & communication:** band distribution, email status counts and the validation checks.
 
-With no completed run yet, the tiles show zero and the charts are empty.
+Without a completed scoring run, match datasets are empty; demand, bench, ingestion and communication metrics can still be available. While filters update, previous values remain visible with **Updating analytics…**. Charts below the viewport render when scrolled into view. Use **View as table** to inspect chart values and **Show more** for additional table rows. Person emails in these extended cards are masked.
+
+### Extended charts
+
+| Chart | What it shows and how to read it |
+|---|---|
+| **DB-14 Demand grade × eligible bench grade** | Potential grade supply: open demand count × eligible bench count in each cell, in the configured grade order. `=` marks exact grade and `±1` adjacent grade; borders also distinguish them without colour. These are possible supply combinations, not scored matches. |
+| **DB-16 Match-score histogram** | Five-point score bins; the upper boundary is excluded except that the last bin includes 100. Switch **All pairs / Top-5**; Top-5 uses stored rank ≤5 per requisition. Lines mark 61/70/90. Analyst-excluded pairs are left out. |
+| **DB-17 Shortlist funnel** | Distinct requisitions with at least one non-excluded match → analyst-reviewed/shortlisted → email approved → email sent. Review uses the confirmation proxy below, not the automatic shortlist flag. |
+| **DB-18 Unmatched demands** | Open requisitions without a filtered effective Strong, Potential or Avg match. Start date is ascending, missing dates last. Reason chips describe available evidence: no person in grade window, mandatory skill gap, insufficient data, all candidates excluded, or other; they are not inferred explanations. |
+| **DB-19 Weekly time-to-email** | Median hours and percentage within 24 hours, grouped by UTC Monday week of sending. Time starts at the first DL ingestion, falling back to the selected demand run start. Invalid/missing/negative intervals are omitted; exactly 24 hours qualifies. Re-sends are separate samples. This is recorded sending/confirmation time, not proof of delivery. |
+| **DB-20 Readiness group × bench status** | Stacked counts of active resources by CT Group and bench status, not a scoring-derived readiness assessment. |
+| **DB-21 Demand region × person location** | Open region demand count × eligible bench-location count. Multi-valued locations split on slash, comma, semicolon or pipe and are deduplicated per person/location. One person can contribute to several cells. This is potential supply, not confirmed location alignment. |
+| **DB-22 Top-15 JD skill co-occurrence** | Confirmed canonical mandatory/preferred skills in open JDs, with the 15 most frequent skills. Each JD counts once per skill pair; the diagonal is each skill's JD frequency. |
+| **DB-24 Upskilling vs demanded skills** | Resources with CT status **Overall upskilling (New bench)**, their CT skills present/missing against the top five demanded skills, and their best filtered Match %. Missing scores are **Not recorded**, not zero. |
+| **DB-25 Auto-match accuracy by run** | Hit rate at 5 and precision at 5 against the analyst-confirmation proxy below. Ratios are **0–1**, not percentages. **No analyst-confirmed shortlists yet** is missing confirmation data, not zero accuracy. |
+| **DB-26 Exclusion reasons** | Stored reasons for noneligible active resources, with **other** when unspecified. One resource can have several reasons, so reason totals need not equal excluded headcount. |
+| **DB-27 Candidate type split** | Active resource counts classified as Internal, External or Unknown. |
+| **DB-28 Candidate contention** | Top 20 resources with Strong/Potential matches for more than one open requisition, ranked by distinct requisition count. This signals competing demand, not an assignment or reservation. |
+| **DB-29 Demand aging** | Days since first DL ingestion, falling back to demand creation, in 0–6, 7–13, 14–29, 30–59 and 60+ day buckets; future origins count as zero. **Unknown start** counts unavailable age origins. **Past start without match** counts DB-18 requisitions whose position start date is before today. |
+| **DB-30 Override rate per run** | Percentage of selected pairs with at least one active, nonrevoked override. The denominator includes analyst-excluded pairs. **By type** counts actions, not unique pairs, so those counts can exceed the number of overridden pairs. |
+
+### Analyst-confirmation proxy
+
+For DB-17 and DB-25, a pair is confirmed by an active analyst **pin/include**
+whose last shortlist action has not been superseded by **unpin**, or an email
+approval record/status for that demand/person pair. Analyst-excluded pairs are
+not confirmed. Automatically preselected shortlist rows alone do **not** count.
+
+- **Hit rate at 5:** confirmed requisitions with at least one confirmed pair at stored rank ≤5, divided by all confirmed requisitions in that run.
+- **Precision at 5:** confirmed pairs at stored rank ≤5, divided by the actual available non-excluded top-five rows for those confirmed requisitions, not a fixed five rows per requisition.
+- A missing denominator gives no ratio, not zero. Older pair-level email approvals can count in more than one contributing run. These are review/approval proxies, not independently labelled ground-truth accuracy or a staffing-success prediction.
+
+Demand and bench views use current records even when a specific run is selected;
+match views use that run's scored facts and effective overrides. Email-status
+and time-to-email metrics use current demand/person filters across runs, not only messages
+from the selected run. A PDF uses these same dataset definitions.
 
 ## 12. Export
 
@@ -273,7 +309,41 @@ The current Match Results view combines the latest completed run per open demand
 
 The current export starts with contributing-run metadata, then the disclaimer, then the result columns. Overridden-out rows are left out, and cells that start with a formula character are protected. The export applies the same filters as the grid. Every export is recorded in the audit log. Dashboard analytics use the same current per-demand run set unless a specific run is selected.
 
-PDF report download is Phase 2 (REQ-OUT-09).
+### PDF reports from Dashboard and Match Results
+
+Choose **PDF report** in either page header (REQ-OUT-09).
+
+1. Set **Scope** to **Current filters** to use that page's shared filters (and the Match Results grid's current sort), or **All** to ignore filters and use the report's default ordering.
+2. Select **Sections**. Dashboard offers **Cover and provenance**, **Summary and KPIs**, **Demand analytics**, **Bench analytics**, **Match & communication**, **Unmatched demands**, **Further analytics**, and **Data quality & scoring method**; select at least one. Match Results requires both **Cover and provenance** and **Match results**.
+3. Choose **Orientation**: Dashboard defaults to **Portrait**, Match Results to **Landscape**. Both can be changed.
+4. Choose **Generate**. The dialog closes and a **PDF report** task card appears at the bottom right. Generation is local and runs in the background, without an LLM, network service or browser renderer. Keep PFC running until it finishes; you can navigate to other pages meanwhile.
+5. When the card says **PDF report: Completed**, click its link to download `PFC-report-<job_id>.pdf`. You must still be signed in. Analysts can download their own reports; an Admin can download any completed report. If the card fails, review its safe error message and retry or contact your Admin.
+
+**Emails are always masked**, including emails embedded in evidence text, even
+if full emails are visible on screen or allowed in CSV/XLSX exports. There is no
+PDF unmask option. Reports can still contain names and staffing information;
+handle downloaded files under your organisation's data policy.
+
+PDF values come from the same analytics and current-results services as the
+screen: for the same scope, filters and source data, the numbers agree. Match %
+uses integer rounding and other dashboard percentages retain the screen's
+precision. This is not a screenshot: charts include values tables, even when
+the screen has not expanded every row; the histogram includes both population
+variants. Match Results is grouped by requisition with repeated column headers
+and wrapped evidence, gaps and eligibility checks, with a visible truncation
+note if more than **5,000 rows** match. Group order follows first appearance in
+the selected sort; ordering within a requisition is preserved. Reports do not
+update after later uploads, overrides or email activity: generate a new report
+for changed data. Each page reminds you that the shortlist needs human review,
+not an automated staffing decision.
+
+PFC keeps its server copy at `<data>/reports/<job_id>.pdf`; on the default Windows
+setup this is `%LOCALAPPDATA%\PFC\data\reports\<job_id>.pdf`, or `reports` under
+the `PFC_DATA_DIR` override. Browser downloads are separate copies. Completed
+task cards disappear after about ten seconds; dismissing a card does **not**
+delete its file. If you no longer have the link, you can generate another report.
+Server files persist until deleted; this change adds no automatic cleanup.
+Generation and downloads are audit-logged.
 
 ## 13. Your settings
 
@@ -326,7 +396,6 @@ changes still enter the normal OCC approval workflow.
 
 | Area | Status |
 |---|---|
-| PDF export | Phase 2 |
 | Lockout countdown on sign-in | Pending: the backend answers a locked account with 401 invalid credentials. The sign-in screen shows the lockout message on a 423, with a countdown when the reply carries `Retry-After` |
 
 ## 15. Chat with PFC data

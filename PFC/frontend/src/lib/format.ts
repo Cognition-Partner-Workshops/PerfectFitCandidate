@@ -21,6 +21,15 @@ export function formatPct(score: number): string {
   return `${Math.round(score)} %`
 }
 
+/** Service precision is preserved, matching the PDF values tables. */
+export function formatMetric(value: number | null | undefined): string {
+  return value == null ? 'Not recorded' : String(value)
+}
+
+export function formatServicePct(value: number): string {
+  return `${formatMetric(value)} %`
+}
+
 export function orNotRecorded(value: string | null | undefined): string {
   return value && value.trim() ? value : 'Not recorded'
 }

@@ -7,7 +7,10 @@
 import { ApiError, type ApiClient, type EmailList, type StatusMapData } from '../client'
 import { MaintenanceApi } from '../maintenance'
 import { applyChanges } from '../crud'
-import type { CvCompareScoring, CvComparison,
+import { emptyExtendedAnalytics } from '../reports'
+import type {
+  CvCompareScoring,
+  CvComparison,
   BulkAnalysis,
   JobItem,
   DocumentSummary,
@@ -304,6 +307,34 @@ function mockCvFacts(shortName: string, skills: string[], phoneMasked: string | 
 const needsAnalysis = (d: { jdStatus: JdStatus }) => d.jdStatus === 'Not analysed' || d.jdStatus === 'JD changed'
 
 export class MockApiClient implements ApiClient {
+  analyticsDashboard: ApiClient['analyticsDashboard'] = async (filters) => {
+    const [summary, demand, bench, match, extended] = await Promise.all([
+      this.analyticsSummary(filters), this.analyticsDemand(filters), this.analyticsBench(filters),
+      this.analyticsMatch(filters), this.analyticsExtended(filters),
+    ])
+    return { summary, demand, bench, match, extended }
+  }
+
+  private pdfJobs: JobItem[] = []
+
+  generatePdf: ApiClient['generatePdf'] = async () => {
+    this.currentUser()
+    const jobId = 100 + this.pdfJobs.length
+    const now = new Date().toISOString()
+    this.pdfJobs.push({ jobId, kind: 'pdf_report', status: 'completed', progress: 1, message: 'Job completed', label: 'PDF report', link: `/api/v1/reports/${jobId}/file`, createdAt: now, startedAt: now, finishedAt: now })
+    return this.done({ jobId })
+  }
+
+  analyticsExtended: ApiClient['analyticsExtended'] = async (filters) => {
+    this.currentUser()
+    const data = emptyExtendedAnalytics()
+    const { demands, resources, results } = this.filtered(filters)
+    data.shortlistFunnel = [{ label: 'Matched', count: new Set(results.map((r) => r.demandId)).size }]
+    data.unmatchedDemands = demands.filter((d) => !results.some((r) => r.demandId === d.demandId && ['Strong', 'Potential', 'Avg'].includes(r.effectiveBand ?? r.band))).map((d) => ({ demandId: d.demandId, codeRequisition: d.codeRequisition, positionStartDate: d.positionStartDate, reasonCodes: ['other'] }))
+    data.scoreHistogram.bins = Array.from({ length: 20 }, (_, n) => ({ lower: n * 5, upper: (n + 1) * 5, allPairs: results.filter((r) => Math.min(19, Math.floor(r.score / 5)) === n).length, top5: results.filter((r) => r.rank <= 5 && Math.min(19, Math.floor(r.score / 5)) === n).length }))
+    data.candidateTypes = ['Internal', 'External', 'Unknown'].map((label) => ({ label, count: resources.filter((r) => r.candidateType === label).length }))
+    return this.done(data)
+  }
   maintenance = new MaintenanceApi(async <T>(method: string, path: string) => {
     this.currentUser()
     const record = /^\/(demands|resources)\/(\d+)$/.exec(path)
@@ -379,6 +410,7 @@ export class MockApiClient implements ApiClient {
   }
 
   reset(): void {
+    this.pdfJobs = []
     this.state = initialState()
     seedEmails(this)
     this.save()
@@ -792,6 +824,7 @@ export class MockApiClient implements ApiClient {
     this.currentUser()
     const now = new Date().toISOString()
     return this.done([
+      ...this.pdfJobs,
       { jobId: 4, kind: 'cv_sync', status: 'completed', progress: 1, message: 'Job completed', label: 'CV Sync for 3 profiles', link: '/#/bench', createdAt: now, startedAt: now, finishedAt: now, skippedCount: 3, skippedFiles: [
         { file_name: 'Alex Morgan - CV.doc', reason: 'converter unavailable' },
         { file_name: 'Taylor - presentation.pptx', reason: 'format not selected' },

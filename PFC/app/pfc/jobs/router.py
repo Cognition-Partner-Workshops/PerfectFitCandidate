@@ -128,6 +128,11 @@ def presentation(job: Job) -> tuple[str, str | None]:
         return "Chat question", f"/#/chat?job={job.job_id}"
     if job.kind == "embed":
         return ("Model check" if params.get("model_type") == "llm" else "Re-indexing CVs"), None
+    if job.kind == "pdf_report":
+        return (
+            "PDF report",
+            f"/api/v1/reports/{job.job_id}/file" if job.status == "completed" else None,
+        )
     if job.kind in {"archive", "archive_purge", "housekeeping"}:
         return {
             "archive": "Archive records",

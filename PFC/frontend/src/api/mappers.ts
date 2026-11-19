@@ -2,6 +2,7 @@
  * Backend (Pydantic, snake_case) ↔ SPA DTO mappers for merged `/api/v1` endpoints (TDD.md §12).
  * Shapes observed from the running backend; SQLite booleans arrive as 0/1.
  */
+import type { ResultsQuery } from './reports'
 import type {
   JobItem,
   ApprovalEntry,
@@ -697,6 +698,18 @@ export const toDashboardQuery = (f: ResultFilters): DashboardFilters => {
   for (const k of DASHBOARD_KEYS) if (f[k] !== undefined && (!Array.isArray(f[k]) || f[k].length > 0)) out[k] = f[k]
   if (f.demandGrade) out.grade = f.demandGrade
   return out as DashboardFilters
+}
+
+export const toResultsReportQuery = (filters: ResultFilters, grouped: boolean): ResultsQuery => {
+  const { codeRequisition, accountName, location, ...rest } = filters
+  return {
+    ...rest,
+    ...(codeRequisition && { requisition: codeRequisition.map((v) => v.trim()) }),
+    ...(accountName && { account: accountName }),
+    ...(location && { personLocation: location }),
+    sort: grouped ? 'rank' : 'score',
+    descending: !grouped,
+  }
 }
 
 /** `/analytics/*` replies are camelCase `pfc.api.schemas.analytics` models; normalise optional parts. */

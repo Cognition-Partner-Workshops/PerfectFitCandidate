@@ -1,18 +1,20 @@
 import { useEffect, useRef } from 'react'
 import * as echarts from 'echarts/core'
-import { BarChart, GaugeChart, PieChart, ScatterChart } from 'echarts/charts'
+import { BarChart, FunnelChart, GaugeChart, HeatmapChart, LineChart, PieChart, ScatterChart } from 'echarts/charts'
 import {
   AriaComponent,
   DatasetComponent,
   GridComponent,
   LegendComponent,
+  MarkLineComponent,
   TooltipComponent,
+  VisualMapComponent,
 } from 'echarts/components'
 import { SVGRenderer } from 'echarts/renderers'
 import type { EChartsCoreOption } from 'echarts/core'
 
 // Tree-shaken Apache ECharts (DASHBOARD_RESEARCH.md §7) with the SVG renderer.
-echarts.use([BarChart, PieChart, ScatterChart, GaugeChart, GridComponent, TooltipComponent, LegendComponent, DatasetComponent, AriaComponent, SVGRenderer])
+echarts.use([BarChart, PieChart, ScatterChart, GaugeChart, HeatmapChart, FunnelChart, LineChart, MarkLineComponent, VisualMapComponent, GridComponent, TooltipComponent, LegendComponent, DatasetComponent, AriaComponent, SVGRenderer])
 
 import { CHART_PALETTE } from '../lib/chartPalette'
 
@@ -28,6 +30,7 @@ export function EChart({ option, height = 260, ariaLabel, onSelect }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const chartRef = useRef<echarts.ECharts | null>(null)
   const selectRef = useRef(onSelect)
+  const revision = useRef(0)
 
   useEffect(() => {
     selectRef.current = onSelect
@@ -61,6 +64,7 @@ export function EChart({ option, height = 260, ariaLabel, onSelect }: Props) {
       },
       true,
     )
+    if (ref.current) ref.current.dataset.chartRevision = String(++revision.current)
   }, [option])
 
   return <div ref={ref} className="chart" style={{ height }} role="img" aria-label={ariaLabel} />

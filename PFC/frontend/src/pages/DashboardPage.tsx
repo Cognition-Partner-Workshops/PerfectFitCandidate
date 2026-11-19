@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { DataChangedBanner } from '../components/DataChangedBanner'
+import { ExtendedAnalyticsSection } from '../components/ExtendedAnalytics'
+import { PdfReportButton } from '../components/PdfReportButton'
 import { useResultFilters } from '../lib/FilterProvider'
 import { runMode } from '../lib/runMode'
 import type { EChartsCoreOption } from 'echarts/core'
@@ -12,7 +14,7 @@ import { EChart } from '../components/EChart'
 import { CHART_PALETTE } from '../lib/chartPalette'
 import { FilterBar } from '../components/FilterBar'
 import { Banner, BandChip, ChartCard, EligibilityBadge, ErrorState, KpiTile, Spinner } from '../components/ui'
-import { formatDate, formatDateTime, roleLocation } from '../lib/format'
+import { formatDate, formatDateTime, formatServicePct, roleLocation } from '../lib/format'
 import { applyResultFilters, distinct } from '../lib/filters'
 import { bandColorVar, bandLabel } from '../lib/bands'
 import type { Band } from '../api/types'
@@ -65,8 +67,9 @@ export function DashboardPage() {
   const { filters, setFilters } = useResultFilters()
   const [section, setSection] = useState<Section>('overview')
   const df: DashboardFilters = useMemo(() => toDashboardQuery(filters), [filters])
-  const summary = useQuery({ queryKey: ['analytics', 'summary', df], queryFn: () => api.analyticsSummary(df) })
-  const demand = useQuery({ queryKey: ['analytics', 'demand', df], queryFn: () => api.analyticsDemand(df) })
+  const analytics = useQuery({ queryKey: ['analytics', 'dashboard', df], queryFn: () => api.analyticsDashboard(df), placeholderData: keepPreviousData })
+  const summary = { ...analytics, data: analytics.data?.summary }
+  const demand = { ...analytics, data: analytics.data?.demand }
   const currentResults = useQuery({
     queryKey: ['current-results', 'rows'],
     queryFn: () => api.getCurrentResults(),
@@ -76,8 +79,9 @@ export function DashboardPage() {
     queryFn: () => api.getCurrentResultsSummary(),
     enabled: df.runId === undefined,
   })
-  const bench = useQuery({ queryKey: ['analytics', 'bench', df], queryFn: () => api.analyticsBench(df) })
-  const match = useQuery({ queryKey: ['analytics', 'match', df], queryFn: () => api.analyticsMatch(df) })
+  const bench = { ...analytics, data: analytics.data?.bench }
+  const match = { ...analytics, data: analytics.data?.match }
+  const extended = { ...analytics, data: analytics.data?.extended }
   // The run list is capped at the newest 50 runs, so look up the summary's run by id. Refetch on mount and focus so a
   // data change made elsewhere since the last visit shows up.
   const shownRunId = summary.data?.run?.runId
@@ -120,7 +124,7 @@ export function DashboardPage() {
   const show = (id: Section) => section === 'overview' || section === id
 
   return (
-    <div className="page">
+    <div className="page" data-analytics-updated={analytics.dataUpdatedAt}>
       {shownRun.data && (
         <DataChangedBanner
           run={shownRun.data}
@@ -129,6 +133,7 @@ export function DashboardPage() {
       )}
       <div className="page-header">
         <h1>Dashboard</h1>
+        <PdfReportButton report="dashboard" filters={df} />
         <span className="spacer" />
         {s?.run && (
           <span className="meta">
@@ -140,6 +145,7 @@ export function DashboardPage() {
       <div className="card">
         <FilterBar value={filters} onChange={setFilters} options={options} />
       </div>
+      {analytics.isPlaceholderData && <Banner tone="info">Updating analytics…</Banner>}
       {!s ? (
         <Spinner />
       ) : (
@@ -163,8 +169,8 @@ export function DashboardPage() {
           <div className="strip">
             <span>Eligible bench <strong>{s.eligibleBench}</strong></span>
             <span>Excluded <strong>{s.excludedBench}</strong></span>
-            <span>Match coverage <strong>{s.matchCoveragePct} %</strong></span>
-            <span>Emails sent ≤ 24 h <strong>{s.emailsWithin24hPct} %</strong></span>
+            <span>Match coverage <strong>{formatServicePct(s.matchCoveragePct)}</strong></span>
+            <span>Emails sent ≤ 24 h <strong>{formatServicePct(s.emailsWithin24hPct)}</strong></span>
           </div>
         </>
       )}
@@ -195,7 +201,7 @@ export function DashboardPage() {
                     regions.map((rg) => ({
                       name: rg,
                       stack: 'r',
-                      data: bus.map((b) => demand.data.openByBuRegion.find((x) => x.bu === b && x.region === rg)?.count ?? 0),
+                      data: bus.map((b) => demand.data?.openByBuRegion.find((x) => x.bu === b && x.region === rg)?.count ?? 0),
                     })),
                   )}
                 />
@@ -269,6 +275,8 @@ export function DashboardPage() {
           </section>
         </div>
       )}
+
+      {show('demand') && <ExtendedAnalyticsSection section="demand" data={extended.data} pending={extended.isPending} error={extended.error} onRetry={() => void extended.refetch()} />}
 
       {show('bench') && bench.data && (
         <div className="grid-12" aria-label="Bench analytics">
@@ -413,6 +421,8 @@ export function DashboardPage() {
         </div>
       )}
 
+      {show('bench') && <ExtendedAnalyticsSection section="bench" data={extended.data} pending={extended.isPending} error={extended.error} onRetry={() => void extended.refetch()} />}
+
       {show('match') && match.data && (
         <div className="grid-12" aria-label="Match and communication analytics">
           <ChartCard title="Match coverage" subtitle="Demands with ≥ 1 Strong/Potential match" table={{ columns: ['Coverage %'], rows: [[match.data.coveragePct]] }}>
@@ -481,6 +491,10 @@ export function DashboardPage() {
           </ChartCard>
         </div>
       )}
+
+      {show('match') && <ExtendedAnalyticsSection section="match" data={extended.data} pending={extended.isPending} error={extended.error} onRetry={() => void extended.refetch()} />}
+
+      {show('quality') && <ExtendedAnalyticsSection section="quality" data={extended.data} pending={extended.isPending} error={extended.error} onRetry={() => void extended.refetch()} />}
 
       {show('quality') && match.data && (
         <section className="card" aria-label="Validation panel">

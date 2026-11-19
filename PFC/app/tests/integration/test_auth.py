@@ -1,5 +1,7 @@
+import sqlite3
 import threading
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -9,13 +11,13 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from pfc.config import Settings
-from pfc.db import audit, users
+from pfc.db import audit, sessions, users
 from pfc.db.connection import database
 from pfc.main import create_app
 from pfc.security.dependencies import require_role
 from pfc.security.passwords import hasher, validate_password
 from pfc.security.problems import Problem
-from pfc.security.sessions import stamp
+from pfc.security.sessions import digest, stamp
 from pfc.security.setup import code_path
 
 PASSWORD = "Strong!Random4567"
@@ -171,6 +173,75 @@ def test_lockout(client: TestClient) -> None:
             db.execute("SELECT count(*) FROM audit_log WHERE action='LOCKOUT'").fetchone()[0] == 1
         )
         assert users.get_user_by_email(db, "owner@example.com").failed_attempts == 0
+
+
+def test_concurrent_reads_with_busy_session_touch(client: TestClient) -> None:
+    setup(client)
+    login(client)
+    now = client.app.state.now
+    settings = client.app.state.settings
+    client.app.state.now += timedelta(seconds=20)
+    paths = [
+        "/api/v1/auth/me",
+        *[f"/api/v1/analytics/{p}" for p in ("summary", "demand", "bench", "match", "extended")],
+    ]
+    with database(settings) as writer:
+        writer.execute("BEGIN IMMEDIATE")
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            responses = list(pool.map(client.get, paths * 2))
+        assert [(r.status_code, r.text) for r in responses if r.status_code != 200] == []
+        assert writer.execute("SELECT last_seen_at FROM sessions").fetchone()[0] == stamp(now)
+    client.app.state.now = now + timedelta(minutes=settings.idle_timeout_min)
+    assert client.get("/api/v1/auth/me").status_code == 401
+
+
+def test_session_refresh_preserves_idle_absolute_and_monotonicity(client: TestClient) -> None:
+    setup(client)
+    login(client)
+    settings = client.app.state.settings
+    start = client.app.state.now
+    client.app.state.now += timedelta(minutes=settings.idle_timeout_min, seconds=-1)
+    assert client.get("/api/v1/auth/me").status_code == 200
+    last = client.app.state.now
+    with database(settings) as db:
+        token = client.cookies.get("pfc_session")
+        assert token is not None
+        session = sessions.get_session_by_token_hash(db, digest(token))
+        assert session is not None
+        assert session.last_seen_at == stamp(last)
+        sessions.touch_session(
+            db, session.session_id, stamp(start), stamp(start + timedelta(minutes=1))
+        )
+        assert sessions.get_session_by_token_hash(db, session.token_hash) == session
+        sessions.touch_session(
+            db, session.session_id, session.expires_at, session.expires_at, require_active=True
+        )
+        assert sessions.get_session_by_token_hash(db, session.token_hash) == session
+    client.app.state.now = last + timedelta(minutes=settings.idle_timeout_min)
+    assert client.get("/api/v1/auth/me").status_code == 401
+    login(client)
+    with database(settings) as db:
+        db.execute(
+            "UPDATE sessions SET expires_at=?", (stamp(client.app.state.now + timedelta(days=1)),)
+        )
+    client.app.state.now += timedelta(hours=settings.absolute_timeout_h)
+    assert client.get("/api/v1/auth/me").status_code == 401
+
+
+def test_session_refresh_does_not_hide_other_database_errors(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    setup(client)
+    login(client)
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise sqlite3.OperationalError("not a lock failure")
+
+    monkeypatch.setattr(sessions, "touch_session", fail)
+    assert client.get("/api/v1/auth/me").status_code == 200
+    assert "Session activity refresh failed (OperationalError)" in caplog.text
+    client.app.state.now += timedelta(minutes=client.app.state.settings.idle_timeout_min)
+    assert client.get("/api/v1/auth/me").status_code == 401
 
 
 def test_role_and_password_change(client: TestClient) -> None:

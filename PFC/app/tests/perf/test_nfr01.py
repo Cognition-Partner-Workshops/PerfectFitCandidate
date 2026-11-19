@@ -17,6 +17,7 @@ from typing import Any, Literal
 import pytest
 from fastapi.testclient import TestClient
 
+from pfc.api.schemas.reports import PdfRequest
 from pfc.config import Settings
 from pfc.db.connection import database
 from pfc.domain.config_loader import load_domain_config
@@ -27,13 +28,22 @@ from pfc.services.matching import MatchingPorts
 from pfc.services.matching.ports import ChunkOwner, Task
 from pfc.services.matching.runs import _inputs
 from pfc.services.matching.semantic import VectorCache
+from pfc.services.reports.builder import build_pdf
+from pfc.services.reports.data import collect
 from scripts.generate_uat_data import LOCATIONS, SEED, SKILLS
 
 SIZE = 500
 SAMPLES = 3
 MATCH_LIMIT_SECONDS = 180.0
 DEMAND_LIST_LIMIT_SECONDS = 2.0
-ANALYTICS_LIMIT_SECONDS = {"summary": 2.0, "demand": 2.0, "bench": 2.0, "match": 2.0}
+ANALYTICS_LIMIT_SECONDS = {
+    "summary": 2.0,
+    "demand": 2.0,
+    "bench": 2.0,
+    "match": 2.0,
+    "extended": 2.0,
+    "dashboard": 2.0,
+}
 NOW = datetime(2026, 11, 6, tzinfo=UTC)
 PASSWORD = "Strong!Random4567"
 
@@ -337,8 +347,11 @@ def test_nfr01_matching_and_analytics(tmp_path: Path) -> None:
             pairs = run["pairs_scored"]
             assert pairs > 50000, "Do not silently benchmark an empty or mostly excluded run"
         analytics: dict[str, Any] = {}
-        for panel in ("summary", "demand", "bench", "match"):
+        panel_values: dict[str, Any] = {}
+        for panel in ("summary", "demand", "bench", "match", "extended", "dashboard"):
             url = f"/api/v1/analytics/{panel}?runId={run_id}"
+            if panel == "dashboard":
+                url += "&scoreMin=0"
             response = client.get(url)
             assert response.status_code == 200, response.text
             samples = []
@@ -353,8 +366,18 @@ def test_nfr01_matching_and_analytics(tmp_path: Path) -> None:
                 assert payload["eligibleBench"] == 400 and payload["excludedBench"] == 100
             elif panel in {"demand", "bench"}:
                 assert len(payload["rows"]) == SIZE
-            else:
+            elif panel == "match":
                 assert sum(item["count"] for item in payload["bandDistribution"]) == pairs
+            elif panel == "dashboard":
+                assert payload == panel_values
+            else:
+                assert sum(b["allPairs"] for b in payload["scoreHistogram"]["bins"]) == pairs
+                assert sum(c["count"] for c in payload["gradeMatrix"]) == SIZE * 400
+                assert sum(c["count"] for c in payload["candidateTypes"]) == SIZE
+                assert sum(c["count"] for c in payload["demandAging"]["buckets"]) == SIZE
+                assert payload["scoreHistogram"]["thresholds"] == [61, 70, 90]
+            if panel != "dashboard":
+                panel_values[panel] = payload
             analytics[panel] = {
                 "samples_seconds": samples,
                 "median_seconds": statistics.median(samples),
@@ -373,6 +396,20 @@ def test_nfr01_matching_and_analytics(tmp_path: Path) -> None:
             "samples_seconds": list_samples,
             "median_seconds": statistics.median(list_samples),
         }
+        pdf_timings = {}
+        for report_type in ("dashboard", "match_results"):
+            started = time.perf_counter()
+            with database(settings) as db:
+                data = collect(
+                    db, PdfRequest.model_validate({"report": report_type}), "Perf analyst", NOW
+                )
+            content = build_pdf(data)
+            elapsed = time.perf_counter() - started
+            assert content.startswith(b"%PDF-")
+            pdf_timings[report_type] = {"seconds": elapsed, "bytes": len(content)}
+            assert elapsed < 60, pdf_timings
+            if report_type == "match_results":
+                assert len(data.results) == 5000 and data.total == pairs
         report = {
             "label": "Linux CI/VM, not target laptop",
             "seed": SEED,
@@ -382,6 +419,7 @@ def test_nfr01_matching_and_analytics(tmp_path: Path) -> None:
             "match_seconds": match_seconds,
             "analytics": analytics,
             "demand_list": demand_list,
+            "pdf_generation": pdf_timings,
             "provenance": provenance(),
             "thresholds_seconds": {
                 "match": MATCH_LIMIT_SECONDS,

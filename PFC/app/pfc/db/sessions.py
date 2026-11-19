@@ -40,11 +40,19 @@ def create_session(
     return session
 
 
-def touch_session(db: sqlite3.Connection, session_id: int, now: str, expires_at: str) -> None:
+def touch_session(
+    db: sqlite3.Connection,
+    session_id: int,
+    now: str,
+    expires_at: str,
+    *,
+    require_active: bool = False,
+) -> None:
     db.execute(
         "UPDATE sessions SET last_seen_at=?, expires_at=? "
-        "WHERE session_id=? AND revoked_at IS NULL",
-        (now, expires_at, session_id),
+        "WHERE session_id=? AND revoked_at IS NULL AND last_seen_at<=? "
+        "AND (?=0 OR expires_at>?)",
+        (now, expires_at, session_id, now, require_active, now),
     )
 
 

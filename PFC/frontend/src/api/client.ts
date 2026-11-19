@@ -1,3 +1,4 @@
+import type { DashboardAnalytics, ExtendedAnalytics, PdfRequest } from './reports'
 import type { MaintenanceApi } from './maintenance'
 import type {
   BulkAnalysis,
@@ -217,6 +218,9 @@ export interface ApiClient {
   analyticsBench(filters: DashboardFilters): Promise<BenchAnalytics>
   /** GET /analytics/match */
   analyticsMatch(filters: DashboardFilters): Promise<MatchAnalytics>
+  analyticsExtended(filters: DashboardFilters): Promise<ExtendedAnalytics>
+  analyticsDashboard(filters: DashboardFilters): Promise<DashboardAnalytics>
+  generatePdf(request: PdfRequest): Promise<{ jobId: number }>
 
   /** POST /emails/drafts */
   createDrafts(resultIds: number[], runId?: number): Promise<EmailDraft[]>

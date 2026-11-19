@@ -18,6 +18,8 @@ import { useAuth } from '../auth/context'
 import { canEdit } from '../lib/permissions'
 import { groupExcluded, type ExcludedPerson } from '../lib/excluded'
 import { DataChangedBanner } from '../components/DataChangedBanner'
+import { PdfReportButton } from '../components/PdfReportButton'
+import { toResultsReportQuery } from '../api/mappers'
 import { useResultFilters } from '../lib/FilterProvider'
 import { runMode } from '../lib/runMode'
 
@@ -311,6 +313,7 @@ export function MatchResultsPage() {
   if (!run) {
     return (
       <div className="page">
+        <div className="page-header"><h1>Match Results</h1><PdfReportButton report="match_results" resultFilters={toResultsReportQuery(filters, grouped)} /></div>
         {newer && (
           <Banner tone="info">
             Scoring run {newer.runId} is {progress.data?.status ?? newer.status}. {run ? 'Showing the last completed results until it finishes.' : 'Results appear when it finishes.'}
@@ -336,6 +339,7 @@ export function MatchResultsPage() {
       <DataChangedBanner run={run} summary={summary.data} />
       <div className="page-header">
         <h1>Match Results</h1>
+        <PdfReportButton report="match_results" resultFilters={toResultsReportQuery(filters, grouped)} />
         <span className="meta">
           {meta} {user?.role === 'Analyst' && '(read-only)'} · {all.length} rows
         </span>

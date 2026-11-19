@@ -1,6 +1,6 @@
-# PerfectFitCandidate — OCC Admin guide (Phase 1)
+# PerfectFitCandidate — OCC Admin guide
 
-OCC (Object Control Center) is the Admin-only area for users, reference data, matching configuration, audit and settings packages. This guide covers the Phase 1 screens as built in `PFC/frontend` against the `/api/v1` backend. Anything not yet available is marked **Pending**. Every OCC change is audit-logged.
+OCC (Object Control Center) is the Admin-only area for users, reference data, matching configuration, audit and settings packages. This guide covers the current screens as built in `PFC/frontend` against the `/api/v1` backend. Anything not yet available is marked **Pending**. Every OCC change is audit-logged.
 
 Shipped archival, retention purge and housekeeping workflows are covered in section 17.
 
@@ -223,9 +223,61 @@ Filter by entity `chat` for `CHAT_QUESTION`, `CHAT_ANSWER` and
 plus the answer outcome and source IDs. The masked conversation is held in the
 local database (migration 0017) and is accessible in Chat to its author.
 
+For PDF reports, filter by entity `job` and action **PDF_GENERATE** or
+**PDF_DOWNLOAD**. Successful generation records the actor, job ID, report type,
+scope, sections, orientation, effective masked filters and emitted/total row
+counts. Download records the actor and job ID. PDF bytes and report evidence
+are not copied into audit details. These events use the existing append-only,
+hash-chained audit log; deleting a report file does not erase its audit history.
+
 ## 15. Admin settings
 
 **OCC → Admin settings** holds instance-wide settings such as sign-in lockout limits, minimum password lengths, whether Analysts may unmask emails (this also controls whether Analysts can export results with full emails) and the number of pre-selected emails per requisition. **Admin settings saved.** confirms a save.
+
+### PDF report storage and access
+
+Analysts and Admins can generate a **PDF report** from Dashboard or Match Results.
+The local background job writes `<data>/reports/<job_id>.pdf` atomically; an
+in-progress `.pdf.part` file is not a completed download. The default Windows
+location is `%LOCALAPPDATA%\PFC\data\reports\<job_id>.pdf`; with `PFC_DATA_DIR` set,
+reports are stored under that directory instead, not inside the extracted application ZIP.
+Browser downloads are separate copies.
+
+**Files persist until deleted. No automatic report cleanup or retention limit
+is introduced in this change.** Dismissing or automatically hiding a task card
+does not remove its PDF. Include `reports` in local storage/backup and retention
+planning. Remove completed files only under your organisation's policy; deleting
+one makes its download unavailable, without removing the job/audit record or
+copies already downloaded. There is no report-deletion screen in this change.
+
+The authenticated download is `GET /api/v1/reports/<job_id>/file`. An Analyst
+can download only their own completed report; **an Admin can download any
+completed report**, including another user's. An unavailable, incomplete or
+unauthorised report returns **404**. This is a download endpoint, not a public
+file share or a new OCC report-history page. Keep the data directory protected
+by the existing filesystem permissions.
+
+PDF emails are **always masked**, including evidence text, regardless of the
+Analyst unmask setting. Names and other staffing information can remain, so
+masking does not make a report anonymous. Values use the same analytics/results
+services, filters and formatting as the screen, subject to the chosen scope,
+sections and 5,000-result cap. See the analyst guide's
+[PDF workflow](USER_GUIDE_ANALYST.md#pdf-reports-from-dashboard-and-match-results).
+
+The portable Windows ZIP bundles the hash-locked PDF runtime dependencies:
+
+| Package | Version | Licence |
+|---|---|---|
+| ReportLab | 5.1.0 | BSD |
+| Pillow | 13.0.0 | MIT-CMU |
+| charset-normalizer | 3.5.2 | MIT |
+
+ReportLab renders PDFs locally with its bundled fonts and graphics; Pillow and
+charset-normalizer are its dependencies. Users do not install these packages
+separately. PDF generation needs no LLM, network service, Edge/Chrome executable
+or additional system fonts. The existing packaging build downloads verified
+Windows wheels from `PFC/packaging/requirements.lock` and vendors them into the
+embedded Python runtime; all three entries travel in the ZIP.
 
 ### Outlook follow-up reminder
 
