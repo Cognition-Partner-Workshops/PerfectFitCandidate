@@ -10,6 +10,23 @@ from pfc.api.schemas.chat import ChatAnswer
 from pfc.services.chat_intent import InvalidLookup, Lookup, ModelUnavailable, classify
 from pfc.services.chat_sql import QueryRejected
 
+MAX_CORRECTION_RESPONSE_CHARS = 1800
+
+
+def _correction(response: str | None, error: str) -> list[dict[str, str]]:
+    messages = []
+    if response:
+        messages.append({"role": "assistant", "content": response[:MAX_CORRECTION_RESPONSE_CHARS]})
+    messages.append(
+        {
+            "role": "user",
+            "content": error[:350] + ". Return corrected schema-valid JSON. Use intent=query for "
+            "data questions outside the exact fixed examples; unsupported for forbidden requests. "
+            "Use only the documented safe views and preserve every requested filter.",
+        }
+    )
+    return messages
+
 
 @dataclass
 class ChatResult:
@@ -42,9 +59,12 @@ async def answer_question(
                 text=("The local model is unavailable. Check the active model and retry."),
             )
             break
-        except InvalidLookup:
-            result.error = "Invalid structured lookup"
-            break
+        except InvalidLookup as exc:
+            result.error = "Invalid structured lookup: " + str(exc)
+            if attempt == 2:
+                break
+            corrections = _correction(exc.response, "Lookup rejected: " + str(exc))
+            continue
         result.lookup = lookup
         if lookup.sql:
             result.attempted_sql.append(lookup.sql)
@@ -56,15 +76,8 @@ async def answer_question(
             result.error = str(exc)
             if attempt == 2:
                 break
-            corrections.extend(
-                [
-                    {"role": "assistant", "content": lookup.model_dump_json(exclude_none=True)},
-                    {
-                        "role": "user",
-                        "content": "SQL rejected: "
-                        + str(exc)[:300]
-                        + ". Correct the query using only safe views.",
-                    },
-                ]
+            corrections = _correction(
+                lookup.model_dump_json(exclude_none=True),
+                "SQL rejected: " + str(exc),
             )
     return result
