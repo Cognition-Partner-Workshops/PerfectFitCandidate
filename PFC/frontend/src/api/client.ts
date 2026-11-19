@@ -37,6 +37,7 @@ import type {
   InternalDomain,
   JdRequirements,
   LlmModel,
+  LlmHealth,
   LoginRequest,
   MatchAnalytics,
   MatchOverride,
@@ -253,6 +254,7 @@ export interface ApiClient {
   saveMySettings(settings: PersonalSettings): Promise<PersonalSettings>
   /** GET /llm/models */
   listModels(): Promise<LlmModel[]>
+  getLlmHealth(): Promise<LlmHealth>
   /** POST /settings/settings-package/preview */
   previewPackage(file: File): Promise<PackagePreview>
   /** POST /settings/settings-package/import */

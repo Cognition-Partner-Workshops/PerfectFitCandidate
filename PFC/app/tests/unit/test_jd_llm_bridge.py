@@ -6,7 +6,7 @@ from typing import Any
 import anyio
 import pytest
 
-from pfc.adapters.llm.providers import FakeProvider, GenerateResult, PromptRequest
+from pfc.adapters.llm.providers import Capabilities, FakeProvider, GenerateResult, PromptRequest
 from pfc.services.matching import llm_bridge
 from pfc.services.matching.llm_bridge import JdLlmBridge, _ground_skills, jd_generation_schema
 from pfc.services.matching.requirements import Requirements
@@ -189,6 +189,25 @@ class CapturingProvider(FakeProvider):
     ) -> GenerateResult:
         self.requests.append(request)
         return GenerateResult(self.text, "fake", "fake-v1")
+
+
+def test_thinking_scales_outer_and_request_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    class ThinkingProvider(CapturingProvider):
+        def capabilities(self) -> Capabilities:
+            return Capabilities(thinking=True)
+
+    provider = ThinkingProvider('{"mandatory_skills":[],"preferred_skills":[]}')
+    original = llm_bridge.asyncio.timeout
+    seen = []
+
+    def timeout(delay: float):
+        seen.append(delay)
+        return original(delay)
+
+    monkeypatch.setattr(llm_bridge.asyncio, "timeout", timeout)
+    anyio.run(JdLlmBridge(provider)._extract, "No requirements")
+    assert seen == [360]
+    assert provider.requests[0].timeout_s == 360
 
 
 def test_bridge_corrects_captured_jd05_with_internal_provenance() -> None:

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ast
+import hashlib
+import json
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -8,6 +10,39 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+
+
+@pytest.mark.parametrize("case", ["valid", "empty", "missing", "bad_hash"])
+def test_bundled_models_skip_optional(tmp_path: Path, case: str) -> None:
+    source = Path(__file__).resolve().parents[1] / "offline_smoke.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    helper = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "verify_bundled_models"
+    )
+    namespace: dict[str, Any] = {
+        "Path": Path,
+        "Any": Any,
+        "json": json,
+        "hashlib": hashlib,
+    }
+    exec(compile(ast.Module(body=[helper], type_ignores=[]), str(source), "exec"), namespace)
+    models = [{"file": "thinking.gguf", "optional": True, "sha256": "not downloaded"}]
+    if case != "empty":
+        models.append({"file": "instruct.gguf", "sha256": hashlib.sha256(b"model").hexdigest()})
+        (tmp_path / "models").mkdir()
+        if case != "missing":
+            (tmp_path / "models" / "instruct.gguf").write_bytes(
+                b"corrupted" if case == "bad_hash" else b"model"
+            )
+    (tmp_path / "MODELS.lock").write_text(json.dumps(models))
+    verify = namespace["verify_bundled_models"]
+    if case in {"valid", "empty"}:
+        assert verify(tmp_path) == models[1:]
+    else:
+        with pytest.raises(FileNotFoundError if case == "missing" else AssertionError):
+            verify(tmp_path)
 
 
 @pytest.fixture

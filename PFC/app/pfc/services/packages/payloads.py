@@ -72,6 +72,8 @@ TABLES: dict[str, tuple[str, ...]] = {
         "licence",
         "approved",
         "benchmark_json",
+        "thinking",
+        "kv_bytes_per_token",
         "is_active",
     ),
     "llm_providers": (
@@ -248,6 +250,11 @@ def decode_snapshot(payloads: dict[str, Any]) -> Snapshot:
     }
     for name in names:
         rows = payloads[f"{name}.v{version}.json"]
+        if name == "llm_models" and isinstance(rows, list):
+            rows = [
+                {"thinking": 0, "kv_bytes_per_token": None, **row} if isinstance(row, dict) else row
+                for row in rows
+            ]
         columns = TABLES.get(name, extra_columns.get(name, ()))
         if name == "skill_synonyms" and version == SETTINGS_SCHEMA:
             columns = SYNONYM_COLUMNS

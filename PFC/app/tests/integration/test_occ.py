@@ -10,7 +10,7 @@ from unittest.mock import Mock
 import pytest
 from fastapi.testclient import TestClient
 
-from pfc.adapters.llm.supervisor import LlamaServerSupervisor
+from pfc.adapters.llm.supervisor import LlamaServerSupervisor, ResolvedModel
 from pfc.api.schemas.llm import LlmHealth
 from pfc.config import Settings
 from pfc.db import audit, users
@@ -75,6 +75,32 @@ def _scoring_template_seed():
     data.pop("name")
     data.pop("version")
     return weights, data
+
+
+@pytest.mark.parametrize("value", [2048, 32768, "8192", True])
+def test_context_rejects_invalid(client: TestClient, value: Any) -> None:
+    login(client)
+    assert client.put("/api/v1/occ/settings", json={"llm.ctx_size": value}).status_code == 422
+
+
+@pytest.mark.parametrize("value", [4096, 8192, 16384])
+def test_context_audit_and_restart(
+    client: TestClient, value: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    login(client)
+    restarted = []
+
+    async def restart(settings, state):
+        restarted.append(True)
+
+    monkeypatch.setattr("pfc.api.routers.occ.restart_selected_model", restart)
+    response = client.put("/api/v1/occ/settings", json={"llm.ctx_size": value})
+    assert response.status_code == 200, response.text
+    assert restarted == [True]
+    with database(client.app.state.settings) as db:
+        assert db.execute(
+            "SELECT 1 FROM audit_log WHERE action='SETTING_CHANGE' AND entity_id='llm.ctx_size'"
+        ).fetchone()
 
 
 def _seed_active_scoring_template(client: TestClient, weights=None) -> int:
@@ -986,19 +1012,31 @@ def test_model_approval_schedules_after_commit(client: TestClient, tmp_path: Pat
             self.proc = Mock()
             self.proc.poll.return_value = None if model else 0
             if model:
-                self.model_name, self.model_path = model
+                self.model_name, self.model_path, self.thinking, self.ctx_size = model
 
     probe = Probe(settings)
     client.app.state.llm_supervisor = probe
     login(client)
     assert client.put("/api/v1/occ/llm-models/1", json={"approved": True}).status_code == 200
-    assert probe.selections == [("Qwen3-4B-Instruct-2507", (tmp_path / "one.gguf").resolve())]
+    assert probe.selections == [
+        ResolvedModel(
+            "Qwen3-4B-Instruct-2507",
+            (tmp_path / "one.gguf").resolve(),
+            False,
+            client.app.state.settings.llm_ctx_size,
+        )
+    ]
     assert client.put("/api/v1/occ/llm-models/1", json={"approved": False}).status_code == 200
     assert probe.selections[-1] is None
     assert probe.model_name == "Qwen3-4B-Instruct-2507"
     assert client.put("/api/v1/occ/llm-models/1", json={"approved": True}).status_code == 200
     assert len(probe.selections) == 3
-    assert probe.selections[-1] == ("Qwen3-4B-Instruct-2507", (tmp_path / "one.gguf").resolve())
+    assert probe.selections[-1] == ResolvedModel(
+        "Qwen3-4B-Instruct-2507",
+        (tmp_path / "one.gguf").resolve(),
+        False,
+        client.app.state.settings.llm_ctx_size,
+    )
     assert client.put("/api/v1/occ/llm-models/999", json={"approved": True}).status_code == 404
     assert len(probe.selections) == 3
 
@@ -1037,7 +1075,10 @@ def default_models(client: TestClient, tmp_path: Path) -> LlamaServerSupervisor:
 
         def schedule(self, model: tuple[str, Path] | None) -> None:
             self.selections.append(model)
-            self.model_name, self.model_path = model if model else (None, None)
+            if model:
+                self.model_name, self.model_path, self.thinking, self.ctx_size = model
+            else:
+                self.model_name, self.model_path = None, None
 
     probe = Probe(settings)
     client.app.state.llm_supervisor = probe
@@ -1069,7 +1110,14 @@ def test_occ_make_default_transaction_audit_and_wire(
     )
     assert models[2]["ramGb"] == 2 and models[2]["diskGb"] == 1
     assert models == client.get("/api/v1/occ/llm-models").json()
-    assert default_models.selections == [("generation-three", (tmp_path / "three.gguf").resolve())]
+    assert default_models.selections == [
+        ResolvedModel(
+            "generation-three",
+            (tmp_path / "three.gguf").resolve(),
+            False,
+            client.app.state.settings.llm_ctx_size,
+        )
+    ]
     with database(client.app.state.settings) as db:
         assert [r[0] for r in db.execute("SELECT model_id FROM llm_models WHERE is_active=1")] == [
             3
@@ -1173,9 +1221,21 @@ def test_model_updates_schedule_after_commit(client: TestClient, tmp_path: Path)
     client.app.state.llm_supervisor = probe
     login(client, "worker@example.com", "Analyst")
     assert client.put("/api/v1/llm/active", json={"model_id": 2}).status_code == 200
-    assert probe.selections == [("nomic-embed-text-v1.5", (tmp_path / "two.gguf").resolve())]
+    assert probe.selections == [
+        ResolvedModel(
+            "nomic-embed-text-v1.5",
+            (tmp_path / "two.gguf").resolve(),
+            False,
+            client.app.state.settings.llm_ctx_size,
+        )
+    ]
     assert client.put("/api/v1/settings/me", json={"active_model_id": 1}).status_code == 200
-    assert probe.selections[-1] == ("Qwen3-4B-Instruct-2507", (tmp_path / "one.gguf").resolve())
+    assert probe.selections[-1] == ResolvedModel(
+        "Qwen3-4B-Instruct-2507",
+        (tmp_path / "one.gguf").resolve(),
+        False,
+        client.app.state.settings.llm_ctx_size,
+    )
     assert client.put("/api/v1/settings/me", json={"active_model_id": 1}).status_code == 200
     assert len(probe.selections) == 3
     assert client.put("/api/v1/settings/me", json={"density": "compact"}).status_code == 200
@@ -1191,6 +1251,8 @@ def test_health_stub_and_override(client: TestClient) -> None:
         "status": "unavailable",
         "detail": "llama-server binary missing",
         "model": None,
+        "thinking": None,
+        "ctx_size": None,
     }
 
     class Provider:
@@ -1202,6 +1264,8 @@ def test_health_stub_and_override(client: TestClient) -> None:
         "status": "degraded",
         "detail": "warming up",
         "model": "local",
+        "thinking": None,
+        "ctx_size": None,
     }
 
 

@@ -318,7 +318,9 @@ def test_model_apply_retains_older_models_and_vectors(
             (NOW,),
         )
         db.execute(
-            "INSERT INTO llm_models VALUES (1, 'old', 'old.gguf', 'hash', 1, 1, 8192, "
+            "INSERT INTO llm_models(model_id,name,file_name,file_sha256,size_mb,ram_estimate_mb,"
+            "context_tokens,licence,approved,benchmark_json,is_active) VALUES "
+            "(1, 'old', 'old.gguf', 'hash', 1, 1, 8192, "
             "'Apache-2.0', 1, NULL, 1)"
         )
         old_chunks = [tuple(row) for row in db.execute("SELECT * FROM embedding_chunks")]

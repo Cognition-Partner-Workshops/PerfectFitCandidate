@@ -99,10 +99,11 @@ export const SKILL_SUGGESTIONS = [
 ]
 
 export const MODELS: LlmModel[] = [
-  { id: 'qwen3-4b', name: 'Qwen3-4B-Instruct-2507 (Q4_K_M)', purpose: 'generation', ramGb: 3.6, diskGb: 2.5, licence: 'Apache-2.0', approved: true, isDefault: true },
-  { id: 'phi4-mini', name: 'Phi-4-mini-instruct (Q4_K_M)', purpose: 'generation', ramGb: 3.4, diskGb: 2.4, licence: 'MIT', approved: true, isDefault: false },
-  { id: 'llama32-3b', name: 'Llama-3.2-3B-Instruct (Q4_K_M)', purpose: 'generation', ramGb: 3.0, diskGb: 2.0, licence: 'Llama 3.2 Community', approved: false, isDefault: false },
-  { id: 'nomic-embed', name: 'nomic-embed-text-v1.5 (ONNX)', purpose: 'embedding', ramGb: 0.6, diskGb: 0.27, licence: 'Apache-2.0', approved: true, isDefault: true },
+  { id: 'qwen3-thinking', name: 'Qwen3-4B-Thinking-2507 (Q4_K_M)', purpose: 'generation', ramGb: 4.7, diskGb: 2.3, licence: 'Apache-2.0', approved: false, isDefault: false, thinking: true, kvBytesPerToken: 147456 },
+  { id: 'qwen3-4b', name: 'Qwen3-4B-Instruct-2507 (Q4_K_M)', purpose: 'generation', ramGb: 3.6, diskGb: 2.5, licence: 'Apache-2.0', approved: true, isDefault: true, thinking: false, kvBytesPerToken: 147456 },
+  { id: 'phi4-mini', name: 'Phi-4-mini-instruct (Q4_K_M)', purpose: 'generation', ramGb: 3.4, diskGb: 2.4, licence: 'MIT', approved: true, isDefault: false, thinking: false, kvBytesPerToken: null },
+  { id: 'llama32-3b', name: 'Llama-3.2-3B-Instruct (Q4_K_M)', purpose: 'generation', ramGb: 3.0, diskGb: 2.0, licence: 'Llama 3.2 Community', approved: false, isDefault: false, thinking: false, kvBytesPerToken: null },
+  { id: 'nomic-embed', name: 'nomic-embed-text-v1.5 (ONNX)', purpose: 'embedding', ramGb: 0.6, diskGb: 0.27, licence: 'Apache-2.0', approved: true, isDefault: true, thinking: false, kvBytesPerToken: null },
 ]
 
 /** OCC DL/CT approval queue seed (GUI_OCC_DESIGN.md §16.4). Fictitious data only. */

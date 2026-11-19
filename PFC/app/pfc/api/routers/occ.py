@@ -346,8 +346,17 @@ def settings_get(db: DB, admin: Admin, request: Request) -> dict[str, Any]:
 
 
 @router.put("/settings")
-def settings_put(body: dict[str, Any], db: DB, admin: Admin, request: Request) -> dict[str, Any]:
-    return administration.settings_put(db, admin.user.user_id, body, request.app.state.settings)
+def settings_put(
+    body: dict[str, Any], db: DB, admin: Admin, request: Request, background_tasks: BackgroundTasks
+) -> dict[str, Any]:
+    before = administration.settings_get(db, admin.user.user_id, request.app.state.settings)
+    result = administration.settings_put(db, admin.user.user_id, body, request.app.state.settings)
+    db.commit()
+    if "llm.ctx_size" in body and before.get("llm.ctx_size") != body["llm.ctx_size"]:
+        background_tasks.add_task(
+            restart_selected_model, request.app.state.settings, request.app.state
+        )
+    return result
 
 
 Filters = Annotated[AuditFilters, Query()]

@@ -85,10 +85,22 @@ jobs:
           key: pfc-models-${{ hashFiles('PFC/packaging/MODELS.lock') }}
       - name: Build model-complete offline ZIP (verify all lock hashes)
         run: python PFC/packaging/build_zip.py --with-models --models-cache "${{ runner.temp }}/pfc-model-cache" --out PFC/packaging/dist
+      - name: Build optional thinking model companion ZIP
+        run: python PFC/packaging/build_zip.py --companion-models --models-cache "${{ runner.temp }}/pfc-model-cache" --out PFC/packaging/dist
       - uses: actions/upload-artifact@v4
         with:
           name: pfc-windows-x64-with-models
-          path: PFC/packaging/dist/PFC-*-win-x64.zip
+          path: |
+            PFC/packaging/dist/PFC-*-win-x64.zip
+            !PFC/packaging/dist/PFC-*-win-x64-thinking-model.zip
+          compression-level: 0
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pfc-windows-x64-thinking-model
+          path: |
+            PFC/packaging/dist/PFC-*-win-x64-thinking-model.zip
+            PFC/packaging/dist/PFC-*-win-x64-thinking-model.zip.sha256
           compression-level: 0
           if-no-files-found: error
 

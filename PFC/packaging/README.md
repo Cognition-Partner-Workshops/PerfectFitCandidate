@@ -7,7 +7,8 @@ python PFC/packaging/build_zip.py --out PFC/packaging/dist
 ```
 
 The build downloads only pinned, SHA-256-verified runtime assets and wheels.
-`--with-models` also downloads the optional models in `MODELS.lock`; entries
+`--with-models` also downloads the standard model entries in `MODELS.lock` (not
+entries marked optional); entries
 without a hash are refused unless `--allow-unpinned` is explicitly supplied.
 `--skip-frontend` skips npm commands and copies `PFC/frontend/dist` only if it
 already exists.
@@ -71,13 +72,42 @@ model-free. The release job uses:
 python PFC/packaging/build_zip.py --with-models --models-cache <cache-dir> --out PFC/packaging/dist
 ```
 
-All five `MODELS.lock` entries are included: pinned Qwen GGUF, nomic ONNX, tokenizer,
+The five non-optional `MODELS.lock` entries are included: pinned Instruct Qwen GGUF,
+nomic ONNX, tokenizer,
 tokenizer config and special-token map. Downloads use the lock URLs. Cache objects
 are addressed by SHA-256, and every cache hit and packaged copy is verified;
 mismatches fail the build. The Actions cache key hashes the entire lock (including
 all model hashes). Never use `--allow-unpinned` for a release.
 
-A separate `windows-latest` job downloads and extracts that artifact before
+### Optional Thinking model companion ZIP
+
+Dispatch/tag runs also publish **pfc-windows-x64-thinking-model**, containing
+`PFC-<version>-win-x64-thinking-model.zip` and its `.zip.sha256` checksum.
+This is optional: the main **pfc-windows-x64-with-models** artifact continues to
+include Instruct and the embedding model, not Thinking.
+
+Close PFC and extract the companion ZIP into the existing portable package folder
+next to `PFC.cmd`. The result must be
+`models\Qwen3-4B-Thinking-2507-Q4_K_M.gguf`, not a nested package folder.
+On the next start, OCC registers the model after size/SHA-256 verification.
+An Admin must approve it before it can be selected as the default or per-user model;
+extracting the companion does not approve or activate it.
+
+To build only this archive (no app/frontend build):
+
+```sh
+python PFC/packaging/build_zip.py --companion-models --models-cache <cache-dir> --out PFC/packaging/dist
+```
+
+The companion uses the same hash-keyed verified download cache. Model bytes are
+stored uncompressed in a ZIP64-capable archive with a distinct
+`THIRD_PARTY_NOTICES_THINKING_MODEL.txt` licence notice, so extracting it does not
+overwrite the main package's third-party notices.
+Its size and SHA-256 are printed in the build log and the checksum is written
+beside the ZIP.
+
+A separate `windows-latest` job downloads and extracts the main model-complete
+artifact before
 blocking non-loopback IPv4/IPv6 egress for its Python and llama-server executables
 with Windows Firewall. It also sets dead HTTP(S)/ALL proxies with loopback exempted.
 The Actions agent remains online. A dedicated local **Users**, not Administrators,
