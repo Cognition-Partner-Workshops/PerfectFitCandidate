@@ -2,10 +2,19 @@
 
 import asyncio
 import json
+from dataclasses import replace
 
+import httpx
 import pytest
 
-from pfc.adapters.llm.providers import FakeProvider, GenerateResult, PromptRequest, ProviderError
+from pfc.adapters.llm.providers import (
+    Capabilities,
+    FakeProvider,
+    GenerateResult,
+    LlamaCppProvider,
+    PromptRequest,
+    ProviderError,
+)
 from pfc.api.schemas.chat import ChatAnswer
 from pfc.services.chat_intent import SYSTEM_PROMPT, Lookup
 from pfc.services.chat_pipeline import MAX_CORRECTION_RESPONSE_CHARS, _correction, answer_question
@@ -134,3 +143,83 @@ def test_correction_context_budget() -> None:
     chars = len(SYSTEM_PROMPT) + len(json.dumps(Lookup.model_json_schema())) + 600
     chars += sum(len(message["content"]) for message in messages)
     assert chars / 3 + 512 + 100 <= 4096
+
+
+@pytest.mark.parametrize("context_size", [4096, 8192, 16384])
+@pytest.mark.parametrize("inline_thinking", [True, False])
+def test_thinking_query_parsing_and_scaled_timeout(
+    context_size: int, inline_thinking: bool
+) -> None:
+    requests: list[PromptRequest] = []
+
+    class RecordingProvider(LlamaCppProvider):
+        async def generate(
+            self,
+            request: PromptRequest,
+            *,
+            api_version: str | None = None,
+        ) -> GenerateResult:
+            requests.append(request)
+            return await super().generate(request, api_version=api_version)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/health":
+            return httpx.Response(200, json={"status": "ok"})
+        payload = json.loads(request.content)
+        assert payload["max_tokens"] == 1536
+        content = "<think>Reason privately.</think>\n" + VALID if inline_thinking else VALID
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": content,
+                            "reasoning_content": "Reason privately.",
+                        }
+                    }
+                ]
+            },
+        )
+
+    async def run() -> None:
+        provider = RecordingProvider(
+            "http://127.0.0.1:8080",
+            "fake",
+            api_key="local",
+            transport=httpx.MockTransport(handler),
+            thinking=True,
+            ctx_size=context_size,
+        )
+        try:
+            result = await answer_question(
+                provider,
+                "Count roles.",
+                lambda lookup: ChatAnswer(outcome="answered", text="A count."),
+            )
+            assert result.lookup and result.lookup.intent == "query" and result.error is None
+        finally:
+            await provider.aclose()
+
+    asyncio.run(run())
+    assert len(requests) == 1
+    assert requests[0].timeout_s == 180 and requests[0].timeout_scaled
+    # Context advertised by a thinking model must not relax the fixed 4096 chat budget.
+    test_correction_context_budget()
+
+
+def test_thinking_lookup_retry_uses_scaled_timeout() -> None:
+    class ThinkingProvider(SequenceProvider):
+        def capabilities(self) -> Capabilities:
+            return replace(super().capabilities(), thinking=True, max_context=16384)
+
+    provider = ThinkingProvider(["not JSON", VALID])
+    asyncio.run(
+        answer_question(
+            provider,
+            "Count roles.",
+            lambda lookup: ChatAnswer(outcome="answered", text="A count."),
+        )
+    )
+    assert len(provider.requests) == 2
+    assert all(request.timeout_s == 180 and request.timeout_scaled for request in provider.requests)

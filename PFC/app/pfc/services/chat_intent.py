@@ -33,11 +33,11 @@ phones, raw CV/JD text), writes, sending email, non-PFC topics, staffing decisio
 unrelated questions. Refuse the WHOLE request; never substitute masked references for requested
 names or drop a forbidden part. Reporting stored PFC rankings is allowed, not a staffing decision.
 
-DEFAULT intent is query, including counts, filters, properties, statistics and ranked lists.
+For SAFE PFC questions use query for counts, filters, properties, statistics and ranked lists.
 The four fixed intents are compatibility shortcuts ONLY for the four example phrasings at the
 end (values may vary, not wording or task). Similar wording is NOT enough: use query instead.
 Never force a question into a fixed intent by dropping a filter or inventing a scope type.
-query fields: sql (one SELECT/WITH, <=2000 characters, no recursive CTE), explanation (one
+query fields: sql (SQLite SELECT/WITH, <=2000 characters, no recursive CTE), explanation (one
 plain-English sentence describing the computation, not its results). Use ONLY columns below.
 
 Safe views; archived records already excluded. Join using requisition or resource_ref:
@@ -61,7 +61,8 @@ chat_v_match_results(requisition,resource_ref,rank,score,band,mandatory_missing,
   rank starts at 1; score 0..100. band: Strong/Potential/Avg/Weak/Insufficient data.
   mandatory_missing is a count; shortlisted: 0/1. Eligibility/grade are on resources, not here.
 Grades default A3,A4,B1,B2,C1,C2,D1,D2,E1; grades and bench codes are OCC configurable.
-NULL means unrecorded. Copy filter values from the question, never guess new ones.
+NULL means unrecorded. Copy complete filter values (including account labels), never guess.
+For months use substr(start_date,1,7); SQLite has no EXTRACT. Do not invent date ranges.
 
 Output only requested columns: counts -> count(*); 'which resources' -> resource_ref;
 single property -> that property only. Filter columns need not be selected. Never SELECT *.
@@ -71,10 +72,12 @@ Ranked lists default to resource_ref,rank,score,band if no columns are specified
 include only the requested fields and resource_ref. Best fit means top 1 stored rank.
 Always apply LIMIT for top/first/most N, even grouped counts; break ranking ties by resource_ref
 and other score/count ties by the requested entity reference/code.
-Query examples (return these as intent=query with an explanation):
-'Resource totals by grade' -> SELECT grade,count(*) FROM chat_v_resources GROUP BY grade
-'Top 3 stored candidates for T12000' -> SELECT resource_ref,rank,score,band FROM
-chat_v_match_results WHERE requisition='T12000' ORDER BY rank,resource_ref LIMIT 3
+Query examples:
+'Resource totals by grade' -> {"intent":"query","sql":"SELECT grade,count(*) FROM
+chat_v_resources GROUP BY grade","explanation":"Count non-archived resources by grade."}
+'Top 3 stored candidates for T12000' -> {"intent":"query","sql":"SELECT resource_ref,rank,
+score,band FROM chat_v_match_results WHERE requisition='T12000' ORDER BY rank,resource_ref
+LIMIT 3","explanation":"List the top three stored PFC ranks for human review."}
 
 Fixed-intent example phrasings ONLY:
 "How many open demands are there?" -> {"intent":"demand_count"}
@@ -83,7 +86,17 @@ Fixed-intent example phrasings ONLY:
 "Who on the bench has Databricks and is C1–C2?" ->
 {"intent":"bench_skill","skill":"Databricks","grade_from":"C1","grade_to":"C2"}
 "Why is Resource #42 ranked #2 for T10001?" ->
-{"intent":"match_rank","requisition":"T10001","resource_id":42,"rank":2}"""
+{"intent":"match_rank","requisition":"T10001","resource_id":42,"rank":2}
+
+FINAL DECISION, in this order:
+1. Forbidden request? Return ONLY {"intent":"unsupported"}. This overrides every example.
+Personal identities/contact details, changing data, sending messages, system access, unrelated
+topics and mixed safe/forbidden requests MUST be refused. Never answer a safe substitute.
+'Export personal contact details' -> {"intent":"unsupported"}
+'Change an account name' -> {"intent":"unsupported"}
+2. Exact fixed example phrasing? Use that fixed intent; otherwise safe PFC data -> query.
+3. For query: only requested columns/filters. Non-archived includes off_bench; never add active,
+shortlisted or a skill source unless asked. A value used as a filter is NOT an output column."""
 
 
 class Lookup(BaseModel):
@@ -143,6 +156,10 @@ class Lookup(BaseModel):
 
         terms = (self.scope_term, self.skill, self.grade_from, self.grade_to, self.requisition)
         if any(term is not None and not mentioned(term) for term in terms):
+            return False
+        if self.intent == "query" and any(
+            not mentioned(code) for code in re.findall(r"\bT\d{5,}\b", self.sql or "", re.I)
+        ):
             return False
         if self.period and not (mentioned("this month") or mentioned("current month")):
             return False

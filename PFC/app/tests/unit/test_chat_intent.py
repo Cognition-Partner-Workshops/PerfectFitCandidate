@@ -37,6 +37,17 @@ def test_match_lookup_cannot_drop_masked_resource_or_add_another_requisition() -
     ).grounded_in(question)
 
 
+def test_query_requisition_literals_must_come_from_question() -> None:
+    lookup = Lookup(
+        intent="query",
+        sql="SELECT rank FROM chat_v_match_results WHERE requisition='T12345'",
+        explanation="Read the stored rank.",
+    )
+    assert lookup.grounded_in("What are the stored ranks for t12345?")
+    assert not lookup.grounded_in("What are the stored ranks for T54321?")
+    assert not lookup.grounded_in("What are the stored ranks?")
+
+
 def test_0017_upgrades_existing_database_and_leaves_old_jobs_intact(tmp_path: Path) -> None:
     settings = Settings(data_dir=tmp_path / "data")
     phase1 = tmp_path / "phase1"
