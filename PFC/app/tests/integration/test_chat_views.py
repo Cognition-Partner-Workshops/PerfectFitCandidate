@@ -118,15 +118,17 @@ def test_cv_skills_only_latest_live_version(client: TestClient, tmp_path: Path) 
         )
         assert answer.query and answer.query.rows == [["AWS", "CV"], ["SQL", "CV"]]
     with database(settings) as db:
-        db.execute(
-            "UPDATE cv_versions SET extraction_removed_at='2026-11-06' WHERE is_latest=1"
-        )
+        db.execute("UPDATE cv_versions SET extraction_removed_at='2026-11-06' WHERE is_latest=1")
         assert db.execute("SELECT count(*) FROM resource_skills").fetchone()[0] > 0
     with database(settings) as db:
-        answer = execute_query(db, Lookup(
-            intent="query", sql="SELECT * FROM chat_v_resource_skills",
-            explanation="This lists current CV skills.",
-        ))
+        answer = execute_query(
+            db,
+            Lookup(
+                intent="query",
+                sql="SELECT * FROM chat_v_resource_skills",
+                explanation="This lists current CV skills.",
+            ),
+        )
         assert answer.query and answer.query.rows == []
     with database(settings) as db:
         db.execute("UPDATE cv_versions SET extraction_removed_at=NULL WHERE is_latest=1")

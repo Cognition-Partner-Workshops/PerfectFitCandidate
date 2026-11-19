@@ -79,7 +79,11 @@ def execute_query(db: sqlite3.Connection, lookup: Lookup) -> ChatAnswer:
                 internal
                 and (arg2 or "").lower()
                 in {
-                    "json_valid", "json_type", "json_extract", "glob", "ltrim",
+                    "json_valid",
+                    "json_type",
+                    "json_extract",
+                    "glob",
+                    "ltrim",
                     "chat_resource_skills",
                 }
             )
