@@ -12,6 +12,7 @@ from test_matching_service import NOW, seed_candidate, seed_demand
 from pfc.api.schemas.analytics import DashboardFilters
 from pfc.db.connection import database
 from pfc.services.analytics.population import Population
+from pfc.services.lifecycle import record_transition
 
 URL = "/api/v1/analytics/extended"
 
@@ -153,6 +154,165 @@ def extended(populated: tuple[Api, dict[str, Any]]) -> tuple[Api, dict[str, Any]
                 ((upload + delta).isoformat(), row[0]),
             )
     return api, ids
+
+
+def archive_population(api: Api, ids: dict[str, Any]) -> None:
+    with database(api[0].app.state.settings) as db:
+        db.execute(
+            "UPDATE candidates SET display_name='ArchivedOnlyName' WHERE candidate_id="
+            "(SELECT candidate_id FROM resources WHERE resource_id=?)",
+            (ids["resources"][0],),
+        )
+        db.execute(
+            "UPDATE email_messages SET demand_id=?,sent_at=? "
+            "WHERE message_id=(SELECT MAX(message_id) FROM email_messages)",
+            (ids["demands"][2], NOW.isoformat()),
+        )
+        ids["archived_demands"] = [ids["demands"][0], ids["far"]]
+        ids["archived_resources"] = [ids["resources"][i] for i in (0, 2, 3)]
+        for entity in ("demand", "resource"):
+            for entity_id in ids[f"archived_{entity}s"]:
+                record_transition(
+                    db,
+                    entity,
+                    entity_id,
+                    "open" if entity == "demand" else "active",
+                    "archived",
+                    "archive",
+                    now=NOW.isoformat(),
+                    metadata={"archived_at": NOW.isoformat()},
+                )
+
+
+@pytest.fixture
+def archived_extended(extended: tuple[Api, dict[str, Any]]) -> tuple[Api, dict[str, Any]]:
+    api, ids = extended
+    archive_population(api, ids)
+    return api, ids
+
+
+def test_archived_entities_absent_from_every_extended_dataset(
+    archived_extended: tuple[Api, dict[str, Any]],
+) -> None:
+    api, ids = archived_extended
+    data = get(api[0])
+    assert len(data) == 15
+    for cell in data["gradeMatrix"]:
+        assert cell["demandCount"] == (2 if cell["row"] == "C1" else 0)
+        assert cell["benchCount"] == (1 if cell["column"] == "C1" else 0)
+        assert cell["count"] == cell["demandCount"] * cell["benchCount"]
+    assert data["scoreHistogram"] == {
+        "thresholds": [61, 70, 90],
+        "bins": [
+            {"lower": low, "upper": low + 5, "allPairs": int(low == 60), "top5": int(low == 60)}
+            for low in range(0, 100, 5)
+        ],
+    }
+    assert data["shortlistFunnel"] == [
+        {"label": label, "count": count}
+        for label, count in (
+            ("Matched", 1),
+            ("Reviewed / shortlisted", 0),
+            ("Email approved", 0),
+            ("Email sent", 0),
+        )
+    ]
+    assert [(r["demandId"], r["reasonCodes"]) for r in data["unmatchedDemands"]] == [
+        (ids["demands"][1], ["mandatory_skill_gap"]),
+        (ids["demands"][2], ["other"]),
+        (ids["unknown"], ["insufficient_data"]),
+    ]
+    assert data["emailTrend"] == []
+    assert data["readinessStatus"] == [{"row": "RG1", "column": "Available", "count": 1}]
+    assert data["locationMatrix"] == [{"row": "Manchester", "column": "Manchester", "count": 3}]
+    assert data["skillCooccurrence"] == [
+        {"row": row, "column": column, "count": 2}
+        for row in ("Python", "SQL")
+        for column in ("Python", "SQL")
+    ]
+    assert data["upskilling"] == []
+    assert data["accuracy"] == [
+        {
+            "runId": ids["run"],
+            "confirmedDemands": 0,
+            "confirmedPairs": 0,
+            "hits": 0,
+            "hitRateAt5": None,
+            "precisionAt5": None,
+        }
+    ]
+    assert data["exclusionReasons"] == []
+    assert data["candidateTypes"] == [
+        {"label": label, "count": int(label == "Unknown")}
+        for label in ("Internal", "External", "Unknown")
+    ]
+    assert data["contention"] == []
+    assert data["demandAging"] == {
+        "buckets": [
+            {"label": label, "count": 3 if label == "7–13 days" else 0}
+            for label in ("0–6 days", "7–13 days", "14–29 days", "30–59 days", "60+ days")
+        ],
+        "unknownStart": 0,
+        "pastStartWithoutMatch": 0,
+    }
+    assert data["overrideRates"] == [
+        {"runId": ids["run"], "pairCount": 1, "overriddenPairs": 0, "ratePct": 0, "byType": []}
+    ]
+
+
+@pytest.mark.parametrize("mode", ["current", "historical", "filtered"])
+def test_archived_changes_cannot_affect_dashboard_snapshot(
+    archived_extended: tuple[Api, dict[str, Any]], mode: str
+) -> None:
+    api, ids = archived_extended
+    client = api[0]
+    filters = (
+        {"runId": ids["run"]}
+        if mode == "historical"
+        else {"scoreMin": 61}
+        if mode == "filtered"
+        else {}
+    )
+
+    def snapshot() -> dict[str, Any]:
+        response = client.get("/api/v1/analytics/dashboard", params=filters)
+        assert response.status_code == 200, response.text
+        panels = response.json()
+        for name, values in panels.items():
+            individual = client.get(f"/api/v1/analytics/{name}", params=filters)
+            assert individual.status_code == 200, individual.text
+            assert individual.json() == values
+        return panels
+
+    before = snapshot()
+    assert len(before["demand"]["rows"]) == 3
+    assert [r["resourceId"] for r in before["bench"]["rows"]] == [ids["resources"][1]]
+    assert before["summary"]["openRequisitions"] == 3
+    assert before["summary"]["eligibleBench"] == 1
+    assert before["summary"]["excludedBench"] == 0
+    assert before["summary"]["roleToPersonCombinations"] == (0 if mode == "filtered" else 1)
+    assert before["summary"]["run"]["pairsScored"] == 1
+    assert before["summary"]["dataQualityIssues"] == {"total": 2, "dl": 1, "ct": 1}
+    with database(client.app.state.settings) as db:
+        db.execute(
+            "UPDATE demands SET code_local_grade='A3',region='ArchiveOnlyRegion',"
+            "account_name='ArchiveOnlyAccount',position_start_date='2000-01-01' "
+            "WHERE lifecycle='archived'"
+        )
+        db.execute(
+            "UPDATE resources SET grade='A3',location='ArchiveOnlyLocation',"
+            "group_name='ArchiveOnlyGroup',skills_raw='ArchiveOnlySkill',"
+            "bench_status='Overall upskilling (New bench)',exclusion_reason='ArchiveOnlyReason',"
+            "short_name='ArchiveOnlyPerson' WHERE lifecycle='archived'"
+        )
+        db.execute(
+            "UPDATE match_results SET score=100,band='Strong',rank=1,mandatory_missing=0 "
+            "WHERE demand_id IN (SELECT demand_id FROM demands WHERE lifecycle='archived') "
+            "OR resource_id IN (SELECT resource_id FROM resources WHERE lifecycle='archived')"
+        )
+        db.execute("UPDATE overrides SET action='exclude'")
+        db.execute("UPDATE email_messages SET status='Sent',sent_at=?", (NOW.isoformat(),))
+    assert snapshot() == before
 
 
 def test_grade_score_and_unmatched(extended: tuple[Api, dict[str, Any]]) -> None:

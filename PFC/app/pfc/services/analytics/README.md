@@ -14,6 +14,14 @@ until the next filtered snapshot arrives.
 
 ## Extended panel (`GET /analytics/extended`)
 
+Archive visibility uses Population's shared `ARCHIVE_FILTER` for match rows,
+including override denominators and validation. Demand and bench datasets use
+open demands and active resources; email projections exclude archived entities
+on both sides. These rules also apply with an explicit run ID and to PDF data
+collection. Stored run counters are recomputed when their inputs have retired.
+Latest-ingestion quality counts remain file-level issue counts: issue rows have
+no demand/resource FK, so archival does not reinterpret that historical metadata.
+
 Uses the same Population and dataset-specific filter semantics as the original
 panels, including current completed run per demand or explicit runId. Demand and
 resource charts remain current-entity views even with runId; email charts retain

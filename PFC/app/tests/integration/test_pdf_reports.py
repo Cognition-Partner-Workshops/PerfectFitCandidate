@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from pypdf import PdfReader
 from test_analytics_export import populated as populated
+from test_analytics_extended import archive_population
 from test_analytics_extended import extended as extended
 from test_matching_api import Api
 from test_matching_api import api as api
@@ -163,9 +164,14 @@ def assert_dashboard(text: str, panels: dict[str, Any]) -> None:
 
 
 @pytest.mark.parametrize("scope", ["filters", "all"])
-def test_p2_ex04_equivalence_and_audit(extended: tuple[Api, dict[str, Any]], scope: str) -> None:
+@pytest.mark.parametrize("archived", [False, True])
+def test_p2_ex04_equivalence_and_audit(
+    extended: tuple[Api, dict[str, Any]], scope: str, archived: bool
+) -> None:
     api, ids = extended
     client, _ = api
+    if archived:
+        archive_population(api, ids)
     with database(client.app.state.settings) as db:
         db.execute(
             "UPDATE match_results SET matching_evidence='Contact person0@example.com', "
@@ -233,7 +239,13 @@ def test_p2_ex04_equivalence_and_audit(extended: tuple[Api, dict[str, Any]], sco
                 assert normalize(part) in results_text
     assert positions == sorted(positions)
     assert "person0@example.com" not in text + results_text
-    assert "pe*****@example.com" in results_text
+    if rows:
+        assert "pe*****@example.com" in results_text
+    if archived:
+        for marker in ("T10000", "T1FAR", "Person2", "Person3", "ArchivedOnlyName"):
+            assert marker not in text + results_text
+        assert all(row["resourceId"] not in ids["archived_resources"] for row in rows)
+        assert all(row["demandId"] not in ids["archived_demands"] for row in rows)
     with database(client.app.state.settings) as db:
         audits = [
             dict(row) for row in db.execute("SELECT * FROM audit_log WHERE action LIKE 'PDF_%'")
@@ -248,7 +260,7 @@ def test_p2_ex04_equivalence_and_audit(extended: tuple[Api, dict[str, Any]], sco
     card = next(item for item in listing if item["jobId"] == job_id)
     assert card["label"] == "PDF report" and card["link"] == f"{URL}/{job_id}/file"
     assert not list((client.app.state.settings.data_dir / "reports").glob("*.part"))
-    if (output := os.environ.get("PFC_PDF_SAMPLE_DIR")) and scope == "all":
+    if (output := os.environ.get("PFC_PDF_SAMPLE_DIR")) and scope == "all" and not archived:
         folder = Path(output)
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "dashboard.pdf").write_bytes(dashboard_pdf)
