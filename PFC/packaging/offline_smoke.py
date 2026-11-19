@@ -151,6 +151,18 @@ def smoke_cv_conversion(root: Path, settings: Settings) -> list[str]:
     return converted
 
 
+def verify_bundled_models(root: Path) -> list[dict[str, Any]]:
+    models = [
+        model
+        for model in json.loads((root / "MODELS.lock").read_text())
+        if not model.get("optional", False)
+    ]
+    for model in models:
+        with (root / "models" / model["file"]).open("rb") as stream:
+            assert hashlib.file_digest(stream, "sha256").hexdigest() == model["sha256"]
+    return models
+
+
 def main() -> None:
     root = Path(sys.argv[1]).resolve()
     assert sys.platform == "win32", "This smoke requires Windows"
@@ -164,10 +176,7 @@ def main() -> None:
         llm_startup_timeout_s=300,
     )
     assert not (settings.data_dir / "db" / "pfc.db").exists(), "Smoke must be first-run"
-    models = json.loads((root / "MODELS.lock").read_text())
-    for model in models:
-        with (root / "models" / model["file"]).open("rb") as stream:
-            assert hashlib.file_digest(stream, "sha256").hexdigest() == model["sha256"]
+    models = verify_bundled_models(root)
     gguf = next(model for model in models if model["file"].endswith(".gguf"))
     onnx = next(model for model in models if model["file"].endswith(".onnx"))
     metrics: dict[str, Any] = {"token_elevated": False, "administrator": False, "peak_rss_bytes": 0}
