@@ -100,7 +100,9 @@ python PFC/packaging/build_zip.py --companion-models --models-cache <cache-dir> 
 ```
 
 The companion uses the same hash-keyed verified download cache. Model bytes are
-stored uncompressed in a ZIP64-capable archive with a third-party licence notice.
+stored uncompressed in a ZIP64-capable archive with a distinct
+`THIRD_PARTY_NOTICES_THINKING_MODEL.txt` licence notice, so extracting it does not
+overwrite the main package's third-party notices.
 Its size and SHA-256 are printed in the build log and the checksum is written
 beside the ZIP.
 

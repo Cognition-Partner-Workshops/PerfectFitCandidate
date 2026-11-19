@@ -527,7 +527,7 @@ def build_companion_models(
             for path in sorted(models.rglob("*")):
                 if path.is_file():
                     archive.write(path, path.relative_to(root).as_posix())
-            archive.writestr("THIRD_PARTY_NOTICES.txt", notices + "\n")
+            archive.writestr("THIRD_PARTY_NOTICES_THINKING_MODEL.txt", notices + "\n")
     digest = sha256_file(output_path)
     output_path.with_suffix(".zip.sha256").write_text(
         f"{digest}  {output_path.name}\n", encoding="utf-8"

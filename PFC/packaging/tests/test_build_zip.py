@@ -211,10 +211,13 @@ def test_companion_and_main_model_selection(tmp_path: Path, monkeypatch, cached,
         return
     archive_path = build_zip.build_companion_models(output, cache)
     with zipfile.ZipFile(archive_path) as archive:
-        assert set(archive.namelist()) == {"models/thinking.gguf", "THIRD_PARTY_NOTICES.txt"}
+        assert set(archive.namelist()) == {
+            "models/thinking.gguf",
+            "THIRD_PARTY_NOTICES_THINKING_MODEL.txt",
+        }
         assert archive.getinfo("models/thinking.gguf").compress_type == zipfile.ZIP_STORED
         assert hashlib.sha256(archive.read("models/thinking.gguf")).hexdigest() == digest
-        assert b"Apache-2.0" in archive.read("THIRD_PARTY_NOTICES.txt")
+        assert b"Apache-2.0" in archive.read("THIRD_PARTY_NOTICES_THINKING_MODEL.txt")
     assert archive_path.with_suffix(".zip.sha256").read_text().split()[0] == build_zip.sha256_file(
         archive_path
     )
@@ -226,7 +229,7 @@ def test_empty_companion_and_cli(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(build_zip, "MODELS_LOCK_PATH", lock)
     assert build_zip.main(["--companion-models", "--out", str(tmp_path)]) == 0
     with zipfile.ZipFile(next(tmp_path.glob("*.zip"))) as archive:
-        assert archive.namelist() == ["THIRD_PARTY_NOTICES.txt"]
+        assert archive.namelist() == ["THIRD_PARTY_NOTICES_THINKING_MODEL.txt"]
 
 
 def test_parse_models_lock_rejects_path_traversal() -> None:
