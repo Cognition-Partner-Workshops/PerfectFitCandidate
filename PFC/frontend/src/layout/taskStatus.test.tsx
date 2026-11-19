@@ -34,6 +34,22 @@ it('shows idle when no tasks are active or recently failed', async () => {
   expect(await screen.findByRole('status', { name: 'Sync: no tasks in progress' })).toBeTruthy()
 })
 
+it('shows the running model context and thinking status from health', async () => {
+  vi.spyOn(mock, 'getLlmHealth').mockResolvedValue({
+    status: 'ok', detail: '', model: 'Qwen3-4B-Thinking-2507', ctx_size: 16384, thinking: true,
+  })
+  renderApp('/bench')
+  expect(await screen.findByText(/Local model: Qwen3-4B-Thinking-2507 · 16k ctx · thinking/)).toBeTruthy()
+})
+
+it('keeps the footer compatible with health responses without context metadata', async () => {
+  vi.spyOn(mock, 'getLlmHealth').mockResolvedValue({ status: 'ok', detail: '', model: 'Legacy model' })
+  renderApp('/bench')
+  const footer = await screen.findByText(/Local model: Legacy model/)
+  expect(footer.textContent).not.toContain('k ctx')
+  expect(footer.textContent).not.toContain('thinking')
+})
+
 it('shows bulk analysis partial failures without breaking the successful response refresh', async () => {
   const failed = vi.spyOn(mock, 'analyzeDemands').mockResolvedValue({ analyzed: [], failed: [{ demandId: 1, detail: 'private@example.com /home/private/file' }] })
   const demands = vi.spyOn(mock, 'listDemands')

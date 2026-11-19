@@ -16,7 +16,7 @@ import jsonschema
 from anyio import from_thread
 from pydantic import ValidationError
 
-from pfc.adapters.llm.providers import LLMProvider, PromptRequest, ProviderError
+from pfc.adapters.llm.providers import LLMProvider, PromptRequest, ProviderError, generation_timeout
 from pfc.api.schemas.summaries import SummaryDocument, SummarySentence, SummaryView
 from pfc.config import Settings
 from pfc.db.connection import database
@@ -85,7 +85,7 @@ def _invalid_number(value: str) -> NoReturn:
 
 async def _generate(provider: LLMProvider, text: str) -> tuple[SummaryDocument, str]:
     try:
-        async with asyncio.timeout(TIMEOUT_S):
+        async with asyncio.timeout(generation_timeout(provider, TIMEOUT_S)):
             capabilities = provider.capabilities()
             if (
                 capabilities.data_residency != "local"
@@ -101,7 +101,8 @@ async def _generate(provider: LLMProvider, text: str) -> tuple[SummaryDocument, 
                     template_version="1",
                     temperature=0,
                     seed=0,
-                    timeout_s=TIMEOUT_S,
+                    timeout_s=generation_timeout(provider, TIMEOUT_S),
+                    timeout_scaled=True,
                     json_schema=SummaryDocument.model_json_schema(),
                     messages=[
                         {"role": "system", "content": SYSTEM_PROMPT},

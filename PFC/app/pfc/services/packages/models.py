@@ -61,6 +61,8 @@ class ModelMetadata(BaseModel):
     pipeline_version: str = Field(default="v1", min_length=1)
     ram_estimate_mb: int = Field(default=0, ge=0)
     context_tokens: int = Field(default=8192, ge=1)
+    thinking: bool = False
+    kv_bytes_per_token: int | None = Field(default=None, ge=1)
 
 
 @dataclass(frozen=True)
@@ -271,8 +273,8 @@ class ModelImporter:
                         cursor = db.execute(
                             "INSERT INTO llm_models(name, file_name, file_sha256, "
                             "size_mb, ram_estimate_mb, context_tokens, licence, approved, "
-                            "is_active) "
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0)",
+                            "is_active, thinking, kv_bytes_per_token) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)",
                             (
                                 f"{metadata.name}@v{version}",
                                 str(model_path),
@@ -281,6 +283,8 @@ class ModelImporter:
                                 metadata.ram_estimate_mb,
                                 metadata.context_tokens,
                                 metadata.licence,
+                                metadata.thinking,
+                                metadata.kv_bytes_per_token,
                             ),
                         )
                         model_id = int(cursor.lastrowid or 0)

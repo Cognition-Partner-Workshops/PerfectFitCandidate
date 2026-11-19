@@ -516,7 +516,17 @@ export interface PersonalSettings {
   density: 'Comfortable' | 'Compact'
 }
 
+export interface LlmHealth {
+  status: 'ok' | 'degraded' | 'unavailable'
+  detail: string
+  model: string | null
+  ctx_size?: number | null
+  thinking?: boolean | null
+}
+
 export interface LlmModel {
+  thinking: boolean
+  kvBytesPerToken: number | null
   id: string
   name: string
   purpose: 'generation' | 'embedding'

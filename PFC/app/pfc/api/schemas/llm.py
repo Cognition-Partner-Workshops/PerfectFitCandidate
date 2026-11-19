@@ -28,3 +28,5 @@ class LlmHealth(BaseModel):
     status: Literal["ok", "degraded", "unavailable"]
     detail: str
     model: str | None = None
+    ctx_size: int | None = None
+    thinking: bool | None = None

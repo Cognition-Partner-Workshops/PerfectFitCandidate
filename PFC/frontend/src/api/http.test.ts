@@ -654,6 +654,23 @@ describe('HttpApiClient — ingestion wiring', () => {
 })
 
 describe('HttpApiClient — health (REQ-AUTH-06)', () => {
+  it('maps model metadata and saves the instance default through OCC', async () => {
+    const api = new HttpApiClient('/api/v1')
+    const row = { model_id: 3, name: 'Thinking', file_name: 'thinking.gguf', size_mb: 2382, ram_estimate_mb: 4800, licence: 'Apache-2.0', approved: 1, is_active: 1, thinking: 1, kv_bytes_per_token: 147456 }
+    fetchMock.mockResolvedValueOnce(json([row]))
+    const [model] = await api.updateOccModel('3', { isDefault: true })
+    expect(model).toMatchObject({ thinking: true, kvBytesPerToken: 147456, isDefault: true })
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe('/api/v1/occ/llm-models/3')
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)).toEqual({ isDefault: true })
+  })
+
+  it('reads context and thinking status from LLM health', async () => {
+    const api = new HttpApiClient('/api/v1')
+    const health = { status: 'ok', detail: '', model: 'Thinking', ctx_size: 16384, thinking: true }
+    fetchMock.mockResolvedValueOnce(json(health))
+    expect(await api.getLlmHealth()).toEqual(health)
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe('/api/v1/llm/health')
+  })
   it('reads the data volume encryption status and defaults to Unknown', async () => {
     const api = new HttpApiClient('/api/v1')
     fetchMock.mockResolvedValueOnce(json({ status: 'ok', details: { dataVolumeEncryption: 'Encrypted' } })).mockResolvedValueOnce(json({ status: 'ok' }))

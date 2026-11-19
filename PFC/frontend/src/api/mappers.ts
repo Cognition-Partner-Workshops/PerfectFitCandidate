@@ -98,6 +98,8 @@ export const fromGrades = (gs: Grade[]) =>
   [...gs].sort((x, y) => x.order - y.order).map((g) => ({ code: g.code, active: !g.retired }))
 
 export interface ModelRow {
+  thinking?: Flag
+  kv_bytes_per_token?: number | null
   model_id: number
   name: string
   file_name: string
@@ -109,6 +111,8 @@ export interface ModelRow {
 }
 const gb = (mb: number) => Math.round((mb / 1024) * 10) / 10
 export const toLlmModel = (m: ModelRow): LlmModel => ({
+  thinking: b(m.thinking ?? false),
+  kvBytesPerToken: m.kv_bytes_per_token ?? null,
   id: String(m.model_id),
   name: m.name,
   purpose: /embed/i.test(m.name) ? 'embedding' : 'generation',

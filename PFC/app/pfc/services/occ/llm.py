@@ -1,10 +1,14 @@
+import hashlib
 import json
+import logging
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
 from pfc.api.schemas.llm import LlmHealth
+from pfc.config import Settings
+from pfc.db.connection import database
 from pfc.security.problems import Problem
 from pfc.services.occ.common import audit_write, get_row
 
@@ -17,6 +21,8 @@ DEFAULT_MODELS: tuple[dict[str, Any], ...] = (
         "size_mb": 0,
         "ram_estimate_mb": 0,
         "context_tokens": 4096,
+        "thinking": 0,
+        "kv_bytes_per_token": 147456,
         "licence": "Apache-2.0",
         "approved": 0,
         "is_active": 0,
@@ -28,11 +34,56 @@ DEFAULT_MODELS: tuple[dict[str, Any], ...] = (
         "size_mb": 0,
         "ram_estimate_mb": 0,
         "context_tokens": 8192,
+        "thinking": 0,
+        "kv_bytes_per_token": None,
         "licence": "Apache-2.0",
         "approved": 0,
         "is_active": 0,
     },
 )
+
+
+THINKING_MODEL_SIZE = 2_497_280_736
+THINKING_MODEL_RAM_MB = 4800
+THINKING_MODEL = {
+    "name": "Qwen3-4B-Thinking-2507",
+    "file_name": "Qwen3-4B-Thinking-2507-Q4_K_M.gguf",
+    "file_sha256": "64ce5838a76b4d63071289c17ed04525265a47abf51546cd747a30e41b7687fa",
+    "size_mb": 2382,
+    "ram_estimate_mb": THINKING_MODEL_RAM_MB,
+    "context_tokens": 4096,
+    "licence": "Apache-2.0",
+    "thinking": 1,
+    "kv_bytes_per_token": 147456,
+    "approved": 0,
+    "is_active": 0,
+}
+
+
+def register_optional_thinking_model(settings: Settings) -> None:
+    with database(settings) as db:
+        if db.execute(
+            "SELECT 1 FROM llm_models WHERE name=?", (THINKING_MODEL["name"],)
+        ).fetchone():
+            return
+        path = settings.models_dir / str(THINKING_MODEL["file_name"])
+        if not path.is_file():
+            return
+        if path.stat().st_size != THINKING_MODEL_SIZE:
+            logging.getLogger(__name__).warning("Optional thinking model size mismatch")
+            return
+        with path.open("rb") as source:
+            digest = hashlib.file_digest(source, "sha256").hexdigest()
+        if digest != THINKING_MODEL["file_sha256"]:
+            logging.getLogger(__name__).warning("Optional thinking model hash mismatch")
+            return
+        columns = ",".join(THINKING_MODEL)
+        placeholders = ",".join("?" for _ in THINKING_MODEL)
+        db.execute(
+            f"INSERT INTO llm_models({columns}) SELECT {placeholders} "
+            "WHERE NOT EXISTS (SELECT 1 FROM llm_models WHERE name=?)",
+            (*THINKING_MODEL.values(), THINKING_MODEL["name"]),
+        )
 
 
 class LlmHealthProvider(Protocol):
@@ -48,11 +99,12 @@ def seed_default_models(db: sqlite3.Connection) -> None:
     """REQ-LLM-01/06: documented candidates only, pending explicit Admin approval."""
     if db.execute("SELECT 1 FROM llm_models LIMIT 1").fetchone():
         return
+    allowed = {row[1] for row in db.execute("PRAGMA table_info(llm_models)")}
     for model in DEFAULT_MODELS:
+        columns = [name for name in model if name in allowed]
         db.execute(
-            "INSERT INTO llm_models(name,file_name,file_sha256,size_mb,ram_estimate_mb,"
-            "context_tokens,licence,approved,is_active) VALUES (:name,:file_name,:file_sha256,"
-            ":size_mb,:ram_estimate_mb,:context_tokens,:licence,:approved,:is_active)",
+            f"INSERT INTO llm_models({','.join(columns)}) "
+            f"VALUES ({','.join(':' + name for name in columns)})",
             model,
         )
 
@@ -63,7 +115,14 @@ def list_models(
     sql = "SELECT * FROM llm_models"
     if approved_only:
         sql += " WHERE approved=1"
-    return [dict(row) for row in db.execute(sql + " ORDER BY model_id")]
+    return [
+        {
+            **dict(row),
+            "thinking": bool(row["thinking"]),
+            "kvBytesPerToken": row["kv_bytes_per_token"],
+        }
+        for row in db.execute(sql + " ORDER BY model_id")
+    ]
 
 
 def model_purpose(model: dict[str, Any]) -> str:
@@ -81,6 +140,8 @@ def occ_models(db: sqlite3.Connection, user_id: int) -> list[dict[str, Any]]:
             "ramGb": model["ram_estimate_mb"] / 1024,
             "diskGb": model["size_mb"] / 1024,
             "approved": bool(model["approved"]),
+            "thinking": bool(model["thinking"]),
+            "kvBytesPerToken": model["kv_bytes_per_token"],
             "isDefault": bool(model["is_active"]),
         }
         for model in list_models(db, user_id)

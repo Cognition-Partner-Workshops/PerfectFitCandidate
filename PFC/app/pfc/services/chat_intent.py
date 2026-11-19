@@ -15,7 +15,7 @@ from pydantic import (
     model_validator,
 )
 
-from pfc.adapters.llm.providers import LLMProvider, PromptRequest, ProviderError
+from pfc.adapters.llm.providers import LLMProvider, PromptRequest, ProviderError, generation_timeout
 from pfc.services.ingestion.masking import EMAIL, MASK_PHONE
 
 Intent = Literal[
@@ -271,7 +271,8 @@ async def classify(
                 ],
                 json_schema=Lookup.model_json_schema(),
                 max_tokens=512,
-                timeout_s=60,
+                timeout_s=generation_timeout(provider, 60),
+                timeout_scaled=True,
             )
         )
     except ProviderError as exc:

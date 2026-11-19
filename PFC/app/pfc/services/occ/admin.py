@@ -7,6 +7,7 @@ import sqlite3
 from datetime import UTC, datetime
 from typing import Any
 
+from pfc.adapters.llm.context import valid_context_size
 from pfc.config import Settings
 from pfc.db.audit import verify_chain
 from pfc.security.problems import Problem
@@ -258,6 +259,8 @@ def settings_get(db: sqlite3.Connection, user_id: int, settings: Settings) -> di
 def settings_put(
     db: sqlite3.Connection, user_id: int, values: dict[str, Any], settings: Settings
 ) -> dict[str, Any]:
+    if "llm.ctx_size" in values and not valid_context_size(values["llm.ctx_size"]):
+        raise Problem(422, "VALIDATION_ERROR", "llm.ctx_size must be 4096, 8192 or 16384")
     ranges = {
         "archive.retention_months": (1, 120),
         "housekeeping.temp_days": (1, 365),

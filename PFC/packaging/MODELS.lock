@@ -1,5 +1,13 @@
 [
   {
+    "name": "Qwen3-4B-Thinking-2507 Q4_K_M",
+    "file": "Qwen3-4B-Thinking-2507-Q4_K_M.gguf",
+    "url": "https://huggingface.co/bartowski/Qwen_Qwen3-4B-Thinking-2507-GGUF/resolve/ba7f9bc071caf4788e3d7a5963543cff0149e483/Qwen_Qwen3-4B-Thinking-2507-Q4_K_M.gguf",
+    "sha256": "64ce5838a76b4d63071289c17ed04525265a47abf51546cd747a30e41b7687fa",
+    "licence": "Apache-2.0",
+    "optional": true
+  },
+  {
     "name": "Qwen3-4B-Instruct-2507 Q4_K_M",
     "file": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
     "url": "https://huggingface.co/bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF/resolve/5ba9dff45461e5bab86959be7d585609fe9e6bc3/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf",

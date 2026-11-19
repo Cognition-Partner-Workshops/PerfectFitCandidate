@@ -16,9 +16,17 @@ from numpy.typing import NDArray
 
 from pfc.adapters.vector.embeddings import FakeEmbedder
 
+REASONING_BUDGET = 1024
+THINKING_TIMEOUT_FACTOR = 3
+
+
+def generation_timeout(provider: LLMProvider, timeout_s: float) -> float:
+    return timeout_s * (THINKING_TIMEOUT_FACTOR if provider.capabilities().thinking else 1)
+
 
 @dataclass(frozen=True)
 class Capabilities:
+    thinking: bool = False
     generate: bool = True
     embed: bool = False
     json_schema: bool = True
@@ -49,6 +57,7 @@ class PromptRequest:
     seed: int = 0
     max_tokens: int = 1024
     timeout_s: float = 120
+    timeout_scaled: bool = False
     purpose: str = "extraction"
 
 
@@ -112,6 +121,8 @@ class LlamaCppProvider:
         connect_timeout: float = 10,
         max_concurrency: int = 1,
         transport: httpx.AsyncBaseTransport | None = None,
+        thinking: bool = False,
+        ctx_size: int = 4096,
     ) -> None:
         url = urlparse(base_url)
         if url.hostname not in {"127.0.0.1", "localhost", "::1"}:
@@ -119,6 +130,8 @@ class LlamaCppProvider:
         if max_concurrency < 1 or timeout <= 0 or connect_timeout <= 0:
             raise ValueError("Concurrency and timeouts must be positive")
         self.model = model
+        self.thinking = thinking
+        self.ctx_size = ctx_size
         self._slots = asyncio.Semaphore(max_concurrency)
         self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
@@ -129,7 +142,7 @@ class LlamaCppProvider:
         )
 
     def capabilities(self) -> Capabilities:
-        return Capabilities()
+        return Capabilities(thinking=self.thinking, max_context=self.ctx_size)
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -159,7 +172,7 @@ class LlamaCppProvider:
             "messages": request.messages,
             "temperature": request.temperature,
             "seed": request.seed,
-            "max_tokens": request.max_tokens,
+            "max_tokens": request.max_tokens + (REASONING_BUDGET if self.thinking else 0),
             "stream": False,
         }
         if request.json_schema is not None:
@@ -173,20 +186,36 @@ class LlamaCppProvider:
             }
         if request.grammar is not None:
             payload["grammar"] = request.grammar
+        timeout = (
+            request.timeout_s
+            if request.timeout_scaled
+            else generation_timeout(self, request.timeout_s)
+        )
         start = perf_counter()
         try:
-            async with asyncio.timeout(request.timeout_s):
-                async with self._slots:
-                    response = await self._client.post("/v1/chat/completions", json=payload)
-                    response.raise_for_status()
-            data = response.json()
-            text = data["choices"][0]["message"]["content"]
-            if not isinstance(text, str):
-                raise ValueError("Missing text")
+            async with asyncio.timeout(timeout):
+                for attempt in range(2 if self.thinking else 1):
+                    async with self._slots:
+                        response = await self._client.post(
+                            "/v1/chat/completions", json=payload, timeout=timeout
+                        )
+                        response.raise_for_status()
+                    data = response.json()
+                    text = data["choices"][0]["message"]["content"]
+                    if not isinstance(text, str):
+                        raise ValueError("Missing text")
+                    if self.thinking and "</think>" in text:
+                        text = text.rsplit("</think>", 1)[1].strip()
+                    try:
+                        parsed = parse_output(text, request.json_schema)
+                        break
+                    except ProviderError:
+                        if not self.thinking or attempt == 1:
+                            raise
             usage = data.get("usage", {})
             return GenerateResult(
                 text=text,
-                parsed_json=parse_output(text, request.json_schema),
+                parsed_json=parsed,
                 served_by=self.name,
                 model=self.model,
                 tokens_in=int(usage.get("prompt_tokens", 0)),

@@ -152,6 +152,7 @@ interface MockState {
   approvalUploads?: Record<number, ApprovalEntry['fields']>
   grades: Grade[]
   models: OccLlmModel[]
+  llmCtxSize?: number
   adminSettings: AdminSettings
   nextId: number
 }
@@ -337,8 +338,18 @@ export class MockApiClient implements ApiClient {
     data.candidateTypes = ['Internal', 'External', 'Unknown'].map((label) => ({ label, count: resources.filter((r) => r.candidateType === label).length }))
     return this.done(data)
   }
-  maintenance = new MaintenanceApi(async <T>(method: string, path: string) => {
+  maintenance = new MaintenanceApi(async <T>(method: string, path: string, body?: unknown) => {
     this.currentUser()
+    if (path === '/occ/settings') {
+      this.requireAdmin()
+      if (method === 'PUT') {
+        const value = (body as Record<string, unknown>)['llm.ctx_size']
+        if (typeof value !== 'number' || ![4096, 8192, 16384].includes(value)) fail(422, 'llm.ctx_size must be 4096, 8192 or 16384', 'VALIDATION_ERROR')
+        this.state.llmCtxSize = value
+        this.save()
+      }
+      return { 'llm.ctx_size': this.state.llmCtxSize ?? 4096 } as T
+    }
     const record = /^\/(demands|resources)\/(\d+)$/.exec(path)
     if (method === 'GET' && record) {
       if (record[1] === 'demands') await this.getDemand(Number(record[2]))
@@ -1535,6 +1546,13 @@ export class MockApiClient implements ApiClient {
     this.state.grades = grades.map((g, i) => ({ code: codes[i], order: i + 1, retired: g.retired }))
     this.audit(`Grade list saved: ${this.state.grades.filter((g) => !g.retired).map((g) => g.code).join(' < ')}`, undefined, { action: 'update', entity: 'grade_list' })
     return this.done(this.state.grades)
+  }
+
+  async getLlmHealth(): ReturnType<ApiClient['getLlmHealth']> {
+    const models = await this.listModels()
+    const model = models.find((m) => m.id === this.state.settings.activeModel) ?? models.find((m) => m.isDefault && m.purpose === 'generation')
+    return { status: model ? 'ok' : 'unavailable', detail: '', model: model?.name ?? null,
+      ctx_size: model ? this.state.llmCtxSize ?? 4096 : null, thinking: model?.thinking ?? null }
   }
 
   async listOccModels() {

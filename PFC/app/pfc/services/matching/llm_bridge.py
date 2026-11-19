@@ -10,7 +10,7 @@ import httpx
 import jsonschema
 from anyio import from_thread
 
-from pfc.adapters.llm.providers import LLMProvider, PromptRequest, ProviderError
+from pfc.adapters.llm.providers import LLMProvider, PromptRequest, ProviderError, generation_timeout
 
 from .requirements import ExtractionFailure, Requirements
 
@@ -149,7 +149,7 @@ class JdLlmBridge:
 
     async def _extract(self, text: str) -> dict[str, Any]:
         try:
-            async with asyncio.timeout(self.timeout_s):
+            async with asyncio.timeout(generation_timeout(self.provider, self.timeout_s)):
                 capabilities = self.provider.capabilities()
                 if capabilities.data_residency != "local":
                     raise ExtractionFailure("local_provider_required")
@@ -164,7 +164,8 @@ class JdLlmBridge:
                         template_version="1",
                         json_schema=jd_generation_schema(),
                         temperature=0,
-                        timeout_s=self.timeout_s,
+                        timeout_s=generation_timeout(self.provider, self.timeout_s),
+                        timeout_scaled=True,
                         messages=[
                             {
                                 "role": "system",

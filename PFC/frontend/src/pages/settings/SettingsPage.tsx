@@ -88,7 +88,7 @@ function FormSection({ section }: { section: 'data' | 'llm' | 'email' | 'templat
                 .filter((m) => m.purpose === 'generation' && m.approved)
                 .map((m) => (
                   <option key={m.id} value={m.id}>
-                    {m.name} · ~{m.ramGb} GB RAM · {m.diskGb} GB disk
+                    {m.name}{m.thinking ? ' (thinking, slower)' : ''} · ~{m.ramGb} GB RAM · {m.diskGb} GB disk
                   </option>
                 ))}
             </select>

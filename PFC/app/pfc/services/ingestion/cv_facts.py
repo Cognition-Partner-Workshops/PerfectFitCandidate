@@ -10,7 +10,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from pfc.adapters.llm.providers import LLMProvider, PromptRequest, parse_output
+from pfc.adapters.llm.providers import LLMProvider, PromptRequest, generation_timeout, parse_output
 from pfc.api.schemas.cv import CVFact, CVFacts, CVWarning, PublicCVFacts, SkillFact
 from pfc.jobs.runner import JobContext
 
@@ -222,6 +222,7 @@ class LLMBridge:
     limiter: asyncio.Semaphore
 
     async def generate(self, text: str, timeout: float) -> tuple[dict[str, Any], str]:
+        timeout = generation_timeout(self.provider, timeout)
         async with asyncio.timeout(timeout), self.limiter:
             if self.provider.capabilities().data_residency != "local":
                 raise ValueError("CV facts require a local provider")
@@ -240,6 +241,7 @@ class LLMBridge:
                     seed=0,
                     max_tokens=2048,
                     timeout_s=timeout,
+                    timeout_scaled=True,
                     purpose="cv_extract",
                 )
             )
@@ -261,7 +263,7 @@ def extract_facts(
     except RuntimeError:
         coroutine.close()
         return ExtractedFacts(rules, failure="error")
-    deadline = monotonic() + timeout
+    deadline = monotonic() + generation_timeout(bridge.provider, timeout)
     try:
         while True:
             context.raise_if_cancelled()

@@ -397,6 +397,7 @@ export class HttpApiClient implements ApiClient {
     return toPersonal(saved, this.localPersonal())
   }
   listModels: ApiClient['listModels'] = async () => (await this.request<ModelRow[]>('GET', '/llm/models')).map(toLlmModel)
+  getLlmHealth: ApiClient['getLlmHealth'] = () => this.request('GET', '/llm/health')
   previewPackage: ApiClient['previewPackage'] = (file) => this.upload('/settings/settings-package/preview', file)
   importPackage: ApiClient['importPackage'] = (source) => this.request('POST', '/settings/settings-package/import', source)
   pendingPackages: ApiClient['pendingPackages'] = () => this.request('GET', '/settings/settings-package/pending')
@@ -600,13 +601,8 @@ export class HttpApiClient implements ApiClient {
     (await this.request<GradeRow[]>('PUT', '/occ/grades', fromGrades(g))).map(toGrade)
   listOccModels: ApiClient['listOccModels'] = async () =>
     (await this.request<ModelRow[]>('GET', '/occ/llm-models')).map(toLlmModel)
-  /** Approval is global (PUT /occ/llm-models/{id}); "default" maps to the caller's active model (PUT /llm/active). */
-  updateOccModel: ApiClient['updateOccModel'] = async (id, p) => {
-    if (p.approved !== undefined)
-      await this.request('PUT', `/occ/llm-models/${encodeURIComponent(id)}`, { approved: p.approved })
-    if (p.isDefault) await this.request('PUT', '/llm/active', { model_id: Number(id) })
-    return this.listOccModels()
-  }
+  updateOccModel: ApiClient['updateOccModel'] = async (id, patch) =>
+    (await this.request<ModelRow[]>('PUT', `/occ/llm-models/${encodeURIComponent(id)}`, patch)).map(toLlmModel)
   /** Dates are sent as UTC day bounds (backend requires a timezone); user names are matched client-side. */
   auditLog: ApiClient['auditLog'] = async (q) => {
     const users = await this.userNames()
