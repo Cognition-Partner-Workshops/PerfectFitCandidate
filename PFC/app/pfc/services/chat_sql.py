@@ -6,11 +6,13 @@ import time
 
 from pfc.api.schemas.chat import ChatAnswer, ChatQuery, ChatSource
 from pfc.services.chat_intent import ChatMask, Lookup
+from pfc.services.chat_skills import register_chat_skills
 
 TIMEOUT_SECONDS = 5.0
+MAX_CELL_BYTES = 100_000
 FUNCTIONS = set(
     "count sum avg total min max round abs lower upper length substr trim coalesce "
-    "ifnull nullif instr date strftime julianday group_concat printf format".split()
+    "ifnull nullif instr date strftime julianday group_concat".split()
 )
 
 
@@ -58,6 +60,9 @@ def execute_query(db: sqlite3.Connection, lookup: Lookup) -> ChatAnswer:
     sql = lookup.sql or ""
     _validate(sql)
     mask = ChatMask(db)
+    uses_skills = "chat_v_resource_skills" in sql.lower()
+    if uses_skills:
+        register_chat_skills(db, snapshot=True)
     db.execute("PRAGMA query_only=ON")
     db.execute("SELECT value FROM json_each('{}')").fetchall()
     deadline = time.monotonic() + TIMEOUT_SECONDS
@@ -73,12 +78,17 @@ def execute_query(db: sqlite3.Connection, lookup: Lookup) -> ChatAnswer:
             allowed = (arg2 or "").lower() in FUNCTIONS or (
                 internal
                 and (arg2 or "").lower()
-                in {"json_valid", "json_type", "json_extract", "glob", "ltrim"}
+                in {
+                    "json_valid", "json_type", "json_extract", "glob", "ltrim",
+                    "chat_resource_skills",
+                }
             )
         return sqlite3.SQLITE_OK if allowed else sqlite3.SQLITE_DENY
 
+    previous_limit = db.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, MAX_CELL_BYTES)
     db.set_authorizer(authorize)
     db.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1000)
+    cursor: sqlite3.Cursor | None = None
     try:
         cursor = db.execute(sql)
         columns = [mask.mask(column[0]) for column in cursor.description or ()]
@@ -97,6 +107,11 @@ def execute_query(db: sqlite3.Connection, lookup: Lookup) -> ChatAnswer:
     finally:
         db.set_progress_handler(None, 0)
         db.set_authorizer(None)
+        if cursor is not None:
+            cursor.close()
+        db.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, previous_limit)
+        if uses_skills:
+            register_chat_skills(db)
     ranking = "rank" in [column.lower() for column in columns] or bool(
         re.search(r"\bchat_v_match_results\b", sql, re.I)
     )

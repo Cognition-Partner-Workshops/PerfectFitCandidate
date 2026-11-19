@@ -32,6 +32,8 @@ def load_vec(connection: Connection) -> bool:
 
 
 def connect(settings: Settings) -> Connection:
+    from pfc.services.chat_skills import register_chat_skills
+
     path = settings.data_dir / "db" / "pfc.db"
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(path, factory=Connection, check_same_thread=False)
@@ -43,6 +45,7 @@ def connect(settings: Settings) -> Connection:
         connection.execute("PRAGMA foreign_keys=ON")
         connection.execute("PRAGMA busy_timeout=5000")
         connection.vec_available = load_vec(connection)
+        register_chat_skills(connection)
         return connection
     except BaseException:
         connection.close()

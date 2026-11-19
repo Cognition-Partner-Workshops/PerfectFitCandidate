@@ -99,9 +99,9 @@
   reference_sql: "SELECT resource_ref FROM chat_v_resources WHERE location='Bristol'"
   ordered: false
 - id: "q021"
-  question: "How many resources have full capacity recorded?"
+  question: "How many resources have available capacity recorded?"
   category: "single_view"
-  reference_sql: "SELECT count(*) FROM chat_v_resources WHERE capacity=100"
+  reference_sql: "SELECT count(*) FROM chat_v_resources WHERE capacity='Y'"
   ordered: false
 - id: "q022"
   question: "How many resources are marked excluded?"
@@ -219,19 +219,19 @@
   reference_sql: "SELECT lifecycle,count(*) FROM chat_v_resources GROUP BY lifecycle"
   ordered: false
 - id: "q045"
-  question: "What is the average recorded capacity in each grade?"
+  question: "What percentage of resources with known capacity in each grade have capacity available?"
   category: "aggregate"
-  reference_sql: "SELECT grade,avg(capacity) FROM chat_v_resources GROUP BY grade"
+  reference_sql: "SELECT grade,100.0*avg(CASE WHEN capacity='Y' THEN 1.0 WHEN capacity='N' THEN 0.0 END) FROM chat_v_resources GROUP BY grade"
   ordered: false
 - id: "q046"
-  question: "How much recorded capacity do we have in each location?"
+  question: "How many resources with available capacity do we have in each location?"
   category: "aggregate"
-  reference_sql: "SELECT location,sum(capacity) FROM chat_v_resources GROUP BY location"
+  reference_sql: "SELECT location,sum(CASE WHEN capacity='Y' THEN 1 ELSE 0 END) FROM chat_v_resources GROUP BY location"
   ordered: false
 - id: "q047"
-  question: "For each grade, show the lowest and highest recorded capacity."
+  question: "For each grade, show counts of available, unavailable and unknown capacity."
   category: "aggregate"
-  reference_sql: "SELECT grade,min(capacity),max(capacity) FROM chat_v_resources GROUP BY grade"
+  reference_sql: "SELECT grade,sum(CASE WHEN capacity='Y' THEN 1 ELSE 0 END),sum(CASE WHEN capacity='N' THEN 1 ELSE 0 END),sum(CASE WHEN capacity IS NULL THEN 1 ELSE 0 END) FROM chat_v_resources GROUP BY grade"
   ordered: false
 - id: "q048"
   question: "How many eligible resources are in each grade?"

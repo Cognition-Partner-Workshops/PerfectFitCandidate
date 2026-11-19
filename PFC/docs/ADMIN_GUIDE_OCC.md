@@ -209,7 +209,11 @@ The guard permits one SELECT/WITH statement of at most 2,000 characters, on a
 query-only connection. SQLite authorization restricts reads to safe views and their
 internal reads and allows only approved functions. Direct table/schema reads,
 recursive CTEs, writes, PRAGMA, ATTACH and extension loading are denied. Queries
-return at most **500 rows** and are interrupted after **5 seconds**. Every returned
+return at most **500 rows** and are interrupted after **5 seconds**. SQLite values/rows
+are limited to **100,000 bytes** during execution; `printf`/`format` are not allowed.
+Resource capacity is `Y`, `N`, or NULL (unknown), not a percentage. Resource skills
+are canonicalised at query time from CT skills and the latest non-removed CV of the
+linked candidate; raw CT/CV text is never exposed. Every returned
 cell is masked again. Rejected SQL gets at most two model-correction retries.
 Rank queries show **PFC ranking — human review required**; PFC never decides.
 The answer audit includes the executed SQL's SHA-256 and returned row count.

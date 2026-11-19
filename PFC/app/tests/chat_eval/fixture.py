@@ -2,17 +2,48 @@
 
 import json
 import random
+from io import BytesIO
 from pathlib import Path
+
+from openpyxl import Workbook  # type: ignore[import-untyped]
 
 from pfc.config import Settings
 from pfc.db.connection import database
 from pfc.db.migrate import migrate
+from pfc.services.ingestion import service as ingestion
+from pfc.services.ingestion.workbooks import CT
 from pfc.services.occ.seed import seed_reference_data
 
 TODAY = "2026-11-06"
 SKILLS = ("SQL", "Python", "Java", "Databricks", "AWS", "Azure")
 GRADES = ("B1", "B2", "C1", "C2", "D1")
 REGIONS = ("London", "Manchester", "Edinburgh", "Bristol")
+
+
+def ingest_resources(settings: Settings) -> None:
+    book = Workbook()
+    sheet = book.active
+    assert sheet is not None
+    sheet.append(list(CT))
+    for i in range(1, 81):
+        values = {
+            "ShortName": f"SYNTHETIC_PERSON_{i}",
+            "Email Address": f"fake{i}@example.invalid",
+            "Grade": GRADES[i % 5],
+            "Location": REGIONS[i % 4],
+            "Bench Status": "Available",
+            "Skills": SKILLS[i % 6],
+            "Available Capacity": ("Y", "N", None)[i % 3],
+            "Bench Start Date": "2026-10-01",
+            "Bench End Date": "2026-12-31",
+            "Group": "RG1",
+        }
+        sheet.append([values.get(header) for header in CT])
+    stream = BytesIO()
+    book.save(stream)
+    book.close()
+    run = ingestion.upload(settings, "CT", "synthetic.xlsx", stream.getvalue(), 1, TODAY)
+    ingestion.commit(settings, run.ingestion_run_id, 1, TODAY)
 
 
 def build_fixture(root: Path) -> Settings:
@@ -29,6 +60,13 @@ def build_fixture(root: Path) -> Settings:
                 "ON CONFLICT(name) DO NOTHING",
                 (skill,),
             )
+        db.execute(
+            "INSERT INTO users(user_id,email,display_name,role_id,password_hash,created_at,"
+            "updated_at) VALUES (1,'fixture@example.invalid','SYNTHETIC_USER',1,'unused',?,?)",
+            (TODAY, TODAY),
+        )
+    ingest_resources(settings)
+    with database(settings) as db:
         skills = {r["name"]: r["skill_id"] for r in db.execute("SELECT * FROM skills")}
         for i in range(1, 51):
             db.execute(
@@ -71,43 +109,40 @@ def build_fixture(root: Path) -> Settings:
                     (i, kind, skill, skills[skill], offset),
                 )
         for i in range(1, 81):
+            candidate = db.execute(
+                "SELECT candidate_id FROM resources WHERE resource_id=?", (i,)
+            ).fetchone()[0]
             db.execute(
-                "INSERT INTO resources(resource_id,short_name,short_name_key,email_address,"
-                "email_key,"
-                "grade,location,bench_status_code,bench_start_date,bench_end_date,available_capacity,"
-                "eligibility,lifecycle,row_hash,created_at,updated_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "UPDATE resources SET eligibility=?,lifecycle=? WHERE resource_id=?",
                 (
-                    i,
-                    f"SYNTHETIC_PERSON_{i}",
-                    f"synthetic_person_{i}",
-                    f"fake{i}@example.invalid",
-                    f"fake{i}@example.invalid",
-                    GRADES[i % 5],
-                    REGIONS[i % 4],
-                    "AVAILABLE",
-                    "2026-10-01",
-                    "2026-12-31",
-                    str((i % 4 + 1) * 25),
                     "excluded" if i % 7 == 0 else "eligible",
                     "archived" if i > 76 else "off_bench" if i % 9 == 0 else "active",
-                    f"r{i}",
-                    TODAY,
-                    TODAY,
+                    i,
                 ),
             )
-            for offset in range(3):
+            resume = db.execute(
+                "INSERT INTO resumes(candidate_id,source_path,file_name,file_sha256,mime_type,"
+                "discovered_at) VALUES (?,'synthetic.pdf','synthetic.pdf',?,'application/pdf',?)",
+                (candidate, f"synthetic-{i}", TODAY),
+            ).lastrowid
+            cv = db.execute(
+                "INSERT INTO cv_versions(resume_id,candidate_id,version_no,text_sha256,text_norm,"
+                "extracted_by,is_latest,extracted_at) VALUES (?,?,1,?,'','synthetic',1,?)",
+                (resume, candidate, f"synthetic-cv-{i}", TODAY),
+            ).lastrowid
+            for offset in (1, 2):
                 skill = SKILLS[(i + offset) % 6]
                 db.execute(
                     "INSERT INTO resource_skills(resource_id,source,skill_raw,skill_norm,"
-                    "canonical_skill_id,years) VALUES (?,?,?,?,?,?)",
+                    "canonical_skill_id,years,cv_version_id) VALUES (?,?,?,?,?,?,?)",
                     (
                         i,
-                        "CT" if offset == 0 else "CV",
+                        "CV",
                         skill,
                         skill.lower(),
                         skills[skill],
                         float(i % 10 + 1),
+                        cv,
                     ),
                 )
         db.execute(

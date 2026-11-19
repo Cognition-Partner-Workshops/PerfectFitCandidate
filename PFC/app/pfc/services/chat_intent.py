@@ -54,7 +54,8 @@ chat_v_demand_skills(requisition,skill,kind): canonical confirmed JD skills;
 kind is mandatory_skill or preferred_skill.
 chat_v_resources(resource_ref,grade,location,bench_status,bench_start_date,bench_end_date,
 capacity,eligibility,lifecycle): resource_ref is Resource #N; eligibility eligible/excluded;
-lifecycle active/off_bench; capacity numeric, dates ISO. bench_status is an OCC-configured code.
+lifecycle active/off_bench; capacity Y/N (available/not available), unknown NULL; dates ISO.
+bench_status is an OCC-configured code.
 chat_v_resource_skills(resource_ref,skill,source,years): canonical skills; source CT/CV.
 chat_v_match_results(requisition,resource_ref,rank,score,band,mandatory_missing,shortlisted):
 current completed assessment per open demand (a newer empty assessment hides older matches).

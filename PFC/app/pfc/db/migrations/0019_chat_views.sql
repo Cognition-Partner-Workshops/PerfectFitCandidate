@@ -12,14 +12,16 @@ WHERE d.lifecycle='open' AND q.status='confirmed' AND s.is_active=1
 
 CREATE VIEW chat_v_resources AS
 SELECT 'Resource #'||resource_id AS resource_ref,grade,location,bench_status_code AS bench_status,
- bench_start_date,bench_end_date,CAST(available_capacity AS REAL) AS capacity,eligibility,lifecycle
+ bench_start_date,bench_end_date,
+ CASE WHEN available_capacity IN ('Y','N') THEN available_capacity ELSE NULL END AS capacity,
+ eligibility,lifecycle
 FROM resources WHERE lifecycle!='archived';
 
 CREATE VIEW chat_v_resource_skills AS
-SELECT 'Resource #'||r.resource_id AS resource_ref,s.name AS skill,rs.source,rs.years
-FROM resources r JOIN resource_skills rs USING(resource_id)
-JOIN skills s ON s.skill_id=rs.canonical_skill_id
-WHERE r.lifecycle!='archived' AND s.is_active=1;
+SELECT 'Resource #'||r.resource_id AS resource_ref,json_extract(j.value,'$.skill') AS skill,
+ json_extract(j.value,'$.source') AS source,json_extract(j.value,'$.years') AS years
+FROM resources r JOIN json_each(chat_resource_skills(r.resource_id)) j
+WHERE r.lifecycle!='archived';
 
 CREATE VIEW chat_v_match_results AS
 SELECT d.code_requisition AS requisition,'Resource #'||r.resource_id AS resource_ref,

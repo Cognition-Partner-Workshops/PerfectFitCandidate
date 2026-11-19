@@ -1,5 +1,6 @@
 import json
 import sqlite3
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -43,6 +44,7 @@ def query(sql: str) -> Lookup:
         "WITH x AS (SELECT 1) DELETE FROM resources",
         "SELECT randomblob(1000000000)",
         "SELECT * FROM pragma_table_info('resources')",
+        "SELECT chat_resource_skills(1)",
     ],
 )
 def test_denied(db: sqlite3.Connection, sql: str) -> None:
@@ -86,6 +88,34 @@ def test_prompt_budget() -> None:
     # Include constrained-output schema, maximum question and message overhead.
     chars = len(SYSTEM_PROMPT) + len(json.dumps(Lookup.model_json_schema())) + 600
     assert chars / 3 + 512 + 100 <= 4096
+
+
+@pytest.mark.parametrize("function", ["printf", "format"])
+def test_large_format_width_rejected_quickly(db: sqlite3.Connection, function: str) -> None:
+    previous = db.getlimit(sqlite3.SQLITE_LIMIT_LENGTH)
+    started = time.monotonic()
+    with pytest.raises(QueryRejected, match="not authorized"):
+        execute_query(db, query(f"SELECT {function}('%500000000s','x')"))
+    assert time.monotonic() - started < 2
+    assert db.getlimit(sqlite3.SQLITE_LIMIT_LENGTH) == previous
+
+
+def test_cell_length_limit_and_restoration(db: sqlite3.Connection) -> None:
+    db.executemany(
+        "INSERT INTO demands(code_requisition,id_format_ok,row_hash,created_at,updated_at) "
+        "VALUES (?,1,'x','now','now')", [(f"T{i:05}",) for i in range(150)],
+    )
+    db.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, 200_000)
+    for sql in ("SELECT 'hello'", "SELECT * FROM chat_v_resources"):
+        execute_query(db, query(sql))
+        assert db.getlimit(sqlite3.SQLITE_LIMIT_LENGTH) == 200_000
+    with pytest.raises(QueryRejected, match="too big"):
+        execute_query(db, query(
+            "SELECT group_concat(a.requisition || b.requisition,'') "
+            "FROM chat_v_demands a CROSS JOIN chat_v_demands b"
+        ))
+    assert db.getlimit(sqlite3.SQLITE_LIMIT_LENGTH) == 200_000
+    assert db.execute("SELECT length(?)", ("x" * 100_001,)).fetchone()[0] == 100_001
 
 
 @pytest.mark.parametrize(
