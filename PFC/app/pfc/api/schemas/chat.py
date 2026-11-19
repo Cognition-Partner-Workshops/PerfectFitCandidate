@@ -17,10 +17,20 @@ class ChatSource(WireModel):
     values: dict[str, str] = Field(default_factory=dict)
 
 
+class ChatQuery(WireModel):
+    sql: str
+    explanation: str
+    columns: list[str]
+    rows: list[list[str | int | float | None]]
+    truncated: bool
+    ranking: bool
+
+
 class ChatAnswer(WireModel):
     outcome: Literal["answered", "no_data", "unsupported", "unavailable", "uninterpretable"]
     text: str
     sources: list[ChatSource] = Field(default_factory=list)
+    query: ChatQuery | None = None
 
 
 class ChatEntry(WireModel):

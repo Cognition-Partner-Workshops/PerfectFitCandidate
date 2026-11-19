@@ -411,6 +411,20 @@ on the question to cancel it.
 | Top 5 skills in demand for INS this month | Counts mandatory and preferred skills once per open demand with a confirmed JD, using its position start date for this month's filter. |
 | Who on the bench has Databricks and is C1–C2? | Lists masked resource IDs for active, eligible bench records with the skill in the CT or latest available CV, using the configured grade order. |
 | Why is Resource #42 ranked #2 for T10001? | Shows the score, band and stored component points in the latest completed assessment for that open requisition. Use the actual resource ID, requisition and rank. |
+| Average match score by band for current results | Groups current stored match results by band and computes the average score. |
+| Top 5 candidates for T10001 | Lists the top stored PFC ranks for that open requisition; it does not choose who to hire. |
+
+Chat also supports counts, filters, statistics, groupings and joins across its safe
+demand, resource, canonical-skill and current-match views. Query answers appear in a
+table; expand **Show SQL** to inspect the computation and its explanation. A notice
+appears when results are **truncated to 500 rows**. Archived records and raw CV/JD
+text are not exposed. SQL skill queries use canonical skills only.
+
+**PFC ranking — human review required.** Best-fit and top-candidate questions report
+the stored ranking from the current completed assessment, not a hiring recommendation.
+PFC never decides; check the evidence and use the normal review/approval workflow.
+Chat refuses personal-information requests (names, emails, phones), writes, sending
+email, unrelated topics and multiple unrelated questions. It cannot take actions for you.
 
 Open the links in **Sources** to check the records used. Chat shows masked resource
 IDs and strips recognized names and contact details. Use requisition codes and

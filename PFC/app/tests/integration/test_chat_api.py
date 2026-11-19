@@ -59,6 +59,82 @@ class ChatStub(FakeProvider):
         return GenerateResult(json.dumps(self.lookup), "fake", "offline-chat-stub")
 
 
+def test_query_correction_and_archived_views(api: Api) -> None:
+    _seed(api)
+    client, _ = api
+
+    class CorrectingStub(ChatStub):
+        async def generate(
+            self, request: PromptRequest, *, api_version: str | None = None
+        ) -> GenerateResult:
+            self.lookup = {
+                "intent": "query",
+                "sql": "SELECT * FROM resources"
+                if not self.requests
+                else "SELECT * FROM chat_v_match_results WHERE requisition='T10001'",
+                "explanation": "This lists the stored ranking.",
+            }
+            return await super().generate(request, api_version=api_version)
+
+    stub = CorrectingStub()
+    client.app.state.llm_provider = stub
+    answer = _answer(api, "Which candidate is best fit for T10001?")["answer"]
+    assert answer["outcome"] == "answered"
+    assert answer["query"]["ranking"]
+    assert answer["query"]["rows"][0][3] == 84.5
+    assert "human review required" in answer["text"]
+    assert len(stub.requests) == 2
+    assert "SQL rejected" in stub.requests[1].messages[-1]["content"]
+    with database(client.app.state.settings) as db:
+        for view in ("demands", "demand_skills", "match_results"):
+            assert not db.execute(
+                f"SELECT * FROM chat_v_{view} WHERE requisition='T10004'"
+            ).fetchall()
+        archived = db.execute(
+            "SELECT resource_id FROM resources WHERE lifecycle='archived'"
+        ).fetchone()[0]
+        for view in ("resources", "resource_skills", "match_results"):
+            assert not db.execute(
+                f"SELECT * FROM chat_v_{view} WHERE resource_ref=?", (f"Resource #{archived}",)
+            ).fetchall()
+        details = json.loads(
+            db.execute("SELECT details_json FROM audit_log WHERE action='CHAT_ANSWER'").fetchone()[
+                0
+            ]
+        )
+        assert details["row_count"] == 1 and len(details["sql_sha256"]) == 64
+        newest = db.execute("SELECT max(run_id) FROM match_runs").fetchone()[0]
+        demand = db.execute(
+            "SELECT demand_id FROM demands WHERE code_requisition='T10001'"
+        ).fetchone()[0]
+        db.execute(
+            "UPDATE match_runs SET dq_summary_json=? WHERE run_id=?",
+            (json.dumps({"demands": {str(demand): {}}}), newest),
+        )
+        db.execute(
+            "DELETE FROM score_breakdowns WHERE result_id IN "
+            "(SELECT result_id FROM match_results WHERE run_id=?)",
+            (newest,),
+        )
+        db.execute("DELETE FROM match_results WHERE run_id=?", (newest,))
+        assert db.execute("SELECT count(*) FROM chat_v_match_results").fetchone()[0] == 0
+
+
+def test_query_retries_exhausted(api: Api) -> None:
+    client, _ = api
+    stub = ChatStub()
+    stub.lookup = {
+        "intent": "query",
+        "sql": "SELECT * FROM candidates",
+        "explanation": "This lists records.",
+    }
+    client.app.state.llm_provider = stub
+    result = _answer(api, "List the available resources.")["answer"]
+    assert result["outcome"] == "uninterpretable"
+    assert "top ranked" in result["text"]
+    assert len(stub.requests) == 3
+
+
 def _ask(api: Api, question: str) -> dict[str, Any]:
     client, csrf = api
     response = client.post("/api/v1/chat", json={"question": question}, headers=csrf)

@@ -1,0 +1,103 @@
+import json
+import sqlite3
+from collections.abc import Iterator
+from pathlib import Path
+
+import pytest
+
+from pfc.config import Settings
+from pfc.db.connection import database
+from pfc.db.migrate import migrate
+from pfc.services import chat_sql
+from pfc.services.chat_intent import SYSTEM_PROMPT, Lookup
+from pfc.services.chat_sql import QueryRejected, execute_query
+
+
+@pytest.fixture
+def db(tmp_path: Path) -> Iterator[sqlite3.Connection]:
+    settings = Settings(data_dir=tmp_path)
+    assert "0019" in migrate(settings)
+    with database(settings) as conn:
+        yield conn
+
+
+def query(sql: str) -> Lookup:
+    return Lookup(intent="query", sql=sql, explanation="This lists stored records.")
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "INSERT INTO resources DEFAULT VALUES",
+        "UPDATE resources SET grade=NULL",
+        "DELETE FROM resources",
+        "PRAGMA database_list",
+        "ATTACH ':memory:' AS x",
+        "SELECT * FROM resources",
+        "SELECT * FROM candidates",
+        "SELECT * FROM sqlite_master",
+        "SELECT 1; SELECT 2",
+        "SELECT load_extension('x')",
+        "CREATE TEMP TABLE x(a)",
+        "WITH RECURSIVE x(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM x) SELECT * FROM x",
+        "WITH x AS (SELECT 1) DELETE FROM resources",
+        "SELECT randomblob(1000000000)",
+        "SELECT * FROM pragma_table_info('resources')",
+    ],
+)
+def test_denied(db: sqlite3.Connection, sql: str) -> None:
+    with pytest.raises(QueryRejected):
+        execute_query(db, query(sql))
+    assert db.execute("SELECT count(*) FROM resources").fetchone()[0] == 0
+
+
+def test_views_empty_and_statement_quoting(db: sqlite3.Connection) -> None:
+    for name in ("demands", "demand_skills", "resources", "resource_skills", "match_results"):
+        answer = execute_query(db, query("SELECT * FROM chat_v_" + name))
+        assert answer.outcome == "no_data"
+        assert answer.query and answer.query.rows == []
+    answer = execute_query(db, query("/* hello */ SELECT ';' AS value; -- tail"))
+    assert answer.query and answer.query.rows == [[";"]]
+
+
+def test_cap_mask_and_timeout(db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch) -> None:
+    db.executemany(
+        "INSERT INTO demands(code_requisition,id_format_ok,row_hash,created_at,updated_at) "
+        "VALUES (?,1,'x','now','now')",
+        [(f"T{i:05}",) for i in range(600)],
+    )
+    answer = execute_query(db, query("SELECT * FROM chat_v_demands"))
+    assert answer.query and len(answer.query.rows) == 500 and answer.query.truncated
+    answer = execute_query(db, query("SELECT 'person@example.test',123456789"))
+    assert answer.query and answer.query.rows == [["[email masked]", "[number masked]"]]
+    monkeypatch.setattr(chat_sql, "TIMEOUT_SECONDS", 0.01)
+    with pytest.raises(QueryRejected, match="interrupted"):
+        execute_query(
+            db,
+            query(
+                "SELECT sum(a.grade+b.grade+c.grade+d.grade) FROM chat_v_demands a "
+                "CROSS JOIN chat_v_demands b CROSS JOIN chat_v_demands c "
+                "CROSS JOIN chat_v_demands d"
+            ),
+        )
+
+
+def test_prompt_budget() -> None:
+    # Include constrained-output schema, maximum question and message overhead.
+    chars = len(SYSTEM_PROMPT) + len(json.dumps(Lookup.model_json_schema())) + 600
+    assert chars / 3 + 512 + 100 <= 4096
+
+
+@pytest.mark.parametrize(
+    "name", ["chat_v_evil", '"chat_v_resources"', "[chat_v_x]", "`chat_v_x`", "'chat_v_x'"]
+)
+@pytest.mark.parametrize("columns", ["", "(name)"])
+def test_cte_cannot_impersonate_view(db: sqlite3.Connection, name: str, columns: str) -> None:
+    with pytest.raises(QueryRejected):
+        execute_query(
+            db,
+            query(
+                f"WITH {name}{columns} /* hidden */ AS (SELECT short_name FROM resources) "
+                f"SELECT * FROM {name}"
+            ),
+        )

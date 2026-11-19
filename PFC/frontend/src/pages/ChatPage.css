@@ -35,6 +35,10 @@
 .chat-question, .chat-answer { padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-bg-page); }
 .chat-answer { border: 1px solid var(--color-border); }
 .chat-answer > button { margin-top: var(--space-2); }
+.chat-query { display: grid; gap: var(--space-3); margin-top: var(--space-3); min-width: 0; }
+.chat-query summary { cursor: pointer; font-weight: 600; }
+.chat-query details p { margin-top: var(--space-2); }
+.chat-query pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .chat-form > label { font-weight: 600; }
 .chat-form textarea { width: 100%; resize: vertical; }
 .chat-form-actions { justify-content: space-between; }

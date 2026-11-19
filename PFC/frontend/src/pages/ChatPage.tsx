@@ -16,6 +16,8 @@ const EXAMPLES = [
   'What are the top five confirmed skills in demand?',
   'Who on the bench has Databricks and is C1–C2?',
   'Why is the candidate ranked #2 for T10001?',
+  'Average match score by band for current results',
+  'Top 5 candidates for T10001',
 ]
 
 const active = (entry?: ChatEntry) => entry?.status === 'queued' || entry?.status === 'running'
@@ -46,6 +48,29 @@ function Answer({ answer, onRetry }: { answer: ChatAnswer; onRetry: () => void }
     <div className="chat-answer" aria-live="polite">
       <h2>Answer</h2>
       <p>{answer.text}</p>
+      {answer.query && (
+        <div className="chat-query">
+          {answer.query.ranking && <p role="note">PFC ranking — human review required</p>}
+          <div className="table-wrap scroll">
+            <table className="data">
+              <caption className="sr-only">Query results</caption>
+              <thead><tr>{answer.query.columns.map((column, index) => <th key={index} scope="col">{column}</th>)}</tr></thead>
+              <tbody>
+                {answer.query.rows.map((row, index) => (
+                  <tr key={index}>{row.map((cell, column) => <td key={column}>{cell === null ? '—' : String(cell)}</td>)}</tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {answer.query.rows.length === 0 && <p className="chat-muted">No result rows.</p>}
+          {answer.query.truncated && <p role="note">Results truncated to 500 rows.</p>}
+          <details>
+            <summary>Show SQL</summary>
+            <p>{answer.query.explanation}</p>
+            <pre><code>{answer.query.sql}</code></pre>
+          </details>
+        </div>
+      )}
       {(answer.outcome === 'unavailable' || answer.outcome === 'uninterpretable') &&
         <button className="btn btn-sm" onClick={onRetry}>Edit and retry</button>}
     </div>

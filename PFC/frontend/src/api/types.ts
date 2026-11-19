@@ -37,6 +37,14 @@ export interface ChatAnswer {
   outcome: 'answered' | 'no_data' | 'unsupported' | 'unavailable' | 'uninterpretable'
   text: string
   sources: ChatSource[]
+  query?: {
+    sql: string
+    explanation: string
+    columns: string[]
+    rows: (string | number | null)[][]
+    truncated: boolean
+    ranking: boolean
+  } | null
 }
 
 export interface ChatDetail extends ChatEntry {
