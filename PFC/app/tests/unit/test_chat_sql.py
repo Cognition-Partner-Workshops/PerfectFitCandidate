@@ -79,6 +79,34 @@ def test_unfiltered_resource_skill_count(db: sqlite3.Connection, populated: bool
     assert answer.query and answer.query.rows == [[int(populated)]]
 
 
+@pytest.mark.parametrize("preparation", ["python", "sqlite"])
+def test_skill_projection_uses_query_deadline(
+    db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch, preparation: str
+) -> None:
+    register = chat_sql.register_chat_skills
+
+    def slow_projection(db: sqlite3.Connection, *, snapshot: bool = False) -> None:
+        if snapshot:
+            if preparation == "python":
+                time.sleep(0.03)
+            else:
+                values = json.dumps([0] * 1000)
+                db.execute(
+                    "SELECT count(*) FROM json_each(?) a CROSS JOIN json_each(?) b "
+                    "CROSS JOIN json_each(?) c",
+                    (values, values, values),
+                ).fetchone()
+        register(db, snapshot=snapshot)
+
+    monkeypatch.setattr(chat_sql, "TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(chat_sql, "register_chat_skills", slow_projection)
+    previous = db.getlimit(sqlite3.SQLITE_LIMIT_LENGTH)
+    with pytest.raises(QueryRejected, match="interrupted"):
+        execute_query(db, query("SELECT count(*) FROM chat_v_resource_skills"))
+    assert db.getlimit(sqlite3.SQLITE_LIMIT_LENGTH) == previous
+    assert db.execute("SELECT count(*) FROM resources").fetchone()[0] == 0
+
+
 def test_cap_mask_and_timeout(db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch) -> None:
     db.executemany(
         "INSERT INTO demands(code_requisition,id_format_ok,row_hash,created_at,updated_at) "

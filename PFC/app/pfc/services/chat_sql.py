@@ -59,12 +59,7 @@ def _validate(sql: str) -> None:
 def execute_query(db: sqlite3.Connection, lookup: Lookup) -> ChatAnswer:
     sql = lookup.sql or ""
     _validate(sql)
-    mask = ChatMask(db)
     uses_skills = "chat_v_resource_skills" in sql.lower()
-    if uses_skills:
-        register_chat_skills(db, snapshot=True)
-    db.execute("PRAGMA query_only=ON")
-    db.execute("SELECT value FROM json_each('{}')").fetchall()
     deadline = time.monotonic() + TIMEOUT_SECONDS
     view_json_read = False
 
@@ -99,11 +94,19 @@ def execute_query(db: sqlite3.Connection, lookup: Lookup) -> ChatAnswer:
             )
         return sqlite3.SQLITE_OK if allowed else sqlite3.SQLITE_DENY
 
-    previous_limit = db.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, MAX_CELL_BYTES)
-    db.set_authorizer(authorize)
+    previous_limit = db.getlimit(sqlite3.SQLITE_LIMIT_LENGTH)
     db.set_progress_handler(lambda: int(time.monotonic() >= deadline), 1000)
     cursor: sqlite3.Cursor | None = None
     try:
+        mask = ChatMask(db)
+        if uses_skills:
+            register_chat_skills(db, snapshot=True)
+        if time.monotonic() >= deadline:
+            raise QueryRejected("interrupted")
+        db.execute("PRAGMA query_only=ON")
+        db.execute("SELECT value FROM json_each('{}')").fetchall()
+        db.setlimit(sqlite3.SQLITE_LIMIT_LENGTH, MAX_CELL_BYTES)
+        db.set_authorizer(authorize)
         cursor = db.execute(sql)
         columns = [mask.mask(column[0]) for column in cursor.description or ()]
         raw = cursor.fetchmany(501)
