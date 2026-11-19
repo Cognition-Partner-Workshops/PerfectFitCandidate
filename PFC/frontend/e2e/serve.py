@@ -78,6 +78,13 @@ class LocalModelStub(FakeProvider):
             return await super().generate(request, api_version=api_version)
         if request.purpose == "chat_lookup":
             question = request.messages[-1]["content"]
+            if question == "Top 5 candidates for T10001":
+                return GenerateResult(json.dumps({
+                    "intent": "query",
+                    "sql": "SELECT resource_ref,rank,score FROM chat_v_match_results "
+                    "WHERE requisition='T10001' ORDER BY rank,resource_ref LIMIT 5",
+                    "explanation": "This lists the stored matches for the requisition.",
+                }), "fake", "offline-e2e")
             intent = "demand_count" if question == "How many open demands are there?" else "unsupported"
             return GenerateResult(json.dumps({"intent": intent}), "fake", "offline-e2e")
         raise ProviderError("No e2e fixture for this LLM request")

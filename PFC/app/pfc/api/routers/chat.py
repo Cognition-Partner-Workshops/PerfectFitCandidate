@@ -19,12 +19,10 @@ from pfc.security.problems import Problem
 from pfc.security.sessions import stamp
 from pfc.services.chat_intent import (
     ChatMask,
-    InvalidLookup,
     Lookup,
-    ModelUnavailable,
-    classify,
     model_ready,
 )
+from pfc.services.chat_pipeline import answer_question
 from pfc.services.chat_queries import answer_lookup
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -92,10 +90,6 @@ async def ask(body: ChatQuestion, request: Request, runner: Runner, user: ChatUs
     state = request.app.state
     clock: Callable[[], datetime] = state.clock
 
-    async def interpret(question: str) -> Lookup:
-        provider: LLMProvider | None = getattr(state, "llm_provider", None)
-        return await classify(provider, question)
-
     def submit() -> ChatEntry:
         with database(runner.settings) as db:
             question = ChatMask(db).mask(body.question, identify=True)
@@ -120,29 +114,26 @@ async def ask(body: ChatQuestion, request: Request, runner: Runner, user: ChatUs
                 if not _active_role(db, user_id):
                     raise PermissionError("Chat role is unavailable")
             context.report_progress(0.25, "Interpreting question locally")
-            future = asyncio.run_coroutine_threadsafe(interpret(question), loop)
-            try:
-                while not wait((future,), timeout=0.2).done:
-                    context.raise_if_cancelled()
-                lookup = future.result()
-            except ModelUnavailable:
-                answer = ChatAnswer(
-                    outcome="unavailable",
-                    text="The local model is unavailable. Check the active model and retry.",
-                )
-            except InvalidLookup:
-                answer = ChatAnswer(
-                    outcome="uninterpretable",
-                    text="I couldn't interpret that question. Try one of the example questions.",
-                )
-            else:
-                context.report_progress(0.65, "Reading PFC records")
+
+            def execute(lookup: Lookup) -> ChatAnswer:
                 with database(runner.settings) as db:
                     db.execute("PRAGMA query_only=ON")
                     db.execute("BEGIN")
                     if not _active_role(db, user_id):
                         raise PermissionError("Chat role is unavailable")
-                    answer = answer_lookup(db, lookup, clock().date())
+                    return answer_lookup(db, lookup, clock().date())
+
+            provider: LLMProvider | None = getattr(state, "llm_provider", None)
+            future = asyncio.run_coroutine_threadsafe(
+                answer_question(provider, question, execute),
+                loop,
+            )
+            try:
+                while not wait((future,), timeout=0.2).done:
+                    context.raise_if_cancelled()
+                result = future.result()
+                answer = result.answer
+                lookup = result.lookup
             finally:
                 future.cancel()
             encoded = answer.model_dump_json()
@@ -165,6 +156,14 @@ async def ask(body: ChatQuestion, request: Request, runner: Runner, user: ChatUs
                         "outcome": answer.outcome,
                         "answer_sha256": _digest(encoded),
                         "sources": [[source.kind, source.record_id] for source in answer.sources],
+                        **(
+                            {
+                                "sql_sha256": _digest(lookup.sql if lookup and lookup.sql else ""),
+                                "row_count": len(answer.query.rows),
+                            }
+                            if answer.query
+                            else {}
+                        ),
                     },
                 )
 

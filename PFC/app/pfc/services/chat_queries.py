@@ -9,6 +9,7 @@ from pfc.api.schemas.chat import ChatAnswer, ChatSource
 from pfc.domain.cv_profile import skill_hits
 from pfc.domain.normalise import normalise_term, tokenise_skills
 from pfc.services.chat_intent import ChatMask, Lookup
+from pfc.services.chat_sql import execute_query
 from pfc.services.ingestion.masking import mask_evidence
 from pfc.services.matching.current import read_current_runs
 from pfc.services.occ.synonyms import valid_synonym_table
@@ -293,6 +294,8 @@ def answer_lookup(db: sqlite3.Connection, lookup: Lookup, today: date) -> ChatAn
     """Run inside a read-only snapshot. Only trusted code chooses or assembles SQL."""
     mask = ChatMask(db)
     match lookup.intent:
+        case "query":
+            return execute_query(db, lookup)
         case "demand_count":
             return _demand_count(db, lookup, today, mask)
         case "demand_skills":

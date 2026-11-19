@@ -58,6 +58,66 @@ it('allows stopping a running question and renders the cancelled state', async (
   expect(screen.queryByRole('region', { name: /Sources/ })).toBeNull()
 })
 
+it('renders query rows as masked values with SQL details, truncation and human-review guidance', async () => {
+  const sql = "SELECT resource_ref,rank,score FROM chat_v_match_results WHERE requisition='T10001' ORDER BY rank LIMIT 5"
+  vi.spyOn(mock, 'chatDetail').mockResolvedValue({
+    ...entry,
+    answer: {
+      outcome: 'answered', text: 'Stored results. Returned 2 rows.', sources: [],
+      query: {
+        sql, explanation: 'This lists the stored matches.',
+        columns: ['resource_ref', 'rank', 'score'],
+        rows: [['Resource #42', 1, 84.5], ['[name masked]', 2, null]],
+        truncated: true, ranking: true,
+      },
+    },
+  })
+  renderApp('/chat?job=37')
+  const table = await screen.findByRole('table', { name: 'Query results' })
+  expect(within(table).getAllByRole('columnheader').map((cell) => cell.textContent))
+    .toEqual(['resource_ref', 'rank', 'score'])
+  expect(within(table).getByText('Resource #42')).toBeTruthy()
+  expect(within(table).getByText('[name masked]')).toBeTruthy()
+  expect(within(table).getByText('84.5')).toBeTruthy()
+  expect(within(table).getByText('—')).toBeTruthy()
+  expect(screen.getByText('Results truncated to 500 rows.')).toBeTruthy()
+  expect(screen.getByText('PFC ranking — human review required')).toBeTruthy()
+  const toggle = screen.getByText('Show SQL')
+  const details = toggle.closest('details')!
+  expect(details.open).toBe(false)
+  fireEvent.click(toggle)
+  expect(details.open).toBe(true)
+  expect(within(details).getByText(sql)).toBeTruthy()
+  expect(within(details).getByText('This lists the stored matches.')).toBeTruthy()
+})
+
+it('shows empty query results without ranking or truncation notices', async () => {
+  vi.spyOn(mock, 'chatDetail').mockResolvedValue({
+    ...entry,
+    answer: {
+      outcome: 'no_data', text: 'Returned 0 rows.', sources: [],
+      query: { sql: 'SELECT grade FROM chat_v_resources WHERE 0', explanation: 'This lists grades.',
+        columns: ['grade'], rows: [], truncated: false, ranking: false },
+    },
+  })
+  renderApp('/chat?job=37')
+  expect(await screen.findByText('No result rows.')).toBeTruthy()
+  expect(screen.queryByText('PFC ranking — human review required')).toBeNull()
+  expect(screen.queryByText(/truncated to 500 rows/)).toBeNull()
+})
+
+it('offers statistics and ranking examples and exercises the mock query response', async () => {
+  renderApp('/chat')
+  await screen.findByText('Local model ready')
+  const example = await screen.findByRole('button', { name: 'Top 5 candidates for T10001' })
+  expect(screen.getByRole('button', { name: 'Average match score by band for current results' })).toBeTruthy()
+  fireEvent.click(example)
+  await waitFor(() => expect(input().disabled).toBe(false))
+  fireEvent.click(screen.getByRole('button', { name: 'Ask' }))
+  expect(await screen.findByRole('table', { name: 'Query results' })).toBeTruthy()
+  expect(screen.getByText('PFC ranking — human review required')).toBeTruthy()
+})
+
 it('makes model outages visible while keeping saved no-data answers readable', async () => {
   const status = vi.spyOn(mock, 'chatStatus').mockResolvedValue({ available: false })
   vi.spyOn(mock, 'chatDetail').mockResolvedValue({

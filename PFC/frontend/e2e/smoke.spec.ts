@@ -324,6 +324,21 @@ test('chat answers offline with source records and keeps history (P2-EX-05)', as
   await expect(page.getByText('Count of open demands: 2.')).toBeVisible()
   await expect(page.getByRole('button', { name: /How many open demands/ }))
     .toHaveAttribute('aria-current', 'true')
+
+  await page.getByRole('button', { name: 'New question', exact: true }).click()
+  await page.getByRole('button', { name: 'Top 5 candidates for T10001', exact: true }).click()
+  await page.getByRole('button', { name: 'Ask', exact: true }).click()
+  const results = page.getByRole('table', { name: 'Query results' })
+  await expect(results).toBeVisible()
+  await expect(results.getByRole('columnheader', { name: 'resource_ref', exact: true })).toBeVisible()
+  await expect(results.getByRole('cell', { name: /^Resource #/ }).first()).toBeVisible()
+  await expect(page.getByText('PFC ranking — human review required', { exact: true })).toBeVisible()
+  const sql = page.locator('.chat-query details')
+  await expect(sql).not.toHaveAttribute('open', '')
+  await sql.getByText('Show SQL', { exact: true }).click()
+  await expect(sql.locator('code')).toHaveText("SELECT resource_ref,rank,score FROM chat_v_match_results WHERE requisition='T10001' ORDER BY rank,resource_ref LIMIT 5")
+  await expect(sql.getByText('This lists the stored matches for the requisition.', { exact: true })).toBeVisible()
+  await screenshot(page, 'chat-query-results')
 })
 
 // REQ-LLM-02 summary cards. Runs after the first smoke test, on its admin, DL/CT and confirmed JD.

@@ -218,6 +218,40 @@ running. Use an Analyst sign-in for the following checks.
 The offline automated reference tests use a stub model and fixed synthetic data.
 The manual steps exercise intent recognition with the bundled model.
 
+### Chat data boundary and query limits
+
+The four fixed lookups remain available. Other read-only questions can generate SQL
+over these safe views (migration 0019):
+
+| View | Columns |
+|---|---|
+| `chat_v_demands` | `requisition`, `account`, `bu`, `region`, `grade`, `start_date`, `lifecycle` |
+| `chat_v_demand_skills` | `requisition`, `skill`, `kind` |
+| `chat_v_resources` | `resource_ref`, `grade`, `location`, `bench_status`, `bench_start_date`, `bench_end_date`, `capacity`, `eligibility`, `lifecycle` |
+| `chat_v_resource_skills` | `resource_ref`, `skill`, `source`, `years` |
+| `chat_v_match_results` | `requisition`, `resource_ref`, `rank`, `score`, `band`, `mandatory_missing`, `shortlisted` |
+
+Demands are open only; resources exclude archived records (active and off-bench
+records remain visible). Both skill views expose active canonical skills, not raw
+skill/evidence text; demand skills come from the confirmed current JD. Match results
+use the newest completed assessment per open demand, including newer assessments
+with no matches, and exclude archived resources. References are masked `Resource #N`
+values. Names, emails, phones, owners/group owners, tracker text/URLs, display names,
+raw CV text, JD free text and matching evidence are not exposed by these views.
+
+The guard permits one SELECT/WITH statement of at most 2,000 characters, on a
+query-only connection. SQLite authorization restricts reads to safe views and their
+internal reads and allows only approved functions. Direct table/schema reads,
+recursive CTEs, writes, PRAGMA, ATTACH and extension loading are denied. Queries
+return at most **500 rows** and are interrupted after **5 seconds**. SQLite values/rows
+are limited to **100,000 bytes** during execution; `printf`/`format` are not allowed.
+Resource capacity is `Y`, `N`, or NULL (unknown), not a percentage. Resource skills
+are canonicalised at query time from CT skills and the latest non-removed CV of the
+linked candidate; raw CT/CV text is never exposed. Every returned
+cell is masked again. Rejected SQL gets at most two model-correction retries.
+Rank queries show **PFC ranking — human review required**; PFC never decides.
+The answer audit includes the executed SQL's SHA-256 and returned row count.
+
 ## 12. Signing key
 
 Settings packages are signed with an Ed25519 key. There is no separate key screen: the first export creates the signing key, protected by the passphrase you enter, and later exports need the same passphrase. The passphrase is never stored or logged by the SPA; keep it safe.

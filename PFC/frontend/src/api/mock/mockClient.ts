@@ -9,6 +9,7 @@ import { MaintenanceApi } from '../maintenance'
 import { applyChanges } from '../crud'
 import { emptyExtendedAnalytics } from '../reports'
 import type {
+  ChatDetail,
   CvCompareScoring,
   CvComparison,
   BulkAnalysis,
@@ -317,6 +318,7 @@ export class MockApiClient implements ApiClient {
   }
 
   private pdfJobs: JobItem[] = []
+  private chatEntries: (ChatDetail & { userId: number })[] = []
 
   generatePdf: ApiClient['generatePdf'] = async () => {
     this.currentUser()
@@ -422,6 +424,7 @@ export class MockApiClient implements ApiClient {
 
   reset(): void {
     this.pdfJobs = []
+    this.chatEntries = []
     this.state = initialState()
     seedEmails(this)
     this.save()
@@ -825,10 +828,38 @@ export class MockApiClient implements ApiClient {
     return this.done(this.resources().filter((r) => r.eligibility === 'excluded' || r.eligibility === 'insufficient'))
   }
 
-  chatStatus: ApiClient['chatStatus'] = () => this.done({ available: false })
-  chatHistory: ApiClient['chatHistory'] = () => this.done([])
-  chatDetail: ApiClient['chatDetail'] = async () => { throw new ApiError({ status: 404, title: 'Chat question not found' }) }
-  askChat: ApiClient['askChat'] = async () => { throw new ApiError({ status: 503, title: 'The local model is unavailable' }) }
+  chatStatus: ApiClient['chatStatus'] = () => { this.currentUser(); return this.done({ available: true }) }
+  chatHistory: ApiClient['chatHistory'] = () => {
+    const user = this.currentUser()
+    return this.done(this.chatEntries.filter((entry) => entry.userId === user.userId).slice(0, 50))
+  }
+  chatDetail: ApiClient['chatDetail'] = (jobId) => {
+    const user = this.currentUser()
+    const entry = this.chatEntries.find((entry) => entry.jobId === jobId && entry.userId === user.userId)
+    if (!entry) throw new ApiError({ status: 404, title: 'Chat question not found' })
+    return this.done(entry)
+  }
+  askChat: ApiClient['askChat'] = (question) => {
+    const user = this.currentUser()
+    const ranking = /top|rank|best|candidate/i.test(question)
+    const explanation = ranking ? 'This lists the stored demo ranking.' : 'This computes average demo score by band.'
+    const entry: ChatDetail & { userId: number } = {
+      jobId: 1000 + this.chatEntries.length, userId: user.userId, question,
+      status: 'completed', createdAt: new Date().toISOString(),
+      answer: {
+        outcome: 'answered', text: `Mock preview only. ${explanation} Returned 1 row.`, sources: [],
+        query: {
+          sql: ranking ? "SELECT resource_ref,rank,score FROM chat_v_match_results WHERE requisition='T10001' ORDER BY rank LIMIT 5"
+            : 'SELECT band,avg(score) FROM chat_v_match_results GROUP BY band',
+          explanation, columns: ranking ? ['resource_ref', 'rank', 'score'] : ['band', 'avg(score)'],
+          rows: ranking ? [['Resource #1', 1, 84.5]] : [['Potential', 84.5]],
+          truncated: false, ranking,
+        },
+      },
+    }
+    this.chatEntries.unshift(entry)
+    return this.done({ ...entry, status: 'queued' as const })
+  }
   cancelJob: ApiClient['cancelJob'] = () => this.done(undefined)
 
   async listJobs(limit = 20): Promise<JobItem[]> {
