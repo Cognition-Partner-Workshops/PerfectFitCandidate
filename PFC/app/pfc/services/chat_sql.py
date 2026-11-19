@@ -66,14 +66,24 @@ def execute_query(db: sqlite3.Connection, lookup: Lookup) -> ChatAnswer:
     db.execute("PRAGMA query_only=ON")
     db.execute("SELECT value FROM json_each('{}')").fetchall()
     deadline = time.monotonic() + TIMEOUT_SECONDS
+    view_json_read = False
 
     def authorize(
         action: int, arg1: str | None, arg2: str | None, schema: str | None, source: str | None
     ) -> int:
+        nonlocal view_json_read
         internal = bool(source and source.startswith("chat_v_"))
         allowed = action == sqlite3.SQLITE_SELECT
         if action == sqlite3.SQLITE_READ:
-            allowed = schema == "main" and bool((arg1 and arg1.startswith("chat_v_")) or internal)
+            if internal and schema == "main" and arg1 == "json_each":
+                view_json_read = True
+            # COUNT(*) can add a source-less, zero-column read of the view's virtual table.
+            count_json_read = (
+                view_json_read and arg1 == "json_each" and arg2 == "" and source is None
+            )
+            allowed = schema == "main" and bool(
+                (arg1 and arg1.startswith("chat_v_")) or internal or count_json_read
+            )
         elif action == sqlite3.SQLITE_FUNCTION:
             allowed = (arg2 or "").lower() in FUNCTIONS or (
                 internal

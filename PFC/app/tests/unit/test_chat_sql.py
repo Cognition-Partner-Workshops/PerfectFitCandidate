@@ -45,6 +45,10 @@ def query(sql: str) -> Lookup:
         "SELECT randomblob(1000000000)",
         "SELECT * FROM pragma_table_info('resources')",
         "SELECT chat_resource_skills(1)",
+        "SELECT count(*) FROM json_each('[1]')",
+        "SELECT value FROM json_each('[1]'), chat_v_resource_skills",
+        "SELECT count(*) FROM resources, chat_v_resource_skills",
+        "SELECT skills_raw FROM resources, chat_v_resource_skills",
     ],
 )
 def test_denied(db: sqlite3.Connection, sql: str) -> None:
@@ -60,6 +64,19 @@ def test_views_empty_and_statement_quoting(db: sqlite3.Connection) -> None:
         assert answer.query and answer.query.rows == []
     answer = execute_query(db, query("/* hello */ SELECT ';' AS value; -- tail"))
     assert answer.query and answer.query.rows == [[";"]]
+
+
+@pytest.mark.parametrize("populated", [False, True])
+def test_unfiltered_resource_skill_count(db: sqlite3.Connection, populated: bool) -> None:
+    if populated:
+        db.execute("INSERT INTO skills(name,created_by) VALUES ('SQL','system')")
+        db.execute(
+            "INSERT INTO resources(short_name,short_name_key,skills_raw,eligibility,row_hash,"
+            "created_at,updated_at) "
+            "VALUES ('SYNTHETIC','synthetic','SQL','eligible','x','now','now')"
+        )
+    answer = execute_query(db, query("SELECT count(*) FROM chat_v_resource_skills"))
+    assert answer.query and answer.query.rows == [[int(populated)]]
 
 
 def test_cap_mask_and_timeout(db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch) -> None:
