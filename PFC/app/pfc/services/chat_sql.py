@@ -76,9 +76,9 @@ def execute_query(db: sqlite3.Connection, lookup: Lookup) -> ChatAnswer:
             count_json_read = (
                 view_json_read and arg1 == "json_each" and arg2 == "" and source is None
             )
-            allowed = schema == "main" and bool(
-                (arg1 and arg1.startswith("chat_v_")) or internal or count_json_read
-            )
+            allowed = (
+                schema == "main" and bool((arg1 and arg1.startswith("chat_v_")) or internal)
+            ) or (schema in ("main", None) and count_json_read)
         elif action == sqlite3.SQLITE_FUNCTION:
             allowed = (arg2 or "").lower() in FUNCTIONS or (
                 internal

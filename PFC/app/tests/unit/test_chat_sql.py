@@ -1,7 +1,7 @@
 import json
 import sqlite3
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -77,6 +77,39 @@ def test_unfiltered_resource_skill_count(db: sqlite3.Connection, populated: bool
         )
     answer = execute_query(db, query("SELECT count(*) FROM chat_v_resource_skills"))
     assert answer.query and answer.query.rows == [[int(populated)]]
+
+
+@pytest.mark.parametrize("virtual_schema", [None, "temp"])
+def test_zero_column_json_read_schema(
+    db: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch, virtual_schema: str | None
+) -> None:
+    install = db.set_authorizer
+
+    def set_authorizer(callback: Callable[..., int] | None) -> None:
+        if callback is None:
+            install(None)
+            return
+
+        def authorize(
+            action: int,
+            table: str | None,
+            column: str | None,
+            schema: str | None,
+            source: str | None,
+        ) -> int:
+            if action == sqlite3.SQLITE_READ and table == "json_each" and column == "":
+                schema = virtual_schema
+            return callback(action, table, column, schema, source)
+
+        install(authorize)
+
+    monkeypatch.setattr(db, "set_authorizer", set_authorizer)
+    if virtual_schema == "temp":
+        with pytest.raises(QueryRejected):
+            execute_query(db, query("SELECT count(*) FROM chat_v_resource_skills"))
+    else:
+        answer = execute_query(db, query("SELECT count(*) FROM chat_v_resource_skills"))
+        assert answer.query and answer.query.rows == [[0]]
 
 
 @pytest.mark.parametrize("preparation", ["python", "sqlite"])
