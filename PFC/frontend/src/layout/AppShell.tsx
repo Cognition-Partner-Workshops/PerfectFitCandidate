@@ -87,6 +87,8 @@ function ShellContent() {
   const drafts = emails.data?.items.filter((e) => e.status === 'Draft').length ?? 0
   const models = useQuery({ queryKey: ['models'], queryFn: () => api.listModels() })
   const activeModel = models.data?.find((model) => model.isDefault && model.purpose === 'generation')
+  const health = useQuery({ queryKey: ['llm-health'], queryFn: () => api.getLlmHealth(), refetchInterval: 10000 })
+  const modelName = health.data ? health.data.model ?? 'not loaded' : activeModel?.name ?? 'not loaded'
   const { busy, hasFailed } = useTasks()
   const syncState = busy ? 'busy' : hasFailed ? 'error' : 'idle'
   const syncTitle = syncState === 'busy' ? 'Sync: tasks in progress' : syncState === 'error' ? 'Sync: a task failed' : 'Sync: no tasks in progress'
@@ -175,7 +177,7 @@ function ShellContent() {
         <Outlet />
       </main>
       <footer className="footer">
-        v{appVersion} · Local model: {activeModel?.name ?? 'not loaded'} · {DISCLAIMER}
+        v{appVersion} · Local model: {modelName}{health.data?.ctx_size != null && ` · ${health.data.ctx_size / 1024}k ctx`}{health.data?.thinking && ' · thinking'} · {DISCLAIMER}
       </footer>
       <TaskCards />
       {warning && (

@@ -21,7 +21,7 @@ from pfc.adapters.email.transports import (
     EmlHandoffTransport,
     build_eml,
 )
-from pfc.adapters.llm.providers import LLMProvider, PromptRequest
+from pfc.adapters.llm.providers import LLMProvider, PromptRequest, generation_timeout
 from pfc.config import Settings
 from pfc.db import audit
 from pfc.db.connection import database
@@ -1337,6 +1337,8 @@ class EmailService:
                 return fallback, "template"
             request = PromptRequest(
                 purpose="email_draft",
+                timeout_s=generation_timeout(provider, 120),
+                timeout_scaled=True,
                 template_id="email-default",
                 template_version="1",
                 json_schema=EMAIL_RESPONSE_SCHEMA,

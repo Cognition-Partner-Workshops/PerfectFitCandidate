@@ -17,7 +17,7 @@ from starlette.datastructures import State
 
 from pfc.adapters.llm.child_logs import ChildLogCapture
 from pfc.adapters.llm.providers import FallbackProvider
-from pfc.adapters.llm.supervisor import LlamaServerSupervisor
+from pfc.adapters.llm.supervisor import LlamaServerSupervisor, ResolvedModel
 from pfc.api.schemas.llm import LlmHealth
 from pfc.config import Settings
 from pfc.db.connection import database
@@ -110,7 +110,9 @@ def test_start_switch_stop(
         try:
             await service.start("one", settings.models_dir / "one.gguf")
             assert service.check().status == "ok"
-            assert service.running_model == ("one", (settings.models_dir / "one.gguf").resolve())
+            assert service.running_model == ResolvedModel(
+                "one", (settings.models_dir / "one.gguf").resolve(), False, settings.llm_ctx_size
+            )
             assert service.check().model == "one"
             assert isinstance(service.app_state.llm_provider, FallbackProvider)
             proc = service.proc
@@ -164,7 +166,9 @@ def test_running_model_requires_live_process(
     assert service.running_model is None
     service.proc = Mock()
     service.proc.poll.return_value = exit_code
-    assert service.running_model == (("one", service.model_path) if expected else None)
+    assert service.running_model == (
+        ResolvedModel("one", service.model_path, False, settings.llm_ctx_size) if expected else None
+    )
 
 
 def test_api_key_passed_only_in_environment(settings: Settings, tmp_path: Path) -> None:
@@ -267,10 +271,30 @@ def test_shutdown_kills_uncooperative_child(settings: Settings, tmp_path: Path) 
     asyncio.run(scenario())
 
 
+def test_thinking_context_argv(settings: Settings, tmp_path: Path) -> None:
+    async def scenario() -> None:
+        service = supervisor(settings, tmp_path)
+        try:
+            await service.start("one", settings.models_dir / "one.gguf", True, 8192)
+            argv = json.loads((tmp_path / "ready.json").read_text())
+            assert argv[argv.index("-c") + 1] == "8192"
+            assert argv[argv.index("--reasoning-format") + 1] == "deepseek"
+            assert argv[argv.index("--reasoning-budget") + 1] == "1024"
+            assert service.check().thinking is True
+            assert service.check().ctx_size == 8192
+            assert service.provider.capabilities().max_context == 8192
+        finally:
+            await service.stop()
+
+    asyncio.run(scenario())
+
+
 def test_stop_during_startup(settings: Settings, tmp_path: Path) -> None:
     async def scenario() -> None:
         service = supervisor(settings, tmp_path, "timeout")
-        service.schedule(("one", settings.models_dir / "one.gguf"))
+        service.schedule(
+            ResolvedModel("one", settings.models_dir / "one.gguf", False, settings.llm_ctx_size)
+        )
         while service.proc is None:
             await asyncio.sleep(0.01)
         proc = service.proc
@@ -505,9 +529,11 @@ def test_healthy_exit_between_polls_refills_restart_budget(
                     await resume_poll.wait()
                 await sleep(delay)
 
-            async def restart(model_name: str, model_path: Path) -> None:
+            async def restart(
+                model_name: str, model_path: Path, thinking: bool, ctx_size: int
+            ) -> None:
                 service.restart_reset_window_s = 3600
-                await start(model_name, model_path)
+                await start(model_name, model_path, thinking, ctx_size)
 
             monkeypatch.setattr(asyncio, "sleep", pause_poll)
             monkeypatch.setattr(service, "start", restart)
@@ -614,7 +640,15 @@ def test_resolve_model(settings: Settings, tmp_path: Path) -> None:
                 (name, filename, approved, active),
             )
         (tmp_path / "outside.gguf").touch()
-        assert service.resolve_model(db) == ("two", (settings.models_dir / "two.gguf").resolve())
+        assert service.resolve_model(db) == ResolvedModel(
+            "two", (settings.models_dir / "two.gguf").resolve(), False, settings.llm_ctx_size
+        )
+        db.execute(
+            "INSERT INTO settings(scope,key,value_json,updated_at) "
+            "VALUES ('system','llm.ctx_size','8192','2026-01-01T00:00:00Z')"
+        )
+        assert service.resolve_model(db).ctx_size == 8192
+        db.execute("DELETE FROM settings WHERE key='llm.ctx_size'")
         db.execute(
             "INSERT INTO settings(scope,user_id,key,value_json,updated_at) "
             "VALUES ('user',1,'llm.active_model','1','2026-01-01T00:00:00Z')"
@@ -661,12 +695,18 @@ def test_rapid_selection_last_wins(settings: Settings, tmp_path: Path) -> None:
     async def scenario() -> None:
         service = supervisor(settings, tmp_path)
         try:
-            service.schedule(("one", settings.models_dir / "one.gguf"))
+            service.schedule(
+                ResolvedModel("one", settings.models_dir / "one.gguf", False, settings.llm_ctx_size)
+            )
             async with asyncio.timeout(5):
                 while service.proc is None:
                     await asyncio.sleep(0.001)
                 first = service.proc
-                service.schedule(("two", settings.models_dir / "two.gguf"))
+                service.schedule(
+                    ResolvedModel(
+                        "two", settings.models_dir / "two.gguf", False, settings.llm_ctx_size
+                    )
+                )
                 while service.check().status != "ok":
                     await asyncio.sleep(0.01)
             assert service.model_name == "two" and first.poll() is not None

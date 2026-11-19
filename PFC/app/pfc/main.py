@@ -49,6 +49,7 @@ from pfc.security.setup import code_path, generate_setup_code
 from pfc.services.candidates.classification import reclassify_all
 from pfc.services.embeddings.runtime import register_bundled_embedding_model
 from pfc.services.matching import MatchingPorts
+from pfc.services.occ.llm import register_optional_thinking_model
 from pfc.services.occ.seed import seed_reference_data
 from pfc.services.packages.inbox import scan_inbox
 
@@ -82,6 +83,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             register_bundled_embedding_model(settings)
         except Exception:
             logger.error("Bundled embedding model registration failed; startup continues")
+        try:
+            register_optional_thinking_model(settings)
+        except Exception:
+            logger.error("Optional thinking model registration failed; startup continues")
         with database(settings) as db:
             db.execute("BEGIN IMMEDIATE")
             reclassify_all(db)

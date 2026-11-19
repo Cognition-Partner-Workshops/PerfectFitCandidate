@@ -155,7 +155,41 @@ In **Candidate Profile → Overview → Classification**, review the effective a
 
 The list of local models with purpose, licence, RAM / disk, **Approved** and **Default**. Approving a model makes it available to every user.
 
-**Pending:** **Make default** currently sets the signed-in Admin's own active model, not a global default; a global-default backend route is pending.
+### Local generation model options
+
+- **Qwen3-4B-Instruct-2507 Q4_K_M** is the standard bundled generation model.
+- **Qwen3-4B-Thinking-2507 Q4_K_M** is an optional companion download. It is slower:
+  reasoning is capped at **1024 tokens** and generation timeouts are **×3**.
+  Only final content is used; reasoning is not saved. Extract its companion ZIP
+  next to `PFC.cmd` so the GGUF lands in `models\`.
+  OCC registers the verified file on the next start.
+
+Both models still require explicit Admin approval. **Make default** sets the
+instance-wide default; users can override it under their own LLM provider settings.
+Installing or approving Thinking does not automatically select it.
+
+### Generation context size
+
+The system setting **`llm.ctx_size`** accepts only **4096**, **8192**, or **16384**
+(integer values). Changing it restarts the selected local model. If unset or
+invalid in existing data, the configured application context size is used.
+
+Larger context requires more RAM. Qwen3-4B f16 KV cache uses approximately
+layers × KV heads × head dimension × 2 (K+V) × 2 bytes per token:
+36 × 8 × 128 × 2 × 2 = **147456 bytes = 144 KiB/token**.
+Relative to 4096 tokens, 8192 needs approximately **+576 MiB**, and 16384
+approximately **+1728 MiB**, in KV cache alone.
+
+Measured on a **Linux VM, 8 vCPU, 7 threads, pinned b8936 CPU build**;
+these are not Windows laptop measurements. RSS includes mmapped weights.
+
+| Model | ctx 4096 RSS idle/peak | ctx 16384 RSS idle/peak | JD parse (221-token prompt) |
+|---|---|---|---|
+| Instruct | 4691 / 4774 MB | 6419 / 6499 MB | 363 tokens, 14.1 tok/s, 28 s |
+| Thinking (budget 1024) | 4691 / 4773 MB | 6419 / 6498 MB | 1427 tokens (incl. reasoning), 13.5 tok/s, 108 s |
+
+Measured 16384−4096 delta = **1728 MB**, matching the 144 KiB/token KV formula.
+The Thinking registry RAM estimate is conservatively rounded to **4800 MB** at ctx 4096.
 
 ### Verify local Chat (REQ-LLM-02, P2-EX-05)
 
@@ -396,7 +430,7 @@ database before upgrading as usual; do not remove the MIME constraint manually.
 | Area | Status |
 |---|---|
 | DL / CT approvals | Pending: backend approval routes not merged |
-| Global default model | Pending: **Make default** is per user |
+| Global default model | **Make default** sets the instance default; per-user selection can override it |
 | Signing-key details screen | Pending |
 | Lockout status on sign-in | Pending: the backend answers a locked account with 401 invalid credentials. The sign-in screen shows the lockout message on a 423, with a countdown when the reply carries `Retry-After` |
 

@@ -17,17 +17,26 @@ from contextlib import suppress
 from ctypes import wintypes
 from datetime import datetime
 from pathlib import Path
+from typing import NamedTuple
 
 import httpx
 from starlette.datastructures import State
 
 from pfc.adapters.llm.child_logs import ChildLogCapture
-from pfc.adapters.llm.providers import FallbackProvider, LlamaCppProvider
+from pfc.adapters.llm.context import valid_context_size
+from pfc.adapters.llm.providers import REASONING_BUDGET, FallbackProvider, LlamaCppProvider
 from pfc.api.schemas.llm import LlmHealth
 from pfc.config import Settings
 from pfc.db.connection import database
 
 logger = logging.getLogger(__name__)
+
+
+class ResolvedModel(NamedTuple):
+    name: str
+    path: Path
+    thinking: bool
+    ctx_size: int
 
 
 async def restart_selected_model(settings: Settings, app_state: State) -> None:
@@ -163,6 +172,8 @@ class LlamaServerSupervisor:
         self.provider: LlamaCppProvider | None = None
         self.model_name: str | None = None
         self.model_path: Path | None = None
+        self.thinking = False
+        self.ctx_size = settings.llm_ctx_size
         self.state = "unavailable"
         self.detail = (
             "disabled"
@@ -184,7 +195,7 @@ class LlamaServerSupervisor:
             self.app_state.llm_provider = provider
 
     @property
-    def running_model(self) -> tuple[str, Path] | None:
+    def running_model(self) -> ResolvedModel | None:
         if (
             self.state in {"ready", "starting"}
             and self.proc is not None
@@ -192,14 +203,22 @@ class LlamaServerSupervisor:
             and self.model_name is not None
             and self.model_path is not None
         ):
-            return self.model_name, self.model_path
+            return ResolvedModel(self.model_name, self.model_path, self.thinking, self.ctx_size)
         return None
 
     @property
     def binary_available(self) -> bool:
         return self.argv_prefix is not None or self.binary.is_file()
 
-    def resolve_model(self, db: sqlite3.Connection) -> tuple[str, Path] | None:
+    def resolve_model(self, db: sqlite3.Connection) -> ResolvedModel | None:
+        setting = db.execute(
+            "SELECT value_json FROM settings WHERE scope='system' AND key='llm.ctx_size'"
+        ).fetchone()
+        try:
+            value = json.loads(setting[0]) if setting else None
+        except (ValueError, TypeError):
+            value = None
+        ctx_size = value if valid_context_size(value) else self.settings.llm_ctx_size
         rows = {
             row["model_id"]: row
             for row in db.execute("SELECT * FROM llm_models WHERE approved=1 ORDER BY model_id")
@@ -229,10 +248,10 @@ class LlamaServerSupervisor:
                 continue
             path = (root / filename).resolve()
             if path.is_relative_to(root) and path.is_file():
-                return row["name"], path
+                return ResolvedModel(row["name"], path, bool(row["thinking"]), ctx_size)
         return None
 
-    def schedule(self, model: tuple[str, Path] | None) -> None:
+    def schedule(self, model: ResolvedModel | None) -> None:
         """Last committed selection wins; the shared server restarts asynchronously."""
         self._restart_attempts = 0
         self._publish(None)
@@ -240,13 +259,15 @@ class LlamaServerSupervisor:
             self._operation.cancel()
         self._operation = asyncio.create_task(self.switch(*model) if model else self.stop())
 
-    async def start(self, model_name: str, model_path: Path) -> None:
+    async def start(
+        self, model_name: str, model_path: Path, thinking: bool = False, ctx_size: int | None = None
+    ) -> None:
         if asyncio.current_task() is not self._monitor:
             self._restart_attempts = 0
         self._start_task = asyncio.current_task()
         try:
             async with self._lock:
-                await self._start(model_name, model_path)
+                await self._start(model_name, model_path, thinking, ctx_size)
         except asyncio.CancelledError:
             async with self._lock:
                 await self._cleanup()
@@ -261,7 +282,9 @@ class LlamaServerSupervisor:
             if self._start_task is asyncio.current_task():
                 self._start_task = None
 
-    async def _start(self, model_name: str, model_path: Path) -> None:
+    async def _start(
+        self, model_name: str, model_path: Path, thinking: bool = False, ctx_size: int | None = None
+    ) -> None:
         await self._cleanup()
         self._publish(None)
         if not self.settings.llm_enabled:
@@ -286,6 +309,8 @@ class LlamaServerSupervisor:
         else:
             self.state, self.detail = "starting", "starting"
         self.model_name, self.model_path = model_name, path
+        self.thinking = thinking
+        self.ctx_size = self.settings.llm_ctx_size if ctx_size is None else ctx_size
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             port = listener.getsockname()[1]
@@ -301,12 +326,14 @@ class LlamaServerSupervisor:
             "-m",
             str(path),
             "-c",
-            str(self.settings.llm_ctx_size),
+            str(self.ctx_size),
             "-t",
             str(threads),
             "--parallel",
             "1",
         ]
+        if thinking:
+            argv += ["--reasoning-format", "deepseek", "--reasoning-budget", str(REASONING_BUDGET)]
         child_env = {**os.environ, "LLAMA_API_KEY": api_key, "LLAMA_ARG_API_KEY": api_key}
         try:
             logs = self.settings.data_dir / "logs"
@@ -360,7 +387,12 @@ class LlamaServerSupervisor:
                             pass
                         await asyncio.sleep(self.poll_interval_s)
             self.provider = LlamaCppProvider(
-                base_url, model_name, api_key=api_key, transport=self.transport
+                base_url,
+                model_name,
+                api_key=api_key,
+                transport=self.transport,
+                thinking=thinking,
+                ctx_size=self.ctx_size,
             )
             self.state, self.detail = "ready", ""
             self._ready_since = asyncio.get_running_loop().time()
@@ -406,7 +438,7 @@ class LlamaServerSupervisor:
             await asyncio.sleep(delay)
             if self.model_name is None or self.model_path is None:
                 break
-            await self.start(self.model_name, self.model_path)
+            await self.start(self.model_name, self.model_path, self.thinking, self.ctx_size)
             if self.state == "ready":
                 return
         self.state, self.detail = ("unavailable", "llama-server exited; restart attempts exhausted")
@@ -450,12 +482,16 @@ class LlamaServerSupervisor:
             await self._cleanup()
             self.state, self.detail = "unavailable", "stopped"
 
-    async def switch(self, model_name: str, model_path: Path) -> None:
+    async def switch(
+        self, model_name: str, model_path: Path, thinking: bool = False, ctx_size: int | None = None
+    ) -> None:
         self._restart_attempts = 0
         if (
             self.state == "ready"
             and self.model_name == model_name
             and self.model_path == model_path.resolve()
+            and self.thinking == thinking
+            and self.ctx_size == (self.settings.llm_ctx_size if ctx_size is None else ctx_size)
             and self.proc is not None
             and self.proc.poll() is None
         ):
@@ -463,12 +499,18 @@ class LlamaServerSupervisor:
                 self._publish(FallbackProvider(self.provider, self.provider))
             return
         await self.stop()
-        await self.start(model_name, model_path)
+        await self.start(model_name, model_path, thinking, ctx_size)
 
     def check(self) -> LlmHealth:
         if self.state == "ready":
             if self.proc is not None and self.proc.poll() is None:
-                return LlmHealth(status="ok", detail="", model=self.model_name)
+                return LlmHealth(
+                    status="ok",
+                    detail="",
+                    model=self.model_name,
+                    ctx_size=self.ctx_size,
+                    thinking=self.thinking,
+                )
             self._publish(None)
             return LlmHealth(
                 status="unavailable", detail="llama-server exited", model=self.model_name

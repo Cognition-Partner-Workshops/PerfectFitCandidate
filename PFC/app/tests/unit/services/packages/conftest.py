@@ -82,11 +82,15 @@ def seed(settings: Settings) -> None:
             (NOW,),
         )
         db.execute(
-            "INSERT INTO llm_models VALUES (1, 'approved', 'model.gguf', 'sha', 1, 2, "
+            "INSERT INTO llm_models(model_id,name,file_name,file_sha256,size_mb,ram_estimate_mb,"
+            "context_tokens,licence,approved,benchmark_json,is_active) VALUES "
+            "(1, 'approved', 'model.gguf', 'sha', 1, 2, "
             "8192, 'Apache-2.0', 1, NULL, 1)"
         )
         db.execute(
-            "INSERT INTO llm_models VALUES (2, 'not-approved', 'other.gguf', 'sha2', 1, "
+            "INSERT INTO llm_models(model_id,name,file_name,file_sha256,size_mb,ram_estimate_mb,"
+            "context_tokens,licence,approved,benchmark_json,is_active) VALUES "
+            "(2, 'not-approved', 'other.gguf', 'sha2', 1, "
             "2, 8192, 'Apache-2.0', 0, NULL, 0)"
         )
         db.execute(

@@ -13,6 +13,7 @@ import tomllib
 import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
+from typing import TypedDict
 from urllib.parse import urlparse
 
 PACKAGE_DIR = Path(__file__).resolve().parent
@@ -84,15 +85,31 @@ def parse_manifest(data: object, identity_field: str) -> dict[str, str]:
     return values
 
 
-def parse_models_lock(data: object) -> list[dict[str, str | None]]:
+class ModelEntry(TypedDict):
+    name: str
+    file: str
+    url: str
+    licence: str
+    sha256: str | None
+    optional: bool
+
+
+def parse_models_lock(data: object) -> list[ModelEntry]:
     if not isinstance(data, list):
         raise ValueError("MODELS.lock must contain a JSON array")
 
-    models: list[dict[str, str | None]] = []
+    models: list[ModelEntry] = []
     for index, entry in enumerate(data):
         if not isinstance(entry, dict):
             raise ValueError(f"Model entry {index} must be a JSON object")
-        model: dict[str, str | None] = {}
+        model: ModelEntry = {
+            "name": "",
+            "file": "",
+            "url": "",
+            "licence": "",
+            "sha256": None,
+            "optional": False,
+        }
         for field in ("name", "file", "url", "licence"):
             value = entry.get(field)
             if not isinstance(value, str) or not value.strip():
@@ -111,6 +128,10 @@ def parse_models_lock(data: object) -> list[dict[str, str | None]]:
         ):
             raise ValueError(f"Model entry {index} sha256 must be null or a SHA-256 digest")
         model["sha256"] = digest
+        optional = entry.get("optional", False)
+        if type(optional) is not bool:
+            raise ValueError(f"Model entry {index} optional must be a bool")
+        model["optional"] = optional
         models.append(model)
     return models
 
@@ -462,9 +483,15 @@ def create_zip(source: Path, destination: Path) -> None:
 
 
 def bundle_models(
-    destination: Path, cache_dir: Path | None = None, *, allow_unpinned: bool = False
+    destination: Path,
+    cache_dir: Path | None = None,
+    *,
+    allow_unpinned: bool = False,
+    optional: bool = False,
 ) -> None:
     for model in parse_models_lock(read_json(MODELS_LOCK_PATH)):
+        if model["optional"] != optional:
+            continue
         digest = model["sha256"]
         target = destination / (model["file"] or "")
         cached = cache_dir / digest if cache_dir is not None and digest else target
@@ -477,6 +504,38 @@ def bundle_models(
             shutil.copyfile(cached, target)
         if digest:
             verify_sha256(target, digest)
+
+
+def build_companion_models(
+    output_dir: Path, cache_dir: Path | None = None, *, allow_unpinned: bool = False
+) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / f"PFC-{load_version()}-win-x64-thinking-model.zip"
+    with tempfile.TemporaryDirectory(prefix="pfc-companion-") as temporary_directory:
+        root = Path(temporary_directory)
+        models = root / "models"
+        bundle_models(models, cache_dir, allow_unpinned=allow_unpinned, optional=True)
+        entries = [
+            model for model in parse_models_lock(read_json(MODELS_LOCK_PATH)) if model["optional"]
+        ]
+        notices = "\n".join(
+            f"- {model['name']} ({model['licence']}): {model['url']}" for model in entries
+        )
+        with zipfile.ZipFile(
+            output_path, "w", compression=zipfile.ZIP_STORED, allowZip64=True
+        ) as archive:
+            for path in sorted(models.rglob("*")):
+                if path.is_file():
+                    archive.write(path, path.relative_to(root).as_posix())
+            archive.writestr("THIRD_PARTY_NOTICES.txt", notices + "\n")
+    digest = sha256_file(output_path)
+    output_path.with_suffix(".zip.sha256").write_text(
+        f"{digest}  {output_path.name}\n", encoding="utf-8"
+    )
+    logging.info(
+        "Created %s (%s bytes, SHA-256 %s)", output_path, output_path.stat().st_size, digest
+    )
+    return output_path
 
 
 def build_package(
@@ -588,7 +647,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--with-models",
         action="store_true",
-        help="Include the optional LLM and embedding model files.",
+        help="Include the standard LLM and embedding model files (not optional entries).",
+    )
+    parser.add_argument(
+        "--companion-models",
+        action="store_true",
+        help="Build only the optional model companion ZIP.",
     )
     parser.add_argument(
         "--skip-frontend",
@@ -607,6 +671,9 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     args = build_parser().parse_args(argv)
     try:
+        if args.companion_models:
+            build_companion_models(args.out, args.models_cache, allow_unpinned=args.allow_unpinned)
+            return 0
         build_package(
             args.out,
             with_models=args.with_models,

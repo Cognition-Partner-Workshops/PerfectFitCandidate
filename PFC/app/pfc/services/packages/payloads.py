@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 from argon2 import Type, extract_parameters
 from argon2.exceptions import InvalidHashError
 
+from pfc.adapters.llm.context import valid_context_size
 from pfc.domain.normalise import SynonymTable
 from pfc.services.packages.common import PackageServiceError
 
@@ -72,6 +73,8 @@ TABLES: dict[str, tuple[str, ...]] = {
         "licence",
         "approved",
         "benchmark_json",
+        "thinking",
+        "kv_bytes_per_token",
         "is_active",
     ),
     "llm_providers": (
@@ -92,6 +95,7 @@ TABLES: dict[str, tuple[str, ...]] = {
 }
 SYSTEM_KEYS = frozenset(
     {
+        "llm.ctx_size",
         "dl.approvals",
         "ct.approvals",
         "ingestion.dl.approvals",
@@ -248,6 +252,11 @@ def decode_snapshot(payloads: dict[str, Any]) -> Snapshot:
     }
     for name in names:
         rows = payloads[f"{name}.v{version}.json"]
+        if name == "llm_models" and isinstance(rows, list):
+            rows = [
+                {"thinking": 0, "kv_bytes_per_token": None, **row} if isinstance(row, dict) else row
+                for row in rows
+            ]
         columns = TABLES.get(name, extra_columns.get(name, ()))
         if name == "skill_synonyms" and version == SETTINGS_SCHEMA:
             columns = SYNONYM_COLUMNS
@@ -304,6 +313,13 @@ def decode_snapshot(payloads: dict[str, Any]) -> Snapshot:
         except (InvalidHashError, ValueError) as exc:
             raise PackageServiceError("payload_schema", "Invalid imported password hash") from exc
     for row in result["settings"]:
+        if row["key"] == "llm.ctx_size":
+            try:
+                value = json.loads(row["value_json"])
+            except (ValueError, TypeError) as exc:
+                raise PackageServiceError("payload_schema", "Invalid llm.ctx_size") from exc
+            if not valid_context_size(value):
+                raise PackageServiceError("payload_schema", "Invalid llm.ctx_size")
         if row["key"] not in SYSTEM_KEYS:
             raise PackageServiceError("payload_schema", "Nonportable settings key")
     for row in result["llm_providers"]:

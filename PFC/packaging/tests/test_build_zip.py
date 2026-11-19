@@ -140,6 +140,93 @@ def test_parse_models_lock_accepts_null_hash_for_explicit_opt_in() -> None:
 
     assert models[0]["sha256"] is None
     assert models[0]["file"] == "nomic-embed-text-v1.5/tokenizer.json"
+    assert models[0]["optional"] is False
+
+
+@pytest.mark.parametrize("optional", [True, False, 1, 0, "true", None])
+def test_optional_flag_requires_bool(optional) -> None:
+    entry = {
+        "name": "fake",
+        "file": "fake.gguf",
+        "url": "https://example.invalid/fake",
+        "sha256": "a" * 64,
+        "licence": "Apache-2.0",
+        "optional": optional,
+    }
+    if type(optional) is bool:
+        assert parse_models_lock([entry])[0]["optional"] is optional
+    else:
+        with pytest.raises(ValueError, match="optional must be a bool"):
+            parse_models_lock([entry])
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("matches", [False, True])
+def test_companion_and_main_model_selection(tmp_path: Path, monkeypatch, cached, matches) -> None:
+    payload = b"tiny thinking model"
+    digest = hashlib.sha256(payload).hexdigest() if matches else "0" * 64
+    lock = tmp_path / "MODELS.lock"
+    lock.write_text(
+        json.dumps(
+            [
+                {
+                    "name": "standard",
+                    "file": "instruct.gguf",
+                    "url": "https://example.invalid/standard",
+                    "sha256": hashlib.sha256(b"standard").hexdigest(),
+                    "licence": "Apache-2.0",
+                },
+                {
+                    "name": "thinking",
+                    "file": "thinking.gguf",
+                    "url": "https://example.invalid/thinking",
+                    "sha256": digest,
+                    "licence": "Apache-2.0",
+                    "optional": True,
+                },
+            ]
+        )
+    )
+    monkeypatch.setattr(build_zip, "MODELS_LOCK_PATH", lock)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    if cached:
+        (cache / digest).write_bytes(payload)
+
+    def transport(request, **kwargs):
+        if request.full_url.endswith("/standard"):
+            return io.BytesIO(b"standard")
+        assert not cached, "Companion cache hits must not download"
+        return io.BytesIO(payload)
+
+    monkeypatch.setattr(build_zip.urllib.request, "urlopen", transport)
+    main_models = tmp_path / "main-models"
+    build_zip.bundle_models(main_models, cache)
+    assert {path.name for path in main_models.iterdir()} == {"instruct.gguf"}
+    output = tmp_path / "dist"
+    if not matches:
+        with pytest.raises(HashMismatchError):
+            build_zip.build_companion_models(output, cache)
+        assert not list(output.glob("*.zip"))
+        return
+    archive_path = build_zip.build_companion_models(output, cache)
+    with zipfile.ZipFile(archive_path) as archive:
+        assert set(archive.namelist()) == {"models/thinking.gguf", "THIRD_PARTY_NOTICES.txt"}
+        assert archive.getinfo("models/thinking.gguf").compress_type == zipfile.ZIP_STORED
+        assert hashlib.sha256(archive.read("models/thinking.gguf")).hexdigest() == digest
+        assert b"Apache-2.0" in archive.read("THIRD_PARTY_NOTICES.txt")
+    assert archive_path.with_suffix(".zip.sha256").read_text().split()[0] == build_zip.sha256_file(
+        archive_path
+    )
+
+
+def test_empty_companion_and_cli(tmp_path: Path, monkeypatch) -> None:
+    lock = tmp_path / "MODELS.lock"
+    lock.write_text("[]")
+    monkeypatch.setattr(build_zip, "MODELS_LOCK_PATH", lock)
+    assert build_zip.main(["--companion-models", "--out", str(tmp_path)]) == 0
+    with zipfile.ZipFile(next(tmp_path.glob("*.zip"))) as archive:
+        assert archive.namelist() == ["THIRD_PARTY_NOTICES.txt"]
 
 
 def test_parse_models_lock_rejects_path_traversal() -> None:

@@ -690,7 +690,9 @@ def test_unapproved_local_models_survive_apply_and_rollback(
     source, target = pair
     with database(target) as db:
         db.execute(
-            "INSERT INTO llm_models VALUES (1, ?, 'private.gguf', 'local', 7, 8, "
+            "INSERT INTO llm_models(model_id,name,file_name,file_sha256,size_mb,ram_estimate_mb,"
+            "context_tokens,licence,approved,benchmark_json,is_active) VALUES "
+            "(1, ?, 'private.gguf', 'local', 7, 8, "
             "1024, 'Local', 0, NULL, 1)",
             (name,),
         )
