@@ -40,6 +40,14 @@ def equal(actual: Any, expected: Any) -> bool:
     return not values or str(actual or "").casefold() in {value.casefold() for value in values}
 
 
+ARCHIVE_FILTER = (
+    " AND EXISTS (SELECT 1 FROM demands ad WHERE ad.demand_id=m.demand_id "
+    "AND ad.lifecycle!='archived')"
+    " AND EXISTS (SELECT 1 FROM resources ar WHERE ar.resource_id=m.resource_id "
+    "AND ar.lifecycle!='archived')"
+)
+
+
 def counts(values: list[str], limit: int | None = None) -> list[dict[str, Any]]:
     rows = sorted(Counter(values).items(), key=lambda item: (-item[1], item[0].casefold(), item[0]))
     return [{"label": label, "count": count} for label, count in rows[:limit]]
@@ -84,7 +92,11 @@ class Population:
                     (filters.run_id,),
                 )
             )
-            self.assessed_run_ids = {demand_id: filters.run_id for demand_id in assessed}
+            existing = {
+                r[0]
+                for r in db.execute("SELECT demand_id FROM demands WHERE lifecycle!='archived'")
+            }
+            self.assessed_run_ids = {demand_id: filters.run_id for demand_id in assessed & existing}
 
     @cached_property
     def overrides(self) -> dict[int, list[dict[str, Any]]]:
@@ -119,7 +131,7 @@ class Population:
                 (row["demand_id"], row["band"]): row["n"]
                 for row in self.db.execute(
                     "SELECT m.demand_id,m.band,COUNT(*) AS n FROM match_results m "
-                    f"WHERE {predicate} GROUP BY m.demand_id,m.band",
+                    f"WHERE {predicate}{ARCHIVE_FILTER} GROUP BY m.demand_id,m.band",
                     parameters,
                 )
             }
@@ -129,7 +141,7 @@ class Population:
             placeholders = ",".join("?" for _ in result_ids)
             for source in self.db.execute(
                 "SELECT m.result_id,m.demand_id,m.band FROM match_results m "
-                f"WHERE {predicate} AND m.result_id IN ({placeholders})",
+                f"WHERE {predicate}{ARCHIVE_FILTER} AND m.result_id IN ({placeholders})",
                 (*parameters, *result_ids),
             ):
                 row = dict(source)
@@ -169,7 +181,8 @@ class Population:
             predicate, parameters = run_pair_predicate(self.run_pairs)
         return int(
             self.db.execute(
-                f"SELECT COUNT(*) FROM match_results m WHERE {predicate}", parameters
+                f"SELECT COUNT(*) FROM match_results m WHERE {predicate}{ARCHIVE_FILTER}",
+                parameters,
             ).fetchone()[0]
         )
 
@@ -252,7 +265,8 @@ class Population:
         else:
             predicate, parameters = run_pair_predicate(self.run_pairs)
         cursor = self.db.execute(
-            "SELECT " + ",".join(columns) + joins + f" WHERE {predicate}", parameters
+            "SELECT " + ",".join(columns) + joins + f" WHERE {predicate}{ARCHIVE_FILTER}",
+            parameters,
         )
         cursor.row_factory = None
         names = tuple(column[0] for column in cursor.description)
@@ -295,7 +309,7 @@ class Population:
             for row in self.db.execute(
                 "SELECT b.result_id,b.inputs_json FROM score_breakdowns b "
                 "JOIN match_results m INDEXED BY ix_results_demand USING(result_id) "
-                f"WHERE {predicate} AND b.inputs_json LIKE '%capacity%'",
+                f"WHERE {predicate}{ARCHIVE_FILTER} AND b.inputs_json LIKE '%capacity%'",
                 parameters,
             )
             if _capacity_input(json.loads(row["inputs_json"]))
@@ -310,8 +324,44 @@ class Population:
         return self.load_resources()
 
     @cached_property
+    def has_retired_results(self) -> bool:
+        if self.run is None:
+            return False
+        for field in ("dq_summary_json", "input_fingerprints_json"):
+            try:
+                summary = json.loads(self.run.get(field) or "{}")
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(summary, dict):
+                continue
+            for entity in ("demand", "resource"):
+                inputs = summary.get(f"{entity}s")
+                if not isinstance(inputs, dict):
+                    continue
+                available = {
+                    str(row[0])
+                    for row in self.db.execute(
+                        f"SELECT {entity}_id FROM {entity}s WHERE lifecycle!='archived'"
+                    )
+                }
+                if any(str(key).isdigit() and str(key) not in available for key in inputs):
+                    return True
+        return (
+            self.db.execute(
+                "SELECT 1 FROM match_results m JOIN demands d USING(demand_id) "
+                "JOIN resources r USING(resource_id) WHERE m.run_id=? "
+                "AND (d.lifecycle='archived' OR r.lifecycle='archived') LIMIT 1",
+                (self.run["run_id"],),
+            ).fetchone()
+            is not None
+        )
+
+    @cached_property
     def all_demands(self) -> list[dict[str, Any]]:
-        return [dict(row) for row in self.db.execute("SELECT * FROM demands")]
+        return [
+            dict(row)
+            for row in self.db.execute("SELECT * FROM demands WHERE lifecycle!='archived'")
+        ]
 
     @cached_property
     def email_rows(self) -> list[dict[str, Any]]:
@@ -321,7 +371,8 @@ class Population:
             for row in self.db.execute(
                 "SELECT r.*,COALESCE(c.identity_status,'incomplete') AS identity_status,"
                 "COALESCE(c.classification_override,c.classification,'Unknown') AS candidate_type "
-                "FROM resources r LEFT JOIN candidates c USING(candidate_id)"
+                "FROM resources r LEFT JOIN candidates c USING(candidate_id) "
+                "WHERE r.lifecycle!='archived'"
             )
             if self.person_filter(dict(row))
         }

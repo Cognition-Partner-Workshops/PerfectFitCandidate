@@ -309,6 +309,8 @@ class EmailService:
         *,
         handoff: bool = False,
     ) -> None:
+        if not self._is_active(db, message_id):
+            return
         values = self._follow_up_settings(db)
         if not values["email.follow_up.enabled"]:
             return
@@ -352,8 +354,12 @@ class EmailService:
             ids = [
                 int(r[0])
                 for r in db.execute(
-                    "SELECT message_id FROM follow_ups WHERE status='pending' "
-                    "AND transport='outlook_com'"
+                    "SELECT f.message_id FROM follow_ups f "
+                    "JOIN email_messages e ON e.message_id=f.message_id "
+                    "JOIN demands d ON d.demand_id=e.demand_id "
+                    "JOIN resources r ON r.resource_id=e.resource_id "
+                    "WHERE f.status='pending' AND f.transport='outlook_com' "
+                    "AND d.lifecycle='open' AND r.lifecycle='active'"
                 )
                 if message_ids is None or r[0] in message_ids
             ]
@@ -369,6 +375,8 @@ class EmailService:
                         "SELECT * FROM follow_ups WHERE message_id=?", (message_id,)
                     ).fetchone()
                     if row is None or row["status"] != "pending":
+                        continue
+                    if not self._is_active(db, message_id):
                         continue
                     draft = self._get_draft_row(db, message_id)
                     assert draft is not None
@@ -421,15 +429,16 @@ class EmailService:
         return mask_emails_in(subject), "Review the candidate submission and follow up as needed."
 
     def retry_follow_up(self, message_id: int, user_id: int) -> EmailDraft:
-        if not callable(getattr(self.transport, "create_follow_up", None)):
-            raise Problem(
-                409,
-                "EMAIL_FOLLOW_UP_TRANSPORT_UNAVAILABLE",
-                "Switch Email transport back to Outlook COM, "
-                "or add the reminder from the calendar file",
-            )
         with database(self.settings) as db:
             db.execute("BEGIN IMMEDIATE")
+            self._assert_active(db, message_id)
+            if not callable(getattr(self.transport, "create_follow_up", None)):
+                raise Problem(
+                    409,
+                    "EMAIL_FOLLOW_UP_TRANSPORT_UNAVAILABLE",
+                    "Switch Email transport back to Outlook COM, "
+                    "or add the reminder from the calendar file",
+                )
             cursor = db.execute(
                 "UPDATE follow_ups SET status='pending',last_error=NULL,updated_at=? "
                 "WHERE message_id=? AND transport='outlook_com' AND status IN ('failed','pending')",
@@ -443,6 +452,7 @@ class EmailService:
     def follow_up_ics(self, message_id: int, user_id: int) -> bytes:
         with database(self.settings) as db:
             db.execute("BEGIN IMMEDIATE")
+            self._assert_active(db, message_id)
             row = db.execute(
                 "SELECT * FROM follow_ups WHERE message_id=?", (message_id,)
             ).fetchone()
@@ -491,7 +501,7 @@ class EmailService:
     def list_drafts(
         self, *, status: str | None, demand_id: int | None, limit: int
     ) -> tuple[list[EmailDraft], dict[str, int], int]:
-        conditions: list[str] = []
+        conditions: list[str] = ["d.lifecycle='open'", "r.lifecycle='active'"]
         parameters: list[object] = []
         if status is not None:
             conditions.append("em.status=?")
@@ -848,6 +858,7 @@ class EmailService:
             row = self._get_draft_row(db, message_id)
             if row is None:
                 raise Problem(404, "EMAIL_DRAFT_NOT_FOUND", "Email draft not found")
+            self._assert_active(db, message_id)
             if row["status"] in {"Sent", "Sending", "Discarded"}:
                 raise Problem(409, "EMAIL_NOT_APPROVABLE", "Email cannot be approved in this state")
             if not str(row["to_address"]).strip():
@@ -899,6 +910,7 @@ class EmailService:
                 raise Problem(404, "EMAIL_DRAFT_NOT_FOUND", "Email draft not found")
 
             repeat = row["status"] == "Sending" and row["handoff_at"] is not None
+            self._assert_active(db, message_id)
             previous_com_attempt = not repeat and row["transport"] == "outlook_com"
             if not repeat:
                 if row["status"] in {"Sent", "Discarded"}:
@@ -975,6 +987,7 @@ class EmailService:
     def handoff_eml(self, message_id: int) -> bytes:
         with database(self.settings) as db:
             row = self._get_draft_row(db, message_id)
+            self._assert_active(db, message_id)
         if row is None:
             raise Problem(404, "EMAIL_DRAFT_NOT_FOUND", "Email draft not found")
         if row["status"] != "Sending" or row["handoff_at"] is None:
@@ -1106,17 +1119,28 @@ class EmailService:
         if message_ids is None:
             with database(self.settings) as db:
                 rows = db.execute(
-                    "SELECT message_id FROM email_messages "
-                    "WHERE status IN ('Approved','Failed','Sending') ORDER BY message_id"
+                    "SELECT e.message_id FROM email_messages e "
+                    "JOIN demands d ON d.demand_id=e.demand_id "
+                    "JOIN resources r ON r.resource_id=e.resource_id "
+                    "WHERE e.status IN ('Approved','Failed','Sending') "
+                    "AND d.lifecycle='open' AND r.lifecycle='active' ORDER BY e.message_id"
                 ).fetchall()
             requested_ids = [int(row["message_id"]) for row in rows]
         else:
             requested_ids = list(dict.fromkeys(message_ids))
+            with database(self.settings) as db:
+                for message_id in requested_ids:
+                    self._assert_active(db, message_id)
 
         outcomes: list[EmailSendOutcome] = []
         for message_id in requested_ids:
             with database(self.settings) as db:
                 row = self._get_draft_row(db, message_id)
+                if message_ids is None:
+                    if not self._is_active(db, message_id):
+                        continue
+                else:
+                    self._assert_active(db, message_id)
             if row is None:
                 outcomes.append(EmailSendOutcome(message_id, "skipped", "Draft not found"))
                 continue
@@ -1163,7 +1187,7 @@ class EmailService:
                     outcomes.append(EmailSendOutcome(message_id, "skipped", "Draft not found"))
                     continue
 
-            marked = self._mark_sending(message_id, user_id)
+            marked = self._mark_sending(message_id, user_id, skip_inactive=message_ids is None)
             if marked is None:
                 outcomes.append(
                     EmailSendOutcome(message_id, "skipped", "Email state changed before sending")
@@ -1225,6 +1249,7 @@ class EmailService:
             "LEFT JOIN candidates c ON c.candidate_id=COALESCE(mr.candidate_id,r.candidate_id) "
             "JOIN demand_versions dv ON dv.demand_version_id=mr.demand_version_id "
             "WHERE mr.run_id=? AND m.status='completed' AND mr.shortlisted=1 "
+            "AND d.lifecycle='open' AND r.lifecycle='active' "
             f"{demand_clause}"
             "), shortlist AS ("
             " SELECT *, ROW_NUMBER() OVER (PARTITION BY demand_id ORDER BY rank, result_id) "
@@ -1497,10 +1522,36 @@ class EmailService:
     def _handoff_path(self, message_id: int) -> Path:
         return self.settings.data_dir / "email" / "outbox" / f"{message_id}.eml"
 
-    def _mark_sending(self, message_id: int, user_id: int) -> sqlite3.Row | None:
+    @staticmethod
+    def _is_active(db: sqlite3.Connection, message_id: int) -> bool:
+        row = db.execute(
+            "SELECT d.lifecycle AS demand_lifecycle,r.lifecycle AS resource_lifecycle "
+            "FROM email_messages e JOIN demands d ON d.demand_id=e.demand_id "
+            "JOIN resources r ON r.resource_id=e.resource_id WHERE e.message_id=?",
+            (message_id,),
+        ).fetchone()
+        return row is None or (
+            row["demand_lifecycle"] == "open" and row["resource_lifecycle"] == "active"
+        )
+
+    @staticmethod
+    def _assert_active(db: sqlite3.Connection, message_id: int) -> None:
+        if not EmailService._is_active(db, message_id):
+            raise Problem(
+                409,
+                "EMAIL_ENTITY_INACTIVE",
+                "Email cannot be approved or sent: its demand or person has ended or been archived",
+            )
+
+    def _mark_sending(
+        self, message_id: int, user_id: int, *, skip_inactive: bool = False
+    ) -> sqlite3.Row | None:
         now = stamp(self.clock())
         with database(self.settings) as db:
             db.execute("BEGIN IMMEDIATE")
+            if skip_inactive and not self._is_active(db, message_id):
+                return None
+            self._assert_active(db, message_id)
             cursor = db.execute(
                 "UPDATE email_messages SET status='Sending', attempts=attempts+1, "
                 "transport=?, updated_at=? WHERE message_id=? AND status IN ('Approved','Failed') "

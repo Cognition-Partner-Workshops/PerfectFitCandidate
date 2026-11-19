@@ -23,7 +23,8 @@ def load_resources(
     else:
         placeholders = ",".join("?" for _ in selected)
         rows = db.execute(
-            f"SELECT * FROM resources WHERE resource_id IN ({placeholders}) ORDER BY resource_id",
+            f"SELECT * FROM resources WHERE resource_id IN ({placeholders}) "
+            "AND lifecycle!='archived' ORDER BY resource_id",
             selected,
         ).fetchall()
 
@@ -98,13 +99,19 @@ def version_basis(
     version: sqlite3.Row,
     canonical_ids: dict[str, int],
     selected: list[int] | None = None,
+    *,
+    include_archived: bool = False,
 ) -> SkillBasis:
     """One CV version's skill basis, exactly as matching builds it (REQ-IN-24)."""
     resource_lifecycle = "lifecycle='active'"
     resource_params: tuple[int, ...] = ()
-    if selected:
+    if include_archived:
+        resource_lifecycle = "1=1"
+    elif selected:
         placeholders = ",".join("?" for _ in selected)
-        resource_lifecycle = f"(lifecycle='active' OR resource_id IN ({placeholders}))"
+        resource_lifecycle = (
+            f"(lifecycle='active' OR resource_id IN ({placeholders})) AND lifecycle!='archived'"
+        )
         resource_params = tuple(selected)
     skills = db.execute(
         "SELECT rs.*,s.name AS canonical FROM resource_skills rs "

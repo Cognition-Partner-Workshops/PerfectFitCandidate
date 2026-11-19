@@ -10,6 +10,7 @@ import { SummaryCard } from '../components/SummaryCard'
 import { summarizeCurrentResults } from '../lib/currentResults'
 import { formatDate, roleLocation } from '../lib/format'
 import { useTasks } from '../lib/tasks'
+import { EndedRecords, LifecycleMenu } from '../components/Lifecycle'
 
 const STATUS_TONE: Record<JdStatus, 'neutral' | 'info' | 'success' | 'warning'> = {
   'Not analysed': 'neutral',
@@ -302,7 +303,7 @@ export function DemandListPage() {
         <EmptyState message="No demands yet. Upload the Demand List (.xlsx)." />
       ) : (
         <div className="table-wrap">
-          <table className="data" aria-label="Demands">
+          <table className="data lifecycle-list" aria-label="Demands">
             <thead>
               <tr>
                 <th>Code Requisition</th>
@@ -347,7 +348,8 @@ export function DemandListPage() {
                       '—'
                     )}
                   </td>
-                  <td className="row" style={{ flexWrap: 'nowrap' }}>
+                  <td className="row">
+                    <LifecycleMenu entity="demand" id={d.demandId} />
                     <button className="btn btn-sm" onClick={() => setOpen(d)}>
                       {needsAnalysis(d.jdStatus) ? 'Analyze JD' : 'Review JD'}
                     </button>
@@ -364,6 +366,7 @@ export function DemandListPage() {
         </div>
       )}
       {open && <JdReview demand={open} onClose={() => setOpen(null)} />}
+      <EndedRecords entity="demand" />
       {upload && <UploadDialog kind="dl" onClose={() => setUpload(false)} />}
     </div>
   )

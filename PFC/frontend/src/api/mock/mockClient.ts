@@ -5,6 +5,7 @@
  * Argon2id (TDD.md §9.2).
  */
 import { ApiError, type ApiClient, type EmailList, type StatusMapData } from '../client'
+import { MaintenanceApi } from '../maintenance'
 import { applyChanges } from '../crud'
 import type { CvCompareScoring, CvComparison,
   BulkAnalysis,
@@ -303,6 +304,16 @@ function mockCvFacts(shortName: string, skills: string[], phoneMasked: string | 
 const needsAnalysis = (d: { jdStatus: JdStatus }) => d.jdStatus === 'Not analysed' || d.jdStatus === 'JD changed'
 
 export class MockApiClient implements ApiClient {
+  maintenance = new MaintenanceApi(async <T>(method: string, path: string) => {
+    this.currentUser()
+    const record = /^\/(demands|resources)\/(\d+)$/.exec(path)
+    if (method === 'GET' && record) {
+      if (record[1] === 'demands') await this.getDemand(Number(record[2]))
+      return { lifecycle: record[1] === 'demands' ? 'open' : 'active', updated_at: '', end_source: null, end_outcome: null, lifecycle_events: [] } as T
+    }
+    if (method === 'GET' && path.includes('?lifecycle=')) return { items: [], total: 0 } as T
+    throw new Error('Archival and lifecycle actions require the local backend.')
+  })
   private async summarySource(kind: 'candidate' | 'demand', id: number) {
     this.currentUser()
     if (kind === 'candidate') {

@@ -235,6 +235,10 @@ def test_secret_settings_encrypted_and_write_only(client: TestClient) -> None:
         "smtp.password": "[REDACTED]",
         "llm.api_key": "[REDACTED]",
         "provider.options": {"auth": {"access_token": "[REDACTED]"}},
+        "archive.retention_months": 12,
+        "housekeeping.temp_days": 7,
+        "housekeeping.log_days": 45,
+        "housekeeping.backups_keep": 3,
     }
     assert client.get("/api/v1/occ/settings").json() == response.json()
     with database(client.app.state.settings) as db:

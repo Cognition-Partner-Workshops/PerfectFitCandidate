@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import {
   Bell,
   Briefcase,
+  Archive,
   ChevronsLeft,
   ChevronsRight,
   IdCard,
@@ -32,6 +33,7 @@ import { useTasks } from '../lib/tasks'
 const ICONS: Record<string, ReactNode> = {
   dashboard: <LayoutGrid size={18} aria-hidden />,
   demands: <Briefcase size={18} aria-hidden />,
+  archive: <Archive size={18} aria-hidden />,
   bench: <Users size={18} aria-hidden />,
   matches: <Target size={18} aria-hidden />,
   candidates: <IdCard size={18} aria-hidden />,

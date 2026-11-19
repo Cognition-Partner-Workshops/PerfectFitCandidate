@@ -9,6 +9,7 @@ import { UploadDialog } from '../components/UploadDialog'
 import { eligibilityReasonLabel, eligibilityReasonTitle } from '../lib/excluded'
 import { formatDate, orNotRecorded } from '../lib/format'
 import { useTasks } from '../lib/tasks'
+import { EndedRecords, LifecycleMenu } from '../components/Lifecycle'
 
 type View = 'eligible' | 'excluded' | 'all'
 
@@ -81,7 +82,7 @@ export function BenchListPage() {
         <EmptyState message="No bench data yet. Upload the Candidate Tracker (.xlsx)." />
       ) : (
         <div className="table-wrap">
-          <table className="data" aria-label="Bench">
+          <table className="data lifecycle-list" aria-label="Bench">
             <thead>
               <tr>
                 <th>
@@ -148,6 +149,7 @@ export function BenchListPage() {
                     <button className="btn btn-sm" onClick={() => sync.mutate([r.resourceId])} disabled={sync.isPending}>
                       <RefreshCw size={12} /> Sync
                     </button>
+                    <LifecycleMenu entity="resource" id={r.resourceId} />
                   </td>
                 </tr>
               ))}
@@ -155,6 +157,7 @@ export function BenchListPage() {
           </table>
         </div>
       )}
+      <EndedRecords entity="resource" />
       {confirm && (
         <Modal
           title={`Sync ${selected.size} candidate(s)?`}

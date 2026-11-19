@@ -50,6 +50,7 @@ def test_complete_and_fail(runner: JobRunner) -> None:
     wait_done(runner, job_id)
     job = runner.get(job_id)
     assert job.status == "completed" and job.progress == 1 and job.finished_at
+    assert job.message is None
 
     def fail(_: JobContext) -> None:
         raise RuntimeError("sensitive@example.com")

@@ -258,6 +258,19 @@ def settings_get(db: sqlite3.Connection, user_id: int, settings: Settings) -> di
 def settings_put(
     db: sqlite3.Connection, user_id: int, values: dict[str, Any], settings: Settings
 ) -> dict[str, Any]:
+    ranges = {
+        "archive.retention_months": (1, 120),
+        "housekeeping.temp_days": (1, 365),
+        "housekeeping.log_days": (1, 3650),
+        "housekeeping.backups_keep": (1, 100),
+    }
+    for key, (minimum, maximum) in ranges.items():
+        if key in values and (
+            type(values[key]) is not int or not minimum <= values[key] <= maximum
+        ):
+            raise Problem(
+                422, "VALIDATION_ERROR", f"{key} must be an integer from {minimum} to {maximum}"
+            )
     try:
         validate_settings(values)
     except ValueError as exc:
