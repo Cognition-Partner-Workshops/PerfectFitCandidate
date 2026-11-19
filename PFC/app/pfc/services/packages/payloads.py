@@ -14,7 +14,6 @@ from urllib.parse import urlsplit
 from argon2 import Type, extract_parameters
 from argon2.exceptions import InvalidHashError
 
-from pfc.adapters.llm.context import valid_context_size
 from pfc.domain.normalise import SynonymTable
 from pfc.services.packages.common import PackageServiceError
 
@@ -95,7 +94,6 @@ TABLES: dict[str, tuple[str, ...]] = {
 }
 SYSTEM_KEYS = frozenset(
     {
-        "llm.ctx_size",
         "dl.approvals",
         "ct.approvals",
         "ingestion.dl.approvals",
@@ -313,13 +311,6 @@ def decode_snapshot(payloads: dict[str, Any]) -> Snapshot:
         except (InvalidHashError, ValueError) as exc:
             raise PackageServiceError("payload_schema", "Invalid imported password hash") from exc
     for row in result["settings"]:
-        if row["key"] == "llm.ctx_size":
-            try:
-                value = json.loads(row["value_json"])
-            except (ValueError, TypeError) as exc:
-                raise PackageServiceError("payload_schema", "Invalid llm.ctx_size") from exc
-            if not valid_context_size(value):
-                raise PackageServiceError("payload_schema", "Invalid llm.ctx_size")
         if row["key"] not in SYSTEM_KEYS:
             raise PackageServiceError("payload_schema", "Nonportable settings key")
     for row in result["llm_providers"]:

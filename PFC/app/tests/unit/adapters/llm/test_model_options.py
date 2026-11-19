@@ -133,7 +133,7 @@ def test_migration_and_package_metadata(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("value", [4096, 8192, 16384, 2048, 32768, "8192", True, None, [], {}])
-def test_context_import_and_resolution(tmp_path: Path, value: object) -> None:
+def test_context_resolution(tmp_path: Path, value: object) -> None:
     settings = Settings(data_dir=tmp_path, models_dir=tmp_path, llm_ctx_size=2048)
     migrate(settings)
     (tmp_path / "test.gguf").touch()
@@ -149,21 +149,20 @@ def test_context_import_and_resolution(tmp_path: Path, value: object) -> None:
         assert resolved is not None
         valid = type(value) is int and value in {4096, 8192, 16384}
         assert resolved.ctx_size == (value if valid else 2048)
-        data = snapshot(db)
-        if valid:
-            assert decode_snapshot(encode_snapshot(data))["settings"][0][
-                "value_json"
-            ] == json.dumps(value)
-        else:
-            with pytest.raises(PackageServiceError, match="Invalid llm.ctx_size"):
-                decode_snapshot(encode_snapshot(data))
 
 
-def test_context_package_malformed_json(tmp_path: Path) -> None:
+@pytest.mark.parametrize("admin_only", [0, 1])
+def test_context_is_not_portable(tmp_path: Path, admin_only: int) -> None:
     settings = Settings(data_dir=tmp_path)
     migrate(settings)
     with database(settings) as db:
+        db.execute(
+            "INSERT INTO settings(scope,key,value_json,admin_only,updated_at) "
+            "VALUES ('system','llm.ctx_size','8192',?,'2026-01-01T00:00:00Z')",
+            (admin_only,),
+        )
         data = snapshot(db)
-    data["settings"] = [{"key": "llm.ctx_size", "value_json": "not json"}]
-    with pytest.raises(PackageServiceError, match="Invalid llm.ctx_size"):
+    assert not any(row["key"] == "llm.ctx_size" for row in data["settings"])
+    data["settings"] = [{"key": "llm.ctx_size", "value_json": "8192"}]
+    with pytest.raises(PackageServiceError, match="Nonportable settings key"):
         decode_snapshot(encode_snapshot(data))
