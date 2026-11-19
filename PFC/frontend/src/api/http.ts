@@ -1,4 +1,5 @@
 import { ApiError, type ApiClient } from './client'
+import { MaintenanceApi } from './maintenance'
 import { applyChanges } from './crud'
 import { ADMIN_SETTINGS } from './mock/fixtures'
 import {
@@ -119,6 +120,7 @@ export async function parseProblem(res: Response): Promise<ProblemDetails> {
 const RESOURCE_LIFECYCLES = ['active', 'off_bench', 'archived'] as const
 
 export class HttpApiClient implements ApiClient {
+  maintenance = new MaintenanceApi(<T>(method: 'GET' | 'POST' | 'PUT', path: string, body?: unknown, raw?: boolean) => this.request<T>(method, path, body, raw))
   getCandidateSummary: ApiClient['getCandidateSummary'] = (id) => this.request('GET', `/candidates/${id}/summary`)
   generateCandidateSummary: ApiClient['generateCandidateSummary'] = (id) => this.request('POST', `/candidates/${id}/summary`)
   getDemandSummary: ApiClient['getDemandSummary'] = (id) => this.request('GET', `/demands/${id}/summary`)

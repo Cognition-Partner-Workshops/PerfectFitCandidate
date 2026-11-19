@@ -2,6 +2,8 @@
 
 OCC (Object Control Center) is the Admin-only area for users, reference data, matching configuration, audit and settings packages. This guide covers the current screens as built in `PFC/frontend` against the `/api/v1` backend. Anything not yet available is marked **Pending**. Every OCC change is audit-logged.
 
+Shipped archival, retention purge and housekeeping workflows are covered in section 17.
+
 ## Contents
 
 1. [Admin flow](#1-admin-flow)
@@ -20,6 +22,7 @@ OCC (Object Control Center) is the Admin-only area for users, reference data, ma
 14. [Audit log](#14-audit-log)
 15. [Admin settings](#15-admin-settings)
 16. [Pending in this build](#16-pending-in-this-build)
+17. [Archival and housekeeping](#17-archival-and-housekeeping)
 
 ## 1. Admin flow
 
@@ -396,3 +399,70 @@ database before upgrading as usual; do not remove the MIME constraint manually.
 | Global default model | Pending: **Make default** is per user |
 | Signing-key details screen | Pending |
 | Lockout status on sign-in | Pending: the backend answers a locked account with 401 invalid credentials. The sign-in screen shows the lockout message on a 423, with a countdown when the reply carries `Retry-After` |
+
+## 17. Archival and housekeeping
+
+Open **OCC → Archival & housekeeping** (`/occ/archival`), an Admin-only tab.
+End-of-cycle, reopen and Archive browsing are described in the Analyst guide;
+Admins have those controls too. Archival and maintenance are explicit actions,
+not scheduled automatic deletion.
+
+### Preview and archive
+
+1. Optionally set **Ended before** (records ended on that date are excluded),
+   then choose **Build archive preview**.
+2. Review the counts and the **Demands** / **Resources** tabs. The Reason column
+   explains why each record qualifies: a manual outcome, absence from the latest
+   DL/CT, Selected, Not on Bench, or a set bench end date. Legacy ended records
+   with no recorded source are identified as legacy rather than guessing why.
+3. Clear each **Include** checkbox for a record you want to keep out. Choose
+   **Archive N records** and check the demand/resource counts in the confirmation.
+4. Confirm and follow **Archive records** in the existing task cards. Archived
+   rows retain their identifiers and history but leave active views. They are
+   available read-only in **Archive**; linked inactive emails are blocked.
+
+Only one archive/purge preview or run is current at a time; building a new preview
+expires the previous preview. The run rechecks the full fingerprint of every
+included record inside a single immediate transaction. If any included record
+changed or disappeared after preview, **nothing in that batch is archived or
+purged**. Rebuild the preview, review it and confirm again. Excluded records are
+not processed.
+
+### Retention purge
+
+**Retention (months)** defaults to **12**. Save an integer from **1–120** to change
+`archive.retention_months`; this uses the audited Admin settings mechanism. Only
+records archived **more than** that many calendar months ago qualify, measured
+from their archive date, not the date their cycle ended. A record exactly on the
+cutoff is not eligible.
+
+Choose **Build purge preview**, review both tabs and the include checkboxes, then
+choose **Purge N records** and confirm its irreversible deletion warning. The
+**Retention purge** task deletes the selected records and their dependent data.
+Audit history is retained; lifecycle events remain with their comments removed
+and a Purged event appended. Purge never runs automatically, and this UI does not
+restore purged records. Take an appropriate backup before confirming.
+
+### Housekeeping and backups
+
+The preview shows eligible temp/log counts and sizes, orphan chunk/vector counts,
+database size and the housekeeping backup list. **Refresh housekeeping preview**
+updates it. Select only the operations required, choose **Run housekeeping**,
+review the confirmation, then follow the **Housekeeping** task card.
+
+| Option / setting | Default and behavior |
+|---|---|
+| Delete expired temp files | `housekeeping.temp_days` = **7** days; range 1–365 |
+| Delete expired logs | `housekeeping.log_days` = **45** days; range 1–3650; the active log file is never deleted |
+| Remove orphan vectors | Removes orphan embedding chunks/vectors; archived-record vectors are retained |
+| Compact database (VACUUM) | Explicit compaction after other cleanup, outside a transaction |
+| Create backup | SQLite backup to `<data_dir>/backups/pfc-<stamp>-housekeeping.db` |
+| Backup retention | `housekeeping.backups_keep` = **3**; range 1–100 |
+
+The three housekeeping settings use the audited Admin endpoint
+`PUT /api/v1/occ/settings`, with integer values keyed by the setting names above.
+The archival tab displays those values; its editable setting is retention months.
+Backup rotation happens when a housekeeping backup is
+created and keeps the newest configured number of **housekeeping backups only**.
+Pre-migration and other backups are not rotated. The displayed backup list
+includes the latest backup. Housekeeping and purge do not delete the audit log.

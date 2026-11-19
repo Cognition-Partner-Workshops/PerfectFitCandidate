@@ -11,7 +11,7 @@ function message(error: unknown): string {
   return 'The summary could not be loaded or generated. Please try again.'
 }
 
-export function SummaryCard({ kind, id }: { kind: 'candidate' | 'demand'; id: number }) {
+export function SummaryCard({ kind, id, readOnly = false }: { kind: 'candidate' | 'demand'; id: number; readOnly?: boolean }) {
   const client = useQueryClient()
   const key = ['summary', kind, id]
   const saved = useQuery({
@@ -40,9 +40,9 @@ export function SummaryCard({ kind, id }: { kind: 'candidate' | 'demand'; id: nu
       {summary && <p className="small muted">{summary.model} · {formatDateTime(summary.createdAt)}</p>}
       {error && <p role="alert">{message(error)}</p>}
       {saved.isLoading && <p role="status">Loading summary…</p>}
-      <button className="btn" disabled={saved.isLoading || generation.isPending} onClick={() => generation.mutate()}>
+      {!readOnly && <button className="btn" disabled={saved.isLoading || generation.isPending} onClick={() => generation.mutate()}>
         {generation.isPending ? 'Generating…' : summary ? 'Regenerate' : 'Generate summary'}
-      </button>
+      </button>}
     </section>
   )
 }

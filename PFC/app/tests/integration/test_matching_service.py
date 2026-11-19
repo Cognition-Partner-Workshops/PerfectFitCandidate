@@ -38,6 +38,7 @@ from pfc.services.matching import (
     start_run,
 )
 from pfc.services.matching.current import current_runs
+from pfc.services.matching.cv_bases import load_cv_bases, load_resources
 from pfc.services.matching.ports import ChunkOwner
 from pfc.services.matching.runs import _inputs
 from pfc.services.occ.seed import seed_reference_data
@@ -262,6 +263,15 @@ def test_cv_inputs_only_latest_live_version_and_linked_resources(settings: Setti
         bases = _inputs(db, "all", [], config)[2][f"candidate:{candidate}"]
         assert [b.basis_id for b in bases] == [f"CV:{latest}"]
         assert [s.raw for s in bases[0].skills] == ["SQL"]
+        db.execute("UPDATE resources SET lifecycle='archived' WHERE resource_id=?", (resource,))
+        db.execute(
+            "UPDATE resource_skills SET skill_raw='ArchivedOnly',skill_norm='archivedonly' "
+            "WHERE resource_id=? AND cv_version_id=?",
+            (resource, latest),
+        )
+        assert load_resources(db, [resource]) == []
+        selected = load_cv_bases(db, config, [resource, linked])[f"candidate:{candidate}"]
+        assert [s.raw for s in selected[0].skills] == ["SQL"]
         db.execute(
             "UPDATE cv_versions SET extraction_removed_at=? WHERE cv_version_id=?", (STAMP, latest)
         )

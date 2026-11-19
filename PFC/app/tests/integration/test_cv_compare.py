@@ -27,6 +27,8 @@ from pfc.jobs.runner import JobRunner
 from pfc.security.problems import Problem
 from pfc.services.candidates import cv_compare
 from pfc.services.matching import MatchingPorts
+from pfc.services.matching.cv_bases import load_cv_bases, load_resources
+from pfc.services.occ.domain import occ_domain_config
 
 OLD_TEXT = (
     "Data Analyst\nSkills: SQL, Python\nWorked at Bank A\nContact alice@example.com +44 7700 900123"
@@ -101,6 +103,48 @@ def test_compare_facts_text_and_stored_scores_are_masked(
     assert not any(value in dumped for value in RAW_PII)
     with database(settings) as db:
         assert db.execute("SELECT count(*) FROM audit_log").fetchone()[0] == before
+
+
+@pytest.mark.parametrize("shared_with_active", [False, True])
+def test_archived_cv_comparison_keeps_stored_skills_outside_active_matching(
+    settings: Settings, shared_with_active: bool
+) -> None:
+    with database(settings) as db:
+        candidate, resource, old, new = seed_versions(db)
+        db.execute(
+            "UPDATE cv_versions SET text_norm='Plain biography.' WHERE candidate_id=?", (candidate,)
+        )
+        for version, terms in (
+            (old, ("StoredOnly", "LegacyOnly")),
+            (new, ("StoredOnly", "CurrentOnly")),
+        ):
+            for term in terms:
+                db.execute(
+                    "INSERT INTO resource_skills(resource_id,cv_version_id,source,skill_raw,"
+                    "skill_norm,evidence) VALUES (?,?,'CV',?,?,?)",
+                    (resource, version, term, term.casefold(), f"Recorded: {term}"),
+                )
+        db.execute("UPDATE resources SET lifecycle='archived' WHERE resource_id=?", (resource,))
+        selected = [resource]
+        if shared_with_active:
+            selected.append(seed_resource(db, "Active counterpart", candidate=candidate))
+        assert load_resources(db, [resource]) == []
+        bases = load_cv_bases(db, occ_domain_config(db), selected)
+        assert not any(
+            skill.raw in {"StoredOnly", "LegacyOnly", "CurrentOnly"}
+            for candidate_bases in bases.values()
+            for basis in candidate_bases
+            for skill in basis.skills
+        )
+        if not shared_with_active:
+            assert bases == {}
+    comparison = cv_compare.compare(settings, candidate, old, new)
+    skills = {item["key"]: item for item in comparison["facts"]["skills"]}
+    assert skills["storedonly"]["status"] == "unchanged"
+    assert skills["legacyonly"]["status"] == "removed"
+    assert skills["currentonly"]["status"] == "added"
+    assert skills["storedonly"]["left"]["evidence"] == "Recorded: StoredOnly"
+    assert skills["storedonly"]["right"]["evidence"] == "Recorded: StoredOnly"
 
 
 def test_compare_rejects_foreign_or_same_versions(settings: Settings) -> None:

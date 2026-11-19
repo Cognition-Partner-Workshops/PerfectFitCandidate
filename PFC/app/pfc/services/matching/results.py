@@ -177,7 +177,8 @@ def _rows(
         "FROM match_results m JOIN demands d USING(demand_id) JOIN resources r USING(resource_id) "
         "LEFT JOIN candidates c ON c.candidate_id=m.candidate_id "
         "LEFT JOIN score_breakdowns b ON b.result_id=m.result_id AND b.component='skills' "
-        f"WHERE {predicate} ORDER BY m.demand_id,m.rank,m.result_id",
+        f"WHERE {predicate} AND d.lifecycle!='archived' AND r.lifecycle!='archived' "
+        "ORDER BY m.demand_id,m.rank,m.result_id",
         parameters,
     ).fetchall()
     result = []
@@ -352,7 +353,9 @@ def result_detail(db: sqlite3.Connection, result_id: int) -> dict[str, Any] | No
     run = db.execute("SELECT run_id FROM match_results WHERE result_id=?", (result_id,)).fetchone()
     if run is None:
         return None
-    result = next(row for row in _rows(db, run[0]) if row["result_id"] == result_id)
+    result = next((row for row in _rows(db, run[0]) if row["result_id"] == result_id), None)
+    if result is None:
+        return None
     result["breakdown"] = [
         {**dict(row), "inputs": mask_emails_in_json(json.loads(row["inputs_json"]))}
         for row in db.execute(
@@ -387,7 +390,8 @@ def excluded_view(db: sqlite3.Connection, run_id: int) -> list[dict[str, Any]]:
             "SELECT e.*,r.short_name,d.code_requisition AS requisition "
             "FROM eligibility_exclusions e "
             "JOIN resources r USING(resource_id) LEFT JOIN demands d USING(demand_id) "
-            "WHERE e.run_id=? ORDER BY r.short_name COLLATE NOCASE,e.resource_id,"
+            "WHERE e.run_id=? AND r.lifecycle!='archived' "
+            "ORDER BY r.short_name COLLATE NOCASE,e.resource_id,"
             "e.demand_id,e.reason_code",
             (run_id,),
         )

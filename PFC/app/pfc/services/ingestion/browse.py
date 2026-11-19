@@ -83,6 +83,17 @@ def demand_detail(settings: Settings, demand_id: int) -> DemandDetail:
         ).fetchall()
         return DemandDetail(
             **_demand(row).model_dump(),
+            updated_at=row["updated_at"],
+            end_source=row["end_source"],
+            end_outcome=row["end_outcome"],
+            lifecycle_events=[
+                dict(event)
+                for event in db.execute(
+                    "SELECT * FROM lifecycle_events WHERE entity_type='demand' AND entity_id=? "
+                    "ORDER BY event_id",
+                    (demand_id,),
+                )
+            ],
             current_version_id=row["current_version_id"],
             versions=[DemandVersion(**dict(v)) for v in versions],
         )
@@ -158,5 +169,16 @@ def resource_detail(settings: Settings, resource_id: int) -> ResourceDetail:
         ).fetchone()
         return ResourceDetail(
             **_resource(row, unrecognised.get(resource_id, [])).model_dump(),
+            updated_at=row["updated_at"],
+            end_source=row["end_source"],
+            end_outcome=row["end_outcome"],
+            lifecycle_events=[
+                dict(event)
+                for event in db.execute(
+                    "SELECT * FROM lifecycle_events WHERE entity_type='resource' AND entity_id=? "
+                    "ORDER BY event_id",
+                    (resource_id,),
+                )
+            ],
             latest_cv=CVSummary(**dict(latest)) if latest else None,
         )

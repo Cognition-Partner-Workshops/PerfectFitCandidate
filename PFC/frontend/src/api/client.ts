@@ -1,4 +1,5 @@
 import type { DashboardAnalytics, ExtendedAnalytics, PdfRequest } from './reports'
+import type { MaintenanceApi } from './maintenance'
 import type {
   BulkAnalysis,
   JobItem,
@@ -115,6 +116,7 @@ export interface StatusMapData {
  * `MockApiClient` (in-browser fixtures), selected by `VITE_PFC_API`.
  */
 export interface ApiClient {
+  maintenance: MaintenanceApi
   getCandidateSummary(id: number): Promise<DocumentSummary>
   generateCandidateSummary(id: number): Promise<DocumentSummary>
   getDemandSummary(id: number): Promise<DocumentSummary>

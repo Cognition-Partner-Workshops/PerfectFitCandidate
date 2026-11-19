@@ -65,7 +65,8 @@ def prepare(
             ids = sorted(set(resource_ids))
             for resource_id in ids:
                 if not db.execute(
-                    "SELECT 1 FROM resources WHERE resource_id=?", (resource_id,)
+                    "SELECT 1 FROM resources WHERE resource_id=? AND lifecycle='active'",
+                    (resource_id,),
                 ).fetchone():
                     raise Problem(404, "RESOURCE_NOT_FOUND", "Resource not found")
     return Path(value), ids, set(preferences.resume_file_types)
@@ -93,7 +94,7 @@ def _lookups(settings: Settings, ids: list[int]) -> list[CandidateLookup]:
         for resource_id in ids:
             row = db.execute(
                 "SELECT r.*,c.display_name FROM resources r JOIN candidates c "
-                "ON c.candidate_id=r.candidate_id WHERE r.resource_id=?",
+                "ON c.candidate_id=r.candidate_id WHERE r.resource_id=? AND r.lifecycle='active'",
                 (resource_id,),
             ).fetchone()
             if row is None:

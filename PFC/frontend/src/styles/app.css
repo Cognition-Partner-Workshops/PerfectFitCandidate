@@ -94,6 +94,8 @@ input:disabled, select:disabled, textarea:disabled { background: var(--color-bg-
 .table-wrap.scroll { max-height: 320px; }
 table.data { border-collapse: separate; border-spacing: 0; width: 100%; font-size: var(--font-size-sm); }
 table.data th { position: sticky; top: 0; z-index: 1; background: var(--color-bg-subtle); text-align: left; font-weight: var(--font-weight-semibold); color: var(--color-text-secondary); padding: 8px 10px; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+table.lifecycle-list th { white-space: normal; }
+table.data.lifecycle-list th, table.data.lifecycle-list td { padding-inline: 4px; }
 table.data td { padding: 8px 10px; border-bottom: 1px solid var(--color-bg-subtle); vertical-align: top; }
 table.data tbody tr:nth-child(even) td { background: #fafbfc; }
 table.data tbody tr:hover td { background: var(--color-primary-subtle); }

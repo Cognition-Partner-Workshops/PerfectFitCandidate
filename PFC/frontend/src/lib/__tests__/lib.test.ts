@@ -104,7 +104,7 @@ describe('role-visibility matrix (GUI_OCC_DESIGN.md §5)', () => {
   it('shows Chat to both roles and OCC only to Admins', () => {
     const analyst = visibleNav('Analyst').map((n) => n.label)
     const admin = visibleNav('Admin').map((n) => n.label)
-    expect(analyst).toEqual(['Dashboard', 'Demand List', 'Bench List', 'Match Results', 'Candidate Profile', 'Email Approval', 'Chat', 'Settings'])
+    expect(analyst).toEqual(['Dashboard', 'Demand List', 'Bench List', 'Match Results', 'Candidate Profile', 'Email Approval', 'Archive', 'Chat', 'Settings'])
     expect(admin).toContain('OCC')
     expect(admin).toContain('Chat')
   })

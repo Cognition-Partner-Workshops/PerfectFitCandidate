@@ -28,6 +28,7 @@ from pfc.db.audit import verify_chain
 from pfc.db.connection import database
 from pfc.main import create_app
 from pfc.security.setup import code_path
+from pfc.services import archival
 from pfc.services.embeddings import runtime
 from pfc.services.embeddings.chunking import OwnerType
 from pfc.services.matching import MatchingPorts, confirm_requirements
@@ -569,6 +570,71 @@ def test_req_mat_02_bulk_llm_and_unavailable_are_atomic(api: Api) -> None:
     # Analysis still works with no configured ports.
     fallback = client.post(f"/api/v1/demands/{demand_id}/analyze", headers=headers)
     assert fallback.status_code == 200 and fallback.json()["extractedBy"] == "rule_based"
+
+
+@pytest.mark.parametrize("entity", ["demand", "resource"])
+def test_archived_result_detail_returns_not_found(api: Api, entity: str) -> None:
+    client, headers = api
+    with database(client.app.state.settings) as db:
+        seed_demand(db)
+        seed_resource(db)
+    run_id = finish(client, client.post("/api/v1/match-runs", headers=headers, json={}))
+    result = client.get(f"/api/v1/match-runs/{run_id}/results").json()[0]
+    endpoint = f"/api/v1/match-results/{result['resultId']}"
+    assert client.get(endpoint).status_code == 200
+    with database(client.app.state.settings) as db:
+        db.execute(f"UPDATE {entity}s SET lifecycle='archived'")
+    problem(client.get(endpoint), 404)
+
+
+@pytest.mark.parametrize("entity", ["demand", "resource"])
+def test_explicit_run_dashboard_ignores_purged_inputs(api: Api, entity: str) -> None:
+    client, headers = api
+    settings = client.app.state.settings
+    with database(settings) as db:
+        seed_demand(db)
+        seed_resource(db)
+    run_id = finish(client, client.post("/api/v1/match-runs", headers=headers, json={}))
+    url = f"/api/v1/analytics/summary?runId={run_id}"
+    assert client.get(url).json()["requisitionsAssessed"] == 1
+    with database(settings) as db:
+        db.execute(f"UPDATE {entity}s SET lifecycle='archived',archived_at='2024-01-01'")
+        preview = archival.preview(db, kind="purge", user_id=1, now=NOW)
+        db.execute(
+            "UPDATE archive_batches SET status='running' WHERE batch_id=?", (preview["batch_id"],)
+        )
+    archival.execute_batch(settings, preview["batch_id"], 1, NOW)
+    response = client.get(url)
+    assert response.status_code == 200, response.text
+    summary = response.json()
+    expected = 0 if entity == "demand" else 1
+    assert summary["requisitionsAssessed"] == expected
+    assert summary["rolesWithNoSuitableCandidate"] == expected
+    assert summary["roleToPersonCombinations"] == 0
+    assert summary["run"]["demandsAssessed"] == expected
+    assert summary["run"]["pairsScored"] == 0
+
+
+def test_archived_resources_are_hidden_from_run_and_current_exclusions(api: Api) -> None:
+    client, headers = api
+    with database(client.app.state.settings) as db:
+        seed_demand(db)
+        seed_resource(db)
+        retired = seed_resource(db, "Retired", status="Selected", group="Not on Bench")
+        live = seed_resource(db, "Excluded", status="Selected", group="Not on Bench")
+    run_id = finish(client, client.post("/api/v1/match-runs", headers=headers, json={}))
+    endpoints = [f"/api/v1/match-runs/{run_id}/excluded", "/api/v1/match-results/current/excluded"]
+    for url in endpoints:
+        assert {r["resourceId"] for r in client.get(url).json()} == {retired, live}
+    with database(client.app.state.settings) as db:
+        db.execute("UPDATE resources SET lifecycle='archived' WHERE resource_id=?", (retired,))
+    for url in endpoints:
+        response = client.get(url)
+        assert response.status_code == 200, response.text
+        assert {r["resourceId"] for r in response.json()} == {live}
+    with database(client.app.state.settings) as db:
+        db.execute("UPDATE resources SET lifecycle='archived' WHERE resource_id=?", (live,))
+    assert all(client.get(url).json() == [] for url in endpoints)
 
 
 def test_results_default_page_and_candidate_defaults(api: Api) -> None:

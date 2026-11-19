@@ -15,12 +15,13 @@ import { OccModels } from './OccModels'
 import { OccAuditLog } from './OccAuditLog'
 import { OccAdminSettings } from './OccAdminSettings'
 import { OccCvExtractions } from './OccCvExtractions'
+import { OccArchival } from './OccArchival'
 
 const GROUPS: [string, [string, string][]][] = [
   ['People', [['users', 'Users & passwords'], ['resource-team', 'Resource-team list'], ['email-templates', 'Email templates']]],
   ['Data', [['approvals', 'DL / CT approvals'], ['grades', 'Grade list'], ['status-map', 'Status list & mapping'], ['synonyms', 'Skill synonyms'], ['internal-domains', 'Internal domains']]],
   ['Matching', [['scoring-template', 'Scoring template'], ['models', 'Approved models']]],
-  ['Operations', [['cv-extractions', 'Cached CV text'], ['audit-log', 'Audit log'], ['admin-settings', 'Admin settings'], ['settings-package', 'Settings packages']]],
+  ['Operations', [['archival', 'Archival & housekeeping'], ['cv-extractions', 'Cached CV text'], ['audit-log', 'Audit log'], ['admin-settings', 'Admin settings'], ['settings-package', 'Settings packages']]],
 ]
 
 /** OCC — Object Control Center, Admin only (REQ-ROLE-03, GUI_OCC_DESIGN.md §16). */
@@ -52,6 +53,7 @@ export function OccPage() {
             <Route index element={<Navigate to="overview" replace />} />
             <Route path="overview" element={<OccOverview />} />
             <Route path="cv-extractions" element={<OccCvExtractions />} />
+            <Route path="archival" element={<OccArchival />} />
             <Route path="users" element={<OccUsers />} />
             <Route path="resource-team" element={<OccResourceTeam />} />
             <Route path="email-templates" element={<OccEmailTemplates />} />

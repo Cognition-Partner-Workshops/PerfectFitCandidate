@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -26,6 +27,7 @@ from pfc.adapters.llm.providers import FakeProvider
 from pfc.api.routers.auth import router as auth_router
 from pfc.api.routers.email import router as email_router
 from pfc.api.routers.occ import router as occ_router
+from pfc.api.schemas.analytics import DashboardFilters
 from pfc.config import Settings
 from pfc.db import audit, users
 from pfc.db.connection import database
@@ -36,13 +38,259 @@ from pfc.security.middleware import install_middleware
 from pfc.security.passwords import hasher
 from pfc.security.problems import Problem, install_handlers
 from pfc.security.setup import code_path, generate_setup_code
+from pfc.services import archival
+from pfc.services.analytics.population import Population
 from pfc.services.email import EmailService
 from pfc.services.email.service import TEMPLATE_PATH
+from pfc.services.lifecycle import record_transition
+from pfc.services.matching.current import current_runs
+from pfc.services.matching.cv_bases import load_resources
+from pfc.services.matching.results import list_results
 from pfc.services.occ.admin import settings_put
+from pfc.services.occ.seed import seed_reference_data
 from pfc.services.occ.templates import PLACEHOLDER_SAMPLES, PLACEHOLDERS
 
 NOW = "2026-01-01T00:00:00Z"
 ANALYST_PASSWORD = "AnalystStrong123"
+
+
+def test_archive_active_result_analytics_exclusion_and_graph_purge(client):
+    with database(client.app.state.settings) as db:
+        seed_reference_data(db)
+    csrf, draft = create_approved_draft(client)
+    settings = client.app.state.settings
+    now = datetime(2028, 1, 2, tzinfo=UTC)
+    with database(settings) as db:
+        seed_reference_data(db)
+        assert list_results(db, draft["run_id"])["total"] == 5
+        record_transition(db, "demand", draft["demand_id"], "open", "closed", "manual", now=NOW)
+        batch = archival.preview(db, kind="archive", user_id=1, now=now)
+        db.execute(
+            "UPDATE archive_batches SET status='running' WHERE batch_id=?", (batch["batch_id"],)
+        )
+    archival.execute_batch(settings, batch["batch_id"], 1, now)
+    with database(settings) as db:
+        assert list_results(db, draft["run_id"])["total"] == 0
+        assert not current_runs(db)
+        p = Population(db, DashboardFilters(run_id=draft["run_id"]), now.date())
+        assert not p.result_counts and not p.pairs_scored and not p.email_rows
+        assert not p.assessed_demand_ids
+        db.execute("UPDATE demands SET archived_at=? WHERE demand_id=?", (NOW, draft["demand_id"]))
+        batch = archival.preview(db, kind="purge", user_id=1, now=now)
+        db.execute(
+            "UPDATE archive_batches SET status='running' WHERE batch_id=?", (batch["batch_id"],)
+        )
+    archival.execute_batch(settings, batch["batch_id"], 1, now)
+    with database(settings) as db:
+        for table in (
+            "demands",
+            "demand_versions",
+            "jd_requirements",
+            "match_results",
+            "email_messages",
+        ):
+            assert db.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
+        assert not db.execute("PRAGMA foreign_key_check").fetchall()
+        assert audit.verify_chain(db)
+        assert len(load_resources(db)) == 5
+
+
+@pytest.mark.parametrize(
+    "entity,target",
+    [
+        ("demand", "closed"),
+        ("resource", "off_bench"),
+        ("demand", "archived"),
+        ("resource", "archived"),
+    ],
+)
+def test_inactive_entities_block_approval_send_and_handoff(client, entity, target):
+    csrf, draft = create_approved_draft(client)
+    message_id = draft["message_id"]
+    with database(client.app.state.settings) as db:
+        record_transition(
+            db,
+            entity,
+            draft[f"{entity}_id"],
+            "open" if entity == "demand" else "active",
+            target,
+            "archive" if target == "archived" else "manual",
+            now=NOW,
+        )
+    headers = {"X-CSRF-Token": csrf}
+    approval = client.post(f"/api/v1/emails/{message_id}/approve", headers=headers)
+    assert approval.status_code == 409 and "EMAIL_ENTITY_INACTIVE" in approval.text
+    sent = client.post(
+        "/api/v1/emails/send-approved", json={"draft_ids": [message_id]}, headers=headers
+    )
+    assert sent.status_code == 409 and "EMAIL_ENTITY_INACTIVE" in sent.text
+    single = client.post(f"/api/v1/emails/{message_id}/send", headers=headers)
+    assert single.status_code == 409 and "EMAIL_ENTITY_INACTIVE" in single.text
+    bulk = client.post("/api/v1/emails/send-approved", json={}, headers=headers)
+    assert bulk.status_code == 200 and bulk.json()["sent_count"] == 0
+    client.app.state.email_transport = EmlHandoffTransport()
+    handoff = client.post(f"/api/v1/emails/{message_id}/handoff", json={}, headers=headers)
+    assert handoff.status_code == 409 and "EMAIL_ENTITY_INACTIVE" in handoff.text
+    eml = client.get(f"/api/v1/emails/{message_id}/handoff.eml")
+    assert eml.status_code == 409 and "EMAIL_ENTITY_INACTIVE" in eml.text
+    assert not client.get("/api/v1/emails").json()["drafts"] or all(
+        item["message_id"] != message_id for item in client.get("/api/v1/emails").json()["drafts"]
+    )
+
+
+def test_bulk_send_skips_inactive_entities_without_partial_failure(client):
+    run_id, _ = seed_matches(client)
+    csrf = login(client)
+    drafts = create_drafts(client, csrf, run_id).json()["drafts"][:3]
+    headers = {"X-CSRF-Token": csrf}
+    for draft in drafts:
+        assert (
+            client.post(
+                f"/api/v1/emails/{draft['message_id']}/approve", headers=headers
+            ).status_code
+            == 200
+        )
+    with database(client.app.state.settings) as db:
+        for draft, state in zip(drafts[1:], ["off_bench", "archived"], strict=True):
+            record_transition(
+                db, "resource", draft["resource_id"], "active", state, "manual", now=NOW
+            )
+    explicit = client.post(
+        "/api/v1/emails/send-approved",
+        json={"draft_ids": [d["message_id"] for d in drafts]},
+        headers=headers,
+    )
+    assert explicit.status_code == 409 and "EMAIL_ENTITY_INACTIVE" in explicit.text
+    assert client.app.state.email_transport.messages == []
+    sent = client.post("/api/v1/emails/send-approved", json={}, headers=headers)
+    assert sent.status_code == 200, sent.text
+    assert sent.json()["sent_count"] == 1
+    assert len(client.app.state.email_transport.messages) == 1
+    with database(client.app.state.settings) as db:
+        assert [
+            tuple(r)
+            for r in db.execute(
+                "SELECT status,attempts FROM email_messages WHERE message_id IN (?,?) "
+                "ORDER BY message_id",
+                tuple(d["message_id"] for d in drafts[1:]),
+            )
+        ] == [("Approved", 0), ("Approved", 0)]
+    assert (
+        client.post("/api/v1/emails/send-approved", json={}, headers=headers).json()["sent_count"]
+        == 0
+    )
+
+
+@pytest.mark.parametrize(
+    "entity,target",
+    [
+        ("demand", "closed"),
+        ("demand", "archived"),
+        ("resource", "off_bench"),
+        ("resource", "archived"),
+    ],
+)
+def test_inactive_entities_block_follow_up_retry_download_and_queue(client, entity, target):
+    csrf, draft = create_approved_draft(client)
+    message_id = draft["message_id"]
+    headers = {"X-CSRF-Token": csrf}
+    sent = client.post(f"/api/v1/emails/{message_id}/send", headers=headers)
+    assert sent.status_code == 200, sent.text
+    settings = client.app.state.settings
+    with database(settings) as db:
+        assert db.execute("SELECT status FROM follow_ups").fetchone()[0] == "pending"
+        record_transition(
+            db,
+            entity,
+            draft[f"{entity}_id"],
+            "open" if entity == "demand" else "active",
+            target,
+            "manual",
+            now=NOW,
+        )
+    retry = client.post(f"/api/v1/emails/{message_id}/follow-up/retry", headers=headers)
+    assert retry.status_code == 409 and "EMAIL_ENTITY_INACTIVE" in retry.text
+    download = client.get(f"/api/v1/emails/{message_id}/follow-up.ics")
+    assert download.status_code == 409 and "EMAIL_ENTITY_INACTIVE" in download.text
+    transport = client.app.state.email_transport
+    runner = JobRunner(settings)
+    try:
+        service = EmailService(settings, transport, None, client.app.state.clock, runner)
+        service.queue_follow_ups(1)
+        assert runner._tasks == {}
+    finally:
+        runner.shutdown()
+    assert transport.follow_ups == {}
+    client.app.state.email_transport = EmlHandoffTransport()
+    retry = client.post(f"/api/v1/emails/{message_id}/follow-up/retry", headers=headers)
+    assert retry.status_code == 409 and "EMAIL_ENTITY_INACTIVE" in retry.text
+    with database(settings) as db:
+        assert db.execute("SELECT status FROM follow_ups").fetchone()[0] == "pending"
+
+
+def test_follow_up_worker_rechecks_lifecycle_after_queueing(client):
+    csrf, draft = create_approved_draft(client)
+    headers = {"X-CSRF-Token": csrf}
+    assert (
+        client.post(f"/api/v1/emails/{draft['message_id']}/send", headers=headers).status_code
+        == 200
+    )
+    settings = client.app.state.settings
+    transport = client.app.state.email_transport
+    runner = JobRunner(settings.model_copy(update={"job_workers": 1}))
+    entered, release = threading.Event(), threading.Event()
+
+    def block(_context):
+        entered.set()
+        assert release.wait(5)
+
+    try:
+        runner.submit("test", block)
+        assert entered.wait(5)
+        service = EmailService(settings, transport, None, client.app.state.clock, runner)
+        service.queue_follow_ups(1)
+        with database(settings) as db:
+            record_transition(db, "demand", draft["demand_id"], "open", "closed", "manual", now=NOW)
+        release.set()
+        runner._executor.shutdown(wait=True)
+        assert all(runner.get(job_id).status == "completed" for job_id in runner._tasks)
+    finally:
+        release.set()
+        runner.shutdown()
+    assert transport.follow_ups == {}
+    with database(settings) as db:
+        assert db.execute("SELECT status FROM follow_ups").fetchone()[0] == "pending"
+
+
+@pytest.mark.parametrize("handoff", [True, False])
+def test_confirming_previous_external_send_does_not_remind_for_inactive_entity(client, handoff):
+    csrf, draft = create_approved_draft(client)
+    headers = {"X-CSRF-Token": csrf}
+    message_id = draft["message_id"]
+    settings = client.app.state.settings
+    if handoff:
+        client.app.state.email_transport = EmlHandoffTransport()
+        assert (
+            client.post(f"/api/v1/emails/{message_id}/handoff", headers=headers).status_code == 200
+        )
+    with database(settings) as db:
+        if not handoff:
+            db.execute(
+                "UPDATE email_messages SET status='Failed',transport='outlook_com' "
+                "WHERE message_id=?",
+                (message_id,),
+            )
+        record_transition(db, "demand", draft["demand_id"], "open", "closed", "manual", now=NOW)
+    path = "handoff/confirm" if handoff else "previous-send/confirm"
+    confirmed = client.post(
+        f"/api/v1/emails/{message_id}/{path}",
+        headers=headers,
+        json={"sent": True} if handoff else {},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["status"] == "Sent"
+    with database(settings) as db:
+        assert db.execute("SELECT count(*) FROM follow_ups").fetchone()[0] == 0
 
 
 @pytest.mark.parametrize("enabled", [True, False])
